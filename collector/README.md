@@ -109,6 +109,13 @@ openassetwatch-collector --mode hybrid --run-forever \
   --inventory-interval-seconds 20
 ```
 
+For local install planning, see `docs/setup/collector-deployment.md`. The
+collector remains Python-first: Windows should use Task Scheduler for the MVP,
+Linux should use systemd, and macOS should use launchd later.
+
+For local multi-machine installer testing, see
+`docs/setup/local-collector-installation.md`.
+
 ## Config File
 
 The collector can load backend and collector settings from a YAML or JSON config
