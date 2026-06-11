@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -27,6 +28,8 @@ from .open_detector import scan_software
 SCHEMA_VERSION = "1.0"
 POWERSHELL_COMMANDS = ("powershell", "powershell.exe", "pwsh", "pwsh.exe")
 DEFAULT_MODE = "device"
+DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 3600
+DEFAULT_INVENTORY_INTERVAL_SECONDS = 86400
 
 
 class ConfigError(ValueError):
@@ -464,6 +467,134 @@ def send_inventory(backend_url: str, inventory_payload: dict[str, Any]) -> dict[
     return json.loads(response_body) if response_body else {}
 
 
+def perform_checkin(
+    *,
+    backend_url: str,
+    payload: dict[str, Any],
+    collector_id: str,
+    collector_name: str | None,
+) -> bool:
+    checkin_payload = build_checkin_payload(
+        payload,
+        collector_id,
+        collector_name,
+    )
+    try:
+        checkin_response = send_checkin(backend_url, checkin_payload)
+    except HTTPError as exc:
+        print(f"collector check-in failed: HTTP {exc.code}", file=sys.stderr)
+        return False
+    except (URLError, TimeoutError, OSError) as exc:
+        print(f"collector check-in failed: {exc}", file=sys.stderr)
+        return False
+
+    print(json.dumps({"checkin": checkin_response}, sort_keys=True), file=sys.stderr)
+    return True
+
+
+def perform_inventory_upload(
+    *,
+    backend_url: str,
+    payload: dict[str, Any],
+    collector_id: str | None,
+    collector_name: str | None,
+) -> bool:
+    inventory_payload = build_inventory_payload(
+        payload,
+        collector_id,
+        collector_name,
+    )
+    try:
+        inventory_response = send_inventory(backend_url, inventory_payload)
+    except HTTPError as exc:
+        print(f"collector inventory upload failed: HTTP {exc.code}", file=sys.stderr)
+        return False
+    except (URLError, TimeoutError, OSError) as exc:
+        print(f"collector inventory upload failed: {exc}", file=sys.stderr)
+        return False
+
+    print(json.dumps({"inventory": inventory_response}, sort_keys=True), file=sys.stderr)
+    return True
+
+
+def run_backend_cycle(
+    args: argparse.Namespace,
+    *,
+    checkin: bool,
+    upload_inventory: bool,
+) -> dict[str, Any]:
+    payload = build_payload(args.mode)
+
+    if checkin:
+        print(f"{utc_now()} collector check-in starting", file=sys.stderr)
+        perform_checkin(
+            backend_url=args.backend_url,
+            payload=payload,
+            collector_id=args.collector_id,
+            collector_name=args.collector_name,
+        )
+
+    if upload_inventory:
+        print(f"{utc_now()} collector inventory upload starting", file=sys.stderr)
+        perform_inventory_upload(
+            backend_url=args.backend_url,
+            payload=payload,
+            collector_id=args.collector_id,
+            collector_name=args.collector_name,
+        )
+
+    return payload
+
+
+def run_scheduler(
+    args: argparse.Namespace,
+    *,
+    sleep_func: Any = time.sleep,
+    monotonic_func: Any = time.monotonic,
+    max_cycles: int | None = None,
+) -> int:
+    print(
+        (
+            f"{utc_now()} scheduler starting "
+            f"heartbeat_interval_seconds={args.heartbeat_interval_seconds} "
+            f"inventory_interval_seconds={args.inventory_interval_seconds}"
+        ),
+        file=sys.stderr,
+    )
+
+    try:
+        run_backend_cycle(args, checkin=True, upload_inventory=True)
+        completed_cycles = 1
+        if max_cycles is not None and completed_cycles >= max_cycles:
+            return 0
+
+        next_heartbeat = monotonic_func() + args.heartbeat_interval_seconds
+        next_inventory = monotonic_func() + args.inventory_interval_seconds
+
+        while True:
+            now = monotonic_func()
+            wait_seconds = max(0.0, min(next_heartbeat, next_inventory) - now)
+            if wait_seconds:
+                sleep_func(wait_seconds)
+
+            now = monotonic_func()
+            run_checkin = now >= next_heartbeat
+            run_inventory = now >= next_inventory
+            if run_checkin or run_inventory:
+                run_backend_cycle(args, checkin=run_checkin, upload_inventory=run_inventory)
+                completed_cycles += 1
+                if run_checkin:
+                    next_heartbeat = now + args.heartbeat_interval_seconds
+                if run_inventory:
+                    next_inventory = now + args.inventory_interval_seconds
+
+            if max_cycles is not None and completed_cycles >= max_cycles:
+                return 0
+    except KeyboardInterrupt:
+        print(f"{utc_now()} scheduler stopped", file=sys.stderr)
+        return 0
+
+
 def parse_simple_config_value(value: str) -> Any:
     cleaned = value.strip().strip("'\"")
     lowered = cleaned.lower()
@@ -473,6 +604,8 @@ def parse_simple_config_value(value: str) -> Any:
         return False
     if lowered in {"null", "none", "~"}:
         return None
+    if re.fullmatch(r"-?\d+", cleaned):
+        return int(cleaned)
     return cleaned
 
 
@@ -552,6 +685,25 @@ def config_value(config: dict[str, Any], section: str, key: str) -> Any:
     return value.get(key)
 
 
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return parsed
+
+
+def config_interval_seconds(value: Any, default: int, key: str) -> int:
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"scheduler.{key} must be an integer") from exc
+    if parsed <= 0:
+        raise ConfigError(f"scheduler.{key} must be greater than 0")
+    return parsed
+
+
 def apply_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
     config = load_config(args.config)
 
@@ -567,6 +719,20 @@ def apply_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
         args.checkin = bool(config_value(config, "checkin", "enabled"))
     if not args.upload_inventory:
         args.upload_inventory = bool(config_value(config, "inventory", "upload_enabled"))
+    if not args.run_forever:
+        args.run_forever = bool(config_value(config, "scheduler", "enabled"))
+    if args.heartbeat_interval_seconds is None:
+        args.heartbeat_interval_seconds = config_interval_seconds(
+            config_value(config, "scheduler", "heartbeat_interval_seconds"),
+            DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+            "heartbeat_interval_seconds",
+        )
+    if args.inventory_interval_seconds is None:
+        args.inventory_interval_seconds = config_interval_seconds(
+            config_value(config, "scheduler", "inventory_interval_seconds"),
+            DEFAULT_INVENTORY_INTERVAL_SECONDS,
+            "inventory_interval_seconds",
+        )
 
     return args
 
@@ -607,6 +773,29 @@ def parse_args() -> argparse.Namespace:
         help="Upload the full collector inventory payload to the backend.",
     )
     parser.add_argument(
+        "--run-forever",
+        action="store_true",
+        help="Run scheduled check-in and inventory upload cycles until stopped.",
+    )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        dest="run_forever",
+        help="Alias for --run-forever.",
+    )
+    parser.add_argument(
+        "--heartbeat-interval-seconds",
+        type=positive_int,
+        default=None,
+        help="Scheduled check-in interval in seconds.",
+    )
+    parser.add_argument(
+        "--inventory-interval-seconds",
+        type=positive_int,
+        default=None,
+        help="Scheduled inventory upload interval in seconds.",
+    )
+    parser.add_argument(
         "--config",
         help="Path to a collector YAML or JSON config file.",
     )
@@ -618,6 +807,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.run_forever and not args.backend_url:
+        raise SystemExit("--backend-url is required when scheduled mode is enabled")
+    if args.run_forever and not args.collector_id:
+        raise SystemExit("--collector-id is required when scheduled mode is enabled")
     if args.checkin and not args.backend_url:
         raise SystemExit("--backend-url is required when --checkin is provided")
     if args.checkin and not args.collector_id:
@@ -625,39 +818,28 @@ def main() -> int:
     if args.upload_inventory and not args.backend_url:
         raise SystemExit("--backend-url is required when --upload-inventory is provided")
 
+    if args.run_forever:
+        return run_scheduler(args)
+
     payload = build_payload(args.mode)
 
     if args.checkin:
-        checkin_payload = build_checkin_payload(
-            payload,
-            args.collector_id,
-            args.collector_name,
-        )
-        try:
-            checkin_response = send_checkin(args.backend_url, checkin_payload)
-        except HTTPError as exc:
-            print(f"collector check-in failed: HTTP {exc.code}", file=sys.stderr)
+        if not perform_checkin(
+            backend_url=args.backend_url,
+            payload=payload,
+            collector_id=args.collector_id,
+            collector_name=args.collector_name,
+        ):
             return 1
-        except (URLError, TimeoutError, OSError) as exc:
-            print(f"collector check-in failed: {exc}", file=sys.stderr)
-            return 1
-        print(json.dumps({"checkin": checkin_response}, sort_keys=True), file=sys.stderr)
 
     if args.upload_inventory:
-        inventory_payload = build_inventory_payload(
-            payload,
-            args.collector_id,
-            args.collector_name,
-        )
-        try:
-            inventory_response = send_inventory(args.backend_url, inventory_payload)
-        except HTTPError as exc:
-            print(f"collector inventory upload failed: HTTP {exc.code}", file=sys.stderr)
+        if not perform_inventory_upload(
+            backend_url=args.backend_url,
+            payload=payload,
+            collector_id=args.collector_id,
+            collector_name=args.collector_name,
+        ):
             return 1
-        except (URLError, TimeoutError, OSError) as exc:
-            print(f"collector inventory upload failed: {exc}", file=sys.stderr)
-            return 1
-        print(json.dumps({"inventory": inventory_response}, sort_keys=True), file=sys.stderr)
 
     indent = 2 if args.pretty else None
     print(json.dumps(payload, indent=indent, sort_keys=True))

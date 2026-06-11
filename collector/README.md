@@ -75,6 +75,40 @@ openassetwatch-collector --mode hybrid --upload-inventory \
   --collector-name "Local Dev Collector"
 ```
 
+## Scheduled Mode
+
+Scheduled mode runs continuously. It performs an initial check-in and inventory
+upload on startup, then sends a collector check-in every hour and uploads full
+inventory every 24 hours by default. Backend errors are reported and the
+scheduler keeps running.
+
+```sh
+openassetwatch-collector --mode hybrid --run-forever \
+  --backend-url http://localhost:8000 \
+  --collector-id local-dev-collector-01 \
+  --collector-name "Local Dev Collector"
+```
+
+Override intervals from the CLI:
+
+```sh
+openassetwatch-collector --mode hybrid --run-forever \
+  --backend-url http://localhost:8000 \
+  --collector-id local-dev-collector-01 \
+  --heartbeat-interval-seconds 3600 \
+  --inventory-interval-seconds 86400
+```
+
+For local smoke testing, use short intervals:
+
+```sh
+openassetwatch-collector --mode hybrid --run-forever \
+  --backend-url http://localhost:8000 \
+  --collector-id local-dev-collector-01 \
+  --heartbeat-interval-seconds 10 \
+  --inventory-interval-seconds 20
+```
+
 ## Config File
 
 The collector can load backend and collector settings from a YAML or JSON config
@@ -104,6 +138,11 @@ checkin:
 
 inventory:
   upload_enabled: true
+
+scheduler:
+  enabled: false
+  heartbeat_interval_seconds: 3600
+  inventory_interval_seconds: 86400
 ```
 
 Run with config:
@@ -122,6 +161,12 @@ Send a full inventory upload using config:
 
 ```sh
 openassetwatch-collector --config ./example-collector.yaml --upload-inventory
+```
+
+Run scheduled mode using config:
+
+```sh
+openassetwatch-collector --config ./example-collector.yaml --run-forever
 ```
 
 Override the configured mode from the CLI:

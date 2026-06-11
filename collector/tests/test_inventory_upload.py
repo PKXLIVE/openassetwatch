@@ -26,6 +26,9 @@ def make_args(config: str | None = None, **overrides: object) -> argparse.Namesp
         "collector_name": None,
         "checkin": False,
         "upload_inventory": False,
+        "run_forever": False,
+        "heartbeat_interval_seconds": None,
+        "inventory_interval_seconds": None,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)

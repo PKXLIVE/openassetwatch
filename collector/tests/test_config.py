@@ -26,6 +26,9 @@ def make_args(config: str | None = None, **overrides: object) -> argparse.Namesp
         "collector_name": None,
         "checkin": False,
         "upload_inventory": False,
+        "run_forever": False,
+        "heartbeat_interval_seconds": None,
+        "inventory_interval_seconds": None,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -168,6 +171,9 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertIsNone(args.collector_id)
         self.assertIsNone(args.collector_name)
         self.assertFalse(args.checkin)
+        self.assertFalse(args.run_forever)
+        self.assertEqual(args.heartbeat_interval_seconds, 3600)
+        self.assertEqual(args.inventory_interval_seconds, 86400)
 
     def test_parse_args_reports_config_error_with_system_exit(self) -> None:
         with patch("sys.argv", ["openassetwatch-collector", "--config", "__missing.yaml"]):
