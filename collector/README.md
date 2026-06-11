@@ -64,6 +64,14 @@ openassetwatch-collector --mode hybrid --checkin \
 The collector can load backend and collector settings from a YAML or JSON config
 file. CLI arguments override config values.
 
+Run without config:
+
+```sh
+openassetwatch-collector --mode device --pretty
+openassetwatch-collector --mode network --pretty
+openassetwatch-collector --mode hybrid --pretty
+```
+
 Example YAML:
 
 ```yaml
@@ -80,6 +88,12 @@ checkin:
 ```
 
 Run with config:
+
+```sh
+openassetwatch-collector --config ./example-collector.yaml --checkin
+```
+
+Send a backend check-in using config:
 
 ```sh
 openassetwatch-collector --config ./example-collector.yaml --checkin

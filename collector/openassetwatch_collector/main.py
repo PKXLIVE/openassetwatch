@@ -29,6 +29,10 @@ POWERSHELL_COMMANDS = ("powershell", "powershell.exe", "pwsh", "pwsh.exe")
 DEFAULT_MODE = "device"
 
 
+class ConfigError(ValueError):
+    """Raised when a collector config file cannot be loaded."""
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -481,23 +485,36 @@ def load_config(path: str | None) -> dict[str, Any]:
     if not path:
         return {}
 
-    with open(path, encoding="utf-8") as config_file:
-        text = config_file.read()
+    try:
+        with open(path, encoding="utf-8") as config_file:
+            text = config_file.read()
+    except OSError as exc:
+        message = exc.strerror or str(exc)
+        raise ConfigError(f"unable to read config file '{path}': {message}") from exc
 
     if path.lower().endswith(".json"):
-        payload = json.loads(text)
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"invalid config file '{path}': {exc.msg}") from exc
     else:
         try:
             import yaml
         except ImportError:
-            payload = load_simple_yaml_config(text)
+            try:
+                payload = load_simple_yaml_config(text)
+            except ValueError as exc:
+                raise ConfigError(f"invalid config file '{path}': {exc}") from exc
         else:
-            payload = yaml.safe_load(text)
+            try:
+                payload = yaml.safe_load(text)
+            except Exception as exc:
+                raise ConfigError(f"invalid config file '{path}': {exc}") from exc
 
     if payload is None:
         return {}
     if not isinstance(payload, dict):
-        raise ValueError("config file must contain an object at the top level")
+        raise ConfigError(f"config file '{path}' must contain an object at the top level")
     return payload
 
 
@@ -559,7 +576,10 @@ def parse_args() -> argparse.Namespace:
         "--config",
         help="Path to a collector YAML or JSON config file.",
     )
-    return apply_config_defaults(parser.parse_args())
+    try:
+        return apply_config_defaults(parser.parse_args())
+    except ConfigError as exc:
+        parser.error(str(exc))
 
 
 def main() -> int:
