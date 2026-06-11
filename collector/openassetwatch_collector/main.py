@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import ipaddress
 import json
 import platform
 import re
@@ -52,6 +53,39 @@ def normalize_mac(value: Any) -> str | None:
         return cleaned
 
     return ":".join(compact[index : index + 2] for index in range(0, 12, 2))
+
+
+def is_non_host_ip_address(value: Any) -> bool:
+    text = normalize_optional_text(value)
+    if not text:
+        return True
+
+    try:
+        ip_address = ipaddress.ip_address(text)
+    except ValueError:
+        return True
+
+    if ip_address.version != 4:
+        return True
+
+    return (
+        ip_address.is_multicast
+        or ip_address.is_unspecified
+        or ip_address.is_loopback
+        or text == "255.255.255.255"
+    )
+
+
+def is_non_host_mac_address(value: Any) -> bool:
+    mac_address = normalize_mac(value)
+    if not mac_address:
+        return True
+
+    return (
+        mac_address == "ff:ff:ff:ff:ff:ff"
+        or mac_address.startswith("01:00:5e:")
+        or mac_address.startswith("33:33:")
+    )
 
 
 def get_primary_ip() -> str | None:
@@ -319,9 +353,9 @@ def collect_network(platform_info: dict[str, object]) -> list[dict[str, Any]]:
         for entry in collect():
             ip_address = entry.get("ip_address")
             mac_address = entry.get("mac_address")
-            if not ip_address and not mac_address:
+            if is_non_host_ip_address(ip_address):
                 continue
-            if not mac_address:
+            if is_non_host_mac_address(mac_address):
                 continue
 
             key = (ip_address, mac_address)
