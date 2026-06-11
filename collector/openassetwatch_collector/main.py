@@ -437,6 +437,33 @@ def send_checkin(backend_url: str, checkin_payload: dict[str, Any]) -> dict[str,
     return json.loads(response_body) if response_body else {}
 
 
+def build_inventory_payload(
+    payload: dict[str, Any],
+    collector_id: str | None,
+    collector_name: str | None,
+) -> dict[str, Any]:
+    inventory_payload = dict(payload)
+    if collector_id:
+        inventory_payload["collector_id"] = collector_id
+    if collector_name:
+        inventory_payload["collector_name"] = collector_name
+    return inventory_payload
+
+
+def send_inventory(backend_url: str, inventory_payload: dict[str, Any]) -> dict[str, Any]:
+    url = f"{backend_url.rstrip('/')}/api/v1/collectors/inventory"
+    body = json.dumps(inventory_payload).encode("utf-8")
+    request = Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=15) as response:
+        response_body = response.read().decode("utf-8")
+    return json.loads(response_body) if response_body else {}
+
+
 def parse_simple_config_value(value: str) -> Any:
     cleaned = value.strip().strip("'\"")
     lowered = cleaned.lower()
@@ -538,6 +565,8 @@ def apply_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
         args.collector_name = config_value(config, "collector", "name")
     if not args.checkin:
         args.checkin = bool(config_value(config, "checkin", "enabled"))
+    if not args.upload_inventory:
+        args.upload_inventory = bool(config_value(config, "inventory", "upload_enabled"))
 
     return args
 
@@ -573,6 +602,11 @@ def parse_args() -> argparse.Namespace:
         help="Send a lightweight collector check-in to the backend.",
     )
     parser.add_argument(
+        "--upload-inventory",
+        action="store_true",
+        help="Upload the full collector inventory payload to the backend.",
+    )
+    parser.add_argument(
         "--config",
         help="Path to a collector YAML or JSON config file.",
     )
@@ -588,6 +622,8 @@ def main() -> int:
         raise SystemExit("--backend-url is required when --checkin is provided")
     if args.checkin and not args.collector_id:
         raise SystemExit("--collector-id is required when --checkin is provided")
+    if args.upload_inventory and not args.backend_url:
+        raise SystemExit("--backend-url is required when --upload-inventory is provided")
 
     payload = build_payload(args.mode)
 
@@ -606,6 +642,22 @@ def main() -> int:
             print(f"collector check-in failed: {exc}", file=sys.stderr)
             return 1
         print(json.dumps({"checkin": checkin_response}, sort_keys=True), file=sys.stderr)
+
+    if args.upload_inventory:
+        inventory_payload = build_inventory_payload(
+            payload,
+            args.collector_id,
+            args.collector_name,
+        )
+        try:
+            inventory_response = send_inventory(args.backend_url, inventory_payload)
+        except HTTPError as exc:
+            print(f"collector inventory upload failed: HTTP {exc.code}", file=sys.stderr)
+            return 1
+        except (URLError, TimeoutError, OSError) as exc:
+            print(f"collector inventory upload failed: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps({"inventory": inventory_response}, sort_keys=True), file=sys.stderr)
 
     indent = 2 if args.pretty else None
     print(json.dumps(payload, indent=indent, sort_keys=True))
