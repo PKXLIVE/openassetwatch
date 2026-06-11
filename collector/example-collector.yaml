@@ -11,3 +11,8 @@ checkin:
 
 inventory:
   upload_enabled: false
+
+scheduler:
+  enabled: false
+  heartbeat_interval_seconds: 3600
+  inventory_interval_seconds: 86400
