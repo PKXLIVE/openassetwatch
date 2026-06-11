@@ -5,7 +5,13 @@ from fastapi import Body, FastAPI, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from .database import latest_inventory_submission, save_inventory_submission
+from .database import (
+    latest_inventory_submission,
+    list_assets,
+    list_collectors,
+    normalize_inventory_submission,
+    save_inventory_submission,
+)
 
 app = FastAPI(
     title="OpenAssetWatch API",
@@ -76,6 +82,8 @@ class CollectorInventoryResponse(BaseModel):
     device_count: int
     network_observation_count: int
     software_count: int
+    normalized_asset_count: int
+    normalized_software_count: int
 
 
 class CollectorInventoryLatestResponse(BaseModel):
@@ -187,6 +195,19 @@ def collector_inventory(raw_payload: Any = Body(...)):
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist inventory submission") from exc
 
+    try:
+        normalization_counts = normalize_inventory_submission(
+            submission_id=submission_id,
+            payload=raw_payload,
+            collector_id=collector_id,
+            collector_name=collector_name,
+            collector_version=payload.collector_version,
+            mode=payload.mode,
+            received_at=received_at,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to normalize inventory submission") from exc
+
     return CollectorInventoryResponse(
         status="accepted",
         submission_id=submission_id,
@@ -196,6 +217,8 @@ def collector_inventory(raw_payload: Any = Body(...)):
         device_count=device_count,
         network_observation_count=network_count,
         software_count=software_count,
+        normalized_asset_count=normalization_counts["normalized_asset_count"],
+        normalized_software_count=normalization_counts["normalized_software_count"],
     )
 
 
@@ -212,3 +235,19 @@ def latest_collector_inventory():
     if submission is None:
         raise HTTPException(status_code=404, detail="no inventory submissions found")
     return submission
+
+
+@app.get("/api/v1/assets")
+def assets():
+    try:
+        return {"assets": list_assets()}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load assets") from exc
+
+
+@app.get("/api/v1/collectors")
+def collectors():
+    try:
+        return {"collectors": list_collectors()}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load collectors") from exc
