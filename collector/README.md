@@ -111,7 +111,7 @@ openassetwatch-collector --mode hybrid --run-forever \
 
 For local install planning, see `docs/setup/collector-deployment.md`. The
 collector remains Python-first: Windows should use Task Scheduler for the MVP,
-Linux should use systemd, and macOS should use launchd later.
+Linux should use systemd, and macOS should use launchd.
 
 For local multi-machine installer testing, see
 `docs/setup/local-collector-installation.md`.

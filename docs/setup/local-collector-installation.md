@@ -8,7 +8,7 @@ keep the Python collector running:
 
 - Windows: Task Scheduler.
 - Linux: systemd.
-- macOS: future launchd support only.
+- macOS: launchd LaunchDaemon.
 
 Existing one-shot collector commands are unchanged.
 
@@ -183,6 +183,68 @@ python collector\install\install.py ^
   --collector-name "Windows Lab 01"
 ```
 
+## macOS Install
+
+Run from the repository root on the collector host. Use the backend machine's
+LAN IP address or DNS name, not `localhost`, when the backend is running on a
+different machine.
+
+```sh
+sudo BACKEND_URL=http://192.168.1.10:8000 \
+  COLLECTOR_ID=mac-lab-01 \
+  COLLECTOR_NAME="Mac Lab 01" \
+  MODE=hybrid \
+  collector/install/install-macos.sh
+```
+
+The macOS installer creates:
+
+```text
+/usr/local/openassetwatch/collector
+/Library/Application Support/OpenAssetWatch/Collector/config.yaml
+/Library/Logs/OpenAssetWatch
+/usr/local/var/openassetwatch
+/Library/LaunchDaemons/com.openassetwatch.collector.plist
+```
+
+It creates a LaunchDaemon that runs at boot, keeps the collector alive, and
+calls Python directly:
+
+```text
+/usr/local/openassetwatch/collector/.venv/bin/python -m openassetwatch_collector --run-forever --config "/Library/Application Support/OpenAssetWatch/Collector/config.yaml"
+```
+
+Load/start the LaunchDaemon:
+
+```sh
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.openassetwatch.collector.plist
+sudo launchctl enable system/com.openassetwatch.collector
+```
+
+Stop/unload the LaunchDaemon:
+
+```sh
+sudo launchctl bootout system /Library/LaunchDaemons/com.openassetwatch.collector.plist
+```
+
+Check logs:
+
+```sh
+tail -f /Library/Logs/OpenAssetWatch/collector.out.log
+tail -f /Library/Logs/OpenAssetWatch/collector.err.log
+```
+
+Manual uninstall for the MVP:
+
+```sh
+sudo launchctl bootout system /Library/LaunchDaemons/com.openassetwatch.collector.plist
+sudo rm -f /Library/LaunchDaemons/com.openassetwatch.collector.plist
+sudo rm -rf /usr/local/openassetwatch/collector
+sudo rm -rf "/Library/Application Support/OpenAssetWatch/Collector"
+sudo rm -rf /Library/Logs/OpenAssetWatch
+sudo rm -rf /usr/local/var/openassetwatch
+```
+
 ## Verification
 
 From any machine that can reach the backend:
@@ -196,27 +258,14 @@ The installed collector should appear in the collectors response, and its local
 device plus discovered network neighbors should appear in the assets response
 after the first scheduled inventory upload.
 
-## macOS
-
-macOS installation is out of scope for this MVP. Future support should use a
-LaunchDaemon at:
-
-```text
-/Library/LaunchDaemons/com.openassetwatch.collector.plist
-```
-
-and call Python directly with:
-
-```text
-/usr/local/openassetwatch/collector/.venv/bin/python -m openassetwatch_collector --run-forever --config "/Library/Application Support/OpenAssetWatch/Collector/config.yaml"
-```
-
 ## Out of Scope
 
 - MSI packages.
 - DEB/RPM packages.
 - True Windows Service implementation.
-- macOS launchd implementation.
+- macOS PKG installer.
+- macOS notarization/signing.
+- MDM deployment.
 - Authentication or API keys.
 - Frontend service management.
 - AI, Splunk TA, packet capture, Nmap, masscan, Zeek, or Suricata.
