@@ -19,3 +19,82 @@ CREATE INDEX IF NOT EXISTS idx_collector_inventory_submissions_received_at
 
 CREATE INDEX IF NOT EXISTS idx_collector_inventory_submissions_collector_id
     ON collector_inventory_submissions (collector_id);
+
+CREATE TABLE IF NOT EXISTS collectors (
+    id BIGSERIAL PRIMARY KEY,
+    collector_id TEXT NOT NULL UNIQUE,
+    collector_name TEXT,
+    collector_version TEXT,
+    last_mode TEXT,
+    last_seen_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS assets (
+    id BIGSERIAL PRIMARY KEY,
+    asset_key TEXT NOT NULL UNIQUE,
+    asset_kind TEXT NOT NULL,
+    hostname TEXT,
+    primary_ip TEXT,
+    mac_address TEXT,
+    source TEXT,
+    collector_id TEXT,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    last_submission_id BIGINT REFERENCES collector_inventory_submissions(id),
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_assets_collector_id
+    ON assets (collector_id);
+
+CREATE INDEX IF NOT EXISTS idx_assets_mac_address
+    ON assets (mac_address);
+
+CREATE INDEX IF NOT EXISTS idx_assets_primary_ip
+    ON assets (primary_ip);
+
+CREATE TABLE IF NOT EXISTS asset_ip_history (
+    id BIGSERIAL PRIMARY KEY,
+    asset_id BIGINT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    ip_address TEXT,
+    mac_address TEXT,
+    interface TEXT,
+    state TEXT,
+    source TEXT,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    observations_count INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_ip_history_asset_id
+    ON asset_ip_history (asset_id);
+
+CREATE INDEX IF NOT EXISTS idx_asset_ip_history_ip_address
+    ON asset_ip_history (ip_address);
+
+CREATE TABLE IF NOT EXISTS asset_software_detections (
+    id BIGSERIAL PRIMARY KEY,
+    asset_id BIGINT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    category TEXT,
+    detected BOOLEAN,
+    version TEXT,
+    evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
+    confidence TEXT,
+    scope TEXT,
+    source TEXT,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (asset_id, name, category)
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_software_detections_asset_id
+    ON asset_software_detections (asset_id);
