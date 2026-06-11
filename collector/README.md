@@ -38,6 +38,19 @@ openassetwatch-collector --mode network --pretty
 openassetwatch-collector --mode hybrid --pretty
 ```
 
+## Backend Check-In
+
+The collector can optionally send a lightweight manual check-in to the backend.
+This does not upload full inventory and does not require authentication in the
+MVP.
+
+```sh
+openassetwatch-collector --mode hybrid --checkin \
+  --backend-url http://localhost:8000 \
+  --collector-id local-dev-collector-01 \
+  --collector-name "Local Dev Collector"
+```
+
 ## Modes
 
 - `device`: collects local host identity, OS/platform details, primary IP, and
