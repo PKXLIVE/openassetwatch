@@ -51,6 +51,38 @@ openassetwatch-collector --mode hybrid --checkin \
   --collector-name "Local Dev Collector"
 ```
 
+## Config File
+
+The collector can load backend and collector settings from a YAML or JSON config
+file. CLI arguments override config values.
+
+Example YAML:
+
+```yaml
+collector:
+  id: local-dev-collector-01
+  name: Local Dev Collector
+  mode: hybrid
+
+backend:
+  url: http://localhost:8000
+
+checkin:
+  enabled: true
+```
+
+Run with config:
+
+```sh
+openassetwatch-collector --config ./example-collector.yaml --checkin
+```
+
+Override the configured mode from the CLI:
+
+```sh
+openassetwatch-collector --config ./example-collector.yaml --mode device --pretty
+```
+
 ## Modes
 
 - `device`: collects local host identity, OS/platform details, primary IP, and

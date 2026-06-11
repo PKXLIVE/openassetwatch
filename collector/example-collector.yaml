@@ -1,0 +1,10 @@
+collector:
+  id: local-dev-collector-01
+  name: Local Dev Collector
+  mode: hybrid
+
+backend:
+  url: http://localhost:8000
+
+checkin:
+  enabled: true

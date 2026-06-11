@@ -25,6 +25,7 @@ from .capabilities import collect_platform_capabilities, command_available
 
 SCHEMA_VERSION = "1.0"
 POWERSHELL_COMMANDS = ("powershell", "powershell.exe", "pwsh", "pwsh.exe")
+DEFAULT_MODE = "device"
 
 
 def utc_now() -> str:
@@ -430,12 +431,104 @@ def send_checkin(backend_url: str, checkin_payload: dict[str, Any]) -> dict[str,
     return json.loads(response_body) if response_body else {}
 
 
+def parse_simple_config_value(value: str) -> Any:
+    cleaned = value.strip().strip("'\"")
+    lowered = cleaned.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    if lowered in {"null", "none", "~"}:
+        return None
+    return cleaned
+
+
+def load_simple_yaml_config(text: str) -> dict[str, Any]:
+    config: dict[str, Any] = {}
+    section: dict[str, Any] | None = None
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        if ":" not in stripped:
+            raise ValueError(f"invalid config line: {line}")
+
+        key, value = stripped.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if indent == 0 and not value:
+            section = {}
+            config[key] = section
+            continue
+
+        if indent > 0 and section is not None:
+            section[key] = parse_simple_config_value(value)
+            continue
+
+        config[key] = parse_simple_config_value(value)
+        section = None
+
+    return config
+
+
+def load_config(path: str | None) -> dict[str, Any]:
+    if not path:
+        return {}
+
+    with open(path, encoding="utf-8") as config_file:
+        text = config_file.read()
+
+    if path.lower().endswith(".json"):
+        payload = json.loads(text)
+    else:
+        try:
+            import yaml
+        except ImportError:
+            payload = load_simple_yaml_config(text)
+        else:
+            payload = yaml.safe_load(text)
+
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise ValueError("config file must contain an object at the top level")
+    return payload
+
+
+def config_value(config: dict[str, Any], section: str, key: str) -> Any:
+    value = config.get(section)
+    if not isinstance(value, dict):
+        return None
+    return value.get(key)
+
+
+def apply_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
+    config = load_config(args.config)
+
+    if args.mode is None:
+        args.mode = config_value(config, "collector", "mode") or DEFAULT_MODE
+    if args.backend_url is None:
+        args.backend_url = config_value(config, "backend", "url")
+    if args.collector_id is None:
+        args.collector_id = config_value(config, "collector", "id")
+    if args.collector_name is None:
+        args.collector_name = config_value(config, "collector", "name")
+    if not args.checkin:
+        args.checkin = bool(config_value(config, "checkin", "enabled"))
+
+    return args
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the OpenAssetWatch collector.")
     parser.add_argument(
         "--mode",
         choices=("device", "network", "hybrid"),
-        default="device",
+        default=None,
         help="Collection mode to run.",
     )
     parser.add_argument(
@@ -460,7 +553,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Send a lightweight collector check-in to the backend.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--config",
+        help="Path to a collector YAML or JSON config file.",
+    )
+    return apply_config_defaults(parser.parse_args())
 
 
 def main() -> int:
