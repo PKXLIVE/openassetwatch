@@ -12,6 +12,18 @@ Check backend health:
 curl http://localhost:8000/health
 ```
 
+## Environment
+
+The Docker Compose backend service uses this database setting by default:
+
+```sh
+DATABASE_URL=postgresql+psycopg2://openassetwatch:openassetwatch_change_me@postgres:5432/openassetwatch
+```
+
+Inventory persistence stores raw collector submissions in Postgres. This MVP
+does not normalize assets, network neighbors, or software detections into final
+asset tables yet.
+
 Send a collector heartbeat/check-in:
 
 ```sh
@@ -57,4 +69,10 @@ curl -X POST http://localhost:8000/api/v1/collectors/inventory \
     },
     "software": []
   }'
+```
+
+Verify the latest stored inventory submission:
+
+```sh
+curl http://localhost:8000/api/v1/collectors/inventory/latest
 ```
