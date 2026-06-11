@@ -27,11 +27,23 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def normalize_mac(value: str | None) -> str | None:
-    if not value:
+def normalize_optional_text(value: Any, lowercase: bool = False) -> str | None:
+    if value is None:
         return None
 
-    cleaned = value.strip().lower().replace("-", ":")
+    text = str(value).strip()
+    if not text:
+        return None
+
+    return text.lower() if lowercase else text
+
+
+def normalize_mac(value: Any) -> str | None:
+    text = normalize_optional_text(value)
+    if not text:
+        return None
+
+    cleaned = text.lower().replace("-", ":")
     if cleaned in {"", "00:00:00:00:00:00"}:
         return None
 
@@ -145,18 +157,18 @@ def resolve_powershell_command() -> str | None:
 
 
 def normalize_network_entry(
-    ip: str | None,
-    mac: str | None,
-    interface: str | None,
-    state: str | None,
+    ip: Any,
+    mac: Any,
+    interface: Any,
+    state: Any,
     source: str,
 ) -> dict[str, Any]:
     normalized_mac = normalize_mac(mac)
     return {
-        "ip_address": ip,
+        "ip_address": normalize_optional_text(ip),
         "mac_address": normalized_mac,
-        "interface": interface,
-        "state": state.lower() if state else None,
+        "interface": normalize_optional_text(interface),
+        "state": normalize_optional_text(state, lowercase=True),
         "source": source,
         "sources": [source],
     }
