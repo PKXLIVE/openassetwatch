@@ -38,6 +38,14 @@ openassetwatch-collector --mode network --pretty
 openassetwatch-collector --mode hybrid --pretty
 ```
 
+## Tests
+
+Run collector unit tests from the `collector` directory:
+
+```sh
+python -m unittest discover
+```
+
 ## Backend Check-In
 
 The collector can optionally send a lightweight manual check-in to the backend.

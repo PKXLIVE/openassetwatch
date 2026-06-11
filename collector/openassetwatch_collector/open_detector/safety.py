@@ -19,7 +19,18 @@ def safe_path_exists(path: str) -> bool:
 
     try:
         return Path(expand_path(path)).exists()
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def is_path_within_base(path: str, base_path: str) -> bool:
+    """Return whether a resolved path stays inside an expected base path."""
+
+    try:
+        resolved_path = Path(expand_path(path)).resolve(strict=False)
+        resolved_base = Path(expand_path(base_path)).resolve(strict=False)
+        return resolved_path == resolved_base or resolved_base in resolved_path.parents
+    except (OSError, RuntimeError, ValueError):
         return False
 
 
