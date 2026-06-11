@@ -25,6 +25,7 @@ def make_args(config: str | None = None, **overrides: object) -> argparse.Namesp
         "collector_id": None,
         "collector_name": None,
         "checkin": False,
+        "upload_inventory": False,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)

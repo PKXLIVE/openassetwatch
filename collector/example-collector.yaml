@@ -8,3 +8,6 @@ backend:
 
 checkin:
   enabled: true
+
+inventory:
+  upload_enabled: false

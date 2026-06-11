@@ -2,8 +2,9 @@
 
 Standalone local collector for OpenAssetWatch asset discovery.
 
-The collector is intentionally independent from the backend. It does not upload
-results yet; it only writes normalized JSON to stdout.
+The collector can run fully standalone and write normalized JSON to stdout. It
+can also optionally send lightweight check-ins or full inventory uploads to the
+backend when explicitly configured.
 
 ## Usage
 
@@ -49,11 +50,26 @@ python -m unittest discover
 ## Backend Check-In
 
 The collector can optionally send a lightweight manual check-in to the backend.
-This does not upload full inventory and does not require authentication in the
-MVP.
+This reports collector health and heartbeat metadata only. It does not upload
+full inventory and does not require authentication in the MVP.
 
 ```sh
 openassetwatch-collector --mode hybrid --checkin \
+  --backend-url http://localhost:8000 \
+  --collector-id local-dev-collector-01 \
+  --collector-name "Local Dev Collector"
+```
+
+## Inventory Upload
+
+Inventory upload sends the full collector payload to the backend, including
+device details, network discoveries, and `open_detector` software detections.
+It is separate from check-in: `--checkin` sends a lightweight heartbeat, while
+`--upload-inventory` sends the full inventory payload. If both are provided,
+the collector sends the check-in first, then uploads inventory.
+
+```sh
+openassetwatch-collector --mode hybrid --upload-inventory \
   --backend-url http://localhost:8000 \
   --collector-id local-dev-collector-01 \
   --collector-name "Local Dev Collector"
@@ -85,6 +101,9 @@ backend:
 
 checkin:
   enabled: true
+
+inventory:
+  upload_enabled: true
 ```
 
 Run with config:
@@ -97,6 +116,12 @@ Send a backend check-in using config:
 
 ```sh
 openassetwatch-collector --config ./example-collector.yaml --checkin
+```
+
+Send a full inventory upload using config:
+
+```sh
+openassetwatch-collector --config ./example-collector.yaml --upload-inventory
 ```
 
 Override the configured mode from the CLI:
