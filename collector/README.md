@@ -26,6 +26,18 @@ python -m openassetwatch_collector --mode network --pretty
 python -m openassetwatch_collector --mode hybrid --pretty
 ```
 
+## Editable Install
+
+Install the collector locally from the `collector` directory:
+
+```sh
+cd collector
+python -m pip install -e .
+openassetwatch-collector --mode device --pretty
+openassetwatch-collector --mode network --pretty
+openassetwatch-collector --mode hybrid --pretty
+```
+
 ## Modes
 
 - `device`: collects local host identity, OS/platform details, primary IP, and
