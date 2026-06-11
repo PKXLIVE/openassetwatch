@@ -1,0 +1,42 @@
+name: Collector CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  collector:
+    name: Collector Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Compile collector
+        run: python -m compileall collector/openassetwatch_collector
+
+      - name: Smoke test device mode
+        run: PYTHONPATH=collector python -m openassetwatch_collector --mode device
+
+      - name: Smoke test network mode
+        run: PYTHONPATH=collector python -m openassetwatch_collector --mode network
+
+      - name: Smoke test hybrid mode
+        run: PYTHONPATH=collector python -m openassetwatch_collector --mode hybrid
