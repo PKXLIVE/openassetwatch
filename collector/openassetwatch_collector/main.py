@@ -12,9 +12,12 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from . import __version__
 from .capabilities import collect_platform_capabilities, command_available
@@ -393,6 +396,40 @@ def build_payload(mode: str) -> dict[str, Any]:
     return payload
 
 
+def build_checkin_payload(
+    payload: dict[str, Any],
+    collector_id: str,
+    collector_name: str | None,
+) -> dict[str, Any]:
+    device = payload.get("device", {})
+    checkin_payload: dict[str, Any] = {
+        "collector_id": collector_id,
+        "hostname": device.get("hostname") or socket.gethostname(),
+        "collector_version": __version__,
+        "mode": payload["mode"],
+        "platform": payload.get("platform"),
+        "status": "healthy",
+        "message": "manual collector check-in",
+    }
+    if collector_name:
+        checkin_payload["collector_name"] = collector_name
+    return checkin_payload
+
+
+def send_checkin(backend_url: str, checkin_payload: dict[str, Any]) -> dict[str, Any]:
+    url = f"{backend_url.rstrip('/')}/api/v1/collectors/checkin"
+    body = json.dumps(checkin_payload).encode("utf-8")
+    request = Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=15) as response:
+        response_body = response.read().decode("utf-8")
+    return json.loads(response_body) if response_body else {}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the OpenAssetWatch collector.")
     parser.add_argument(
@@ -406,12 +443,51 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Pretty-print normalized JSON output.",
     )
+    parser.add_argument(
+        "--backend-url",
+        help="Backend base URL for collector check-in.",
+    )
+    parser.add_argument(
+        "--collector-id",
+        help="Stable collector identifier used for backend check-in.",
+    )
+    parser.add_argument(
+        "--collector-name",
+        help="Optional human-readable collector name used for backend check-in.",
+    )
+    parser.add_argument(
+        "--checkin",
+        action="store_true",
+        help="Send a lightweight collector check-in to the backend.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.checkin and not args.backend_url:
+        raise SystemExit("--backend-url is required when --checkin is provided")
+    if args.checkin and not args.collector_id:
+        raise SystemExit("--collector-id is required when --checkin is provided")
+
     payload = build_payload(args.mode)
+
+    if args.checkin:
+        checkin_payload = build_checkin_payload(
+            payload,
+            args.collector_id,
+            args.collector_name,
+        )
+        try:
+            checkin_response = send_checkin(args.backend_url, checkin_payload)
+        except HTTPError as exc:
+            print(f"collector check-in failed: HTTP {exc.code}", file=sys.stderr)
+            return 1
+        except (URLError, TimeoutError, OSError) as exc:
+            print(f"collector check-in failed: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps({"checkin": checkin_response}, sort_keys=True), file=sys.stderr)
+
     indent = 2 if args.pretty else None
     print(json.dumps(payload, indent=indent, sort_keys=True))
     return 0
