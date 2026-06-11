@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 
 from . import __version__
 from .capabilities import collect_platform_capabilities, command_available
+from .open_detector import scan_software
 
 
 SCHEMA_VERSION = "1.0"
@@ -390,6 +391,7 @@ def build_payload(mode: str) -> dict[str, Any]:
 
     if mode in {"device", "hybrid"}:
         payload["device"] = collect_device()
+        payload["software"] = scan_software(platform_info)
 
     if mode in {"network", "hybrid"}:
         payload["network"] = collect_network(platform_info)
