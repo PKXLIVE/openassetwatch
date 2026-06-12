@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.database import _normalize_mac_address, _upsert_collector
 from app.main import (
     CollectorCheckInRequest,
+    COLLECTOR_TOKEN_ENV,
     assets,
     collector_checkin,
     collector_inventory,
@@ -19,6 +20,75 @@ from app.main import (
 
 
 class CollectorInventoryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.token_env = patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: ""})
+        self.token_env.start()
+
+    def tearDown(self) -> None:
+        self.token_env.stop()
+
+    def test_checkin_allows_request_when_token_not_configured(self) -> None:
+        with patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: ""}):
+            with patch("app.main.upsert_collector_metadata", return_value=1):
+                response = collector_checkin(
+                    CollectorCheckInRequest(
+                        collector_id="local-dev-collector-01",
+                        hostname="test-host",
+                        collector_version="0.1.0",
+                        mode="device",
+                    )
+                )
+
+        self.assertEqual(response.status, "accepted")
+
+    def test_checkin_rejects_missing_token_when_configured(self) -> None:
+        with patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: "change-me-dev-token"}):
+            with self.assertRaises(HTTPException) as raised:
+                collector_checkin(
+                    CollectorCheckInRequest(
+                        collector_id="local-dev-collector-01",
+                        hostname="test-host",
+                        collector_version="0.1.0",
+                        mode="device",
+                    )
+                )
+
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertNotIn("change-me-dev-token", str(raised.exception.detail))
+
+    def test_inventory_rejects_wrong_token_when_configured(self) -> None:
+        with patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: "change-me-dev-token"}):
+            with self.assertRaises(HTTPException) as raised:
+                collector_inventory(
+                    {
+                        "collector_id": "collector-token-test",
+                        "mode": "device",
+                        "device": {"hostname": "test-host"},
+                    },
+                    collector_token="wrong-token",
+                )
+
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertNotIn("change-me-dev-token", str(raised.exception.detail))
+
+    def test_inventory_accepts_correct_token_when_configured(self) -> None:
+        with patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: "change-me-dev-token"}):
+            with patch("app.main.save_inventory_submission", return_value=9):
+                with patch(
+                    "app.main.normalize_inventory_submission",
+                    return_value={"normalized_asset_count": 1, "normalized_software_count": 0},
+                ):
+                    response = collector_inventory(
+                        {
+                            "collector_id": "collector-token-test",
+                            "mode": "device",
+                            "device": {"hostname": "test-host"},
+                        },
+                        collector_token="change-me-dev-token",
+                    )
+
+        self.assertEqual(response.status, "accepted")
+
     def test_checkin_updates_collector_metadata(self) -> None:
         with patch("app.main.upsert_collector_metadata", return_value=1) as upsert:
             response = collector_checkin(

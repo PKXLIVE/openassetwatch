@@ -15,6 +15,7 @@ def make_args(**overrides: object) -> argparse.Namespace:
     defaults = {
         "mode": "hybrid",
         "backend_url": "http://localhost:8000",
+        "backend_token": None,
         "collector_id": "local-dev-collector-01",
         "collector_name": "Local Dev Collector",
         "collector_guid": None,
@@ -32,6 +33,7 @@ def make_config_args(config: str | None = None, **overrides: object) -> argparse
         "config": config,
         "mode": None,
         "backend_url": None,
+        "backend_token": None,
         "collector_id": None,
         "collector_name": None,
         "collector_guid": None,
