@@ -128,6 +128,16 @@ The expected long-running command shape is:
 python -m openassetwatch_collector --run-forever --config <config path>
 ```
 
+## Future Policy Bundles
+
+OpenAssetWatch may later support backend-assigned collector policy bundles for
+safe, Splunk-style deployment targeting by collector identity, deployment,
+labels, platform, and collector version.
+
+For the future architecture, safety boundaries, lifecycle, and config
+precedence model, see
+`docs/architecture/collector-policy-and-bundles.md`.
+
 ## Windows MVP
 
 For the MVP, Windows should use Task Scheduler instead of a true Windows
