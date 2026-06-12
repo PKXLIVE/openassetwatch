@@ -263,6 +263,40 @@ small native wrapper. That is out of scope for the MVP.
 
 Linux should use `systemd`.
 
+Linux prerequisites should account for Debian/Ubuntu and Red Hat-family
+package layouts.
+
+Debian/Ubuntu:
+
+```sh
+sudo apt update
+sudo apt install -y git curl python3 python3-venv python3-pip
+```
+
+If the selected Python is version-specific, install the matching venv package,
+such as:
+
+```sh
+sudo apt install -y python3.14-venv
+```
+
+Red Hat/Fedora/Rocky/Alma/CentOS:
+
+```sh
+sudo dnf install -y git curl python3 python3-pip python3-virtualenv
+```
+
+yum fallback:
+
+```sh
+sudo yum install -y git curl python3 python3-pip python3-virtualenv
+```
+
+The Linux installer should honor `PYTHON_BIN`, accept any Python 3.10 or newer,
+prefer Python 3.12+ when available, print the selected Python path/version, and
+test venv creation in a temporary directory before creating the real collector
+venv.
+
 Recommended service layout:
 
 - Install the collector under `/opt/openassetwatch/collector`.

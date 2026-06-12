@@ -29,6 +29,9 @@ unless the backend is running on the same machine.
 
 | Scenario | Command / Check | Expected Result |
 | --- | --- | --- |
+| Debian/Ubuntu prerequisites | `sudo apt update && sudo apt install -y git curl python3 python3-venv python3-pip` | Required Python, pip, and venv support are installed. If using a version-specific Python, install the matching package such as `python3.14-venv`. |
+| Red Hat-family prerequisites | `sudo dnf install -y git curl python3 python3-pip python3-virtualenv` or `sudo yum install -y git curl python3 python3-pip python3-virtualenv` | Required Python, pip, and virtual environment support are installed. |
+| Missing venv preflight | Run installer with a selected Python whose venv package is missing. | Installer prints selected Python path/version, explains venv support is missing, suggests apt/dnf/yum package commands, and exits before service installation. |
 | Dry run | `sudo python collector/install/install.py --backend-url http://<backend-ip>:8000 --collector-id linux-test --dry-run --no-start` | Prints user, permissions, config, metadata, systemd, and optional sudoers actions without writing system files. |
 | Install | `sudo BACKEND_URL=http://<backend-ip>:8000 COLLECTOR_ID=linux-test COLLECTOR_NAME="Linux Test" collector/install/install-linux.sh` | Creates `openassetwatch` user/group, venv, config, metadata, systemd service, logs/state directories. |
 | systemd service starts | `sudo systemctl status openassetwatch-collector` | Service is active or restarting with clear logs. |

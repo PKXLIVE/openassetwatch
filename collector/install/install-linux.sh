@@ -36,7 +36,7 @@ PURGE="${PURGE:-false}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COLLECTOR_SOURCE_DIR="${COLLECTOR_SOURCE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_BIN="${PYTHON_BIN:-}"
 
 log() {
   install -d -m 0750 -o "${USER_NAME}" -g "${GROUP_NAME}" "${LOG_DIR}" >/dev/null 2>&1 || mkdir -p "${LOG_DIR}" || true
@@ -63,6 +63,109 @@ python_is_supported() {
   "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
 }
 
+python_major_minor() {
+  "$1" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+}
+
+select_python() {
+  if [[ -n "${PYTHON_BIN}" ]]; then
+    command -v "${PYTHON_BIN}"
+    return
+  fi
+
+  local candidate
+  for candidate in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "${candidate}" >/dev/null 2>&1 && python_is_supported "$(command -v "${candidate}")"; then
+      command -v "${candidate}"
+      return
+    fi
+  done
+
+  for candidate in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+      command -v "${candidate}"
+      return
+    fi
+  done
+
+  return 1
+}
+
+linux_package_family() {
+  local os_release=""
+  if [[ -r /etc/os-release ]]; then
+    os_release="$(tr '[:upper:]' '[:lower:]' < /etc/os-release)"
+  fi
+
+  if grep -Eq '(^id=|^id_like=).*(debian|ubuntu)' <<<"${os_release}" || command -v apt >/dev/null 2>&1; then
+    echo "apt"
+    return
+  fi
+
+  if grep -Eq '(^id=|^id_like=).*(rhel|fedora|centos|rocky|almalinux|redhat)' <<<"${os_release}" || command -v dnf >/dev/null 2>&1; then
+    echo "dnf"
+    return
+  fi
+
+  if command -v yum >/dev/null 2>&1; then
+    echo "yum"
+    return
+  fi
+
+  echo "unknown"
+}
+
+print_venv_guidance() {
+  local python_path="$1"
+  local python_version="$2"
+  local python_short="$3"
+  local family
+  family="$(linux_package_family)"
+
+  echo "OpenAssetWatch found Python ${python_version} at ${python_path}, but venv support is missing." >&2
+  echo "Install the appropriate venv package for your Linux distribution, then rerun the installer." >&2
+  echo >&2
+
+  if [[ "${family}" == "apt" ]]; then
+    echo "Detected Debian/Ubuntu or apt-based system. Try:" >&2
+    echo "  sudo apt update" >&2
+    echo "  sudo apt install -y python3-venv python3-pip" >&2
+    echo "  sudo apt install -y python${python_short}-venv" >&2
+  elif [[ "${family}" == "dnf" ]]; then
+    echo "Detected Red Hat/Fedora/Rocky/Alma or dnf-based system. Try:" >&2
+    echo "  sudo dnf install -y python3 python3-pip" >&2
+    echo "  sudo dnf install -y python3-virtualenv" >&2
+  elif [[ "${family}" == "yum" ]]; then
+    echo "Detected yum-based system. Try:" >&2
+    echo "  sudo yum install -y python3 python3-pip" >&2
+    echo "  sudo yum install -y python3-virtualenv" >&2
+  fi
+
+  echo >&2
+  echo "Examples:" >&2
+  echo "  Debian/Ubuntu: sudo apt install -y python${python_short}-venv" >&2
+  echo "  Red Hat/Fedora/Rocky/Alma: sudo dnf install -y python3 python3-pip python3-virtualenv" >&2
+  echo "  yum fallback: sudo yum install -y python3 python3-pip python3-virtualenv" >&2
+}
+
+check_venv_support() {
+  local python_path="$1"
+  local python_version="$2"
+  local python_short="$3"
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+
+  if "${python_path}" -m venv "${temp_dir}/venv-test" >/dev/null 2>&1; then
+    rm -rf "${temp_dir}"
+    return 0
+  fi
+
+  rm -rf "${temp_dir}"
+  log "error venv support missing python_path=${python_path} python_version=${python_version}"
+  print_venv_guidance "${python_path}" "${python_version}" "${python_short}"
+  return 1
+}
+
 if [[ "${UNINSTALL}" == "true" ]]; then
   log "uninstall start platform=linux"
   systemctl disable --now "${SERVICE_NAME}" >/dev/null 2>&1 || true
@@ -86,14 +189,14 @@ if [[ "${UNINSTALL}" == "true" ]]; then
   exit 0
 fi
 
-if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
-  log "error ${PYTHON_BIN} is required"
-  echo "${PYTHON_BIN} is required" >&2
+if ! SELECTED_PYTHON="$(select_python)"; then
+  log "error python3 is required"
+  echo "Python >=3.10 is required. Set PYTHON_BIN to a supported Python path if needed." >&2
   exit 1
 fi
 
-SELECTED_PYTHON="$(command -v "${PYTHON_BIN}")"
 PYTHON_VERSION="$(python_version "${SELECTED_PYTHON}")"
+PYTHON_SHORT_VERSION="$(python_major_minor "${SELECTED_PYTHON}")"
 echo "Using Python: ${SELECTED_PYTHON} (${PYTHON_VERSION})"
 log "install start platform=linux installer_version=${INSTALLER_VERSION}"
 log "selected python path=${SELECTED_PYTHON} version=${PYTHON_VERSION}"
@@ -103,6 +206,8 @@ if ! python_is_supported "${SELECTED_PYTHON}"; then
   echo "Python >=3.10 is required, but ${SELECTED_PYTHON} is ${PYTHON_VERSION}." >&2
   exit 1
 fi
+
+check_venv_support "${SELECTED_PYTHON}" "${PYTHON_VERSION}" "${PYTHON_SHORT_VERSION}"
 
 if ! command -v systemctl >/dev/null 2>&1; then
   log "error systemctl is required"
