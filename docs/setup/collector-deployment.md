@@ -12,6 +12,7 @@ The MVP installer entry points are:
 ```text
 collector/install/install.py
 collector/install/install-linux.sh
+collector/install/install-macos.sh
 collector/install/install-windows.cmd
 ```
 
@@ -129,35 +130,49 @@ The collector should use `sudo -n` for any future privileged command path so it
 never hangs waiting for a password. Passive packet capture and active scanning
 remain disabled by default.
 
-## macOS Future Direction
+## macOS MVP
 
-macOS should not reuse the Linux systemd design. Future macOS support should
-use `launchd`, likely as a LaunchDaemon.
+macOS should not reuse the Linux systemd design. The macOS MVP uses `launchd`
+through a LaunchDaemon.
 
-Future paths:
+The macOS installer requires Python 3.10 or newer, supports `PYTHON_BIN`, and
+prefers Python 3.12+ when available. It should never replace system Python or
+silently fall back to Apple's older Python if that version does not satisfy the
+collector requirement.
+
+Default paths:
 
 ```text
 /usr/local/openassetwatch/collector
 /Library/Application Support/OpenAssetWatch/Collector/config.yaml
 /Library/Logs/OpenAssetWatch/
+/usr/local/var/openassetwatch
 /Library/LaunchDaemons/com.openassetwatch.collector.plist
 ```
 
-The long-running command should still call Python directly:
+The LaunchDaemon calls Python directly:
 
 ```text
 /usr/local/openassetwatch/collector/.venv/bin/python -m openassetwatch_collector --run-forever --config "/Library/Application Support/OpenAssetWatch/Collector/config.yaml"
 ```
 
-macOS installer implementation is out of scope for the MVP. This section is a
-planning target for a later LaunchDaemon package or installer.
+The plist should keep the collector alive, run at boot, and write stdout/stderr
+to:
+
+```text
+/Library/Logs/OpenAssetWatch/collector.out.log
+/Library/Logs/OpenAssetWatch/collector.err.log
+```
+
+macOS PKG packaging, notarization/signing, and MDM deployment are out of scope
+for this MVP.
 
 ## Out of Scope for This MVP
 
 - Windows Service implementation.
-- macOS LaunchDaemon installer implementation.
 - systemd installer automation.
 - Dedicated service account automation on Windows.
+- macOS PKG packaging, notarization/signing, and MDM deployment.
 - Authentication or API key provisioning.
 - Active Nmap scanning by default.
 - Packet capture by default.

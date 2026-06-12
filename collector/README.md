@@ -41,10 +41,10 @@ openassetwatch-collector --mode hybrid --pretty
 
 ## Tests
 
-Run collector unit tests from the `collector` directory:
+Run collector unit tests from the repository root:
 
 ```sh
-python -m unittest discover
+PYTHONPATH=collector python -m unittest discover collector/tests
 ```
 
 ## Backend Check-In
@@ -111,7 +111,7 @@ openassetwatch-collector --mode hybrid --run-forever \
 
 For local install planning, see `docs/setup/collector-deployment.md`. The
 collector remains Python-first: Windows should use Task Scheduler for the MVP,
-Linux should use systemd, and macOS should use launchd later.
+Linux should use systemd, and macOS should use launchd.
 
 For local multi-machine installer testing, see
 `docs/setup/local-collector-installation.md`.

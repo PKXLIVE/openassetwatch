@@ -30,6 +30,13 @@ POWERSHELL_COMMANDS = ("powershell", "powershell.exe", "pwsh", "pwsh.exe")
 DEFAULT_MODE = "device"
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 3600
 DEFAULT_INVENTORY_INTERVAL_SECONDS = 86400
+INVALID_MAC_TEXT_VALUES = {
+    "(incomplete)",
+    "<incomplete>",
+    "incomplete",
+    "none",
+    "null",
+}
 
 
 class ConfigError(ValueError):
@@ -57,12 +64,12 @@ def normalize_mac(value: Any) -> str | None:
         return None
 
     cleaned = text.lower().replace("-", ":")
-    if cleaned in {"", "00:00:00:00:00:00"}:
+    if cleaned in INVALID_MAC_TEXT_VALUES or cleaned in {"", "00:00:00:00:00:00"}:
         return None
 
     compact = re.sub(r"[^0-9a-f]", "", cleaned)
     if len(compact) != 12:
-        return cleaned
+        return None
 
     return ":".join(compact[index : index + 2] for index in range(0, 12, 2))
 
