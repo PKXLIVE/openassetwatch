@@ -10,6 +10,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import uuid
 import venv
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -110,6 +111,10 @@ def venv_python(paths: InstallPaths, system: str) -> Path:
 
 def metadata_path(paths: InstallPaths) -> Path:
     return paths.config_path.parent / "install.env"
+
+
+def identity_path(paths: InstallPaths) -> Path:
+    return paths.config_path.parent / "identity.json"
 
 
 def installer_log_path(paths: InstallPaths) -> Path:
@@ -224,32 +229,90 @@ def install_collector_package(paths: InstallPaths, system: str, *, dry_run: bool
     log_event(paths, "package install complete", dry_run=dry_run)
 
 
+def read_or_create_identity(paths: InstallPaths, system: str, *, dry_run: bool) -> str:
+    path = identity_path(paths)
+    if path.exists():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            collector_guid = str(uuid.UUID(str(payload["collector_guid"])))
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"existing identity file is invalid: {path}: {exc}") from exc
+        print(f"preserve collector identity: {path}")
+        log_event(paths, f"identity preserved path={path} collector_guid={collector_guid}", dry_run=dry_run)
+        return collector_guid
+
+    collector_guid = str(uuid.uuid4())
+    payload = {
+        "collector_guid": collector_guid,
+        "created_at": timestamp(),
+        "install_source": install_source(system),
+    }
+    print(f"create collector identity: {path}")
+    log_event(paths, f"identity create path={path} collector_guid={collector_guid}", dry_run=dry_run)
+    if dry_run:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return collector_guid
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return collector_guid
+
+
+def install_source(system: str) -> str:
+    if system == "windows":
+        return "windows-task-scheduler"
+    if system == "linux":
+        return "linux-systemd"
+    if system == "darwin":
+        return "macos-launchdaemon"
+    return f"{system}-installer"
+
+
 def yaml_text(args: argparse.Namespace) -> str:
     collector_id = args.collector_id or f"{socket.gethostname()}-collector"
     collector_name = args.collector_name or socket.gethostname()
-    return "\n".join(
-        [
-            "collector:",
-            f"  id: {yaml_scalar(collector_id)}",
-            f"  name: {yaml_scalar(collector_name)}",
-            f"  mode: {args.mode}",
-            "",
-            "backend:",
-            f"  url: {yaml_scalar(args.backend_url)}",
-            "",
-            "checkin:",
-            "  enabled: true",
-            "",
-            "inventory:",
-            "  upload_enabled: true",
-            "",
-            "scheduler:",
-            "  enabled: true",
-            f"  heartbeat_interval_seconds: {args.heartbeat_interval_seconds}",
-            f"  inventory_interval_seconds: {args.inventory_interval_seconds}",
-            "",
-        ]
-    )
+    lines = [
+        "collector:",
+        f"  id: {yaml_scalar(collector_id)}",
+        f"  name: {yaml_scalar(collector_name)}",
+        f"  mode: {args.mode}",
+        "",
+        "identity:",
+        f"  path: {yaml_scalar(args.identity_path)}",
+        "",
+        "backend:",
+        f"  url: {yaml_scalar(args.backend_url)}",
+        "",
+        "checkin:",
+        "  enabled: true",
+        "",
+        "inventory:",
+        "  upload_enabled: true",
+        "",
+        "scheduler:",
+        "  enabled: true",
+        f"  heartbeat_interval_seconds: {args.heartbeat_interval_seconds}",
+        f"  inventory_interval_seconds: {args.inventory_interval_seconds}",
+    ]
+
+    deployment_lines = [
+        ("deployment_id", args.deployment_id),
+        ("business_unit", args.business_unit),
+        ("site", args.site),
+        ("environment", args.deployment_environment),
+        ("install_ring", args.install_ring),
+    ]
+    if any(value for _, value in deployment_lines):
+        lines.extend(["", "deployment:"])
+        for key, value in deployment_lines:
+            if value:
+                lines.append(f"  {key}: {yaml_scalar(value)}")
+
+    if args.labels:
+        lines.extend(["", "labels:"])
+        for key, value in sorted(args.labels.items()):
+            lines.append(f"  {key}: {yaml_scalar(value)}")
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 def yaml_scalar(value: object) -> str:
@@ -279,6 +342,8 @@ def write_metadata(paths: InstallPaths, args: argparse.Namespace, system: str, *
             f"VENV_PYTHON_PATH={venv_python(paths, system)}",
             f"BACKEND_URL={args.backend_url}",
             f"COLLECTOR_ID={args.collector_id or f'{socket.gethostname()}-collector'}",
+            f"COLLECTOR_GUID={args.collector_guid}",
+            f"DEPLOYMENT_ID={args.deployment_id or ''}",
             "",
         ]
     )
@@ -289,6 +354,19 @@ def write_metadata(paths: InstallPaths, args: argparse.Namespace, system: str, *
         print(text)
         return
     path.write_text(text, encoding="utf-8")
+
+
+def parse_labels(label_items: list[str]) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for item in label_items:
+        if "=" not in item:
+            raise SystemExit("--label values must use key=value format")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise SystemExit("--label values must include a non-empty key")
+        labels[key] = value.strip()
+    return labels
 
 
 def write_windows_wrapper(paths: InstallPaths, *, dry_run: bool) -> None:
@@ -412,11 +490,15 @@ def linux_chmod(path: Path, mode: str, *, dry_run: bool) -> None:
 
 def configure_linux_permissions(paths: InstallPaths, *, dry_run: bool) -> None:
     install_metadata_path = metadata_path(paths)
+    collector_identity_path = identity_path(paths)
     linux_chown(Path("/opt/openassetwatch"), f"{LINUX_USER}:{LINUX_GROUP}", recursive=True, dry_run=dry_run)
     linux_chown(paths.logs_dir, f"{LINUX_USER}:{LINUX_GROUP}", recursive=True, dry_run=dry_run)
     linux_chown(paths.state_dir, f"{LINUX_USER}:{LINUX_GROUP}", recursive=True, dry_run=dry_run)
     linux_chown(paths.config_path.parent, f"root:{LINUX_GROUP}", recursive=False, dry_run=dry_run)
     linux_chown(paths.config_path, f"root:{LINUX_GROUP}", recursive=False, dry_run=dry_run)
+    if dry_run or collector_identity_path.exists():
+        linux_chown(collector_identity_path, f"root:{LINUX_GROUP}", recursive=False, dry_run=dry_run)
+        linux_chmod(collector_identity_path, "0640", dry_run=dry_run)
     if dry_run or install_metadata_path.exists():
         linux_chown(install_metadata_path, f"root:{LINUX_GROUP}", recursive=False, dry_run=dry_run)
         linux_chmod(install_metadata_path, "0640", dry_run=dry_run)
@@ -577,6 +659,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--collector-id", help="Stable collector ID. Defaults to '<hostname>-collector'.")
     parser.add_argument("--collector-name", help="Human-readable collector name. Defaults to hostname.")
     parser.add_argument("--mode", choices=("device", "network", "hybrid"), default=DEFAULT_MODE)
+    parser.add_argument("--deployment-id", help="Optional deployment grouping ID.")
+    parser.add_argument("--business-unit", help="Optional deployment business unit.")
+    parser.add_argument("--site", help="Optional deployment site/location.")
+    parser.add_argument("--environment", dest="deployment_environment", help="Optional deployment environment.")
+    parser.add_argument("--install-ring", help="Optional deployment install ring.")
+    parser.add_argument("--label", action="append", default=[], help="Optional label in key=value form. May be repeated.")
     parser.add_argument(
         "--heartbeat-interval-seconds",
         type=positive_int,
@@ -632,6 +720,8 @@ def main() -> int:
     args = parse_args()
     system = detect_system()
     paths = resolve_paths(args, system)
+    args.labels = parse_labels(args.label)
+    args.identity_path = identity_path(paths)
 
     if system == "darwin":
         raise SystemExit("macOS launchd installation is documented for future work but not implemented yet")
@@ -663,6 +753,7 @@ def main() -> int:
 
     log_event(paths, f"install start platform={system} installer_version={INSTALLER_VERSION}", dry_run=args.dry_run)
     create_directories(paths, dry_run=args.dry_run)
+    args.collector_guid = read_or_create_identity(paths, system, dry_run=args.dry_run)
     create_venv(paths, system, dry_run=args.dry_run)
     install_collector_package(paths, system, dry_run=args.dry_run)
     write_config(paths, args, dry_run=args.dry_run)

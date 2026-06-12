@@ -2,16 +2,69 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.database import _normalize_mac_address
-from app.main import assets, collector_inventory, collectors, latest_collector_inventory
+from app.database import _normalize_mac_address, _upsert_collector
+from app.main import (
+    CollectorCheckInRequest,
+    assets,
+    collector_checkin,
+    collector_inventory,
+    collectors,
+    latest_collector_inventory,
+)
 
 
 class CollectorInventoryTests(unittest.TestCase):
+    def test_checkin_updates_collector_metadata(self) -> None:
+        with patch("app.main.upsert_collector_metadata", return_value=1) as upsert:
+            response = collector_checkin(
+                CollectorCheckInRequest(
+                    collector_id="local-dev-collector-01",
+                    collector_guid="11111111-1111-4111-8111-111111111111",
+                    collector_name="Local Dev Collector",
+                    hostname="test-host",
+                    collector_version="0.1.0",
+                    mode="hybrid",
+                    deployment={"deployment_id": "home-lab"},
+                    labels={"owner": "dion"},
+                )
+            )
+
+        self.assertEqual(response.collector_id, "local-dev-collector-01")
+        upsert.assert_called_once()
+        self.assertEqual(upsert.call_args.kwargs["collector_guid"], "11111111-1111-4111-8111-111111111111")
+        self.assertEqual(upsert.call_args.kwargs["deployment"]["deployment_id"], "home-lab")
+        self.assertEqual(upsert.call_args.kwargs["labels"]["owner"], "dion")
+
+    def test_upsert_collector_matches_existing_guid_before_collector_id(self) -> None:
+        connection = Mock()
+        connection.execute.side_effect = [
+            Mock(scalar_one_or_none=Mock(return_value=7)),
+            Mock(),
+        ]
+
+        collector_pk = _upsert_collector(
+            connection,
+            collector_guid="11111111-1111-4111-8111-111111111111",
+            collector_id="renamed-collector",
+            collector_name="Renamed Collector",
+            collector_version="0.1.0",
+            deployment={"deployment_id": "home-lab"},
+            labels={"owner": "dion"},
+            mode="hybrid",
+            seen_at=datetime.now(timezone.utc),
+        )
+
+        self.assertEqual(collector_pk, 7)
+        self.assertEqual(connection.execute.call_count, 2)
+        update_sql = str(connection.execute.call_args_list[1].args[0])
+        self.assertIn("UPDATE collectors", update_sql)
+        self.assertNotIn("INSERT INTO collectors", update_sql)
+
     def test_backend_mac_normalization_rejects_non_host_values(self) -> None:
         for value in (
             "(incomplete)",
@@ -96,9 +149,12 @@ class CollectorInventoryTests(unittest.TestCase):
                     {
                         "schema_version": "1.0",
                         "collector": {"id": "collector-hybrid", "name": "Hybrid Collector"},
+                        "collector_guid": "11111111-1111-4111-8111-111111111111",
                         "collector_version": "0.1.0",
                         "mode": "hybrid",
                         "platform": {"system": "windows", "architecture": "amd64"},
+                        "deployment": {"deployment_id": "home-lab"},
+                        "labels": {"owner": "dion"},
                         "device": {"hostname": "test-host"},
                         "network": [
                             {
@@ -123,6 +179,7 @@ class CollectorInventoryTests(unittest.TestCase):
 
         self.assertEqual(response.status, "accepted")
         self.assertEqual(response.submission_id, 3)
+        self.assertEqual(response.collector_guid, "11111111-1111-4111-8111-111111111111")
         self.assertEqual(response.collector_id, "collector-hybrid")
         self.assertEqual(response.mode, "hybrid")
         self.assertEqual(response.device_count, 1)
@@ -174,6 +231,7 @@ class CollectorInventoryTests(unittest.TestCase):
             "app.main.latest_inventory_submission",
             return_value={
                 "submission_id": 7,
+                "collector_guid": "11111111-1111-4111-8111-111111111111",
                 "collector_id": "latest-collector",
                 "collector_name": "Latest Collector",
                 "mode": "hybrid",

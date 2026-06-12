@@ -6,6 +6,7 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/openassetwatch/collector}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/openassetwatch}"
 CONFIG_PATH="${CONFIG_PATH:-${CONFIG_DIR}/collector.yaml}"
 METADATA_PATH="${METADATA_PATH:-${CONFIG_DIR}/install.env}"
+IDENTITY_PATH="${IDENTITY_PATH:-${CONFIG_DIR}/identity.json}"
 STATE_DIR="${STATE_DIR:-/var/lib/openassetwatch}"
 LOG_DIR="${LOG_DIR:-/var/log/openassetwatch}"
 INSTALL_LOG="${INSTALL_LOG:-${LOG_DIR}/install.log}"
@@ -18,6 +19,14 @@ HEARTBEAT_INTERVAL_SECONDS="${HEARTBEAT_INTERVAL_SECONDS:-3600}"
 INVENTORY_INTERVAL_SECONDS="${INVENTORY_INTERVAL_SECONDS:-86400}"
 COLLECTOR_ID="${COLLECTOR_ID:-$(hostname)-collector}"
 COLLECTOR_NAME="${COLLECTOR_NAME:-$(hostname)}"
+DEPLOYMENT_ID="${DEPLOYMENT_ID:-}"
+BUSINESS_UNIT="${BUSINESS_UNIT:-}"
+SITE="${SITE:-}"
+ENVIRONMENT="${ENVIRONMENT:-}"
+INSTALL_RING="${INSTALL_RING:-}"
+LABEL_OWNER="${LABEL_OWNER:-}"
+LABEL_DEVICE_GROUP="${LABEL_DEVICE_GROUP:-}"
+LABEL_INSTALL_PROFILE="${LABEL_INSTALL_PROFILE:-}"
 ENABLE_LOG_READ="${ENABLE_LOG_READ:-false}"
 INSTALL_SUDOERS="${INSTALL_SUDOERS:-false}"
 START_SERVICE="${START_SERVICE:-true}"
@@ -129,6 +138,17 @@ install -d -m 0750 -o "${USER_NAME}" -g "${GROUP_NAME}" "${STATE_DIR}"
 install -d -m 0750 -o "${USER_NAME}" -g "${GROUP_NAME}" "${LOG_DIR}"
 install -d -m 0750 -o root -g "${GROUP_NAME}" "${CONFIG_DIR}"
 
+if [[ -f "${IDENTITY_PATH}" ]]; then
+  COLLECTOR_GUID="$("${SELECTED_PYTHON}" -c 'import json,sys,uuid; data=json.load(open(sys.argv[1], encoding="utf-8")); print(str(uuid.UUID(str(data["collector_guid"]))))' "${IDENTITY_PATH}")"
+  echo "Preserving collector identity: ${IDENTITY_PATH}"
+  log "identity preserved path=${IDENTITY_PATH} collector_guid=${COLLECTOR_GUID}"
+else
+  COLLECTOR_GUID="$("${SELECTED_PYTHON}" -c 'import uuid; print(uuid.uuid4())')"
+  "${SELECTED_PYTHON}" -c 'import datetime,json,sys; payload={"collector_guid": sys.argv[2], "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00","Z"), "install_source": "linux-systemd"}; open(sys.argv[1], "w", encoding="utf-8").write(json.dumps(payload, indent=2, sort_keys=True) + "\n")' "${IDENTITY_PATH}" "${COLLECTOR_GUID}"
+  echo "Created collector identity: ${IDENTITY_PATH}"
+  log "identity create path=${IDENTITY_PATH} collector_guid=${COLLECTOR_GUID}"
+fi
+
 if [[ -x "${INSTALL_DIR}/.venv/bin/python" ]] && ! python_is_supported "${INSTALL_DIR}/.venv/bin/python"; then
   EXISTING_VENV_VERSION="$(python_version "${INSTALL_DIR}/.venv/bin/python")"
   echo "Existing collector venv uses unsupported Python ${EXISTING_VENV_VERSION}; recreating ${INSTALL_DIR}/.venv"
@@ -149,6 +169,9 @@ collector:
   name: ${COLLECTOR_NAME}
   mode: ${MODE}
 
+identity:
+  path: ${IDENTITY_PATH}
+
 backend:
   url: ${BACKEND_URL}
 
@@ -164,6 +187,28 @@ scheduler:
   inventory_interval_seconds: ${INVENTORY_INTERVAL_SECONDS}
 EOF
 
+if [[ -n "${DEPLOYMENT_ID}${BUSINESS_UNIT}${SITE}${ENVIRONMENT}${INSTALL_RING}" ]]; then
+  {
+    echo
+    echo "deployment:"
+    [[ -n "${DEPLOYMENT_ID}" ]] && echo "  deployment_id: ${DEPLOYMENT_ID}"
+    [[ -n "${BUSINESS_UNIT}" ]] && echo "  business_unit: ${BUSINESS_UNIT}"
+    [[ -n "${SITE}" ]] && echo "  site: ${SITE}"
+    [[ -n "${ENVIRONMENT}" ]] && echo "  environment: ${ENVIRONMENT}"
+    [[ -n "${INSTALL_RING}" ]] && echo "  install_ring: ${INSTALL_RING}"
+  } >> "${CONFIG_PATH}.tmp"
+fi
+
+if [[ -n "${LABEL_OWNER}${LABEL_DEVICE_GROUP}${LABEL_INSTALL_PROFILE}" ]]; then
+  {
+    echo
+    echo "labels:"
+    [[ -n "${LABEL_OWNER}" ]] && echo "  owner: ${LABEL_OWNER}"
+    [[ -n "${LABEL_DEVICE_GROUP}" ]] && echo "  device_group: ${LABEL_DEVICE_GROUP}"
+    [[ -n "${LABEL_INSTALL_PROFILE}" ]] && echo "  install_profile: ${LABEL_INSTALL_PROFILE}"
+  } >> "${CONFIG_PATH}.tmp"
+fi
+
 install -m 0640 -o root -g "${GROUP_NAME}" "${CONFIG_PATH}.tmp" "${CONFIG_PATH}"
 rm -f "${CONFIG_PATH}.tmp"
 log "config write/update path=${CONFIG_PATH}"
@@ -177,6 +222,8 @@ SELECTED_PYTHON_VERSION=${PYTHON_VERSION}
 VENV_PYTHON_PATH=${INSTALL_DIR}/.venv/bin/python
 BACKEND_URL=${BACKEND_URL}
 COLLECTOR_ID=${COLLECTOR_ID}
+COLLECTOR_GUID=${COLLECTOR_GUID}
+DEPLOYMENT_ID=${DEPLOYMENT_ID}
 EOF
 
 install -m 0640 -o root -g "${GROUP_NAME}" "${METADATA_PATH}.tmp" "${METADATA_PATH}"
@@ -185,9 +232,9 @@ log "metadata write/update path=${METADATA_PATH}"
 
 chown -R "${USER_NAME}:${GROUP_NAME}" /opt/openassetwatch
 chown -R "${USER_NAME}:${GROUP_NAME}" "${STATE_DIR}" "${LOG_DIR}"
-chown root:"${GROUP_NAME}" "${CONFIG_DIR}" "${CONFIG_PATH}" "${METADATA_PATH}"
+chown root:"${GROUP_NAME}" "${CONFIG_DIR}" "${CONFIG_PATH}" "${METADATA_PATH}" "${IDENTITY_PATH}"
 chmod 0750 "${CONFIG_DIR}"
-chmod 0640 "${CONFIG_PATH}" "${METADATA_PATH}"
+chmod 0640 "${CONFIG_PATH}" "${METADATA_PATH}" "${IDENTITY_PATH}"
 
 if [[ "${INSTALL_SUDOERS}" == "true" ]]; then
   if ! command -v visudo >/dev/null 2>&1; then

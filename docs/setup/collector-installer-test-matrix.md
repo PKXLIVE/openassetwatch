@@ -16,6 +16,7 @@ unless the backend is running on the same machine.
 | Scheduled task starts | `schtasks.exe /Query /TN "OpenAssetWatch Collector" /V /FO LIST` | Task exists and points to `.venv\Scripts\python.exe -m openassetwatch_collector --run-forever --config ...`. |
 | Backend receives collector | `curl http://<backend-ip>:8000/api/v1/collectors` | Collector appears after check-in/inventory cycle. |
 | Backend receives assets | `curl http://<backend-ip>:8000/api/v1/assets` | Local device and network observations appear. |
+| Identity file | `type "C:\ProgramData\OpenAssetWatch\Collector\identity.json"` | Stable `collector_guid` exists and is not regenerated after reinstall. |
 | Installer log | `type "C:\ProgramData\OpenAssetWatch\Collector\logs\install.log"` | Timestamped install/reinstall/uninstall actions are present without secrets. |
 | Reinstall | Run the install command again. | Install completes, service definition is updated safely, config/metadata are refreshed intentionally. |
 | Uninstall | `python collector\install\install.py --uninstall` | Scheduled task and install directory are removed; config/log/state are preserved. |
@@ -31,6 +32,7 @@ unless the backend is running on the same machine.
 | Logs | `sudo journalctl -u openassetwatch-collector -n 100` | Scheduler/check-in/inventory messages are visible. |
 | Backend receives collector | `curl http://<backend-ip>:8000/api/v1/collectors` | Collector appears after check-in/inventory cycle. |
 | Backend receives assets | `curl http://<backend-ip>:8000/api/v1/assets` | Local device and network observations appear. |
+| Identity file | `sudo cat /etc/openassetwatch/identity.json` | Stable `collector_guid` exists and is not regenerated after reinstall. |
 | Installer log | `sudo tail -n 100 /var/log/openassetwatch/install.log` | Timestamped install/reinstall/uninstall actions are present without secrets. |
 | Reinstall | Run the install command again. | Install completes, systemd unit is replaced safely, config/metadata are refreshed intentionally. |
 | Uninstall | `sudo UNINSTALL=true collector/install/install-linux.sh` | systemd service, service file, sudoers file, and install directory are removed; config/log/state are preserved. |
@@ -45,6 +47,7 @@ unless the backend is running on the same machine.
 | Logs | `tail -n 100 /Library/Logs/OpenAssetWatch/collector.out.log` and `tail -n 100 /Library/Logs/OpenAssetWatch/collector.err.log` | Scheduler/check-in/inventory messages are visible. |
 | Backend receives collector | `curl http://<backend-ip>:8000/api/v1/collectors` | Collector appears after check-in/inventory cycle. |
 | Backend receives assets | `curl http://<backend-ip>:8000/api/v1/assets` | Local device and network observations appear. |
+| Identity file | `sudo cat "/Library/Application Support/OpenAssetWatch/Collector/identity.json"` | Stable `collector_guid` exists and is not regenerated after reinstall. |
 | Installer log | `tail -n 100 /Library/Logs/OpenAssetWatch/install.log` | Timestamped install/reinstall/uninstall actions are present without secrets. |
 | Reinstall | Run the install command again. | Install completes, LaunchDaemon plist is replaced safely, config/metadata are refreshed intentionally. |
 | Uninstall | `sudo UNINSTALL=true collector/install/install-macos.sh` | LaunchDaemon is booted out, plist and install directory are removed; config/log/state are preserved. |

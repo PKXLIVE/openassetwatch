@@ -142,6 +142,9 @@ collector:
   name: Local Dev Collector
   mode: hybrid
 
+identity:
+  path: ./identity.json
+
 backend:
   url: http://localhost:8000
 
@@ -155,7 +158,25 @@ scheduler:
   enabled: false
   heartbeat_interval_seconds: 3600
   inventory_interval_seconds: 86400
+
+deployment:
+  deployment_id: home-lab-cincinnati
+  business_unit: lab
+  site: home
+  environment: test
+  install_ring: pilot
+
+labels:
+  owner: dion
+  device_group: mac-test
+  install_profile: local-collector
 ```
+
+`collector_guid` is the stable installed collector identity stored in
+`identity.json`. `collector.id` is the friendly/admin-provided ID. Deployment
+fields group collectors by business unit, site, environment, or rollout ring.
+Labels are flexible categorization metadata and are included in check-in and
+inventory upload payloads.
 
 Run with config:
 

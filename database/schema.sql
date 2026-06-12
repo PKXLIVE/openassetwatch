@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS collector_inventory_submissions (
     id BIGSERIAL PRIMARY KEY,
+    collector_guid TEXT,
     collector_id TEXT,
     collector_name TEXT,
     mode TEXT,
@@ -20,16 +21,28 @@ CREATE INDEX IF NOT EXISTS idx_collector_inventory_submissions_received_at
 CREATE INDEX IF NOT EXISTS idx_collector_inventory_submissions_collector_id
     ON collector_inventory_submissions (collector_id);
 
+CREATE INDEX IF NOT EXISTS idx_collector_inventory_submissions_collector_guid
+    ON collector_inventory_submissions (collector_guid);
+
 CREATE TABLE IF NOT EXISTS collectors (
     id BIGSERIAL PRIMARY KEY,
     collector_id TEXT NOT NULL UNIQUE,
+    collector_guid TEXT,
     collector_name TEXT,
     collector_version TEXT,
+    deployment_id TEXT,
+    deployment_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    labels_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     last_mode TEXT,
     last_seen_at TIMESTAMPTZ,
+    last_submission_id BIGINT REFERENCES collector_inventory_submissions(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_collectors_collector_guid
+    ON collectors (collector_guid)
+    WHERE collector_guid IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS assets (
     id BIGSERIAL PRIMARY KEY,

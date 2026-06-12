@@ -29,6 +29,7 @@ INVALID_MAC_TEXT_VALUES = {
 CREATE_INVENTORY_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS collector_inventory_submissions (
     id BIGSERIAL PRIMARY KEY,
+    collector_guid TEXT,
     collector_id TEXT,
     collector_name TEXT,
     mode TEXT,
@@ -60,10 +61,15 @@ CREATE_COLLECTORS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS collectors (
     id BIGSERIAL PRIMARY KEY,
     collector_id TEXT NOT NULL UNIQUE,
+    collector_guid TEXT,
     collector_name TEXT,
     collector_version TEXT,
+    deployment_id TEXT,
+    deployment_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    labels_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     last_mode TEXT,
     last_seen_at TIMESTAMPTZ,
+    last_submission_id BIGINT REFERENCES collector_inventory_submissions(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )
@@ -126,6 +132,14 @@ CREATE TABLE IF NOT EXISTS asset_software_detections (
 """
 
 NORMALIZATION_INDEX_SQL = [
+    "ALTER TABLE collector_inventory_submissions ADD COLUMN IF NOT EXISTS collector_guid TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_collector_inventory_submissions_collector_guid ON collector_inventory_submissions (collector_guid)",
+    "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS collector_guid TEXT",
+    "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS deployment_id TEXT",
+    "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS deployment_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS labels_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS last_submission_id BIGINT REFERENCES collector_inventory_submissions(id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_collectors_collector_guid ON collectors (collector_guid) WHERE collector_guid IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_assets_collector_id ON assets (collector_id)",
     "CREATE INDEX IF NOT EXISTS idx_assets_mac_address ON assets (mac_address)",
     "CREATE INDEX IF NOT EXISTS idx_assets_primary_ip ON assets (primary_ip)",
@@ -155,6 +169,7 @@ def ensure_database_schema() -> None:
 
 def save_inventory_submission(
     *,
+    collector_guid: str | None,
     collector_id: str | None,
     collector_name: str | None,
     mode: str | None,
@@ -172,6 +187,7 @@ def save_inventory_submission(
     statement = text(
         """
         INSERT INTO collector_inventory_submissions (
+            collector_guid,
             collector_id,
             collector_name,
             mode,
@@ -185,6 +201,7 @@ def save_inventory_submission(
             payload_json
         )
         VALUES (
+            :collector_guid,
             :collector_id,
             :collector_name,
             :mode,
@@ -205,6 +222,7 @@ def save_inventory_submission(
             statement,
             {
                 "collector_id": collector_id,
+                "collector_guid": collector_guid,
                 "collector_name": collector_name,
                 "mode": mode,
                 "schema_version": schema_version,
@@ -226,6 +244,7 @@ def latest_inventory_submission() -> dict[str, Any] | None:
         """
         SELECT
             id,
+            collector_guid,
             collector_id,
             collector_name,
             mode,
@@ -255,6 +274,7 @@ def latest_inventory_submission() -> dict[str, Any] | None:
 
     return {
         "submission_id": row["id"],
+        "collector_guid": row["collector_guid"],
         "collector_id": row["collector_id"],
         "collector_name": row["collector_name"],
         "mode": row["mode"],
@@ -327,40 +347,101 @@ def _software_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _metadata_object(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _upsert_collector(
     connection: Any,
     *,
+    collector_guid: str | None,
     collector_id: str | None,
     collector_name: str | None,
     collector_version: str | None,
+    deployment: dict[str, Any],
+    labels: dict[str, Any],
     mode: str | None,
     seen_at: datetime,
+    last_submission_id: int | None = None,
 ) -> int | None:
     if not collector_id:
         return None
+
+    existing_id: int | None = None
+    if collector_guid:
+        existing_id = connection.execute(
+            text("SELECT id FROM collectors WHERE collector_guid = :collector_guid LIMIT 1"),
+            {"collector_guid": collector_guid},
+        ).scalar_one_or_none()
+
+    if existing_id is None and collector_id:
+        existing_id = connection.execute(
+            text("SELECT id FROM collectors WHERE collector_id = :collector_id LIMIT 1"),
+            {"collector_id": collector_id},
+        ).scalar_one_or_none()
+
+    if existing_id is not None:
+        connection.execute(
+            text(
+                """
+                UPDATE collectors
+                SET
+                    collector_guid = COALESCE(:collector_guid, collector_guid),
+                    collector_id = COALESCE(:collector_id, collector_id),
+                    collector_name = COALESCE(:collector_name, collector_name),
+                    collector_version = COALESCE(:collector_version, collector_version),
+                    deployment_id = COALESCE(:deployment_id, deployment_id),
+                    deployment_json = CAST(:deployment_json AS JSONB),
+                    labels_json = CAST(:labels_json AS JSONB),
+                    last_mode = COALESCE(:last_mode, last_mode),
+                    last_seen_at = :last_seen_at,
+                    last_submission_id = COALESCE(:last_submission_id, last_submission_id),
+                    updated_at = NOW()
+                WHERE id = :id
+                """
+            ),
+            {
+                "id": existing_id,
+                "collector_guid": collector_guid,
+                "collector_id": collector_id,
+                "collector_name": collector_name,
+                "collector_version": collector_version,
+                "deployment_id": _clean_text(deployment.get("deployment_id")),
+                "deployment_json": _json_payload(deployment),
+                "labels_json": _json_payload(labels),
+                "last_mode": mode,
+                "last_seen_at": seen_at,
+                "last_submission_id": last_submission_id,
+            },
+        )
+        return int(existing_id)
 
     statement = text(
         """
         INSERT INTO collectors (
             collector_id,
+            collector_guid,
             collector_name,
             collector_version,
+            deployment_id,
+            deployment_json,
+            labels_json,
             last_mode,
-            last_seen_at
+            last_seen_at,
+            last_submission_id
         )
         VALUES (
             :collector_id,
+            :collector_guid,
             :collector_name,
             :collector_version,
+            :deployment_id,
+            CAST(:deployment_json AS JSONB),
+            CAST(:labels_json AS JSONB),
             :last_mode,
-            :last_seen_at
+            :last_seen_at,
+            :last_submission_id
         )
-        ON CONFLICT (collector_id) DO UPDATE SET
-            collector_name = COALESCE(EXCLUDED.collector_name, collectors.collector_name),
-            collector_version = COALESCE(EXCLUDED.collector_version, collectors.collector_version),
-            last_mode = COALESCE(EXCLUDED.last_mode, collectors.last_mode),
-            last_seen_at = EXCLUDED.last_seen_at,
-            updated_at = NOW()
         RETURNING id
         """
     )
@@ -369,10 +450,15 @@ def _upsert_collector(
             statement,
             {
                 "collector_id": collector_id,
+                "collector_guid": collector_guid,
                 "collector_name": collector_name,
                 "collector_version": collector_version,
+                "deployment_id": _clean_text(deployment.get("deployment_id")),
+                "deployment_json": _json_payload(deployment),
+                "labels_json": _json_payload(labels),
                 "last_mode": mode,
                 "last_seen_at": seen_at,
+                "last_submission_id": last_submission_id,
             },
         ).scalar_one()
     )
@@ -623,6 +709,7 @@ def normalize_inventory_submission(
     *,
     submission_id: int,
     payload: dict[str, Any],
+    collector_guid: str | None,
     collector_id: str | None,
     collector_name: str | None,
     collector_version: str | None,
@@ -636,11 +723,15 @@ def normalize_inventory_submission(
     with get_engine().begin() as connection:
         _upsert_collector(
             connection,
+            collector_guid=collector_guid,
             collector_id=collector_id,
             collector_name=collector_name,
             collector_version=collector_version,
+            deployment=_metadata_object(payload.get("deployment")),
+            labels=_metadata_object(payload.get("labels")),
             mode=mode,
             seen_at=received_at,
+            last_submission_id=submission_id,
         )
 
         device = payload.get("device")
@@ -649,7 +740,12 @@ def normalize_inventory_submission(
             hostname = _clean_text(device.get("hostname"))
             primary_ip = _clean_text(device.get("primary_ip"))
             mac_address = _normalize_mac_address(device.get("mac_address"))
-            asset_key = f"collector:{collector_id}:device" if collector_id else f"device:{hostname or primary_ip or submission_id}"
+            if collector_guid:
+                asset_key = f"collector_guid:{collector_guid}:device"
+            elif collector_id:
+                asset_key = f"collector:{collector_id}:device"
+            else:
+                asset_key = f"device:{hostname or primary_ip or submission_id}"
             local_asset_id = _upsert_asset(
                 connection,
                 asset_key=asset_key,
@@ -726,17 +822,49 @@ def normalize_inventory_submission(
     }
 
 
+def upsert_collector_metadata(
+    *,
+    collector_guid: str | None,
+    collector_id: str | None,
+    collector_name: str | None,
+    collector_version: str | None,
+    deployment: dict[str, Any] | None,
+    labels: dict[str, Any] | None,
+    mode: str | None,
+    seen_at: datetime,
+) -> int | None:
+    ensure_database_schema()
+    with get_engine().begin() as connection:
+        return _upsert_collector(
+            connection,
+            collector_guid=collector_guid,
+            collector_id=collector_id,
+            collector_name=collector_name,
+            collector_version=collector_version,
+            deployment=deployment or {},
+            labels=labels or {},
+            mode=mode,
+            seen_at=seen_at,
+            last_submission_id=None,
+        )
+
+
 def list_collectors() -> list[dict[str, Any]]:
     ensure_database_schema()
     statement = text(
         """
         SELECT
             id,
+            collector_guid,
             collector_id,
             collector_name,
             collector_version,
+            deployment_id,
+            deployment_json,
+            labels_json,
             last_mode,
             last_seen_at,
+            last_submission_id,
             created_at,
             updated_at
         FROM collectors
@@ -745,7 +873,21 @@ def list_collectors() -> list[dict[str, Any]]:
     )
     with get_engine().begin() as connection:
         rows = connection.execute(statement).mappings().all()
-    return [dict(row) for row in rows]
+
+    collectors: list[dict[str, Any]] = []
+    for row in rows:
+        collector = dict(row)
+        deployment = collector.pop("deployment_json")
+        labels = collector.pop("labels_json")
+        if isinstance(deployment, str):
+            deployment = json.loads(deployment)
+        if isinstance(labels, str):
+            labels = json.loads(labels)
+        collector["deployment"] = deployment
+        collector["labels"] = labels
+        collector["last_seen"] = collector.get("last_seen_at")
+        collectors.append(collector)
+    return collectors
 
 
 def list_assets() -> list[dict[str, Any]]:

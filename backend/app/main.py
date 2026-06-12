@@ -11,6 +11,7 @@ from .database import (
     list_collectors,
     normalize_inventory_submission,
     save_inventory_submission,
+    upsert_collector_metadata,
 )
 
 app = FastAPI(
@@ -38,11 +39,14 @@ def health():
 
 class CollectorCheckInRequest(BaseModel):
     collector_id: str = Field(..., min_length=1)
+    collector_guid: str | None = None
     collector_name: str | None = None
     hostname: str = Field(..., min_length=1)
     collector_version: str = Field(..., min_length=1)
     mode: str = Field(..., min_length=1)
     platform: dict[str, Any] | None = None
+    deployment: dict[str, Any] | None = None
+    labels: dict[str, Any] | None = None
     status: str = "healthy"
     message: str | None = None
     checked_in_at: datetime | None = None
@@ -59,12 +63,15 @@ class CollectorCheckInResponse(BaseModel):
 class CollectorInventoryRequest(BaseModel):
     schema_version: str | None = None
     collector: str | dict[str, Any] | None = None
+    collector_guid: str | None = None
     collector_id: str | None = None
     collector_name: str | None = None
     collector_version: str | None = None
     mode: str | None = None
     collected_at: datetime | None = None
     platform: dict[str, Any] | None = None
+    deployment: dict[str, Any] | None = None
+    labels: dict[str, Any] | None = None
     device: dict[str, Any] | None = None
     network: list[dict[str, Any]] | dict[str, Any] | None = None
     software: list[dict[str, Any]] | None = None
@@ -77,6 +84,7 @@ class CollectorInventoryResponse(BaseModel):
     status: str
     submission_id: int
     received_at: datetime
+    collector_guid: str | None = None
     collector_id: str | None = None
     mode: str | None = None
     device_count: int
@@ -88,6 +96,7 @@ class CollectorInventoryResponse(BaseModel):
 
 class CollectorInventoryLatestResponse(BaseModel):
     submission_id: int
+    collector_guid: str | None = None
     collector_id: str | None = None
     collector_name: str | None = None
     mode: str | None = None
@@ -104,10 +113,25 @@ class CollectorInventoryLatestResponse(BaseModel):
 
 @app.post("/api/v1/collectors/checkin", response_model=CollectorCheckInResponse)
 def collector_checkin(payload: CollectorCheckInRequest):
+    received_at = datetime.now(timezone.utc)
+    try:
+        upsert_collector_metadata(
+            collector_guid=payload.collector_guid,
+            collector_id=payload.collector_id,
+            collector_name=payload.collector_name,
+            collector_version=payload.collector_version,
+            deployment=payload.deployment,
+            labels=payload.labels,
+            mode=payload.mode,
+            seen_at=received_at,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to update collector check-in") from exc
+
     return CollectorCheckInResponse(
         status="accepted",
         collector_id=payload.collector_id,
-        received_at=datetime.now(timezone.utc),
+        received_at=received_at,
         next_heartbeat_minutes=60,
         inventory_interval_hours=24,
     )
@@ -120,6 +144,16 @@ def collector_id_from_inventory(payload: CollectorInventoryRequest) -> str | Non
         collector_id = payload.collector.get("id")
         if collector_id:
             return str(collector_id)
+    return None
+
+
+def collector_guid_from_inventory(payload: CollectorInventoryRequest) -> str | None:
+    if payload.collector_guid:
+        return payload.collector_guid
+    if isinstance(payload.collector, dict):
+        collector_guid = payload.collector.get("guid") or payload.collector.get("collector_guid")
+        if collector_guid:
+            return str(collector_guid)
     return None
 
 
@@ -173,6 +207,7 @@ def collector_inventory(raw_payload: Any = Body(...)):
         )
 
     received_at = datetime.now(timezone.utc)
+    collector_guid = collector_guid_from_inventory(payload)
     collector_id = collector_id_from_inventory(payload)
     collector_name = collector_name_from_inventory(payload)
     device_count = 1 if payload.device is not None else 0
@@ -180,6 +215,7 @@ def collector_inventory(raw_payload: Any = Body(...)):
     software_count = len(payload.software) if isinstance(payload.software, list) else 0
     try:
         submission_id = save_inventory_submission(
+            collector_guid=collector_guid,
             collector_id=collector_id,
             collector_name=collector_name,
             mode=payload.mode,
@@ -199,6 +235,7 @@ def collector_inventory(raw_payload: Any = Body(...)):
         normalization_counts = normalize_inventory_submission(
             submission_id=submission_id,
             payload=raw_payload,
+            collector_guid=collector_guid,
             collector_id=collector_id,
             collector_name=collector_name,
             collector_version=payload.collector_version,
@@ -212,6 +249,7 @@ def collector_inventory(raw_payload: Any = Body(...)):
         status="accepted",
         submission_id=submission_id,
         received_at=received_at,
+        collector_guid=collector_guid,
         collector_id=collector_id,
         mode=payload.mode,
         device_count=device_count,

@@ -16,6 +16,7 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -45,6 +46,38 @@ class ConfigError(ValueError):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def load_or_create_collector_identity(path: str, install_source: str = "collector-runtime") -> dict[str, Any]:
+    identity_path = Path(path)
+    if identity_path.exists():
+        try:
+            payload = json.loads(identity_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ConfigError(f"unable to read collector identity file '{path}': {exc}") from exc
+        if not isinstance(payload, dict):
+            raise ConfigError(f"collector identity file '{path}' must contain an object")
+
+        collector_guid = normalize_optional_text(payload.get("collector_guid"))
+        if not collector_guid:
+            raise ConfigError(f"collector identity file '{path}' is missing collector_guid")
+        try:
+            payload["collector_guid"] = str(uuid.UUID(collector_guid))
+        except ValueError as exc:
+            raise ConfigError(f"collector identity file '{path}' has invalid collector_guid") from exc
+        return payload
+
+    payload = {
+        "collector_guid": str(uuid.uuid4()),
+        "created_at": utc_now(),
+        "install_source": install_source,
+    }
+    try:
+        identity_path.parent.mkdir(parents=True, exist_ok=True)
+        identity_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"unable to create collector identity file '{path}': {exc}") from exc
+    return payload
 
 
 def normalize_optional_text(value: Any, lowercase: bool = False) -> str | None:
@@ -392,7 +425,13 @@ def collect_network(platform_info: dict[str, object]) -> list[dict[str, Any]]:
     return list(entries_by_key.values())
 
 
-def build_payload(mode: str) -> dict[str, Any]:
+def build_payload(
+    mode: str,
+    *,
+    collector_guid: str | None = None,
+    deployment: dict[str, Any] | None = None,
+    labels: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     platform_info = collect_platform_capabilities()
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -402,6 +441,12 @@ def build_payload(mode: str) -> dict[str, Any]:
         "collected_at": utc_now(),
         "platform": platform_info,
     }
+    if collector_guid:
+        payload["collector_guid"] = collector_guid
+    if deployment:
+        payload["deployment"] = deployment
+    if labels:
+        payload["labels"] = labels
 
     if mode in {"device", "hybrid"}:
         payload["device"] = collect_device()
@@ -430,6 +475,9 @@ def build_checkin_payload(
     }
     if collector_name:
         checkin_payload["collector_name"] = collector_name
+    for key in ("collector_guid", "deployment", "labels"):
+        if payload.get(key):
+            checkin_payload[key] = payload[key]
     return checkin_payload
 
 
@@ -530,7 +578,12 @@ def run_backend_cycle(
     checkin: bool,
     upload_inventory: bool,
 ) -> dict[str, Any]:
-    payload = build_payload(args.mode)
+    payload = build_payload(
+        args.mode,
+        collector_guid=args.collector_guid,
+        deployment=args.deployment,
+        labels=args.labels,
+    )
 
     if checkin:
         print(f"{utc_now()} collector check-in starting", file=sys.stderr)
@@ -692,6 +745,49 @@ def config_value(config: dict[str, Any], section: str, key: str) -> Any:
     return value.get(key)
 
 
+def config_section(config: dict[str, Any], section: str) -> dict[str, Any]:
+    value = config.get(section)
+    return value if isinstance(value, dict) else {}
+
+
+def parse_label_args(label_items: list[str] | None) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for item in label_items or []:
+        if "=" not in item:
+            raise ConfigError("--label values must use key=value format")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            raise ConfigError("--label values must include a non-empty key")
+        labels[key] = value
+    return labels
+
+
+def normalize_metadata_mapping(value: Any, name: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError(f"{name} must be an object")
+    return {
+        str(key): item
+        for key, item in value.items()
+        if str(key).strip() and item is not None
+    }
+
+
+def deployment_from_args(args: argparse.Namespace) -> dict[str, Any] | None:
+    deployment = {
+        "deployment_id": args.deployment_id,
+        "business_unit": args.business_unit,
+        "site": args.site,
+        "environment": args.deployment_environment,
+        "install_ring": args.install_ring,
+    }
+    cleaned = {key: value for key, value in deployment.items() if value is not None}
+    return cleaned or None
+
+
 def positive_int(value: str) -> int:
     parsed = int(value)
     if parsed <= 0:
@@ -722,6 +818,20 @@ def apply_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
         args.collector_id = config_value(config, "collector", "id")
     if args.collector_name is None:
         args.collector_name = config_value(config, "collector", "name")
+    if args.collector_guid is None:
+        args.collector_guid = config_value(config, "collector", "guid")
+    if args.identity_file is None:
+        args.identity_file = config_value(config, "identity", "path")
+    if args.deployment_id is None:
+        args.deployment_id = config_value(config, "deployment", "deployment_id")
+    if args.business_unit is None:
+        args.business_unit = config_value(config, "deployment", "business_unit")
+    if args.site is None:
+        args.site = config_value(config, "deployment", "site")
+    if args.deployment_environment is None:
+        args.deployment_environment = config_value(config, "deployment", "environment")
+    if args.install_ring is None:
+        args.install_ring = config_value(config, "deployment", "install_ring")
     if not args.checkin:
         args.checkin = bool(config_value(config, "checkin", "enabled"))
     if not args.upload_inventory:
@@ -740,6 +850,12 @@ def apply_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
             DEFAULT_INVENTORY_INTERVAL_SECONDS,
             "inventory_interval_seconds",
         )
+
+    config_labels = normalize_metadata_mapping(config_section(config, "labels"), "labels")
+    cli_labels = parse_label_args(getattr(args, "label", []))
+    labels = {**config_labels, **cli_labels}
+    args.labels = labels or None
+    args.deployment = deployment_from_args(args)
 
     return args
 
@@ -768,6 +884,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--collector-name",
         help="Optional human-readable collector name used for backend check-in.",
+    )
+    parser.add_argument(
+        "--collector-guid",
+        help="Stable installed collector GUID. Usually loaded from identity.json.",
+    )
+    parser.add_argument(
+        "--identity-file",
+        help="Path to persistent collector identity.json.",
+    )
+    parser.add_argument(
+        "--deployment-id",
+        help="Optional deployment grouping ID.",
+    )
+    parser.add_argument(
+        "--business-unit",
+        help="Optional deployment business unit label.",
+    )
+    parser.add_argument(
+        "--site",
+        help="Optional deployment site/location label.",
+    )
+    parser.add_argument(
+        "--environment",
+        dest="deployment_environment",
+        help="Optional deployment environment label.",
+    )
+    parser.add_argument(
+        "--install-ring",
+        help="Optional deployment install ring.",
+    )
+    parser.add_argument(
+        "--label",
+        action="append",
+        default=[],
+        help="Optional flexible label in key=value form. May be repeated.",
     )
     parser.add_argument(
         "--checkin",
@@ -814,6 +965,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.identity_file and not args.collector_guid:
+        try:
+            identity = load_or_create_collector_identity(args.identity_file)
+        except ConfigError as exc:
+            raise SystemExit(str(exc)) from exc
+        args.collector_guid = identity["collector_guid"]
+
     if args.run_forever and not args.backend_url:
         raise SystemExit("--backend-url is required when scheduled mode is enabled")
     if args.run_forever and not args.collector_id:
@@ -828,7 +986,12 @@ def main() -> int:
     if args.run_forever:
         return run_scheduler(args)
 
-    payload = build_payload(args.mode)
+    payload = build_payload(
+        args.mode,
+        collector_guid=args.collector_guid,
+        deployment=args.deployment,
+        labels=args.labels,
+    )
 
     if args.checkin:
         if not perform_checkin(

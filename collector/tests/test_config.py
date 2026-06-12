@@ -13,6 +13,7 @@ from openassetwatch_collector.main import (
     DEFAULT_MODE,
     apply_config_defaults,
     load_config,
+    load_or_create_collector_identity,
     parse_args,
 )
 
@@ -24,6 +25,16 @@ def make_args(config: str | None = None, **overrides: object) -> argparse.Namesp
         "backend_url": None,
         "collector_id": None,
         "collector_name": None,
+        "collector_guid": None,
+        "identity_file": None,
+        "deployment_id": None,
+        "business_unit": None,
+        "site": None,
+        "deployment_environment": None,
+        "install_ring": None,
+        "label": [],
+        "labels": None,
+        "deployment": None,
         "checkin": False,
         "upload_inventory": False,
         "run_forever": False,
@@ -35,6 +46,25 @@ def make_args(config: str | None = None, **overrides: object) -> argparse.Namesp
 
 
 class ConfigLoadingTests(unittest.TestCase):
+    def test_identity_file_is_created_if_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            identity_path = Path(temp_dir) / "identity.json"
+
+            identity = load_or_create_collector_identity(str(identity_path), "unit-test")
+
+            self.assertTrue(identity_path.exists())
+            self.assertEqual(identity["install_source"], "unit-test")
+            self.assertEqual(identity, json.loads(identity_path.read_text(encoding="utf-8")))
+
+    def test_identity_file_is_preserved_on_reuse(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            identity_path = Path(temp_dir) / "identity.json"
+            first = load_or_create_collector_identity(str(identity_path), "unit-test")
+            second = load_or_create_collector_identity(str(identity_path), "unit-test")
+
+        self.assertEqual(first["collector_guid"], second["collector_guid"])
+        self.assertEqual(first["created_at"], second["created_at"])
+
     def test_load_yaml_config_reads_expected_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = Path(temp_dir) / "collector.yaml"
@@ -47,6 +77,10 @@ class ConfigLoadingTests(unittest.TestCase):
                         "  mode: hybrid",
                         "backend:",
                         "  url: http://localhost:8000",
+                        "deployment:",
+                        "  deployment_id: home-lab-cincinnati",
+                        "labels:",
+                        "  owner: dion",
                         "checkin:",
                         "  enabled: true",
                     ]
@@ -60,6 +94,8 @@ class ConfigLoadingTests(unittest.TestCase):
         self.assertEqual(config["collector"]["name"], "Local Dev Collector")
         self.assertEqual(config["collector"]["mode"], "hybrid")
         self.assertEqual(config["backend"]["url"], "http://localhost:8000")
+        self.assertEqual(config["deployment"]["deployment_id"], "home-lab-cincinnati")
+        self.assertEqual(config["labels"]["owner"], "dion")
         self.assertTrue(config["checkin"]["enabled"])
 
     def test_load_json_config_reads_expected_values(self) -> None:
@@ -112,6 +148,17 @@ class ConfigDefaultsTests(unittest.TestCase):
                         "  mode: hybrid",
                         "backend:",
                         "  url: http://localhost:8000",
+                        "identity:",
+                        "  path: ./identity.json",
+                        "deployment:",
+                        "  deployment_id: home-lab-cincinnati",
+                        "  business_unit: lab",
+                        "  site: home",
+                        "  environment: test",
+                        "  install_ring: pilot",
+                        "labels:",
+                        "  owner: dion",
+                        "  device_group: mac-test",
                         "checkin:",
                         "  enabled: true",
                     ]
@@ -125,6 +172,11 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertEqual(args.backend_url, "http://localhost:8000")
         self.assertEqual(args.collector_id, "local-dev-collector-01")
         self.assertEqual(args.collector_name, "Local Dev Collector")
+        self.assertEqual(args.identity_file, "./identity.json")
+        self.assertEqual(args.deployment["deployment_id"], "home-lab-cincinnati")
+        self.assertEqual(args.deployment["business_unit"], "lab")
+        self.assertEqual(args.labels["owner"], "dion")
+        self.assertEqual(args.labels["device_group"], "mac-test")
         self.assertTrue(args.checkin)
 
     def test_cli_values_override_config_values(self) -> None:
@@ -153,6 +205,8 @@ class ConfigDefaultsTests(unittest.TestCase):
                     backend_url="http://example.test:8000",
                     collector_id="cli-id",
                     collector_name="CLI Collector",
+                    deployment_id="cli-deployment",
+                    label=["owner=cli"],
                     checkin=True,
                 )
             )
@@ -161,6 +215,8 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertEqual(args.backend_url, "http://example.test:8000")
         self.assertEqual(args.collector_id, "cli-id")
         self.assertEqual(args.collector_name, "CLI Collector")
+        self.assertEqual(args.deployment["deployment_id"], "cli-deployment")
+        self.assertEqual(args.labels["owner"], "cli")
         self.assertTrue(args.checkin)
 
     def test_no_config_preserves_default_mode_and_no_checkin(self) -> None:
@@ -170,6 +226,10 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertIsNone(args.backend_url)
         self.assertIsNone(args.collector_id)
         self.assertIsNone(args.collector_name)
+        self.assertIsNone(args.collector_guid)
+        self.assertIsNone(args.identity_file)
+        self.assertIsNone(args.deployment)
+        self.assertIsNone(args.labels)
         self.assertFalse(args.checkin)
         self.assertFalse(args.run_forever)
         self.assertEqual(args.heartbeat_interval_seconds, 3600)
