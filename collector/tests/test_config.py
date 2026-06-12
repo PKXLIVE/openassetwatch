@@ -23,6 +23,7 @@ def make_args(config: str | None = None, **overrides: object) -> argparse.Namesp
         "config": config,
         "mode": None,
         "backend_url": None,
+        "backend_token": None,
         "collector_id": None,
         "collector_name": None,
         "collector_guid": None,
@@ -77,6 +78,7 @@ class ConfigLoadingTests(unittest.TestCase):
                         "  mode: hybrid",
                         "backend:",
                         "  url: http://localhost:8000",
+                        "  token: change-me-dev-token",
                         "deployment:",
                         "  deployment_id: home-lab-cincinnati",
                         "labels:",
@@ -94,6 +96,7 @@ class ConfigLoadingTests(unittest.TestCase):
         self.assertEqual(config["collector"]["name"], "Local Dev Collector")
         self.assertEqual(config["collector"]["mode"], "hybrid")
         self.assertEqual(config["backend"]["url"], "http://localhost:8000")
+        self.assertEqual(config["backend"]["token"], "change-me-dev-token")
         self.assertEqual(config["deployment"]["deployment_id"], "home-lab-cincinnati")
         self.assertEqual(config["labels"]["owner"], "dion")
         self.assertTrue(config["checkin"]["enabled"])
@@ -148,6 +151,7 @@ class ConfigDefaultsTests(unittest.TestCase):
                         "  mode: hybrid",
                         "backend:",
                         "  url: http://localhost:8000",
+                        "  token: change-me-dev-token",
                         "identity:",
                         "  path: ./identity.json",
                         "deployment:",
@@ -170,6 +174,7 @@ class ConfigDefaultsTests(unittest.TestCase):
 
         self.assertEqual(args.mode, "hybrid")
         self.assertEqual(args.backend_url, "http://localhost:8000")
+        self.assertEqual(args.backend_token, "change-me-dev-token")
         self.assertEqual(args.collector_id, "local-dev-collector-01")
         self.assertEqual(args.collector_name, "Local Dev Collector")
         self.assertEqual(args.identity_file, "./identity.json")
@@ -203,6 +208,7 @@ class ConfigDefaultsTests(unittest.TestCase):
                     str(config_path),
                     mode="device",
                     backend_url="http://example.test:8000",
+                    backend_token="cli-token",
                     collector_id="cli-id",
                     collector_name="CLI Collector",
                     deployment_id="cli-deployment",
@@ -213,6 +219,7 @@ class ConfigDefaultsTests(unittest.TestCase):
 
         self.assertEqual(args.mode, "device")
         self.assertEqual(args.backend_url, "http://example.test:8000")
+        self.assertEqual(args.backend_token, "cli-token")
         self.assertEqual(args.collector_id, "cli-id")
         self.assertEqual(args.collector_name, "CLI Collector")
         self.assertEqual(args.deployment["deployment_id"], "cli-deployment")
@@ -224,6 +231,7 @@ class ConfigDefaultsTests(unittest.TestCase):
 
         self.assertEqual(args.mode, DEFAULT_MODE)
         self.assertIsNone(args.backend_url)
+        self.assertIsNone(args.backend_token)
         self.assertIsNone(args.collector_id)
         self.assertIsNone(args.collector_name)
         self.assertIsNone(args.collector_guid)

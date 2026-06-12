@@ -20,6 +20,19 @@ The Docker Compose backend service uses this database setting by default:
 DATABASE_URL=postgresql+psycopg2://openassetwatch:openassetwatch_change_me@postgres:5432/openassetwatch
 ```
 
+Collector API key auth is optional in local development. If this variable is
+unset or empty, collector check-in and inventory upload stay open:
+
+```sh
+OPENASSETWATCH_COLLECTOR_TOKEN=change-me-dev-token
+```
+
+When set, collector POST requests must include:
+
+```text
+X-OpenAssetWatch-Collector-Token: change-me-dev-token
+```
+
 Inventory persistence stores raw collector submissions in Postgres and performs
 minimal MVP normalization into collector, asset, IP observation, and software
 detection records.
@@ -32,6 +45,7 @@ Send a collector heartbeat/check-in:
 ```sh
 curl -X POST http://localhost:8000/api/v1/collectors/checkin \
   -H "Content-Type: application/json" \
+  -H "X-OpenAssetWatch-Collector-Token: change-me-dev-token" \
   -d '{
     "collector_id": "local-dev-collector-01",
     "collector_guid": "11111111-1111-4111-8111-111111111111",
@@ -65,6 +79,7 @@ Send a collector inventory payload:
 ```sh
 curl -X POST http://localhost:8000/api/v1/collectors/inventory \
   -H "Content-Type: application/json" \
+  -H "X-OpenAssetWatch-Collector-Token: change-me-dev-token" \
   -d '{
     "schema_version": "0.1",
     "collector": {

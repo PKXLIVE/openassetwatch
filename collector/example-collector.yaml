@@ -8,6 +8,7 @@ identity:
 
 backend:
   url: http://localhost:8000
+  token: change-me-dev-token
 
 checkin:
   enabled: true

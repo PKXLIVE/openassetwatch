@@ -94,6 +94,34 @@ labels:
 - Active scanning and packet capture remain disabled by default.
 - Backend check-in and inventory upload should continue to use explicit config.
 
+## Collector API Key MVP
+
+The backend can optionally require a shared collector token for collector POST
+endpoints:
+
+```sh
+OPENASSETWATCH_COLLECTOR_TOKEN=change-me-dev-token
+```
+
+When unset or empty, local development behavior remains open. When set, the
+collector must send:
+
+```text
+X-OpenAssetWatch-Collector-Token: <token>
+```
+
+This protects:
+
+- `POST /api/v1/collectors/checkin`
+- `POST /api/v1/collectors/inventory`
+
+It does not protect `GET /health`. Read-only development endpoints remain open
+for the MVP.
+
+Installer-provided tokens should be written only to protected collector config
+files. They should not be written to `install.env`, installer logs, or normal
+collector output.
+
 The expected long-running command shape is:
 
 ```sh

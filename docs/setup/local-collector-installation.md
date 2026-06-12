@@ -59,6 +59,11 @@ labels:
 Deployment metadata and labels are sent with collector check-in and inventory
 upload payloads.
 
+If the backend sets `OPENASSETWATCH_COLLECTOR_TOKEN`, installed collectors must
+be configured with the same token. Installers accept `BACKEND_TOKEN` or
+`COLLECTOR_TOKEN` and write the value to the protected collector config. Tokens
+are not written to `install.env` and should not appear in installer logs.
+
 ## Backend URL
 
 When installing a collector on a different machine from the backend, do not use
@@ -79,6 +84,7 @@ Run from an elevated Command Prompt or terminal.
 cd collector
 install\install-windows.cmd ^
   --backend-url http://192.168.1.10:8000 ^
+  --backend-token change-me-dev-token ^
   --collector-id windows-lab-01 ^
   --collector-name "Windows Lab 01" ^
   --mode hybrid
@@ -152,6 +158,7 @@ Run from the repository root on the collector host.
 
 ```sh
 sudo BACKEND_URL=http://192.168.1.10:8000 \
+  BACKEND_TOKEN=change-me-dev-token \
   COLLECTOR_ID=linux-lab-01 \
   COLLECTOR_NAME="Linux Lab 01" \
   DEPLOYMENT_ID=home-lab-cincinnati \
@@ -299,6 +306,7 @@ Example Python paths:
 
 ```sh
 sudo BACKEND_URL=http://192.168.1.10:8000 \
+  BACKEND_TOKEN=change-me-dev-token \
   COLLECTOR_ID=mac-lab-01 \
   COLLECTOR_NAME="Mac Lab 01" \
   DEPLOYMENT_ID=home-lab-cincinnati \
@@ -313,6 +321,7 @@ Real-world validation pattern:
 sudo env \
   PYTHON_BIN=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 \
   BACKEND_URL=http://100.86.144.109:8000 \
+  BACKEND_TOKEN=change-me-dev-token \
   COLLECTOR_ID=mac-lab-01 \
   COLLECTOR_NAME="Mac Lab 01" \
   DEPLOYMENT_ID=home-lab-cincinnati \

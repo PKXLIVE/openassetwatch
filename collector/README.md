@@ -51,11 +51,13 @@ PYTHONPATH=collector python -m unittest discover collector/tests
 
 The collector can optionally send a lightweight manual check-in to the backend.
 This reports collector health and heartbeat metadata only. It does not upload
-full inventory and does not require authentication in the MVP.
+full inventory. If the backend has `OPENASSETWATCH_COLLECTOR_TOKEN` set, pass
+the matching token with `--backend-token` or config.
 
 ```sh
 openassetwatch-collector --mode hybrid --checkin \
   --backend-url http://localhost:8000 \
+  --backend-token change-me-dev-token \
   --collector-id local-dev-collector-01 \
   --collector-name "Local Dev Collector"
 ```
@@ -71,6 +73,7 @@ the collector sends the check-in first, then uploads inventory.
 ```sh
 openassetwatch-collector --mode hybrid --upload-inventory \
   --backend-url http://localhost:8000 \
+  --backend-token change-me-dev-token \
   --collector-id local-dev-collector-01 \
   --collector-name "Local Dev Collector"
 ```
@@ -147,6 +150,7 @@ identity:
 
 backend:
   url: http://localhost:8000
+  token: change-me-dev-token
 
 checkin:
   enabled: true
@@ -177,6 +181,10 @@ labels:
 fields group collectors by business unit, site, environment, or rollout ring.
 Labels are flexible categorization metadata and are included in check-in and
 inventory upload payloads.
+
+When `backend.token` or `--backend-token` is set, the collector sends it in the
+`X-OpenAssetWatch-Collector-Token` header for check-in and inventory upload.
+The token is not printed in normal collector output.
 
 Run with config:
 

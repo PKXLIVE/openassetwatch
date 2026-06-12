@@ -19,6 +19,7 @@ HEARTBEAT_INTERVAL_SECONDS="${HEARTBEAT_INTERVAL_SECONDS:-3600}"
 INVENTORY_INTERVAL_SECONDS="${INVENTORY_INTERVAL_SECONDS:-86400}"
 COLLECTOR_ID="${COLLECTOR_ID:-$(hostname)-collector}"
 COLLECTOR_NAME="${COLLECTOR_NAME:-$(hostname)}"
+BACKEND_TOKEN="${BACKEND_TOKEN:-${COLLECTOR_TOKEN:-}}"
 DEPLOYMENT_ID="${DEPLOYMENT_ID:-}"
 BUSINESS_UNIT="${BUSINESS_UNIT:-}"
 SITE="${SITE:-}"
@@ -174,7 +175,13 @@ identity:
 
 backend:
   url: ${BACKEND_URL}
+EOF
 
+if [[ -n "${BACKEND_TOKEN}" ]]; then
+  echo "  token: \"${BACKEND_TOKEN}\"" >> "${CONFIG_PATH}.tmp"
+fi
+
+cat >> "${CONFIG_PATH}.tmp" <<EOF
 checkin:
   enabled: true
 

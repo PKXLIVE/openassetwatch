@@ -1,7 +1,9 @@
+import os
+import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, Header, HTTPException, FastAPI
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -21,6 +23,10 @@ app = FastAPI(
 )
 
 
+COLLECTOR_TOKEN_ENV = "OPENASSETWATCH_COLLECTOR_TOKEN"
+COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
+
+
 @app.get("/")
 def root():
     return {
@@ -35,6 +41,17 @@ def health():
     return {
         "status": "healthy"
     }
+
+
+def require_collector_token(provided_token: str | None) -> None:
+    expected_token = os.getenv(COLLECTOR_TOKEN_ENV)
+    if not expected_token:
+        return
+    if not isinstance(provided_token, str):
+        provided_token = None
+    if provided_token and secrets.compare_digest(provided_token, expected_token):
+        return
+    raise HTTPException(status_code=401, detail="valid collector token required")
 
 
 class CollectorCheckInRequest(BaseModel):
@@ -112,7 +129,11 @@ class CollectorInventoryLatestResponse(BaseModel):
 
 
 @app.post("/api/v1/collectors/checkin", response_model=CollectorCheckInResponse)
-def collector_checkin(payload: CollectorCheckInRequest):
+def collector_checkin(
+    payload: CollectorCheckInRequest,
+    collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
+):
+    require_collector_token(collector_token)
     received_at = datetime.now(timezone.utc)
     try:
         upsert_collector_metadata(
@@ -192,7 +213,11 @@ def network_observation_count(network: list[dict[str, Any]] | dict[str, Any] | N
 
 
 @app.post("/api/v1/collectors/inventory", response_model=CollectorInventoryResponse)
-def collector_inventory(raw_payload: Any = Body(...)):
+def collector_inventory(
+    raw_payload: Any = Body(...),
+    collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
+):
+    require_collector_token(collector_token)
     if not isinstance(raw_payload, dict):
         raise HTTPException(status_code=400, detail="inventory payload must be a JSON object")
 

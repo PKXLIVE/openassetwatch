@@ -24,6 +24,7 @@ services:
     working_dir: /app
     environment:
       DATABASE_URL: postgresql+psycopg2://openassetwatch:openassetwatch_change_me@postgres:5432/openassetwatch
+      OPENASSETWATCH_COLLECTOR_TOKEN: ${OPENASSETWATCH_COLLECTOR_TOKEN:-}
     volumes:
       - ./backend:/app
     command: >

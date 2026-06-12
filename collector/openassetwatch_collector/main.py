@@ -31,6 +31,7 @@ POWERSHELL_COMMANDS = ("powershell", "powershell.exe", "pwsh", "pwsh.exe")
 DEFAULT_MODE = "device"
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 3600
 DEFAULT_INVENTORY_INTERVAL_SECONDS = 86400
+COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
 INVALID_MAC_TEXT_VALUES = {
     "(incomplete)",
     "<incomplete>",
@@ -481,13 +482,24 @@ def build_checkin_payload(
     return checkin_payload
 
 
-def send_checkin(backend_url: str, checkin_payload: dict[str, Any]) -> dict[str, Any]:
+def backend_headers(backend_token: str | None = None) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if backend_token:
+        headers[COLLECTOR_TOKEN_HEADER] = backend_token
+    return headers
+
+
+def send_checkin(
+    backend_url: str,
+    checkin_payload: dict[str, Any],
+    backend_token: str | None = None,
+) -> dict[str, Any]:
     url = f"{backend_url.rstrip('/')}/api/v1/collectors/checkin"
     body = json.dumps(checkin_payload).encode("utf-8")
     request = Request(
         url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers=backend_headers(backend_token),
         method="POST",
     )
     with urlopen(request, timeout=15) as response:
@@ -508,13 +520,17 @@ def build_inventory_payload(
     return inventory_payload
 
 
-def send_inventory(backend_url: str, inventory_payload: dict[str, Any]) -> dict[str, Any]:
+def send_inventory(
+    backend_url: str,
+    inventory_payload: dict[str, Any],
+    backend_token: str | None = None,
+) -> dict[str, Any]:
     url = f"{backend_url.rstrip('/')}/api/v1/collectors/inventory"
     body = json.dumps(inventory_payload).encode("utf-8")
     request = Request(
         url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers=backend_headers(backend_token),
         method="POST",
     )
     with urlopen(request, timeout=15) as response:
@@ -525,6 +541,7 @@ def send_inventory(backend_url: str, inventory_payload: dict[str, Any]) -> dict[
 def perform_checkin(
     *,
     backend_url: str,
+    backend_token: str | None,
     payload: dict[str, Any],
     collector_id: str,
     collector_name: str | None,
@@ -535,7 +552,7 @@ def perform_checkin(
         collector_name,
     )
     try:
-        checkin_response = send_checkin(backend_url, checkin_payload)
+        checkin_response = send_checkin(backend_url, checkin_payload, backend_token)
     except HTTPError as exc:
         print(f"collector check-in failed: HTTP {exc.code}", file=sys.stderr)
         return False
@@ -550,6 +567,7 @@ def perform_checkin(
 def perform_inventory_upload(
     *,
     backend_url: str,
+    backend_token: str | None,
     payload: dict[str, Any],
     collector_id: str | None,
     collector_name: str | None,
@@ -560,7 +578,7 @@ def perform_inventory_upload(
         collector_name,
     )
     try:
-        inventory_response = send_inventory(backend_url, inventory_payload)
+        inventory_response = send_inventory(backend_url, inventory_payload, backend_token)
     except HTTPError as exc:
         print(f"collector inventory upload failed: HTTP {exc.code}", file=sys.stderr)
         return False
@@ -589,6 +607,7 @@ def run_backend_cycle(
         print(f"{utc_now()} collector check-in starting", file=sys.stderr)
         perform_checkin(
             backend_url=args.backend_url,
+            backend_token=args.backend_token,
             payload=payload,
             collector_id=args.collector_id,
             collector_name=args.collector_name,
@@ -598,6 +617,7 @@ def run_backend_cycle(
         print(f"{utc_now()} collector inventory upload starting", file=sys.stderr)
         perform_inventory_upload(
             backend_url=args.backend_url,
+            backend_token=args.backend_token,
             payload=payload,
             collector_id=args.collector_id,
             collector_name=args.collector_name,
@@ -814,6 +834,8 @@ def apply_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
         args.mode = config_value(config, "collector", "mode") or DEFAULT_MODE
     if args.backend_url is None:
         args.backend_url = config_value(config, "backend", "url")
+    if args.backend_token is None:
+        args.backend_token = config_value(config, "backend", "token")
     if args.collector_id is None:
         args.collector_id = config_value(config, "collector", "id")
     if args.collector_name is None:
@@ -876,6 +898,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--backend-url",
         help="Backend base URL for collector check-in.",
+    )
+    parser.add_argument(
+        "--backend-token",
+        help="Optional backend collector token sent in the collector auth header.",
     )
     parser.add_argument(
         "--collector-id",
@@ -996,6 +1022,7 @@ def main() -> int:
     if args.checkin:
         if not perform_checkin(
             backend_url=args.backend_url,
+            backend_token=args.backend_token,
             payload=payload,
             collector_id=args.collector_id,
             collector_name=args.collector_name,
@@ -1005,6 +1032,7 @@ def main() -> int:
     if args.upload_inventory:
         if not perform_inventory_upload(
             backend_url=args.backend_url,
+            backend_token=args.backend_token,
             payload=payload,
             collector_id=args.collector_id,
             collector_name=args.collector_name,

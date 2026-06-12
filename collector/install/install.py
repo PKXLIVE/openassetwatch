@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
 import socket
@@ -280,18 +281,25 @@ def yaml_text(args: argparse.Namespace) -> str:
         "",
         "backend:",
         f"  url: {yaml_scalar(args.backend_url)}",
-        "",
-        "checkin:",
-        "  enabled: true",
-        "",
-        "inventory:",
-        "  upload_enabled: true",
-        "",
-        "scheduler:",
-        "  enabled: true",
-        f"  heartbeat_interval_seconds: {args.heartbeat_interval_seconds}",
-        f"  inventory_interval_seconds: {args.inventory_interval_seconds}",
     ]
+    if args.backend_token:
+        lines.append(f"  token: {yaml_scalar(args.backend_token)}")
+
+    lines.extend(
+        [
+            "",
+            "checkin:",
+            "  enabled: true",
+            "",
+            "inventory:",
+            "  upload_enabled: true",
+            "",
+            "scheduler:",
+            "  enabled: true",
+            f"  heartbeat_interval_seconds: {args.heartbeat_interval_seconds}",
+            f"  inventory_interval_seconds: {args.inventory_interval_seconds}",
+        ]
+    )
 
     deployment_lines = [
         ("deployment_id", args.deployment_id),
@@ -319,12 +327,23 @@ def yaml_scalar(value: object) -> str:
     return json.dumps(str(value))
 
 
+def redact_config_text(text: str) -> str:
+    lines = []
+    for line in text.splitlines():
+        if re.match(r"^\s*token:\s*", line):
+            indent = line[: len(line) - len(line.lstrip(" "))]
+            lines.append(f'{indent}token: "<redacted>"')
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 def write_config(paths: InstallPaths, args: argparse.Namespace, *, dry_run: bool) -> None:
     print(f"write/update config: {paths.config_path}")
     log_event(paths, f"config write/update path={paths.config_path}", dry_run=dry_run)
     text = yaml_text(args)
     if dry_run:
-        print(text)
+        print(redact_config_text(text))
         return
     paths.config_path.write_text(text, encoding="utf-8")
 
@@ -656,6 +675,11 @@ def uninstall_linux(paths: InstallPaths, args: argparse.Namespace, *, dry_run: b
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Install the OpenAssetWatch collector locally.")
     parser.add_argument("--backend-url", help="Backend URL reachable from this collector host.")
+    parser.add_argument(
+        "--backend-token",
+        default=os.environ.get("BACKEND_TOKEN") or os.environ.get("COLLECTOR_TOKEN"),
+        help="Optional collector token written to config. Also honors BACKEND_TOKEN or COLLECTOR_TOKEN.",
+    )
     parser.add_argument("--collector-id", help="Stable collector ID. Defaults to '<hostname>-collector'.")
     parser.add_argument("--collector-name", help="Human-readable collector name. Defaults to hostname.")
     parser.add_argument("--mode", choices=("device", "network", "hybrid"), default=DEFAULT_MODE)

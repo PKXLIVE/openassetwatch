@@ -10,12 +10,21 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from openassetwatch_collector.main import (
+    COLLECTOR_TOKEN_HEADER,
     apply_config_defaults,
     build_checkin_payload,
     build_inventory_payload,
     main,
+    send_checkin,
     send_inventory,
 )
+
+
+def header_value(headers: dict[str, str], name: str) -> str | None:
+    for key, value in headers.items():
+        if key.lower() == name.lower():
+            return value
+    return None
 
 
 def make_args(config: str | None = None, **overrides: object) -> argparse.Namespace:
@@ -23,6 +32,7 @@ def make_args(config: str | None = None, **overrides: object) -> argparse.Namesp
         "config": config,
         "mode": None,
         "backend_url": None,
+        "backend_token": None,
         "collector_id": None,
         "collector_name": None,
         "collector_guid": None,
@@ -109,6 +119,7 @@ class InventoryUploadTests(unittest.TestCase):
             captured["url"] = request.full_url
             captured["method"] = request.get_method()
             captured["body"] = json.loads(request.data.decode("utf-8"))
+            captured["headers"] = dict(request.header_items())
             captured["timeout"] = timeout
             return FakeResponse()
 
@@ -121,8 +132,65 @@ class InventoryUploadTests(unittest.TestCase):
         self.assertEqual(captured["url"], "http://localhost:8000/api/v1/collectors/inventory")
         self.assertEqual(captured["method"], "POST")
         self.assertEqual(captured["body"]["mode"], "device")
+        self.assertIsNone(header_value(captured["headers"], COLLECTOR_TOKEN_HEADER))
         self.assertEqual(captured["timeout"], 15)
         self.assertEqual(response["status"], "accepted")
+
+    def test_send_inventory_posts_token_header_when_configured(self) -> None:
+        response_body = json.dumps({"status": "accepted"}).encode("utf-8")
+
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return response_body
+
+        captured = {}
+
+        def fake_urlopen(request: object, timeout: int) -> FakeResponse:
+            captured["headers"] = dict(request.header_items())
+            return FakeResponse()
+
+        with patch("openassetwatch_collector.main.urlopen", side_effect=fake_urlopen):
+            send_inventory(
+                "http://localhost:8000/",
+                {"mode": "device", "device": {"hostname": "test-host"}},
+                "change-me-dev-token",
+            )
+
+        self.assertEqual(header_value(captured["headers"], COLLECTOR_TOKEN_HEADER), "change-me-dev-token")
+
+    def test_send_checkin_posts_token_header_when_configured(self) -> None:
+        response_body = json.dumps({"status": "accepted"}).encode("utf-8")
+
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return response_body
+
+        captured = {}
+
+        def fake_urlopen(request: object, timeout: int) -> FakeResponse:
+            captured["headers"] = dict(request.header_items())
+            return FakeResponse()
+
+        with patch("openassetwatch_collector.main.urlopen", side_effect=fake_urlopen):
+            send_checkin(
+                "http://localhost:8000/",
+                {"collector_id": "collector-1", "hostname": "test-host", "collector_version": "0.1.0", "mode": "device"},
+                "change-me-dev-token",
+            )
+
+        self.assertEqual(header_value(captured["headers"], COLLECTOR_TOKEN_HEADER), "change-me-dev-token")
 
     def test_missing_backend_url_returns_clear_error(self) -> None:
         with patch("sys.argv", ["openassetwatch-collector", "--upload-inventory"]):
@@ -169,6 +237,7 @@ class InventoryUploadTests(unittest.TestCase):
                         "  mode: hybrid",
                         "backend:",
                         "  url: http://localhost:8000",
+                        "  token: change-me-dev-token",
                         "deployment:",
                         "  deployment_id: config-deployment",
                         "labels:",
@@ -184,6 +253,7 @@ class InventoryUploadTests(unittest.TestCase):
 
         self.assertEqual(args.mode, "hybrid")
         self.assertEqual(args.backend_url, "http://localhost:8000")
+        self.assertEqual(args.backend_token, "change-me-dev-token")
         self.assertEqual(args.deployment["deployment_id"], "config-deployment")
         self.assertEqual(args.labels["owner"], "config-owner")
         self.assertTrue(args.upload_inventory)
@@ -232,11 +302,15 @@ class InventoryUploadTests(unittest.TestCase):
     def test_checkin_runs_before_inventory_upload(self) -> None:
         calls = []
 
-        def fake_checkin(backend_url: str, checkin_payload: dict[str, object]) -> dict[str, object]:
+        def fake_checkin(
+            backend_url: str,
+            checkin_payload: dict[str, object],
+            backend_token: str | None = None,
+        ) -> dict[str, object]:
             calls.append("checkin")
             return {"status": "accepted"}
 
-        def fake_inventory(backend_url: str, inventory_payload: dict[str, object]) -> dict[str, object]:
+        def fake_inventory(backend_url: str, inventory_payload: dict[str, object], backend_token: str | None = None) -> dict[str, object]:
             calls.append("inventory")
             return {"status": "accepted"}
 
