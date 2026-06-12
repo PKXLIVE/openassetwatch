@@ -110,11 +110,16 @@ openassetwatch-collector --mode hybrid --run-forever \
 ```
 
 For local install planning, see `docs/setup/collector-deployment.md`. The
-collector remains Python-first: Windows should use Task Scheduler for the MVP,
-Linux should use systemd, and macOS should use launchd.
+collector remains Python-first: Windows uses Task Scheduler at startup for the
+MVP, Linux uses systemd, and macOS uses the LaunchDaemon at
+`/Library/LaunchDaemons/com.openassetwatch.collector.plist`.
+
+Packaging is future scope. MSI/EXE, DEB/RPM, macOS PKG, optional DMG wrapping,
+and signing/notarization are not implemented in the installer-hardening PR.
 
 For local multi-machine installer testing, see
-`docs/setup/local-collector-installation.md`.
+`docs/setup/local-collector-installation.md`. For reinstall/uninstall
+validation scenarios, see `docs/setup/collector-installer-test-matrix.md`.
 
 ## Config File
 

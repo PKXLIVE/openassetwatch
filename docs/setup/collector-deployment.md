@@ -19,6 +19,20 @@ collector/install/install-windows.cmd
 For install commands and verification steps, see
 `docs/setup/local-collector-installation.md`.
 
+## Current Persistent Service Model
+
+The local install MVP uses native OS service managers to keep the Python
+collector running:
+
+- Windows uses Task Scheduler at startup. This is not a true Windows Service
+  yet.
+- Linux uses a `systemd` service.
+- macOS uses a LaunchDaemon at
+  `/Library/LaunchDaemons/com.openassetwatch.collector.plist`.
+
+All three models call Python directly with
+`-m openassetwatch_collector --run-forever --config <config path>`.
+
 ## General Principles
 
 - Keep the collector Python-first.
@@ -29,6 +43,13 @@ For install commands and verification steps, see
 - Services should restart automatically where the OS service manager supports
   it.
 - Logs should be easy to find during local troubleshooting.
+- Installers should append timestamped entries to a dedicated `install.log`
+  separate from collector runtime logs.
+- Installers should write an `install.env` metadata file with platform,
+  selected Python, venv Python, backend URL, collector ID, timestamp, and
+  installer version.
+- Uninstall should preserve config, logs, and state by default unless purge is
+  explicitly requested.
 - Active scanning and packet capture remain disabled by default.
 - Backend check-in and inventory upload should continue to use explicit config.
 
@@ -167,11 +188,38 @@ to:
 macOS PKG packaging, notarization/signing, and MDM deployment are out of scope
 for this MVP.
 
+## Future Packaging Roadmap
+
+Packaging is intentionally out of scope for this installer-hardening PR. Future
+packaging work can build on the install, reinstall, uninstall, purge,
+metadata, logging, troubleshooting, and test matrix behavior documented here.
+
+Windows future:
+
+- MSI or EXE installer.
+- True Windows Service or a service wrapper later.
+
+Linux future:
+
+- DEB/RPM packages.
+- Include the `systemd` service in the package.
+
+macOS future:
+
+- PKG installer first.
+- Optional DMG wrapper containing the PKG.
+- Signing and notarization later.
+
+On macOS, a DMG is a distribution container. The PKG is the better mechanism
+for installing LaunchDaemon files, creating protected directories, and setting
+system-level permissions.
+
 ## Out of Scope for This MVP
 
 - Windows Service implementation.
-- systemd installer automation.
 - Dedicated service account automation on Windows.
+- MSI or EXE packaging.
+- DEB/RPM packaging.
 - macOS PKG packaging, notarization/signing, and MDM deployment.
 - Authentication or API key provisioning.
 - Active Nmap scanning by default.

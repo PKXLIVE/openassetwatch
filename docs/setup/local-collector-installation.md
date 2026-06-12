@@ -6,9 +6,10 @@ collectors on multiple machines.
 The collector remains Python-first. Native service managers are used only to
 keep the Python collector running:
 
-- Windows: Task Scheduler.
+- Windows: Task Scheduler at startup, not a true Windows Service yet.
 - Linux: systemd.
-- macOS: launchd LaunchDaemon.
+- macOS: launchd LaunchDaemon at
+  `/Library/LaunchDaemons/com.openassetwatch.collector.plist`.
 
 Existing one-shot collector commands are unchanged.
 
@@ -42,8 +43,15 @@ The Python installer creates:
 ```text
 C:\Program Files\OpenAssetWatch\Collector
 C:\ProgramData\OpenAssetWatch\Collector\config.yaml
+C:\ProgramData\OpenAssetWatch\Collector\install.env
 C:\ProgramData\OpenAssetWatch\Collector\logs
 C:\ProgramData\OpenAssetWatch\Collector\state
+```
+
+Installer actions are appended to:
+
+```text
+C:\ProgramData\OpenAssetWatch\Collector\logs\install.log
 ```
 
 It creates a startup scheduled task named `OpenAssetWatch Collector` that runs
@@ -64,7 +72,26 @@ schtasks.exe /End /TN "OpenAssetWatch Collector"
 schtasks.exe /Delete /TN "OpenAssetWatch Collector" /F
 ```
 
-Manual uninstall for the MVP:
+Uninstall while preserving config, logs, and state:
+
+```cmd
+python collector\install\install.py --uninstall
+```
+
+Purge config, logs, and state too:
+
+```cmd
+python collector\install\install.py --uninstall --purge
+```
+
+or:
+
+```cmd
+set PURGE=true
+python collector\install\install.py --uninstall
+```
+
+Manual folder cleanup:
 
 ```cmd
 schtasks.exe /Delete /TN "OpenAssetWatch Collector" /F
@@ -89,9 +116,16 @@ The Linux installer creates:
 ```text
 /opt/openassetwatch/collector
 /etc/openassetwatch/collector.yaml
+/etc/openassetwatch/install.env
 /var/lib/openassetwatch
 /var/log/openassetwatch
 /etc/systemd/system/openassetwatch-collector.service
+```
+
+Installer actions are appended to:
+
+```text
+/var/log/openassetwatch/install.log
 ```
 
 It creates a non-interactive `openassetwatch` user/group and runs the service as
@@ -135,7 +169,19 @@ sudo BACKEND_URL=http://192.168.1.10:8000 \
 This may add the `openassetwatch` user to `adm` and/or `systemd-journal` if
 those groups exist. It does not chmod or chown all of `/var/log`.
 
-Manual uninstall for the MVP:
+Uninstall while preserving config, logs, and state:
+
+```sh
+sudo UNINSTALL=true collector/install/install-linux.sh
+```
+
+Purge config, logs, and state too:
+
+```sh
+sudo UNINSTALL=true PURGE=true collector/install/install-linux.sh
+```
+
+Manual folder cleanup:
 
 ```sh
 sudo systemctl disable --now openassetwatch-collector
@@ -226,9 +272,16 @@ The macOS installer creates:
 ```text
 /usr/local/openassetwatch/collector
 /Library/Application Support/OpenAssetWatch/Collector/config.yaml
+/Library/Application Support/OpenAssetWatch/Collector/install.env
 /Library/Logs/OpenAssetWatch
 /usr/local/var/openassetwatch
 /Library/LaunchDaemons/com.openassetwatch.collector.plist
+```
+
+Installer actions are appended to:
+
+```text
+/Library/Logs/OpenAssetWatch/install.log
 ```
 
 It creates a LaunchDaemon that runs at boot, keeps the collector alive, and
@@ -258,7 +311,19 @@ tail -n 100 /Library/Logs/OpenAssetWatch/collector.out.log
 tail -n 100 /Library/Logs/OpenAssetWatch/collector.err.log
 ```
 
-Manual uninstall for the MVP:
+Uninstall while preserving config, logs, and state:
+
+```sh
+sudo UNINSTALL=true collector/install/install-macos.sh
+```
+
+Purge config, logs, and state too:
+
+```sh
+sudo UNINSTALL=true PURGE=true collector/install/install-macos.sh
+```
+
+Manual folder cleanup:
 
 ```sh
 sudo launchctl bootout system /Library/LaunchDaemons/com.openassetwatch.collector.plist
@@ -282,11 +347,77 @@ The installed collector should appear in the collectors response, and its local
 device plus discovered network neighbors should appear in the assets response
 after the first scheduled inventory upload.
 
+## Troubleshooting
+
+Windows:
+
+```cmd
+schtasks.exe /Query /TN "OpenAssetWatch Collector" /V /FO LIST
+type "C:\ProgramData\OpenAssetWatch\Collector\install.env"
+type "C:\ProgramData\OpenAssetWatch\Collector\logs\install.log"
+curl http://<backend-ip>:8000/health
+curl http://<backend-ip>:8000/api/v1/collectors
+curl http://<backend-ip>:8000/api/v1/assets
+```
+
+Linux:
+
+```sh
+sudo systemctl status openassetwatch-collector
+sudo journalctl -u openassetwatch-collector -n 100
+sudo cat /etc/openassetwatch/install.env
+sudo tail -n 100 /var/log/openassetwatch/install.log
+ls -la /var/log/openassetwatch
+curl http://<backend-ip>:8000/health
+curl http://<backend-ip>:8000/api/v1/collectors
+curl http://<backend-ip>:8000/api/v1/assets
+```
+
+macOS:
+
+```sh
+sudo launchctl print system/com.openassetwatch.collector
+sudo cat "/Library/Application Support/OpenAssetWatch/Collector/install.env"
+tail -n 100 /Library/Logs/OpenAssetWatch/install.log
+tail -n 100 /Library/Logs/OpenAssetWatch/collector.out.log
+tail -n 100 /Library/Logs/OpenAssetWatch/collector.err.log
+curl http://<backend-ip>:8000/health
+curl http://<backend-ip>:8000/api/v1/collectors
+curl http://<backend-ip>:8000/api/v1/assets
+```
+
+## Future Packaging Roadmap
+
+Packaging is not part of this installer-hardening PR. This PR stays focused on
+install, reinstall/idempotency, uninstall, purge behavior, installer logs,
+install metadata, troubleshooting docs, and the installer test matrix.
+
+Windows future:
+
+- MSI or EXE installer.
+- True Windows Service or service wrapper later.
+
+Linux future:
+
+- DEB/RPM packages.
+- Include the `systemd` service in the package.
+
+macOS future:
+
+- PKG installer first.
+- Optional DMG wrapper containing the PKG.
+- Signing and notarization later.
+
+A DMG is a distribution container. The PKG is the better mechanism for
+installing LaunchDaemon files and setting protected system permissions.
+
 ## Out of Scope
 
 - MSI packages.
+- EXE installers.
 - DEB/RPM packages.
 - True Windows Service implementation.
+- DMG packaging.
 - macOS PKG installer.
 - macOS notarization/signing.
 - MDM deployment.
