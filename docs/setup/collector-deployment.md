@@ -172,9 +172,24 @@ underlying OS-specific behavior.
 
 ## Future Update Architecture
 
-Future collector updates should come from the OpenAssetWatch Control Plane or a
-Collector Deployment Service. Policy/config update and binary/package update
-must remain separate flows.
+Future collector updates should come from the OpenAssetWatch Control Plane,
+which is the formal architecture name for the backend system collectors report
+to. The internal or working name may be OAW Control Tower, but Control Tower
+should not be the sole public-facing product name because it may be confused
+with AWS Control Tower.
+
+The OpenAssetWatch Control Plane may include internal services such as:
+
+- Collector Deployment Service
+- Policy Service
+- License / Entitlement Service
+- Collector API
+
+Collectors report to the Control Plane for check-in, inventory upload, policy
+retrieval, deployment labels, capability assignment, license/entitlement
+validation, revocation, and status reporting.
+
+Policy/config update and binary/package update must remain separate flows.
 
 Future safety rules:
 

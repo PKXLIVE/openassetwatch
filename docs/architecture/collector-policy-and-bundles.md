@@ -3,15 +3,38 @@
 ## Purpose
 
 OpenAssetWatch collectors should eventually receive safe backend-assigned
-configuration from the OpenAssetWatch backend. The model is similar in concept
-to a Splunk Deployment Server assigning deployment apps to Universal
+configuration from the OpenAssetWatch Control Plane. The model is similar in
+concept to a Splunk Deployment Server assigning deployment apps to Universal
 Forwarders, but tailored for OpenAssetWatch collector safety, identity, and
 local-network visibility.
+
+The formal architecture name is **OpenAssetWatch Control Plane**. The internal
+or working name may be **OAW Control Tower**, but that should not be the sole
+public-facing product name because it can be confused with AWS Control Tower.
+
+The OpenAssetWatch Control Plane is the backend system that collectors report
+to for:
+
+- check-in
+- inventory upload
+- policy retrieval
+- deployment labels
+- capability assignment
+- license/entitlement validation
+- revocation
+- status reporting
+
+Internal service names may include:
+
+- Collector Deployment Service
+- Policy Service
+- License / Entitlement Service
+- Collector API
 
 Conceptual flow:
 
 ```text
-OpenAssetWatch Backend -> deployment policy -> collector config bundle -> OpenAssetWatch Collector
+OpenAssetWatch Control Plane -> deployment policy -> collector config bundle -> OpenAssetWatch Collector
 ```
 
 This document describes the future architecture only. Policy download and
