@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
@@ -16,6 +17,13 @@ DEFAULT_DATABASE_URL = (
     "postgresql+psycopg2://openassetwatch:"
     "openassetwatch_change_me@postgres:5432/openassetwatch"
 )
+INVALID_MAC_TEXT_VALUES = {
+    "(incomplete)",
+    "<incomplete>",
+    "incomplete",
+    "none",
+    "null",
+}
 
 
 CREATE_INVENTORY_TABLE_SQL = """
@@ -271,6 +279,31 @@ def _clean_text(value: Any) -> str | None:
         return None
     text_value = str(value).strip()
     return text_value or None
+
+
+def _normalize_mac_address(value: Any) -> str | None:
+    text_value = _clean_text(value)
+    if not text_value:
+        return None
+
+    cleaned = text_value.lower().replace("-", ":")
+    if cleaned in INVALID_MAC_TEXT_VALUES:
+        return None
+
+    compact = re.sub(r"[^0-9a-f]", "", cleaned)
+    if len(compact) != 12:
+        return None
+
+    mac_address = ":".join(compact[index : index + 2] for index in range(0, 12, 2))
+    if (
+        mac_address == "00:00:00:00:00:00"
+        or mac_address == "ff:ff:ff:ff:ff:ff"
+        or mac_address.startswith("01:00:5e:")
+        or mac_address.startswith("33:33:")
+    ):
+        return None
+
+    return mac_address
 
 
 def _network_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -615,7 +648,7 @@ def normalize_inventory_submission(
         if isinstance(device, dict):
             hostname = _clean_text(device.get("hostname"))
             primary_ip = _clean_text(device.get("primary_ip"))
-            mac_address = _clean_text(device.get("mac_address"))
+            mac_address = _normalize_mac_address(device.get("mac_address"))
             asset_key = f"collector:{collector_id}:device" if collector_id else f"device:{hostname or primary_ip or submission_id}"
             local_asset_id = _upsert_asset(
                 connection,
@@ -644,7 +677,7 @@ def normalize_inventory_submission(
 
         for neighbor in _network_entries(payload):
             ip_address = _clean_text(neighbor.get("ip_address") or neighbor.get("ip"))
-            mac_address = _clean_text(neighbor.get("mac_address") or neighbor.get("mac"))
+            mac_address = _normalize_mac_address(neighbor.get("mac_address") or neighbor.get("mac"))
             if not ip_address and not mac_address:
                 continue
 

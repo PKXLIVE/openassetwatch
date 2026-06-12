@@ -135,6 +135,11 @@ remain disabled by default.
 macOS should not reuse the Linux systemd design. The macOS MVP uses `launchd`
 through a LaunchDaemon.
 
+The macOS installer requires Python 3.10 or newer, supports `PYTHON_BIN`, and
+prefers Python 3.12+ when available. It should never replace system Python or
+silently fall back to Apple's older Python if that version does not satisfy the
+collector requirement.
+
 Default paths:
 
 ```text

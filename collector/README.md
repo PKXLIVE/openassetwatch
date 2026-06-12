@@ -41,10 +41,10 @@ openassetwatch-collector --mode hybrid --pretty
 
 ## Tests
 
-Run collector unit tests from the `collector` directory:
+Run collector unit tests from the repository root:
 
 ```sh
-python -m unittest discover
+PYTHONPATH=collector python -m unittest discover collector/tests
 ```
 
 ## Backend Check-In

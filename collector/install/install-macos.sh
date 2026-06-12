@@ -17,7 +17,7 @@ START_SERVICE="${START_SERVICE:-true}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COLLECTOR_SOURCE_DIR="${COLLECTOR_SOURCE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_BIN="${PYTHON_BIN:-}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "This installer is for macOS only." >&2
@@ -34,8 +34,56 @@ if [[ -z "${BACKEND_URL:-}" ]]; then
   exit 1
 fi
 
-if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
-  echo "${PYTHON_BIN} is required" >&2
+python_version() {
+  "$1" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")'
+}
+
+python_is_supported() {
+  "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
+}
+
+resolve_python() {
+  if [[ -n "${PYTHON_BIN}" ]]; then
+    command -v "${PYTHON_BIN}"
+    return
+  fi
+
+  local candidates=(
+    "/opt/homebrew/bin/python3.14"
+    "/opt/homebrew/bin/python3.13"
+    "/opt/homebrew/bin/python3.12"
+    "/Library/Frameworks/Python.framework/Versions/3.14/bin/python3"
+    "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3"
+    "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3"
+    "python3.14"
+    "python3.13"
+    "python3.12"
+    "python3.11"
+    "python3.10"
+    "python3"
+  )
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+      command -v "${candidate}"
+      return
+    fi
+  done
+}
+
+SELECTED_PYTHON="$(resolve_python || true)"
+if [[ -z "${SELECTED_PYTHON}" ]]; then
+  echo "Python >=3.10 is required. Set PYTHON_BIN to a supported Python path." >&2
+  exit 1
+fi
+
+PYTHON_VERSION="$(python_version "${SELECTED_PYTHON}")"
+echo "Using Python: ${SELECTED_PYTHON} (${PYTHON_VERSION})"
+
+if ! python_is_supported "${SELECTED_PYTHON}"; then
+  echo "Python >=3.10 is required, but ${SELECTED_PYTHON} is ${PYTHON_VERSION}." >&2
+  echo "Set PYTHON_BIN to a supported Python, such as /opt/homebrew/bin/python3.12 or /Library/Frameworks/Python.framework/Versions/3.14/bin/python3." >&2
   exit 1
 fi
 
@@ -44,7 +92,13 @@ install -d -m 0750 "${CONFIG_DIR}"
 install -d -m 0755 "${LOG_DIR}"
 install -d -m 0755 "${STATE_DIR}"
 
-"${PYTHON_BIN}" -m venv "${INSTALL_DIR}/.venv"
+if [[ -x "${INSTALL_DIR}/.venv/bin/python" ]] && ! python_is_supported "${INSTALL_DIR}/.venv/bin/python"; then
+  EXISTING_VENV_VERSION="$(python_version "${INSTALL_DIR}/.venv/bin/python")"
+  echo "Existing collector venv uses unsupported Python ${EXISTING_VENV_VERSION}; recreating ${INSTALL_DIR}/.venv"
+  rm -rf "${INSTALL_DIR}/.venv"
+fi
+
+"${SELECTED_PYTHON}" -m venv "${INSTALL_DIR}/.venv"
 "${INSTALL_DIR}/.venv/bin/python" -m pip install "${COLLECTOR_SOURCE_DIR}"
 
 cat > "${CONFIG_PATH}.tmp" <<EOF

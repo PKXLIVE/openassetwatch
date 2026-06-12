@@ -189,12 +189,36 @@ Run from the repository root on the collector host. Use the backend machine's
 LAN IP address or DNS name, not `localhost`, when the backend is running on a
 different machine.
 
+The collector requires Python 3.10 or newer. The installer honors `PYTHON_BIN`,
+prints the selected Python path and version, prefers Python 3.12+ when
+available, and refuses to silently use Apple's older system Python if it does
+not meet the collector requirement.
+
+Example Python paths:
+
+```text
+/opt/homebrew/bin/python3.12
+/Library/Frameworks/Python.framework/Versions/3.14/bin/python3
+```
+
 ```sh
 sudo BACKEND_URL=http://192.168.1.10:8000 \
   COLLECTOR_ID=mac-lab-01 \
   COLLECTOR_NAME="Mac Lab 01" \
   MODE=hybrid \
   collector/install/install-macos.sh
+```
+
+Real-world validation pattern:
+
+```sh
+sudo env \
+  PYTHON_BIN=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 \
+  BACKEND_URL=http://100.86.144.109:8000 \
+  COLLECTOR_ID=mac-lab-01 \
+  COLLECTOR_NAME="Mac Lab 01" \
+  MODE=hybrid \
+  bash collector/install/install-macos.sh
 ```
 
 The macOS installer creates:
@@ -230,8 +254,8 @@ sudo launchctl bootout system /Library/LaunchDaemons/com.openassetwatch.collecto
 Check logs:
 
 ```sh
-tail -f /Library/Logs/OpenAssetWatch/collector.out.log
-tail -f /Library/Logs/OpenAssetWatch/collector.err.log
+tail -n 100 /Library/Logs/OpenAssetWatch/collector.out.log
+tail -n 100 /Library/Logs/OpenAssetWatch/collector.err.log
 ```
 
 Manual uninstall for the MVP:

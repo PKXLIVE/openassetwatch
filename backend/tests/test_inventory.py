@@ -7,10 +7,30 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.database import _normalize_mac_address
 from app.main import assets, collector_inventory, collectors, latest_collector_inventory
 
 
 class CollectorInventoryTests(unittest.TestCase):
+    def test_backend_mac_normalization_rejects_non_host_values(self) -> None:
+        for value in (
+            "(incomplete)",
+            "incomplete",
+            "<incomplete>",
+            "",
+            None,
+            "00:00:00:00:00:00",
+            "ff:ff:ff:ff:ff:ff",
+            "01:00:5e:00:00:01",
+            "33:33:00:00:00:01",
+        ):
+            with self.subTest(value=value):
+                self.assertIsNone(_normalize_mac_address(value))
+
+    def test_backend_mac_normalization_accepts_common_formats(self) -> None:
+        self.assertEqual(_normalize_mac_address("AA-BB-CC-DD-EE-FF"), "aa:bb:cc:dd:ee:ff")
+        self.assertEqual(_normalize_mac_address("aabb.ccdd.eeff"), "aa:bb:cc:dd:ee:ff")
+
     def test_valid_device_only_inventory_returns_accepted(self) -> None:
         with patch("app.main.save_inventory_submission", return_value=1) as save:
             with patch(
