@@ -138,6 +138,56 @@ For the future architecture, safety boundaries, lifecycle, and config
 precedence model, see
 `docs/architecture/collector-policy-and-bundles.md`.
 
+## Service Management MVP
+
+Before signed platform packages are added, local installs should have consistent
+service management behavior across supported operating systems. The MVP helper
+is:
+
+```text
+collector/install/service_manager.py
+```
+
+Supported actions:
+
+- `status`
+- `start`
+- `stop`
+- `restart`
+- `logs`
+- `uninstall-info`
+
+The helper uses each platform's current persistent runner model:
+
+- Windows uses `schtasks.exe` against the startup scheduled task. This remains a
+  Task Scheduler MVP, not a true Windows Service.
+- Linux uses `systemctl` and `journalctl` for
+  `openassetwatch-collector`.
+- macOS uses `launchctl` for the LaunchDaemon at
+  `/Library/LaunchDaemons/com.openassetwatch.collector.plist`.
+
+The helper should not replace native service managers. It gives operators and
+future package scripts one consistent command surface while preserving the
+underlying OS-specific behavior.
+
+## Future Update Architecture
+
+Future collector updates should come from the OpenAssetWatch Control Plane or a
+Collector Deployment Service. Policy/config update and binary/package update
+must remain separate flows.
+
+Future safety rules:
+
+- policy/config bundles are schema-defined configuration, not shell scripts
+- binary/package updates must use signed artifacts
+- collectors should verify version, hash, and signature before applying future
+  binary updates
+- backend policy must not contain arbitrary shell commands
+- an emergency local hold file must prevent remote policy or update actions
+
+This is architecture direction only. Remote binary update, package download, and
+policy download are not implemented in the MVP.
+
 ## Windows MVP
 
 For the MVP, Windows should use Task Scheduler instead of a true Windows
@@ -276,12 +326,15 @@ metadata, logging, troubleshooting, and test matrix behavior documented here.
 Windows future:
 
 - MSI or EXE installer.
-- True Windows Service or a service wrapper later.
+- Move from Task Scheduler MVP to a true Windows Service.
+- Possible options include WinSW, NSSM, pywin32, or a native compiled wrapper.
+- Final MSI/EXE packaging should install and manage the true service.
 
 Linux future:
 
 - DEB/RPM packages.
 - Include the `systemd` service in the package.
+- Package postinstall should enable and start the service when configured.
 
 macOS future:
 
