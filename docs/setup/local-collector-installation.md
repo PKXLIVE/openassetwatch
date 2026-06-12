@@ -156,6 +156,40 @@ rmdir /S /Q "C:\ProgramData\OpenAssetWatch\Collector"
 
 Run from the repository root on the collector host.
 
+Linux prerequisites vary by package family.
+
+Debian/Ubuntu:
+
+```sh
+sudo apt update
+sudo apt install -y git curl python3 python3-venv python3-pip
+```
+
+If the selected Python is version-specific, install the matching venv package
+too. For example:
+
+```sh
+sudo apt install -y python3.14-venv
+```
+
+Red Hat/Fedora/Rocky/Alma/CentOS:
+
+```sh
+sudo dnf install -y git curl python3 python3-pip python3-virtualenv
+```
+
+If `dnf` is unavailable but `yum` exists:
+
+```sh
+sudo yum install -y git curl python3 python3-pip python3-virtualenv
+```
+
+The Linux installer honors `PYTHON_BIN`, accepts any Python 3.10 or newer,
+prefers Python 3.12+ when available, prints the selected Python path/version,
+and tests venv creation in a temporary directory before creating the collector
+venv. If venv support is missing, it prints distro-appropriate package
+commands and exits before modifying the service.
+
 ```sh
 sudo BACKEND_URL=http://192.168.1.10:8000 \
   BACKEND_TOKEN=change-me-dev-token \
