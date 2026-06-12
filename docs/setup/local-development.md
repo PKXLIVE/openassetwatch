@@ -24,6 +24,9 @@ Inventory persistence stores raw collector submissions in Postgres and performs
 minimal MVP normalization into collector, asset, IP observation, and software
 detection records.
 
+Collector normalization prefers `collector_guid` when present and falls back to
+`collector_id` for older collectors.
+
 Send a collector heartbeat/check-in:
 
 ```sh
@@ -31,6 +34,7 @@ curl -X POST http://localhost:8000/api/v1/collectors/checkin \
   -H "Content-Type: application/json" \
   -d '{
     "collector_id": "local-dev-collector-01",
+    "collector_guid": "11111111-1111-4111-8111-111111111111",
     "collector_name": "Local Dev Collector",
     "hostname": "PK-RDNA2",
     "collector_version": "0.1.0",
@@ -38,6 +42,18 @@ curl -X POST http://localhost:8000/api/v1/collectors/checkin \
     "platform": {
       "system": "windows",
       "architecture": "amd64"
+    },
+    "deployment": {
+      "deployment_id": "home-lab-cincinnati",
+      "business_unit": "lab",
+      "site": "home",
+      "environment": "test",
+      "install_ring": "pilot"
+    },
+    "labels": {
+      "owner": "dion",
+      "device_group": "windows-test",
+      "install_profile": "local-collector"
     },
     "status": "healthy",
     "message": "manual smoke test"
@@ -55,11 +71,18 @@ curl -X POST http://localhost:8000/api/v1/collectors/inventory \
       "id": "local-dev-collector-01",
       "name": "Local Dev Collector"
     },
+    "collector_guid": "11111111-1111-4111-8111-111111111111",
     "collector_version": "0.1.0",
     "mode": "hybrid",
     "platform": {
       "system": "windows",
       "architecture": "amd64"
+    },
+    "deployment": {
+      "deployment_id": "home-lab-cincinnati"
+    },
+    "labels": {
+      "owner": "dion"
     },
     "device": {
       "hostname": "PK-RDNA2"

@@ -11,6 +11,7 @@ from urllib.error import HTTPError
 
 from openassetwatch_collector.main import (
     apply_config_defaults,
+    build_checkin_payload,
     build_inventory_payload,
     main,
     send_inventory,
@@ -24,6 +25,16 @@ def make_args(config: str | None = None, **overrides: object) -> argparse.Namesp
         "backend_url": None,
         "collector_id": None,
         "collector_name": None,
+        "collector_guid": None,
+        "identity_file": None,
+        "deployment_id": None,
+        "business_unit": None,
+        "site": None,
+        "deployment_environment": None,
+        "install_ring": None,
+        "label": [],
+        "labels": None,
+        "deployment": None,
         "checkin": False,
         "upload_inventory": False,
         "run_forever": False,
@@ -36,7 +47,13 @@ def make_args(config: str | None = None, **overrides: object) -> argparse.Namesp
 
 class InventoryUploadTests(unittest.TestCase):
     def test_build_inventory_payload_adds_collector_metadata(self) -> None:
-        payload = {"mode": "hybrid", "device": {"hostname": "test-host"}}
+        payload = {
+            "mode": "hybrid",
+            "device": {"hostname": "test-host"},
+            "collector_guid": "11111111-1111-4111-8111-111111111111",
+            "deployment": {"deployment_id": "home-lab"},
+            "labels": {"owner": "dion"},
+        }
 
         inventory_payload = build_inventory_payload(
             payload,
@@ -48,7 +65,30 @@ class InventoryUploadTests(unittest.TestCase):
         self.assertEqual(inventory_payload["device"], {"hostname": "test-host"})
         self.assertEqual(inventory_payload["collector_id"], "local-dev-collector-01")
         self.assertEqual(inventory_payload["collector_name"], "Local Dev Collector")
+        self.assertEqual(inventory_payload["collector_guid"], "11111111-1111-4111-8111-111111111111")
+        self.assertEqual(inventory_payload["deployment"]["deployment_id"], "home-lab")
+        self.assertEqual(inventory_payload["labels"]["owner"], "dion")
         self.assertNotIn("collector_id", payload)
+
+    def test_build_checkin_payload_adds_identity_and_labels(self) -> None:
+        payload = {
+            "mode": "hybrid",
+            "platform": {"system_key": "linux"},
+            "device": {"hostname": "test-host"},
+            "collector_guid": "11111111-1111-4111-8111-111111111111",
+            "deployment": {"deployment_id": "home-lab"},
+            "labels": {"owner": "dion"},
+        }
+
+        checkin_payload = build_checkin_payload(
+            payload,
+            "local-dev-collector-01",
+            "Local Dev Collector",
+        )
+
+        self.assertEqual(checkin_payload["collector_guid"], "11111111-1111-4111-8111-111111111111")
+        self.assertEqual(checkin_payload["deployment"]["deployment_id"], "home-lab")
+        self.assertEqual(checkin_payload["labels"]["owner"], "dion")
 
     def test_send_inventory_posts_payload(self) -> None:
         response_body = json.dumps({"status": "accepted", "software_count": 1}).encode("utf-8")
@@ -129,6 +169,10 @@ class InventoryUploadTests(unittest.TestCase):
                         "  mode: hybrid",
                         "backend:",
                         "  url: http://localhost:8000",
+                        "deployment:",
+                        "  deployment_id: config-deployment",
+                        "labels:",
+                        "  owner: config-owner",
                         "inventory:",
                         "  upload_enabled: true",
                     ]
@@ -140,6 +184,8 @@ class InventoryUploadTests(unittest.TestCase):
 
         self.assertEqual(args.mode, "hybrid")
         self.assertEqual(args.backend_url, "http://localhost:8000")
+        self.assertEqual(args.deployment["deployment_id"], "config-deployment")
+        self.assertEqual(args.labels["owner"], "config-owner")
         self.assertTrue(args.upload_inventory)
 
     def test_cli_values_override_config_values(self) -> None:

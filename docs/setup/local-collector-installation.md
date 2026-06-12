@@ -13,6 +13,52 @@ keep the Python collector running:
 
 Existing one-shot collector commands are unchanged.
 
+## Collector Identity and Deployment Labels
+
+Installed collectors have two identities:
+
+- `collector_guid` is the stable installed collector identity. It is generated
+  once as a UUIDv4 at install time and stored in `identity.json`.
+- `collector_id` is the friendly/admin-provided name used in commands,
+  examples, and operations.
+
+The installer preserves `identity.json` during normal reinstall and uninstall.
+It is removed only during purge uninstall. This prevents duplicate backend
+collector records when a collector service restarts or the collector is
+reinstalled.
+
+Identity file paths:
+
+```text
+Windows: C:\ProgramData\OpenAssetWatch\Collector\identity.json
+Linux: /etc/openassetwatch/identity.json
+macOS: /Library/Application Support/OpenAssetWatch/Collector/identity.json
+```
+
+Deployment metadata groups collectors by business unit, site, environment,
+location, or rollout campaign:
+
+```yaml
+deployment:
+  deployment_id: home-lab-cincinnati
+  business_unit: lab
+  site: home
+  environment: test
+  install_ring: pilot
+```
+
+Labels are flexible categorization metadata:
+
+```yaml
+labels:
+  owner: dion
+  device_group: mac-test
+  install_profile: local-collector
+```
+
+Deployment metadata and labels are sent with collector check-in and inventory
+upload payloads.
+
 ## Backend URL
 
 When installing a collector on a different machine from the backend, do not use
@@ -43,6 +89,7 @@ The Python installer creates:
 ```text
 C:\Program Files\OpenAssetWatch\Collector
 C:\ProgramData\OpenAssetWatch\Collector\config.yaml
+C:\ProgramData\OpenAssetWatch\Collector\identity.json
 C:\ProgramData\OpenAssetWatch\Collector\install.env
 C:\ProgramData\OpenAssetWatch\Collector\logs
 C:\ProgramData\OpenAssetWatch\Collector\state
@@ -107,6 +154,8 @@ Run from the repository root on the collector host.
 sudo BACKEND_URL=http://192.168.1.10:8000 \
   COLLECTOR_ID=linux-lab-01 \
   COLLECTOR_NAME="Linux Lab 01" \
+  DEPLOYMENT_ID=home-lab-cincinnati \
+  LABEL_INSTALL_PROFILE=local-collector \
   MODE=hybrid \
   collector/install/install-linux.sh
 ```
@@ -116,6 +165,7 @@ The Linux installer creates:
 ```text
 /opt/openassetwatch/collector
 /etc/openassetwatch/collector.yaml
+/etc/openassetwatch/identity.json
 /etc/openassetwatch/install.env
 /var/lib/openassetwatch
 /var/log/openassetwatch
@@ -251,6 +301,8 @@ Example Python paths:
 sudo BACKEND_URL=http://192.168.1.10:8000 \
   COLLECTOR_ID=mac-lab-01 \
   COLLECTOR_NAME="Mac Lab 01" \
+  DEPLOYMENT_ID=home-lab-cincinnati \
+  LABEL_DEVICE_GROUP=mac-test \
   MODE=hybrid \
   collector/install/install-macos.sh
 ```
@@ -263,6 +315,8 @@ sudo env \
   BACKEND_URL=http://100.86.144.109:8000 \
   COLLECTOR_ID=mac-lab-01 \
   COLLECTOR_NAME="Mac Lab 01" \
+  DEPLOYMENT_ID=home-lab-cincinnati \
+  LABEL_DEVICE_GROUP=mac-test \
   MODE=hybrid \
   bash collector/install/install-macos.sh
 ```
@@ -272,6 +326,7 @@ The macOS installer creates:
 ```text
 /usr/local/openassetwatch/collector
 /Library/Application Support/OpenAssetWatch/Collector/config.yaml
+/Library/Application Support/OpenAssetWatch/Collector/identity.json
 /Library/Application Support/OpenAssetWatch/Collector/install.env
 /Library/Logs/OpenAssetWatch
 /usr/local/var/openassetwatch

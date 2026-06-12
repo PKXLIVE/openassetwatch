@@ -33,6 +33,47 @@ collector running:
 All three models call Python directly with
 `-m openassetwatch_collector --run-forever --config <config path>`.
 
+## Collector Identity and Grouping
+
+Installed collectors should have a persistent `collector_guid` generated once
+at install time and stored in `identity.json`. Reinstall should preserve this
+file; purge uninstall is the only normal path that removes it.
+
+Suggested identity paths:
+
+```text
+Windows: C:\ProgramData\OpenAssetWatch\Collector\identity.json
+Linux: /etc/openassetwatch/identity.json
+macOS: /Library/Application Support/OpenAssetWatch/Collector/identity.json
+```
+
+`collector_guid` is the backend-stable identity used to avoid duplicate
+collector records. `collector_id` remains the friendly/admin-provided
+identifier. Backend collector matching should prefer `collector_guid` when
+present and fall back to `collector_id` for older collectors.
+
+Collectors can also send deployment metadata for grouping by business unit,
+site, environment, location, or rollout campaign:
+
+```yaml
+deployment:
+  deployment_id: home-lab-cincinnati
+  business_unit: lab
+  site: home
+  environment: test
+  install_ring: pilot
+```
+
+Flexible labels are optional and should remain JSON/YAML metadata rather than
+schema-specific columns:
+
+```yaml
+labels:
+  owner: dion
+  device_group: mac-test
+  install_profile: local-collector
+```
+
 ## General Principles
 
 - Keep the collector Python-first.
