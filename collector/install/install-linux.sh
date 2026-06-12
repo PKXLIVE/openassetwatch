@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+INSTALLER_VERSION="${INSTALLER_VERSION:-0.1.0}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/openassetwatch/collector}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/openassetwatch}"
 CONFIG_PATH="${CONFIG_PATH:-${CONFIG_DIR}/collector.yaml}"
+METADATA_PATH="${METADATA_PATH:-${CONFIG_DIR}/install.env}"
 STATE_DIR="${STATE_DIR:-/var/lib/openassetwatch}"
 LOG_DIR="${LOG_DIR:-/var/log/openassetwatch}"
+INSTALL_LOG="${INSTALL_LOG:-${LOG_DIR}/install.log}"
 SERVICE_PATH="${SERVICE_PATH:-/etc/systemd/system/openassetwatch-collector.service}"
 SERVICE_NAME="openassetwatch-collector.service"
 USER_NAME="${USER_NAME:-openassetwatch}"
@@ -18,26 +21,81 @@ COLLECTOR_NAME="${COLLECTOR_NAME:-$(hostname)}"
 ENABLE_LOG_READ="${ENABLE_LOG_READ:-false}"
 INSTALL_SUDOERS="${INSTALL_SUDOERS:-false}"
 START_SERVICE="${START_SERVICE:-true}"
+UNINSTALL="${UNINSTALL:-false}"
+PURGE="${PURGE:-false}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COLLECTOR_SOURCE_DIR="${COLLECTOR_SOURCE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+log() {
+  install -d -m 0750 -o "${USER_NAME}" -g "${GROUP_NAME}" "${LOG_DIR}" >/dev/null 2>&1 || mkdir -p "${LOG_DIR}" || true
+  printf '%s %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$*" >> "${INSTALL_LOG}" 2>/dev/null || true
+}
 
 if [[ "${EUID}" -ne 0 ]]; then
+  log "error Linux installation must be run as root"
   echo "Linux installation must be run as root. Re-run with sudo." >&2
   exit 1
 fi
 
-if [[ -z "${BACKEND_URL:-}" ]]; then
+if [[ "${UNINSTALL}" != "true" && -z "${BACKEND_URL:-}" ]]; then
+  log "error BACKEND_URL is required"
   echo "BACKEND_URL is required, for example BACKEND_URL=http://192.168.1.10:8000" >&2
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 is required" >&2
+python_version() {
+  "$1" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")'
+}
+
+python_is_supported() {
+  "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
+}
+
+if [[ "${UNINSTALL}" == "true" ]]; then
+  log "uninstall start platform=linux"
+  systemctl disable --now "${SERVICE_NAME}" >/dev/null 2>&1 || true
+  log "systemd disable/stop requested service=${SERVICE_NAME}"
+  rm -f "${SERVICE_PATH}" /etc/sudoers.d/openassetwatch-collector
+  log "removed service and sudoers files if present"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  rm -rf "${INSTALL_DIR}"
+  log "removed install directory path=${INSTALL_DIR}"
+  if [[ "${PURGE}" == "true" ]]; then
+    log "purge requested"
+    log "uninstall complete platform=linux purge=true"
+    rm -rf "${CONFIG_DIR}" "${LOG_DIR}" "${STATE_DIR}"
+  else
+    echo "Preserving config directory: ${CONFIG_DIR}"
+    echo "Preserving log directory: ${LOG_DIR}"
+    echo "Preserving state directory: ${STATE_DIR}"
+    log "uninstall complete platform=linux"
+  fi
+  echo "OpenAssetWatch collector uninstalled."
+  exit 0
+fi
+
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+  log "error ${PYTHON_BIN} is required"
+  echo "${PYTHON_BIN} is required" >&2
+  exit 1
+fi
+
+SELECTED_PYTHON="$(command -v "${PYTHON_BIN}")"
+PYTHON_VERSION="$(python_version "${SELECTED_PYTHON}")"
+echo "Using Python: ${SELECTED_PYTHON} (${PYTHON_VERSION})"
+log "install start platform=linux installer_version=${INSTALLER_VERSION}"
+log "selected python path=${SELECTED_PYTHON} version=${PYTHON_VERSION}"
+
+if ! python_is_supported "${SELECTED_PYTHON}"; then
+  log "error unsupported python path=${SELECTED_PYTHON} version=${PYTHON_VERSION}"
+  echo "Python >=3.10 is required, but ${SELECTED_PYTHON} is ${PYTHON_VERSION}." >&2
   exit 1
 fi
 
 if ! command -v systemctl >/dev/null 2>&1; then
+  log "error systemctl is required"
   echo "systemctl is required for the Linux MVP installer" >&2
   exit 1
 fi
@@ -71,8 +129,19 @@ install -d -m 0750 -o "${USER_NAME}" -g "${GROUP_NAME}" "${STATE_DIR}"
 install -d -m 0750 -o "${USER_NAME}" -g "${GROUP_NAME}" "${LOG_DIR}"
 install -d -m 0750 -o root -g "${GROUP_NAME}" "${CONFIG_DIR}"
 
-python3 -m venv "${INSTALL_DIR}/.venv"
+if [[ -x "${INSTALL_DIR}/.venv/bin/python" ]] && ! python_is_supported "${INSTALL_DIR}/.venv/bin/python"; then
+  EXISTING_VENV_VERSION="$(python_version "${INSTALL_DIR}/.venv/bin/python")"
+  echo "Existing collector venv uses unsupported Python ${EXISTING_VENV_VERSION}; recreating ${INSTALL_DIR}/.venv"
+  log "venv recreation required existing_python_version=${EXISTING_VENV_VERSION} venv=${INSTALL_DIR}/.venv"
+  rm -rf "${INSTALL_DIR}/.venv"
+fi
+
+log "venv create/update start venv=${INSTALL_DIR}/.venv"
+"${SELECTED_PYTHON}" -m venv "${INSTALL_DIR}/.venv"
+log "venv create/update complete venv=${INSTALL_DIR}/.venv"
+log "package install start"
 "${INSTALL_DIR}/.venv/bin/python" -m pip install "${COLLECTOR_SOURCE_DIR}"
+log "package install complete"
 
 cat > "${CONFIG_PATH}.tmp" <<EOF
 collector:
@@ -97,15 +166,32 @@ EOF
 
 install -m 0640 -o root -g "${GROUP_NAME}" "${CONFIG_PATH}.tmp" "${CONFIG_PATH}"
 rm -f "${CONFIG_PATH}.tmp"
+log "config write/update path=${CONFIG_PATH}"
+
+cat > "${METADATA_PATH}.tmp" <<EOF
+INSTALLER_VERSION=${INSTALLER_VERSION}
+INSTALL_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+PLATFORM=linux
+SELECTED_PYTHON_PATH=${SELECTED_PYTHON}
+SELECTED_PYTHON_VERSION=${PYTHON_VERSION}
+VENV_PYTHON_PATH=${INSTALL_DIR}/.venv/bin/python
+BACKEND_URL=${BACKEND_URL}
+COLLECTOR_ID=${COLLECTOR_ID}
+EOF
+
+install -m 0640 -o root -g "${GROUP_NAME}" "${METADATA_PATH}.tmp" "${METADATA_PATH}"
+rm -f "${METADATA_PATH}.tmp"
+log "metadata write/update path=${METADATA_PATH}"
 
 chown -R "${USER_NAME}:${GROUP_NAME}" /opt/openassetwatch
 chown -R "${USER_NAME}:${GROUP_NAME}" "${STATE_DIR}" "${LOG_DIR}"
-chown root:"${GROUP_NAME}" "${CONFIG_DIR}" "${CONFIG_PATH}"
+chown root:"${GROUP_NAME}" "${CONFIG_DIR}" "${CONFIG_PATH}" "${METADATA_PATH}"
 chmod 0750 "${CONFIG_DIR}"
-chmod 0640 "${CONFIG_PATH}"
+chmod 0640 "${CONFIG_PATH}" "${METADATA_PATH}"
 
 if [[ "${INSTALL_SUDOERS}" == "true" ]]; then
   if ! command -v visudo >/dev/null 2>&1; then
+    log "error visudo is required when INSTALL_SUDOERS=true"
     echo "visudo is required when INSTALL_SUDOERS=true" >&2
     exit 1
   fi
@@ -131,6 +217,7 @@ if [[ "${INSTALL_SUDOERS}" == "true" ]]; then
   install -m 0440 -o root -g root "${SUDOERS_TMP}" /etc/sudoers.d/openassetwatch-collector
   rm -f "${SUDOERS_TMP}"
   visudo -cf /etc/sudoers.d/openassetwatch-collector
+  log "sudoers write/update path=/etc/sudoers.d/openassetwatch-collector"
 fi
 
 if [[ "${ENABLE_LOG_READ}" == "true" ]]; then
@@ -161,17 +248,22 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
+log "systemd service write/update path=${SERVICE_PATH}"
 
 chown root:root "${SERVICE_PATH}"
 chmod 0644 "${SERVICE_PATH}"
 
 systemctl daemon-reload
+log "systemd daemon-reload complete"
 systemctl enable "${SERVICE_NAME}"
+log "systemd service enabled service=${SERVICE_NAME}"
 
 if [[ "${START_SERVICE}" == "true" ]]; then
   systemctl restart "${SERVICE_NAME}"
+  log "systemd service restart requested service=${SERVICE_NAME}"
 fi
 
+log "install complete platform=linux"
 echo "OpenAssetWatch collector installed."
 echo "Service: ${SERVICE_NAME}"
 echo "Config: ${CONFIG_PATH}"
