@@ -451,6 +451,37 @@ sudo python collector/install/service_manager.py status
 sudo python collector/install/service_manager.py restart
 ```
 
+## Policy Retrieval
+
+Collector policy retrieval is disabled by default. If enabled in config or with
+`--enable-policy`, the collector retrieves policy from the OpenAssetWatch
+Control Plane after check-in.
+
+Example config:
+
+```yaml
+policy:
+  enabled: false
+  cache_path: null
+  hold_file_path: null
+  check_interval_seconds: 3600
+```
+
+The policy MVP can adjust only safe local collector settings such as mode,
+scheduler intervals, `open_detector` enabled/disabled, and a one-time
+`run_inventory_now` action. It does not allow arbitrary shell commands, binary
+updates, Nmap, packet capture, SNMP execution, or network sensor behavior.
+
+If policy retrieval fails, the collector keeps running with local config or the
+last known good cached policy. A local emergency hold file blocks policy
+retrieval and application:
+
+```text
+Windows: C:\ProgramData\OpenAssetWatch\Collector\policy.hold
+Linux: /etc/openassetwatch/policy.hold
+macOS: /Library/Application Support/OpenAssetWatch/Collector/policy.hold
+```
+
 ## Troubleshooting
 
 Windows:

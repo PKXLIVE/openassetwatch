@@ -124,6 +124,39 @@ For local multi-machine installer testing, see
 `docs/setup/local-collector-installation.md`. For reinstall/uninstall
 validation scenarios, see `docs/setup/collector-installer-test-matrix.md`.
 
+## Policy Retrieval MVP
+
+Policy retrieval is disabled by default. When enabled, the collector retrieves a
+safe schema-defined policy from the OpenAssetWatch Control Plane after
+check-in. The policy can assign collector capabilities and update only safe MVP
+settings: mode, heartbeat interval, inventory interval, `open_detector`
+enabled/disabled, and a one-time `run_inventory_now` action.
+
+The Control Plane does not send arbitrary shell commands. Active scanning,
+packet capture, SNMP execution, Nmap, and sensor behavior remain disabled by
+default.
+
+Enable policy retrieval from the CLI:
+
+```sh
+openassetwatch-collector --mode hybrid --checkin --enable-policy \
+  --backend-url http://localhost:8000 \
+  --backend-token change-me-dev-token \
+  --collector-id local-dev-collector-01
+```
+
+If retrieval fails, the collector logs the error and continues with local
+config or the last known good cached policy. A local emergency hold file blocks
+remote policy retrieval and application.
+
+Suggested hold paths:
+
+```text
+Windows: C:\ProgramData\OpenAssetWatch\Collector\policy.hold
+Linux: /etc/openassetwatch/policy.hold
+macOS: /Library/Application Support/OpenAssetWatch/Collector/policy.hold
+```
+
 ## Config File
 
 The collector can load backend and collector settings from a YAML or JSON config
@@ -162,6 +195,12 @@ scheduler:
   enabled: false
   heartbeat_interval_seconds: 3600
   inventory_interval_seconds: 86400
+
+policy:
+  enabled: false
+  cache_path: null
+  hold_file_path: null
+  check_interval_seconds: 3600
 
 deployment:
   deployment_id: home-lab-cincinnati

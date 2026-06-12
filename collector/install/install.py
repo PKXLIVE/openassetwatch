@@ -298,6 +298,12 @@ def yaml_text(args: argparse.Namespace) -> str:
             "  enabled: true",
             f"  heartbeat_interval_seconds: {args.heartbeat_interval_seconds}",
             f"  inventory_interval_seconds: {args.inventory_interval_seconds}",
+            "",
+            "policy:",
+            "  enabled: false",
+            "  cache_path: null",
+            "  hold_file_path: null",
+            "  check_interval_seconds: 3600",
         ]
     )
 
