@@ -10,11 +10,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.database import _normalize_mac_address, _upsert_collector
 from app.main import (
     CollectorCheckInRequest,
+    CollectorPolicyStatusRequest,
     COLLECTOR_TOKEN_ENV,
     assets,
     collector_checkin,
     collector_inventory,
+    collector_policy,
+    collector_policy_status,
     collectors,
+    default_collector_policy_payload,
     latest_collector_inventory,
 )
 
@@ -88,6 +92,88 @@ class CollectorInventoryTests(unittest.TestCase):
                     )
 
         self.assertEqual(response.status, "accepted")
+
+    def test_policy_endpoint_returns_default_safe_policy(self) -> None:
+        response = collector_policy()
+
+        self.assertEqual(response["policy_id"], "default-local-collector")
+        self.assertEqual(response["policy_version"], 1)
+        self.assertTrue(response["policy_hash"].startswith("sha256:"))
+        self.assertEqual(response["license_status"], "dev_mode")
+        self.assertIn("device_inventory", response["assigned_capabilities"])
+        self.assertIn("network_neighbors", response["assigned_capabilities"])
+        self.assertIn("open_detector", response["assigned_capabilities"])
+        self.assertEqual(response["denied_capabilities"], [])
+        self.assertEqual(response["policy"]["mode"], "hybrid")
+        self.assertFalse(response["policy"]["modules"]["nmap_light"]["enabled"])
+        self.assertFalse(response["policy"]["modules"]["passive_sensor"]["enabled"])
+
+    def test_policy_endpoint_rejects_missing_token_when_configured(self) -> None:
+        with patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: "change-me-dev-token"}):
+            with self.assertRaises(HTTPException) as raised:
+                collector_policy()
+
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertNotIn("change-me-dev-token", str(raised.exception.detail))
+
+    def test_policy_endpoint_accepts_correct_token_when_configured(self) -> None:
+        with patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: "change-me-dev-token"}):
+            response = collector_policy(collector_token="change-me-dev-token")
+
+        self.assertEqual(response["policy_id"], "default-local-collector")
+
+    def test_default_policy_hash_matches_payload(self) -> None:
+        policy = default_collector_policy_payload()
+        policy_hash = policy.pop("policy_hash")
+
+        from app.main import calculate_policy_hash
+
+        self.assertEqual(policy_hash, calculate_policy_hash(policy))
+
+    def test_policy_status_accepts_valid_status(self) -> None:
+        response = collector_policy_status(
+            CollectorPolicyStatusRequest(
+                collector_guid="11111111-1111-4111-8111-111111111111",
+                collector_id="collector-1",
+                policy_id="default-local-collector",
+                policy_version=1,
+                policy_hash="sha256:test",
+                policy_status="applied",
+            )
+        )
+
+        self.assertEqual(response.status, "accepted")
+        self.assertEqual(response.policy_status, "applied")
+
+    def test_policy_status_rejects_wrong_token_when_configured(self) -> None:
+        with patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: "change-me-dev-token"}):
+            with self.assertRaises(HTTPException) as raised:
+                collector_policy_status(
+                    CollectorPolicyStatusRequest(
+                        collector_id="collector-1",
+                        policy_id="default-local-collector",
+                        policy_version=1,
+                        policy_hash="sha256:test",
+                        policy_status="applied",
+                    ),
+                    collector_token="wrong-token",
+                )
+
+        self.assertEqual(raised.exception.status_code, 401)
+
+    def test_policy_status_rejects_invalid_status(self) -> None:
+        with self.assertRaises(HTTPException) as raised:
+            collector_policy_status(
+                CollectorPolicyStatusRequest(
+                    collector_id="collector-1",
+                    policy_id="default-local-collector",
+                    policy_version=1,
+                    policy_hash="sha256:test",
+                    policy_status="unknown",
+                )
+            )
+
+        self.assertEqual(raised.exception.status_code, 400)
 
     def test_checkin_updates_collector_metadata(self) -> None:
         with patch("app.main.upsert_collector_metadata", return_value=1) as upsert:

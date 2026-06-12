@@ -1,3 +1,4 @@
+import hashlib
 import os
 import secrets
 from datetime import datetime, timezone
@@ -128,6 +129,84 @@ class CollectorInventoryLatestResponse(BaseModel):
     payload: dict[str, Any]
 
 
+class CollectorPolicyResponse(BaseModel):
+    policy_id: str
+    policy_version: int
+    policy_hash: str
+    license_status: str
+    assigned_capabilities: list[str]
+    denied_capabilities: list[str]
+    policy: dict[str, Any]
+
+
+class CollectorPolicyStatusRequest(BaseModel):
+    collector_guid: str | None = None
+    collector_id: str | None = None
+    policy_id: str = Field(..., min_length=1)
+    policy_version: int
+    policy_hash: str = Field(..., min_length=1)
+    policy_status: str
+    policy_error: str | None = None
+
+
+class CollectorPolicyStatusResponse(BaseModel):
+    status: str
+    received_at: datetime
+    collector_guid: str | None = None
+    collector_id: str | None = None
+    policy_id: str
+    policy_version: int
+    policy_status: str
+
+
+def calculate_policy_hash(policy_payload: dict[str, Any]) -> str:
+    policy_copy = dict(policy_payload)
+    policy_copy.pop("policy_hash", None)
+    canonical = json_dumps_canonical(policy_copy).encode("utf-8")
+    return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+
+
+def json_dumps_canonical(payload: dict[str, Any]) -> str:
+    import json
+
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def default_collector_policy_payload() -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "policy_id": "default-local-collector",
+        "policy_version": 1,
+        "license_status": "dev_mode",
+        "assigned_capabilities": [
+            "device_inventory",
+            "network_neighbors",
+            "open_detector",
+        ],
+        "denied_capabilities": [],
+        "policy": {
+            "mode": "hybrid",
+            "scheduler": {
+                "heartbeat_interval_seconds": 3600,
+                "inventory_interval_seconds": 86400,
+            },
+            "modules": {
+                "open_detector": {"enabled": True},
+                "reverse_dns": {"enabled": False},
+                "mdns": {"enabled": False},
+                "ssdp": {"enabled": False},
+                "snmp": {"enabled": False},
+                "nmap_light": {"enabled": False},
+                "passive_sensor": {"enabled": False},
+            },
+            "actions": {
+                "run_inventory_now": False,
+            },
+        },
+    }
+    payload["policy_hash"] = calculate_policy_hash(payload)
+    return payload
+
+
 @app.post("/api/v1/collectors/checkin", response_model=CollectorCheckInResponse)
 def collector_checkin(
     payload: CollectorCheckInRequest,
@@ -155,6 +234,33 @@ def collector_checkin(
         received_at=received_at,
         next_heartbeat_minutes=60,
         inventory_interval_hours=24,
+    )
+
+
+@app.get("/api/v1/collectors/policy", response_model=CollectorPolicyResponse)
+def collector_policy(
+    collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
+):
+    require_collector_token(collector_token)
+    return default_collector_policy_payload()
+
+
+@app.post("/api/v1/collectors/policy-status", response_model=CollectorPolicyStatusResponse)
+def collector_policy_status(
+    payload: CollectorPolicyStatusRequest,
+    collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
+):
+    require_collector_token(collector_token)
+    if payload.policy_status not in {"applied", "failed", "held", "ignored"}:
+        raise HTTPException(status_code=400, detail="invalid policy_status")
+    return CollectorPolicyStatusResponse(
+        status="accepted",
+        received_at=datetime.now(timezone.utc),
+        collector_guid=payload.collector_guid,
+        collector_id=payload.collector_id,
+        policy_id=payload.policy_id,
+        policy_version=payload.policy_version,
+        policy_status=payload.policy_status,
     )
 
 

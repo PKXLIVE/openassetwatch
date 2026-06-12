@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import ipaddress
 import json
@@ -32,6 +33,7 @@ DEFAULT_MODE = "device"
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 3600
 DEFAULT_INVENTORY_INTERVAL_SECONDS = 86400
 COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
+DEFAULT_POLICY_CHECK_INTERVAL_SECONDS = 3600
 INVALID_MAC_TEXT_VALUES = {
     "(incomplete)",
     "<incomplete>",
@@ -39,6 +41,28 @@ INVALID_MAC_TEXT_VALUES = {
     "none",
     "null",
 }
+
+
+def default_policy_cache_path() -> str:
+    system = platform.system().lower()
+    if system == "windows":
+        return r"C:\ProgramData\OpenAssetWatch\Collector\state\policy-cache.json"
+    if system == "linux":
+        return "/var/lib/openassetwatch/policy-cache.json"
+    if system == "darwin":
+        return "/usr/local/var/openassetwatch/policy-cache.json"
+    return "policy-cache.json"
+
+
+def default_policy_hold_file_path() -> str:
+    system = platform.system().lower()
+    if system == "windows":
+        return r"C:\ProgramData\OpenAssetWatch\Collector\policy.hold"
+    if system == "linux":
+        return "/etc/openassetwatch/policy.hold"
+    if system == "darwin":
+        return "/Library/Application Support/OpenAssetWatch/Collector/policy.hold"
+    return "policy.hold"
 
 
 class ConfigError(ValueError):
@@ -432,6 +456,7 @@ def build_payload(
     collector_guid: str | None = None,
     deployment: dict[str, Any] | None = None,
     labels: dict[str, Any] | None = None,
+    open_detector_enabled: bool = True,
 ) -> dict[str, Any]:
     platform_info = collect_platform_capabilities()
     payload: dict[str, Any] = {
@@ -451,7 +476,7 @@ def build_payload(
 
     if mode in {"device", "hybrid"}:
         payload["device"] = collect_device()
-        payload["software"] = scan_software(platform_info)
+        payload["software"] = scan_software(platform_info) if open_detector_enabled else []
 
     if mode in {"network", "hybrid"}:
         payload["network"] = collect_network(platform_info)
@@ -538,6 +563,219 @@ def send_inventory(
     return json.loads(response_body) if response_body else {}
 
 
+def canonical_json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def calculate_policy_hash(policy_payload: dict[str, Any]) -> str:
+    policy_copy = dict(policy_payload)
+    policy_copy.pop("policy_hash", None)
+    return f"sha256:{hashlib.sha256(canonical_json(policy_copy).encode('utf-8')).hexdigest()}"
+
+
+def validate_policy_payload(policy_payload: dict[str, Any]) -> None:
+    required = {
+        "policy_id",
+        "policy_version",
+        "policy_hash",
+        "license_status",
+        "assigned_capabilities",
+        "denied_capabilities",
+        "policy",
+    }
+    missing = sorted(required - set(policy_payload))
+    if missing:
+        raise ConfigError(f"policy is missing required fields: {', '.join(missing)}")
+    if not isinstance(policy_payload["policy"], dict):
+        raise ConfigError("policy.policy must be an object")
+    if policy_payload["policy_hash"] != calculate_policy_hash(policy_payload):
+        raise ConfigError("policy hash validation failed")
+
+    policy = policy_payload["policy"]
+    mode = policy.get("mode")
+    if mode is not None and mode not in {"device", "network", "hybrid"}:
+        raise ConfigError("policy mode must be device, network, or hybrid")
+
+    scheduler = policy.get("scheduler", {})
+    if scheduler is not None and not isinstance(scheduler, dict):
+        raise ConfigError("policy.scheduler must be an object")
+    for key in ("heartbeat_interval_seconds", "inventory_interval_seconds"):
+        if isinstance(scheduler, dict) and scheduler.get(key) is not None:
+            config_interval_seconds(scheduler.get(key), 1, f"policy.scheduler.{key}")
+
+    modules = policy.get("modules", {})
+    if modules is not None and not isinstance(modules, dict):
+        raise ConfigError("policy.modules must be an object")
+    actions = policy.get("actions", {})
+    if actions is not None and not isinstance(actions, dict):
+        raise ConfigError("policy.actions must be an object")
+
+
+def send_policy_request(
+    backend_url: str,
+    backend_token: str | None = None,
+) -> dict[str, Any]:
+    url = f"{backend_url.rstrip('/')}/api/v1/collectors/policy"
+    request = Request(
+        url,
+        headers=backend_headers(backend_token),
+        method="GET",
+    )
+    with urlopen(request, timeout=15) as response:
+        response_body = response.read().decode("utf-8")
+    return json.loads(response_body) if response_body else {}
+
+
+def send_policy_status(
+    backend_url: str,
+    status_payload: dict[str, Any],
+    backend_token: str | None = None,
+) -> dict[str, Any]:
+    url = f"{backend_url.rstrip('/')}/api/v1/collectors/policy-status"
+    body = json.dumps(status_payload).encode("utf-8")
+    request = Request(
+        url,
+        data=body,
+        headers=backend_headers(backend_token),
+        method="POST",
+    )
+    with urlopen(request, timeout=15) as response:
+        response_body = response.read().decode("utf-8")
+    return json.loads(response_body) if response_body else {}
+
+
+def cache_policy(policy_payload: dict[str, Any], cache_path: str | None) -> None:
+    if not cache_path:
+        return
+    path = Path(cache_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(policy_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def load_cached_policy(cache_path: str | None) -> dict[str, Any] | None:
+    if not cache_path:
+        return None
+    path = Path(cache_path)
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ConfigError("cached policy must be an object")
+    validate_policy_payload(payload)
+    return payload
+
+
+def apply_policy_to_args(args: argparse.Namespace, policy_payload: dict[str, Any]) -> bool:
+    validate_policy_payload(policy_payload)
+    policy = policy_payload["policy"]
+
+    mode = policy.get("mode")
+    if mode in {"device", "network", "hybrid"}:
+        args.mode = mode
+
+    scheduler = policy.get("scheduler")
+    if isinstance(scheduler, dict):
+        if scheduler.get("heartbeat_interval_seconds") is not None:
+            args.heartbeat_interval_seconds = config_interval_seconds(
+                scheduler.get("heartbeat_interval_seconds"),
+                args.heartbeat_interval_seconds,
+                "policy.scheduler.heartbeat_interval_seconds",
+            )
+        if scheduler.get("inventory_interval_seconds") is not None:
+            args.inventory_interval_seconds = config_interval_seconds(
+                scheduler.get("inventory_interval_seconds"),
+                args.inventory_interval_seconds,
+                "policy.scheduler.inventory_interval_seconds",
+            )
+
+    modules = policy.get("modules")
+    if isinstance(modules, dict):
+        open_detector = modules.get("open_detector")
+        if isinstance(open_detector, dict) and open_detector.get("enabled") is not None:
+            args.open_detector_enabled = bool(open_detector.get("enabled"))
+
+    actions = policy.get("actions")
+    return bool(isinstance(actions, dict) and actions.get("run_inventory_now"))
+
+
+def build_policy_status_payload(
+    args: argparse.Namespace,
+    policy_payload: dict[str, Any] | None,
+    status: str,
+    error: str | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "collector_guid": args.collector_guid,
+        "collector_id": args.collector_id,
+        "policy_id": "local-policy-hold",
+        "policy_version": 0,
+        "policy_hash": "sha256:none",
+        "policy_status": status,
+    }
+    if policy_payload:
+        payload["policy_id"] = policy_payload.get("policy_id") or payload["policy_id"]
+        payload["policy_version"] = policy_payload.get("policy_version") or payload["policy_version"]
+        payload["policy_hash"] = policy_payload.get("policy_hash") or payload["policy_hash"]
+    if error:
+        payload["policy_error"] = error
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def report_policy_status(
+    args: argparse.Namespace,
+    policy_payload: dict[str, Any] | None,
+    status: str,
+    error: str | None = None,
+) -> None:
+    if not args.backend_url:
+        return
+    try:
+        response = send_policy_status(
+            args.backend_url,
+            build_policy_status_payload(args, policy_payload, status, error),
+            args.backend_token,
+        )
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        print(f"collector policy status report failed: {exc}", file=sys.stderr)
+        return
+    print(json.dumps({"policy_status": response}, sort_keys=True), file=sys.stderr)
+
+
+def retrieve_and_apply_policy(args: argparse.Namespace) -> bool:
+    if not getattr(args, "policy_enabled", False):
+        return False
+
+    if args.policy_hold_file_path and Path(args.policy_hold_file_path).exists():
+        print(f"collector policy held by {args.policy_hold_file_path}", file=sys.stderr)
+        cached_policy = None
+        try:
+            cached_policy = load_cached_policy(args.policy_cache_path)
+        except (OSError, json.JSONDecodeError, ConfigError) as exc:
+            print(f"collector cached policy unavailable while held: {exc}", file=sys.stderr)
+        report_policy_status(args, cached_policy, "held")
+        return False
+
+    try:
+        policy_payload = send_policy_request(args.backend_url, args.backend_token)
+        validate_policy_payload(policy_payload)
+        cache_policy(policy_payload, args.policy_cache_path)
+        run_inventory_now = apply_policy_to_args(args, policy_payload)
+        report_policy_status(args, policy_payload, "applied")
+        return run_inventory_now
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ConfigError) as exc:
+        print(f"collector policy retrieval failed: {exc}", file=sys.stderr)
+        try:
+            cached_policy = load_cached_policy(args.policy_cache_path)
+            if cached_policy is None:
+                raise ConfigError("no cached policy found")
+            run_inventory_now = apply_policy_to_args(args, cached_policy)
+            print("collector using cached policy", file=sys.stderr)
+            return run_inventory_now
+        except (OSError, json.JSONDecodeError, ConfigError) as cache_exc:
+            print(f"collector cached policy unavailable: {cache_exc}", file=sys.stderr)
+        return False
+
+
 def perform_checkin(
     *,
     backend_url: str,
@@ -601,6 +839,7 @@ def run_backend_cycle(
         collector_guid=args.collector_guid,
         deployment=args.deployment,
         labels=args.labels,
+        open_detector_enabled=getattr(args, "open_detector_enabled", True),
     )
 
     if checkin:
@@ -612,6 +851,17 @@ def run_backend_cycle(
             collector_id=args.collector_id,
             collector_name=args.collector_name,
         )
+        run_inventory_now = retrieve_and_apply_policy(args)
+        if getattr(args, "policy_enabled", False):
+            payload = build_payload(
+                args.mode,
+                collector_guid=args.collector_guid,
+                deployment=args.deployment,
+                labels=args.labels,
+                open_detector_enabled=getattr(args, "open_detector_enabled", True),
+            )
+        if run_inventory_now:
+            upload_inventory = True
 
     if upload_inventory:
         print(f"{utc_now()} collector inventory upload starting", file=sys.stderr)
@@ -818,12 +1068,13 @@ def positive_int(value: str) -> int:
 def config_interval_seconds(value: Any, default: int, key: str) -> int:
     if value is None:
         return default
+    display_key = key if key.startswith("policy.") else f"scheduler.{key}"
     try:
         parsed = int(value)
     except (TypeError, ValueError) as exc:
-        raise ConfigError(f"scheduler.{key} must be an integer") from exc
+        raise ConfigError(f"{display_key} must be an integer") from exc
     if parsed <= 0:
-        raise ConfigError(f"scheduler.{key} must be greater than 0")
+        raise ConfigError(f"{display_key} must be greater than 0")
     return parsed
 
 
@@ -872,6 +1123,26 @@ def apply_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
             DEFAULT_INVENTORY_INTERVAL_SECONDS,
             "inventory_interval_seconds",
         )
+    if not getattr(args, "policy_enabled", False):
+        args.policy_enabled = bool(config_value(config, "policy", "enabled"))
+    if getattr(args, "policy_cache_path", None) is None:
+        args.policy_cache_path = config_value(config, "policy", "cache_path")
+    if getattr(args, "policy_hold_file_path", None) is None:
+        args.policy_hold_file_path = config_value(config, "policy", "hold_file_path")
+    if getattr(args, "policy_check_interval_seconds", None) is None:
+        args.policy_check_interval_seconds = config_interval_seconds(
+            config_value(config, "policy", "check_interval_seconds"),
+            DEFAULT_POLICY_CHECK_INTERVAL_SECONDS,
+            "policy.check_interval_seconds",
+        )
+    if getattr(args, "open_detector_enabled", None) is None:
+        args.open_detector_enabled = True
+
+    if args.policy_enabled:
+        if args.policy_cache_path is None:
+            args.policy_cache_path = default_policy_cache_path()
+        if args.policy_hold_file_path is None:
+            args.policy_hold_file_path = default_policy_hold_file_path()
 
     config_labels = normalize_metadata_mapping(config_section(config, "labels"), "labels")
     cli_labels = parse_label_args(getattr(args, "label", []))
@@ -980,6 +1251,27 @@ def parse_args() -> argparse.Namespace:
         help="Scheduled inventory upload interval in seconds.",
     )
     parser.add_argument(
+        "--enable-policy",
+        action="store_true",
+        dest="policy_enabled",
+        help="Enable collector policy retrieval from the OpenAssetWatch Control Plane.",
+    )
+    parser.add_argument(
+        "--policy-cache-path",
+        help="Path for cached last known good collector policy.",
+    )
+    parser.add_argument(
+        "--policy-hold-file-path",
+        help="Path to an emergency hold file that blocks remote policy application.",
+    )
+    parser.add_argument(
+        "--policy-check-interval-seconds",
+        type=positive_int,
+        default=None,
+        help="Future policy check interval in seconds.",
+    )
+    parser.set_defaults(open_detector_enabled=None)
+    parser.add_argument(
         "--config",
         help="Path to a collector YAML or JSON config file.",
     )
@@ -1008,6 +1300,8 @@ def main() -> int:
         raise SystemExit("--collector-id is required when --checkin is provided")
     if args.upload_inventory and not args.backend_url:
         raise SystemExit("--backend-url is required when --upload-inventory is provided")
+    if args.policy_enabled and not args.backend_url:
+        raise SystemExit("--backend-url is required when policy retrieval is enabled")
 
     if args.run_forever:
         return run_scheduler(args)
@@ -1017,6 +1311,7 @@ def main() -> int:
         collector_guid=args.collector_guid,
         deployment=args.deployment,
         labels=args.labels,
+        open_detector_enabled=getattr(args, "open_detector_enabled", True),
     )
 
     if args.checkin:
@@ -1028,6 +1323,17 @@ def main() -> int:
             collector_name=args.collector_name,
         ):
             return 1
+        run_inventory_now = retrieve_and_apply_policy(args)
+        if getattr(args, "policy_enabled", False):
+            payload = build_payload(
+                args.mode,
+                collector_guid=args.collector_guid,
+                deployment=args.deployment,
+                labels=args.labels,
+                open_detector_enabled=getattr(args, "open_detector_enabled", True),
+            )
+        if run_inventory_now:
+            args.upload_inventory = True
 
     if args.upload_inventory:
         if not perform_inventory_upload(

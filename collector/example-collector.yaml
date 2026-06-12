@@ -21,6 +21,12 @@ scheduler:
   heartbeat_interval_seconds: 3600
   inventory_interval_seconds: 86400
 
+policy:
+  enabled: false
+  cache_path: null
+  hold_file_path: null
+  check_interval_seconds: 3600
+
 deployment:
   deployment_id: home-lab-cincinnati
   business_unit: lab

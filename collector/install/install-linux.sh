@@ -192,6 +192,12 @@ scheduler:
   enabled: true
   heartbeat_interval_seconds: ${HEARTBEAT_INTERVAL_SECONDS}
   inventory_interval_seconds: ${INVENTORY_INTERVAL_SECONDS}
+
+policy:
+  enabled: false
+  cache_path: null
+  hold_file_path: null
+  check_interval_seconds: 3600
 EOF
 
 if [[ -n "${DEPLOYMENT_ID}${BUSINESS_UNIT}${SITE}${ENVIRONMENT}${INSTALL_RING}" ]]; then

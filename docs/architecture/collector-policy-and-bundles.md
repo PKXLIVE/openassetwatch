@@ -38,7 +38,8 @@ OpenAssetWatch Control Plane -> deployment policy -> collector config bundle -> 
 ```
 
 This document describes the future architecture only. Policy download and
-remote bundle application are not implemented yet.
+remote bundle application are not implemented beyond the safe MVP policy
+retrieval endpoint.
 
 ## Assignment Model
 
@@ -131,6 +132,8 @@ The collector should report policy status fields such as:
 - `policy_status`
 - `policy_error`, if any
 
+The MVP status endpoint accepts `applied`, `failed`, `held`, or `ignored`.
+
 If a policy cannot be validated or applied, the collector should keep running
 with the last known good local configuration where possible and report the
 failure clearly.
@@ -163,24 +166,24 @@ The emergency local override must be able to prevent remote policy application.
 This gives an operator a local recovery path if a backend policy is incorrect,
 unsafe for a specific network, or incompatible with a collector host.
 
-## Suggested Future Endpoints
+## Suggested Endpoints
 
-Future policy endpoints may include:
+Policy-related endpoints may include:
 
 - `POST /api/v1/collectors/checkin`
 - `GET /api/v1/collectors/policy`
 - `GET /api/v1/collectors/policies/{policy_id}`
 - `POST /api/v1/collectors/policy-status`
 
-These endpoints are future scope only. The current collector should continue to
-use local configuration, check-in, and inventory upload behavior until policy
-download is intentionally implemented.
+The MVP implements default policy retrieval and policy status reporting without
+a policy assignment database or backend UI. Rich assignment logic and policy
+bundle management are future scope.
 
 ## Out of Scope
 
 Do not implement the following as part of this architecture note:
 
-- policy download
+- policy assignment database
 - backend UI
 - arbitrary remote command execution
 - package or binary updates

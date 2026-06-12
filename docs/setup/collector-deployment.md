@@ -138,6 +138,25 @@ For the future architecture, safety boundaries, lifecycle, and config
 precedence model, see
 `docs/architecture/collector-policy-and-bundles.md`.
 
+Policy retrieval is disabled by default in the MVP. When enabled, collectors
+retrieve policy from the OpenAssetWatch Control Plane after check-in. The
+collector validates the policy shape and hash, caches the last known good
+policy, applies only safe schema-defined settings, and reports policy status
+back to the backend.
+
+Capabilities are assigned by policy; they are not blindly enabled. Active
+scanning, packet capture, SNMP execution, Nmap, and passive sensor behavior
+remain disabled unless a future feature explicitly implements and enables them.
+
+Emergency local hold files must override backend policy retrieval and
+application:
+
+```text
+Windows: C:\ProgramData\OpenAssetWatch\Collector\policy.hold
+Linux: /etc/openassetwatch/policy.hold
+macOS: /Library/Application Support/OpenAssetWatch/Collector/policy.hold
+```
+
 ## Service Management MVP
 
 Before signed platform packages are added, local installs should have consistent
@@ -200,8 +219,9 @@ Future safety rules:
 - backend policy must not contain arbitrary shell commands
 - an emergency local hold file must prevent remote policy or update actions
 
-This is architecture direction only. Remote binary update, package download, and
-policy download are not implemented in the MVP.
+This is architecture direction only. Remote binary update and package download
+are not implemented in the MVP. Policy retrieval is limited to the safe
+schema-defined collector policy endpoint.
 
 ## Windows MVP
 
