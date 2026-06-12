@@ -411,11 +411,53 @@ The installed collector should appear in the collectors response, and its local
 device plus discovered network neighbors should appear in the assets response
 after the first scheduled inventory upload.
 
+## Service Management Helper
+
+The MVP service manager provides a consistent wrapper around the native service
+mechanism on each OS:
+
+```sh
+python collector/install/service_manager.py status
+python collector/install/service_manager.py start
+python collector/install/service_manager.py stop
+python collector/install/service_manager.py restart
+python collector/install/service_manager.py logs
+python collector/install/service_manager.py uninstall-info
+```
+
+Use `--dry-run` to print the native commands without running them:
+
+```sh
+python collector/install/service_manager.py restart --dry-run
+```
+
+Windows remains a Task Scheduler MVP. The helper uses `schtasks.exe` for
+status, start, stop, and restart.
+
+Linux uses `systemctl` for service control and `journalctl` for recent logs.
+Run the helper with `sudo` when the action requires service-manager privileges:
+
+```sh
+sudo python collector/install/service_manager.py restart
+sudo python collector/install/service_manager.py logs
+```
+
+macOS uses `launchctl` with the LaunchDaemon at
+`/Library/LaunchDaemons/com.openassetwatch.collector.plist`. Run service
+actions with `sudo`:
+
+```sh
+sudo python collector/install/service_manager.py status
+sudo python collector/install/service_manager.py restart
+```
+
 ## Troubleshooting
 
 Windows:
 
 ```cmd
+python collector\install\service_manager.py status
+python collector\install\service_manager.py logs
 schtasks.exe /Query /TN "OpenAssetWatch Collector" /V /FO LIST
 type "C:\ProgramData\OpenAssetWatch\Collector\install.env"
 type "C:\ProgramData\OpenAssetWatch\Collector\logs\install.log"
@@ -427,6 +469,8 @@ curl http://<backend-ip>:8000/api/v1/assets
 Linux:
 
 ```sh
+sudo python collector/install/service_manager.py status
+sudo python collector/install/service_manager.py logs
 sudo systemctl status openassetwatch-collector
 sudo journalctl -u openassetwatch-collector -n 100
 sudo cat /etc/openassetwatch/install.env
@@ -440,6 +484,8 @@ curl http://<backend-ip>:8000/api/v1/assets
 macOS:
 
 ```sh
+sudo python collector/install/service_manager.py status
+python collector/install/service_manager.py logs
 sudo launchctl print system/com.openassetwatch.collector
 sudo cat "/Library/Application Support/OpenAssetWatch/Collector/install.env"
 tail -n 100 /Library/Logs/OpenAssetWatch/install.log
