@@ -8,6 +8,9 @@ For the future AI evidence card model and AI finding output schema, see the
 `AI Evidence and Finding Schema` section in
 `docs/architecture/ai-agent-architecture.md`.
 
+For the initial specialist advisor roles, see the `AI Specialist Agent Roles`
+section in `docs/architecture/ai-agent-architecture.md`.
+
 The OpenAssetWatch AI Advisor is a future advisory layer that runs after data
 collection, normalization, and rule-based risk scoring.
 
