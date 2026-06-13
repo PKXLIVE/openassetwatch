@@ -1,5 +1,9 @@
 # AI Advisor Architecture
 
+For the foundational AI Advisor purpose, value, evidence, safety principles,
+and agent architecture direction, see
+`docs/architecture/ai-agent-architecture.md`.
+
 The OpenAssetWatch AI Advisor is a future advisory layer that runs after data
 collection, normalization, and rule-based risk scoring.
 
