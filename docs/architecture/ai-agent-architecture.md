@@ -300,6 +300,164 @@ when useful. The Tool Gateway should expose only approved, read-only or
 human-approved actions. The Safety and Policy Layer should enforce tenant
 isolation, capability boundaries, redaction, entitlement, and audit behavior.
 
+## AI Specialist Agent Roles
+
+The AI Advisor may use specialist agents to keep analysis focused, auditable,
+and safer than one broad general-purpose agent. These agents are conceptual
+roles for future design. They are not implemented in this PR.
+
+### Shared Rules for All Agents
+
+All AI specialist agents must:
+
+- use OpenAssetWatch evidence
+- not invent findings
+- separate observed facts from recommendations
+- include confidence
+- include safe validation steps
+- not execute changes
+- not run arbitrary commands
+- respect tenant isolation and policy/capability limits
+
+### Asset Intelligence Agent
+
+Purpose:
+
+Identify unmanaged, duplicate, stale, unknown, or suspicious assets.
+
+Example outputs:
+
+- unmanaged asset list
+- stale collector/device list
+- duplicate asset candidates
+- unknown device summary
+
+### Network Behavior Agent
+
+Purpose:
+
+Review network observations, neighbor data, protocol clues, and asset
+communication patterns.
+
+Example outputs:
+
+- newly observed assets
+- unexpected network neighbors
+- unusual network placement
+- network activity summaries
+
+### Exposure and Risk Agent
+
+Purpose:
+
+Identify risky combinations, exposed services, missing controls, and
+prioritization.
+
+Example outputs:
+
+- risky asset summary
+- missing control findings
+- prioritized remediation list
+- exposure explanation
+
+### Segmentation Advisor
+
+Purpose:
+
+Recommend safe segmentation groups based on asset type, observed behavior,
+business role, and risk.
+
+Example outputs:
+
+- suggested network zones
+- assets that should be isolated
+- segmentation rationale
+- validation steps before changing network policy
+
+### IoT and OT Advisor
+
+Purpose:
+
+Flag likely embedded, IoT, OT-like, printer, camera, appliance, unmanaged, or
+special-purpose devices.
+
+Example outputs:
+
+- likely IoT/OT asset list
+- confidence level
+- evidence used
+- recommended validation steps
+
+### Security Tooling Advisor
+
+Purpose:
+
+Review EDR, MDM, vulnerability agent, logging, and security tooling coverage.
+
+Example outputs:
+
+- assets missing EDR
+- assets missing vulnerability agents
+- assets missing MDM
+- coverage gaps by platform or site
+
+### Remediation Planner
+
+Purpose:
+
+Turn findings into safe, step-by-step remediation plans.
+
+Important: this agent recommends actions but does not execute them.
+
+Example outputs:
+
+- remediation checklist
+- owner/action mapping
+- validation steps
+- rollback considerations
+
+### Report Writer
+
+Purpose:
+
+Generate executive summaries, technical reports, asset review notes, and
+remediation plans.
+
+Example outputs:
+
+- executive summary
+- technical remediation report
+- weekly asset risk report
+- customer-facing assessment summary
+
+### Detection and Splunk Advisor
+
+Purpose:
+
+Suggest Splunk searches, CIM mapping ideas, dashboard ideas, and detection
+logic based on OpenAssetWatch evidence.
+
+Example outputs:
+
+- Splunk search suggestions
+- dashboard ideas
+- CIM mapping notes
+- detection engineering recommendations
+
+### Data Quality Agent
+
+Purpose:
+
+Find bad data, missing fields, stale collectors, duplicate assets, invalid MACs,
+inconsistent hostnames, and normalization issues.
+
+Example outputs:
+
+- data quality report
+- stale collector list
+- invalid asset records
+- normalization improvement recommendations
+
 ## Out of Scope
 
 The following are out of scope for this PR:
