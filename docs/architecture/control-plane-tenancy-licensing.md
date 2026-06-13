@@ -167,6 +167,12 @@ Future backend tables may include:
 - `policy_assignments`
 - `collector_revocations`
 
+The MVP already includes simple `collector_policies` and
+`policy_assignments` tables so the Control Plane can return assigned collector
+policies instead of only returning a hardcoded default. That MVP storage is not
+tenant-enforced yet. In managed or SaaS mode, policy assignment must be scoped
+by server-side tenant/customer context and license entitlement checks.
+
 The exact schema should be designed when enrollment, auth, licensing, and policy
 assignment move beyond the MVP. The core collector payload should remain
 vendor-neutral and should not embed SaaS billing assumptions.

@@ -113,3 +113,38 @@ CREATE TABLE IF NOT EXISTS asset_software_detections (
 
 CREATE INDEX IF NOT EXISTS idx_asset_software_detections_asset_id
     ON asset_software_detections (asset_id);
+
+CREATE TABLE IF NOT EXISTS collector_policies (
+    id BIGSERIAL PRIMARY KEY,
+    policy_id TEXT NOT NULL UNIQUE,
+    policy_name TEXT,
+    policy_version INTEGER NOT NULL DEFAULT 1,
+    policy_json JSONB NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_collector_policies_enabled
+    ON collector_policies (enabled);
+
+CREATE TABLE IF NOT EXISTS policy_assignments (
+    id BIGSERIAL PRIMARY KEY,
+    assignment_name TEXT,
+    policy_id TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    priority INTEGER NOT NULL DEFAULT 0,
+    collector_guid TEXT,
+    collector_id TEXT,
+    deployment_id TEXT,
+    platform TEXT,
+    label_selector JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_policy_assignments_enabled_priority
+    ON policy_assignments (enabled, priority DESC);
+
+CREATE INDEX IF NOT EXISTS idx_policy_assignments_policy_id
+    ON policy_assignments (policy_id);

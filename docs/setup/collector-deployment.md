@@ -161,6 +161,29 @@ Future license/entitlement validation can use these fields for capability
 assignment and revocation. The MVP reports capability state only and does not
 enforce licensing.
 
+The Control Plane can store MVP collector policies and assignments in the
+backend database. Policy assignment can match on:
+
+- exact `collector_guid`
+- exact `collector_id`
+- exact `deployment_id`
+- exact platform
+- simple labels
+
+If multiple assignments match, the highest priority assignment wins. Disabled
+assignments and disabled policies are ignored. If no assignment matches, the
+backend returns the built-in `default-local-collector` policy.
+
+Development-only policy management endpoints are available for local testing:
+
+- `GET /api/v1/admin/policies`
+- `POST /api/v1/admin/policies`
+- `GET /api/v1/admin/policy-assignments`
+- `POST /api/v1/admin/policy-assignments`
+
+These are MVP admin/dev endpoints only. They do not enforce tenants, licenses,
+or production authorization yet.
+
 For the future tenancy, collector ownership, licensing, entitlement, and
 revocation model, see
 `docs/architecture/control-plane-tenancy-licensing.md`.
