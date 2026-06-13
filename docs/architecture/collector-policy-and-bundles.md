@@ -65,6 +65,18 @@ The backend can assign policies based on:
 - collector version
 - install profile
 
+Collectors should also report:
+
+- `supported_capabilities`: what the collector can safely do on the current
+  host.
+- `enabled_capabilities`: what the collector is currently doing.
+
+Policy may include `assigned_capabilities`, which are the capabilities the
+OpenAssetWatch Control Plane allows or requests. Assigned capabilities should
+not be blindly enabled when they are not supported by the collector host.
+Future license/entitlement validation should use these fields for assignment,
+revocation, and reporting.
+
 `collector_guid` should remain the strongest match for a specific installed
 collector. Deployment metadata and labels should support grouping by business
 unit, site, location, environment, rollout ring, or install campaign.

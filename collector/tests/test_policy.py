@@ -14,6 +14,7 @@ from openassetwatch_collector.main import (
     ConfigError,
     apply_config_defaults,
     calculate_policy_hash,
+    apply_policy_to_args,
     retrieve_and_apply_policy,
     run_scheduler,
     send_policy_request,
@@ -74,6 +75,11 @@ def make_args(**overrides: object) -> argparse.Namespace:
         "policy_hold_file_path": None,
         "policy_check_interval_seconds": 3600,
         "open_detector_enabled": True,
+        "supported_capabilities": [
+            "device_inventory",
+            "network_neighbors",
+            "open_detector",
+        ],
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -239,6 +245,26 @@ class PolicyTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("collector policy retrieval failed", stderr.getvalue())
+
+    def test_unsupported_assigned_capabilities_are_ignored(self) -> None:
+        policy = make_policy(
+            assigned_capabilities=["device_inventory", "nmap_light"],
+            policy={
+                "mode": "hybrid",
+                "modules": {"open_detector": {"enabled": True}},
+                "actions": {"run_inventory_now": False},
+            },
+        )
+        args = make_args(
+            supported_capabilities=["device_inventory"],
+            open_detector_enabled=False,
+        )
+
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            apply_policy_to_args(args, policy)
+
+        self.assertFalse(args.open_detector_enabled)
+        self.assertIn("nmap_light", stderr.getvalue())
 
 
 def make_config_args(config: str | None = None, **overrides: object) -> argparse.Namespace:

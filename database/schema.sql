@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS collectors (
     deployment_id TEXT,
     deployment_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     labels_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    supported_capabilities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    enabled_capabilities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
     last_mode TEXT,
     last_seen_at TIMESTAMPTZ,
     last_submission_id BIGINT REFERENCES collector_inventory_submissions(id),

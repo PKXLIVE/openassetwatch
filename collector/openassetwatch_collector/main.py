@@ -34,6 +34,21 @@ DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 3600
 DEFAULT_INVENTORY_INTERVAL_SECONDS = 86400
 COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
 DEFAULT_POLICY_CHECK_INTERVAL_SECONDS = 3600
+CAPABILITY_DEVICE_INVENTORY = "device_inventory"
+CAPABILITY_NETWORK_NEIGHBORS = "network_neighbors"
+CAPABILITY_OPEN_DETECTOR = "open_detector"
+KNOWN_CAPABILITIES = (
+    CAPABILITY_DEVICE_INVENTORY,
+    CAPABILITY_NETWORK_NEIGHBORS,
+    CAPABILITY_OPEN_DETECTOR,
+    "reverse_dns",
+    "mdns",
+    "ssdp",
+    "netbios",
+    "snmp",
+    "nmap_light",
+    "passive_sensor",
+)
 INVALID_MAC_TEXT_VALUES = {
     "(incomplete)",
     "<incomplete>",
@@ -450,6 +465,37 @@ def collect_network(platform_info: dict[str, object]) -> list[dict[str, Any]]:
     return list(entries_by_key.values())
 
 
+def collect_supported_capabilities(platform_info: dict[str, object]) -> list[str]:
+    supported = [
+        CAPABILITY_DEVICE_INVENTORY,
+        CAPABILITY_OPEN_DETECTOR,
+    ]
+    if network_collectors_for_platform(platform_info):
+        supported.append(CAPABILITY_NETWORK_NEIGHBORS)
+    return [capability for capability in KNOWN_CAPABILITIES if capability in supported]
+
+
+def collect_enabled_capabilities(
+    mode: str,
+    supported_capabilities: list[str],
+    *,
+    open_detector_enabled: bool = True,
+) -> list[str]:
+    supported = set(supported_capabilities)
+    enabled: list[str] = []
+    if mode in {"device", "hybrid"} and CAPABILITY_DEVICE_INVENTORY in supported:
+        enabled.append(CAPABILITY_DEVICE_INVENTORY)
+    if mode in {"network", "hybrid"} and CAPABILITY_NETWORK_NEIGHBORS in supported:
+        enabled.append(CAPABILITY_NETWORK_NEIGHBORS)
+    if (
+        mode in {"device", "hybrid"}
+        and open_detector_enabled
+        and CAPABILITY_OPEN_DETECTOR in supported
+    ):
+        enabled.append(CAPABILITY_OPEN_DETECTOR)
+    return [capability for capability in KNOWN_CAPABILITIES if capability in enabled]
+
+
 def build_payload(
     mode: str,
     *,
@@ -459,6 +505,12 @@ def build_payload(
     open_detector_enabled: bool = True,
 ) -> dict[str, Any]:
     platform_info = collect_platform_capabilities()
+    supported_capabilities = collect_supported_capabilities(platform_info)
+    enabled_capabilities = collect_enabled_capabilities(
+        mode,
+        supported_capabilities,
+        open_detector_enabled=open_detector_enabled,
+    )
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "collector": "openassetwatch_collector",
@@ -466,6 +518,8 @@ def build_payload(
         "mode": mode,
         "collected_at": utc_now(),
         "platform": platform_info,
+        "supported_capabilities": supported_capabilities,
+        "enabled_capabilities": enabled_capabilities,
     }
     if collector_guid:
         payload["collector_guid"] = collector_guid
@@ -503,6 +557,9 @@ def build_checkin_payload(
         checkin_payload["collector_name"] = collector_name
     for key in ("collector_guid", "deployment", "labels"):
         if payload.get(key):
+            checkin_payload[key] = payload[key]
+    for key in ("supported_capabilities", "enabled_capabilities"):
+        if isinstance(payload.get(key), list):
             checkin_payload[key] = payload[key]
     return checkin_payload
 
@@ -668,6 +725,17 @@ def load_cached_policy(cache_path: str | None) -> dict[str, Any] | None:
 def apply_policy_to_args(args: argparse.Namespace, policy_payload: dict[str, Any]) -> bool:
     validate_policy_payload(policy_payload)
     policy = policy_payload["policy"]
+    supported_capabilities = set(getattr(args, "supported_capabilities", []) or [])
+    assigned_capabilities = policy_payload.get("assigned_capabilities")
+    if not isinstance(assigned_capabilities, list):
+        assigned_capabilities = []
+    assigned_capability_set = {str(capability) for capability in assigned_capabilities}
+    ignored_capabilities = sorted(assigned_capability_set - supported_capabilities)
+    if ignored_capabilities:
+        print(
+            f"collector ignored unsupported assigned capabilities: {', '.join(ignored_capabilities)}",
+            file=sys.stderr,
+        )
 
     mode = policy.get("mode")
     if mode in {"device", "network", "hybrid"}:
@@ -691,7 +759,12 @@ def apply_policy_to_args(args: argparse.Namespace, policy_payload: dict[str, Any
     modules = policy.get("modules")
     if isinstance(modules, dict):
         open_detector = modules.get("open_detector")
-        if isinstance(open_detector, dict) and open_detector.get("enabled") is not None:
+        if (
+            isinstance(open_detector, dict)
+            and open_detector.get("enabled") is not None
+            and CAPABILITY_OPEN_DETECTOR in supported_capabilities
+            and CAPABILITY_OPEN_DETECTOR in assigned_capability_set
+        ):
             args.open_detector_enabled = bool(open_detector.get("enabled"))
 
     actions = policy.get("actions")
@@ -841,6 +914,7 @@ def run_backend_cycle(
         labels=args.labels,
         open_detector_enabled=getattr(args, "open_detector_enabled", True),
     )
+    args.supported_capabilities = payload.get("supported_capabilities", [])
 
     if checkin:
         print(f"{utc_now()} collector check-in starting", file=sys.stderr)
@@ -860,6 +934,7 @@ def run_backend_cycle(
                 labels=args.labels,
                 open_detector_enabled=getattr(args, "open_detector_enabled", True),
             )
+            args.supported_capabilities = payload.get("supported_capabilities", [])
         if run_inventory_now:
             upload_inventory = True
 
@@ -1313,6 +1388,7 @@ def main() -> int:
         labels=args.labels,
         open_detector_enabled=getattr(args, "open_detector_enabled", True),
     )
+    args.supported_capabilities = payload.get("supported_capabilities", [])
 
     if args.checkin:
         if not perform_checkin(
@@ -1332,6 +1408,7 @@ def main() -> int:
                 labels=args.labels,
                 open_detector_enabled=getattr(args, "open_detector_enabled", True),
             )
+            args.supported_capabilities = payload.get("supported_capabilities", [])
         if run_inventory_now:
             args.upload_inventory = True
 

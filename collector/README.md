@@ -157,6 +157,22 @@ Linux: /etc/openassetwatch/policy.hold
 macOS: /Library/Application Support/OpenAssetWatch/Collector/policy.hold
 ```
 
+## Capability Reporting
+
+Collector check-in and inventory payloads include:
+
+- `supported_capabilities`: what the collector can safely do on the current
+  host based on platform, available commands, and implemented collector
+  modules.
+- `enabled_capabilities`: what the collector is currently doing for the active
+  mode and local settings.
+
+The OpenAssetWatch Control Plane may return `assigned_capabilities` in policy.
+Assigned capabilities are what the Control Plane allows or requests, but the
+collector does not blindly enable unsupported capabilities. Future
+license/entitlement checks can use these fields without changing the collector
+payload shape.
+
 ## Config File
 
 The collector can load backend and collector settings from a YAML or JSON config
