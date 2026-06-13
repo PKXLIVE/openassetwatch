@@ -300,6 +300,163 @@ when useful. The Tool Gateway should expose only approved, read-only or
 human-approved actions. The Safety and Policy Layer should enforce tenant
 isolation, capability boundaries, redaction, entitlement, and audit behavior.
 
+## AI Tool Gateway and MCP Safety Model
+
+### Purpose
+
+The AI Tool Gateway is the controlled layer between AI agents and OpenAssetWatch
+tools, APIs, integrations, and future MCP-style servers.
+
+The gateway should make tool use:
+
+- controlled
+- auditable
+- policy-aware
+- tenant-isolated
+- safe by default
+
+AI agents should not call backend APIs, collector actions, external
+integrations, or MCP-style tools directly. They should request tool use through
+the gateway so OpenAssetWatch can enforce policy, capability, license, tenant,
+approval, and audit controls consistently.
+
+### Tool Categories
+
+Initial tool categories may include:
+
+- read-only inventory tools
+- read-only asset search tools
+- read-only network observation tools
+- read-only finding/risk tools
+- report generation tools
+- enrichment lookup tools
+- policy explanation tools
+- future controlled action tools
+
+### Default Safety Rule
+
+All tools are read-only by default unless explicitly marked otherwise.
+
+Any tool that could change systems, modify collector behavior, send sensitive
+data outside a tenant, trigger network activity, or notify external parties
+must be treated as higher risk and require explicit metadata, policy checks,
+and human approval where appropriate.
+
+### Disallowed by Default
+
+AI agents must not be allowed to perform these by default:
+
+- arbitrary shell commands
+- unrestricted Nmap
+- mass scanning
+- packet capture
+- exploit execution
+- credential dumping
+- password, hash, or token collection
+- firewall changes
+- endpoint changes
+- collector updates
+- destructive actions
+- cross-tenant access
+
+These activities must remain unavailable unless a future feature explicitly
+implements a safe, scoped, policy-controlled workflow. Some actions, such as
+exploit execution or credential dumping, should remain outside the
+OpenAssetWatch AI Advisor design entirely.
+
+### Tool Metadata
+
+Future tools should declare metadata before they can be enabled.
+
+Suggested fields:
+
+- `tool_name`
+- `tool_description`
+- `tool_category`
+- `read_only`
+- `requires_approval`
+- `required_capability`
+- `required_license`
+- `allowed_roles`
+- `tenant_scoped`
+- `input_schema`
+- `output_schema`
+- `risk_level`
+- `audit_enabled`
+
+Tool metadata should be reviewed before enablement. The gateway should not rely
+only on natural-language tool descriptions for safety decisions.
+
+### Human Approval
+
+Future high-impact actions require human approval, including:
+
+- active scan
+- SNMP query
+- packet capture
+- firewall or segmentation change
+- collector policy update
+- collector package update
+- ticket creation that notifies others
+- external enrichment that sends sensitive data outside the tenant
+
+Approval should be explicit, scoped, time-bound where practical, and logged.
+The approving user should see what action is requested, which assets or tenants
+are affected, what evidence supports the action, and what rollback or stop
+conditions exist.
+
+### Safety Checks
+
+Before tool execution, the gateway should perform these checks:
+
+- tenant isolation
+- user authorization
+- collector capability check
+- license or entitlement check
+- tool allowlist check
+- input validation
+- output validation
+- rate limit check
+- audit logging
+- approval check when required
+
+If any required check fails, the tool call should be denied and the AI Advisor
+should explain the denial without attempting a workaround.
+
+### MCP-Style Integrations
+
+MCP-style integrations may be supported later, but they must go through the
+same gateway controls as native OpenAssetWatch tools.
+
+Safety notes:
+
+- do not trust external MCP server descriptions blindly
+- scan and review tools before enabling
+- disable unknown or high-risk tools by default
+- prevent tool poisoning
+- prevent prompt injection through tool output
+- log tool calls and outputs where appropriate
+
+External tool output should be treated as untrusted input. The AI Advisor
+should not follow instructions embedded in tool output unless those
+instructions come from a trusted OpenAssetWatch policy context.
+
+### Agent Behavior Rules
+
+All agents must:
+
+- request tools through the gateway
+- use least privilege
+- prefer read-only evidence gathering
+- explain what tool was used
+- cite or reference evidence returned by tools
+- stop if approval is required
+- never bypass policy, capability, or license checks
+
+The gateway should make the safe path the normal path. Agents that cannot
+complete a task within available permissions should report what is missing
+rather than escalating themselves.
+
 ## AI Specialist Agent Roles
 
 The AI Advisor may use specialist agents to keep analysis focused, auditable,
@@ -465,6 +622,8 @@ The following are out of scope for this PR:
 - AI runtime implementation
 - model or provider integration
 - MCP server implementation
+- tool runtime implementation
+- approval workflow implementation
 - autonomous scanning
 - exploit tools
 - packet capture
