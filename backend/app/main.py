@@ -65,6 +65,8 @@ class CollectorCheckInRequest(BaseModel):
     platform: dict[str, Any] | None = None
     deployment: dict[str, Any] | None = None
     labels: dict[str, Any] | None = None
+    supported_capabilities: list[str] | None = None
+    enabled_capabilities: list[str] | None = None
     status: str = "healthy"
     message: str | None = None
     checked_in_at: datetime | None = None
@@ -90,6 +92,8 @@ class CollectorInventoryRequest(BaseModel):
     platform: dict[str, Any] | None = None
     deployment: dict[str, Any] | None = None
     labels: dict[str, Any] | None = None
+    supported_capabilities: list[str] | None = None
+    enabled_capabilities: list[str] | None = None
     device: dict[str, Any] | None = None
     network: list[dict[str, Any]] | dict[str, Any] | None = None
     software: list[dict[str, Any]] | None = None
@@ -222,6 +226,8 @@ def collector_checkin(
             collector_version=payload.collector_version,
             deployment=payload.deployment,
             labels=payload.labels,
+            supported_capabilities=payload.supported_capabilities,
+            enabled_capabilities=payload.enabled_capabilities,
             mode=payload.mode,
             seen_at=received_at,
         )
@@ -372,6 +378,8 @@ def collector_inventory(
             collector_version=payload.collector_version,
             mode=payload.mode,
             received_at=received_at,
+            supported_capabilities=payload.supported_capabilities,
+            enabled_capabilities=payload.enabled_capabilities,
         )
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to normalize inventory submission") from exc

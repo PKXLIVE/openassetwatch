@@ -38,9 +38,11 @@ class CollectorInventoryTests(unittest.TestCase):
                     CollectorCheckInRequest(
                         collector_id="local-dev-collector-01",
                         hostname="test-host",
-                        collector_version="0.1.0",
-                        mode="device",
-                    )
+                    collector_version="0.1.0",
+                    mode="device",
+                    supported_capabilities=["device_inventory", "open_detector"],
+                    enabled_capabilities=["device_inventory", "open_detector"],
+                )
                 )
 
         self.assertEqual(response.status, "accepted")
@@ -187,6 +189,8 @@ class CollectorInventoryTests(unittest.TestCase):
                     mode="hybrid",
                     deployment={"deployment_id": "home-lab"},
                     labels={"owner": "dion"},
+                    supported_capabilities=["device_inventory", "open_detector"],
+                    enabled_capabilities=["device_inventory", "open_detector"],
                 )
             )
 
@@ -195,6 +199,8 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertEqual(upsert.call_args.kwargs["collector_guid"], "11111111-1111-4111-8111-111111111111")
         self.assertEqual(upsert.call_args.kwargs["deployment"]["deployment_id"], "home-lab")
         self.assertEqual(upsert.call_args.kwargs["labels"]["owner"], "dion")
+        self.assertEqual(upsert.call_args.kwargs["supported_capabilities"], ["device_inventory", "open_detector"])
+        self.assertEqual(upsert.call_args.kwargs["enabled_capabilities"], ["device_inventory", "open_detector"])
 
     def test_upsert_collector_matches_existing_guid_before_collector_id(self) -> None:
         connection = Mock()
@@ -211,6 +217,8 @@ class CollectorInventoryTests(unittest.TestCase):
             collector_version="0.1.0",
             deployment={"deployment_id": "home-lab"},
             labels={"owner": "dion"},
+            supported_capabilities=["device_inventory", "network_neighbors", "open_detector"],
+            enabled_capabilities=["device_inventory", "network_neighbors"],
             mode="hybrid",
             seen_at=datetime.now(timezone.utc),
         )
@@ -219,6 +227,8 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertEqual(connection.execute.call_count, 2)
         update_sql = str(connection.execute.call_args_list[1].args[0])
         self.assertIn("UPDATE collectors", update_sql)
+        self.assertIn("supported_capabilities_json", update_sql)
+        self.assertIn("enabled_capabilities_json", update_sql)
         self.assertNotIn("INSERT INTO collectors", update_sql)
 
     def test_backend_mac_normalization_rejects_non_host_values(self) -> None:
@@ -300,7 +310,7 @@ class CollectorInventoryTests(unittest.TestCase):
             with patch(
                 "app.main.normalize_inventory_submission",
                 return_value={"normalized_asset_count": 3, "normalized_software_count": 1},
-            ):
+            ) as normalize:
                 response = collector_inventory(
                     {
                         "schema_version": "1.0",
@@ -311,6 +321,16 @@ class CollectorInventoryTests(unittest.TestCase):
                         "platform": {"system": "windows", "architecture": "amd64"},
                         "deployment": {"deployment_id": "home-lab"},
                         "labels": {"owner": "dion"},
+                        "supported_capabilities": [
+                            "device_inventory",
+                            "network_neighbors",
+                            "open_detector",
+                        ],
+                        "enabled_capabilities": [
+                            "device_inventory",
+                            "network_neighbors",
+                            "open_detector",
+                        ],
                         "device": {"hostname": "test-host"},
                         "network": [
                             {
@@ -343,6 +363,14 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertEqual(response.software_count, 1)
         self.assertEqual(response.normalized_asset_count, 3)
         self.assertEqual(response.normalized_software_count, 1)
+        self.assertEqual(
+            normalize.call_args.kwargs["supported_capabilities"],
+            ["device_inventory", "network_neighbors", "open_detector"],
+        )
+        self.assertEqual(
+            normalize.call_args.kwargs["enabled_capabilities"],
+            ["device_inventory", "network_neighbors", "open_detector"],
+        )
 
     def test_empty_payload_returns_400(self) -> None:
         with self.assertRaises(HTTPException) as raised:
@@ -423,10 +451,22 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertEqual(response["assets"][0]["hostname"], "test-host")
 
     def test_collectors_endpoint_returns_collectors(self) -> None:
-        with patch("app.main.list_collectors", return_value=[{"id": 1, "collector_id": "collector-1"}]):
+        with patch(
+            "app.main.list_collectors",
+            return_value=[
+                {
+                    "id": 1,
+                    "collector_id": "collector-1",
+                    "supported_capabilities": ["device_inventory"],
+                    "enabled_capabilities": ["device_inventory"],
+                }
+            ],
+        ):
             response = collectors()
 
         self.assertEqual(response["collectors"][0]["collector_id"], "collector-1")
+        self.assertEqual(response["collectors"][0]["supported_capabilities"], ["device_inventory"])
+        self.assertEqual(response["collectors"][0]["enabled_capabilities"], ["device_inventory"])
 
     def test_non_object_payload_returns_400(self) -> None:
         with self.assertRaises(HTTPException) as raised:

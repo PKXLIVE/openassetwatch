@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS collectors (
     deployment_id TEXT,
     deployment_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     labels_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    supported_capabilities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    enabled_capabilities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
     last_mode TEXT,
     last_seen_at TIMESTAMPTZ,
     last_submission_id BIGINT REFERENCES collector_inventory_submissions(id),
@@ -138,6 +140,8 @@ NORMALIZATION_INDEX_SQL = [
     "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS deployment_id TEXT",
     "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS deployment_json JSONB NOT NULL DEFAULT '{}'::jsonb",
     "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS labels_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS supported_capabilities_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS enabled_capabilities_json JSONB NOT NULL DEFAULT '[]'::jsonb",
     "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS last_submission_id BIGINT REFERENCES collector_inventory_submissions(id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_collectors_collector_guid ON collectors (collector_guid) WHERE collector_guid IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_assets_collector_id ON assets (collector_id)",
@@ -351,6 +355,17 @@ def _metadata_object(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _capability_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    capabilities: list[str] = []
+    for item in value:
+        text_value = _clean_text(item)
+        if text_value and text_value not in capabilities:
+            capabilities.append(text_value)
+    return capabilities
+
+
 def _upsert_collector(
     connection: Any,
     *,
@@ -360,6 +375,8 @@ def _upsert_collector(
     collector_version: str | None,
     deployment: dict[str, Any],
     labels: dict[str, Any],
+    supported_capabilities: list[str],
+    enabled_capabilities: list[str],
     mode: str | None,
     seen_at: datetime,
     last_submission_id: int | None = None,
@@ -393,6 +410,8 @@ def _upsert_collector(
                     deployment_id = COALESCE(:deployment_id, deployment_id),
                     deployment_json = CAST(:deployment_json AS JSONB),
                     labels_json = CAST(:labels_json AS JSONB),
+                    supported_capabilities_json = CAST(:supported_capabilities_json AS JSONB),
+                    enabled_capabilities_json = CAST(:enabled_capabilities_json AS JSONB),
                     last_mode = COALESCE(:last_mode, last_mode),
                     last_seen_at = :last_seen_at,
                     last_submission_id = COALESCE(:last_submission_id, last_submission_id),
@@ -409,6 +428,8 @@ def _upsert_collector(
                 "deployment_id": _clean_text(deployment.get("deployment_id")),
                 "deployment_json": _json_payload(deployment),
                 "labels_json": _json_payload(labels),
+                "supported_capabilities_json": _json_payload(_capability_list(supported_capabilities)),
+                "enabled_capabilities_json": _json_payload(_capability_list(enabled_capabilities)),
                 "last_mode": mode,
                 "last_seen_at": seen_at,
                 "last_submission_id": last_submission_id,
@@ -426,6 +447,8 @@ def _upsert_collector(
             deployment_id,
             deployment_json,
             labels_json,
+            supported_capabilities_json,
+            enabled_capabilities_json,
             last_mode,
             last_seen_at,
             last_submission_id
@@ -438,6 +461,8 @@ def _upsert_collector(
             :deployment_id,
             CAST(:deployment_json AS JSONB),
             CAST(:labels_json AS JSONB),
+            CAST(:supported_capabilities_json AS JSONB),
+            CAST(:enabled_capabilities_json AS JSONB),
             :last_mode,
             :last_seen_at,
             :last_submission_id
@@ -456,6 +481,8 @@ def _upsert_collector(
                 "deployment_id": _clean_text(deployment.get("deployment_id")),
                 "deployment_json": _json_payload(deployment),
                 "labels_json": _json_payload(labels),
+                "supported_capabilities_json": _json_payload(_capability_list(supported_capabilities)),
+                "enabled_capabilities_json": _json_payload(_capability_list(enabled_capabilities)),
                 "last_mode": mode,
                 "last_seen_at": seen_at,
                 "last_submission_id": last_submission_id,
@@ -715,6 +742,8 @@ def normalize_inventory_submission(
     collector_version: str | None,
     mode: str | None,
     received_at: datetime,
+    supported_capabilities: list[str] | None = None,
+    enabled_capabilities: list[str] | None = None,
 ) -> dict[str, int]:
     ensure_database_schema()
     normalized_asset_ids: set[int] = set()
@@ -729,6 +758,8 @@ def normalize_inventory_submission(
             collector_version=collector_version,
             deployment=_metadata_object(payload.get("deployment")),
             labels=_metadata_object(payload.get("labels")),
+            supported_capabilities=_capability_list(supported_capabilities or payload.get("supported_capabilities")),
+            enabled_capabilities=_capability_list(enabled_capabilities or payload.get("enabled_capabilities")),
             mode=mode,
             seen_at=received_at,
             last_submission_id=submission_id,
@@ -830,6 +861,8 @@ def upsert_collector_metadata(
     collector_version: str | None,
     deployment: dict[str, Any] | None,
     labels: dict[str, Any] | None,
+    supported_capabilities: list[str] | None,
+    enabled_capabilities: list[str] | None,
     mode: str | None,
     seen_at: datetime,
 ) -> int | None:
@@ -843,6 +876,8 @@ def upsert_collector_metadata(
             collector_version=collector_version,
             deployment=deployment or {},
             labels=labels or {},
+            supported_capabilities=_capability_list(supported_capabilities),
+            enabled_capabilities=_capability_list(enabled_capabilities),
             mode=mode,
             seen_at=seen_at,
             last_submission_id=None,
@@ -862,6 +897,8 @@ def list_collectors() -> list[dict[str, Any]]:
             deployment_id,
             deployment_json,
             labels_json,
+            supported_capabilities_json,
+            enabled_capabilities_json,
             last_mode,
             last_seen_at,
             last_submission_id,
@@ -879,12 +916,20 @@ def list_collectors() -> list[dict[str, Any]]:
         collector = dict(row)
         deployment = collector.pop("deployment_json")
         labels = collector.pop("labels_json")
+        supported_capabilities = collector.pop("supported_capabilities_json")
+        enabled_capabilities = collector.pop("enabled_capabilities_json")
         if isinstance(deployment, str):
             deployment = json.loads(deployment)
         if isinstance(labels, str):
             labels = json.loads(labels)
+        if isinstance(supported_capabilities, str):
+            supported_capabilities = json.loads(supported_capabilities)
+        if isinstance(enabled_capabilities, str):
+            enabled_capabilities = json.loads(enabled_capabilities)
         collector["deployment"] = deployment
         collector["labels"] = labels
+        collector["supported_capabilities"] = _capability_list(supported_capabilities)
+        collector["enabled_capabilities"] = _capability_list(enabled_capabilities)
         collector["last_seen"] = collector.get("last_seen_at")
         collectors.append(collector)
     return collectors

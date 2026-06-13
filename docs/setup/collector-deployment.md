@@ -148,6 +148,19 @@ Capabilities are assigned by policy; they are not blindly enabled. Active
 scanning, packet capture, SNMP execution, Nmap, and passive sensor behavior
 remain disabled unless a future feature explicitly implements and enables them.
 
+Collectors report capability state during check-in and inventory upload:
+
+- `supported_capabilities` describes what the collector can safely do on the
+  current host based on platform, available commands, and implemented modules.
+- `enabled_capabilities` describes what the collector is currently doing for
+  the active mode and local settings.
+- `assigned_capabilities` comes from Control Plane policy and describes what
+  the backend allows or requests.
+
+Future license/entitlement validation can use these fields for capability
+assignment and revocation. The MVP reports capability state only and does not
+enforce licensing.
+
 Emergency local hold files must override backend policy retrieval and
 application:
 
