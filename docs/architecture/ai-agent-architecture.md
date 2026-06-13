@@ -82,6 +82,187 @@ IDs, collector IDs, observation timestamps, software detection evidence,
 finding IDs, source systems, and confidence levels. When evidence is weak,
 missing, or indirect, the AI should say so plainly.
 
+## AI Evidence and Finding Schema
+
+### Evidence-First Requirement
+
+Every AI finding must be tied back to OpenAssetWatch evidence. The AI Advisor
+must not invent evidence or present unsupported assumptions as facts.
+
+Evidence may come from:
+
+- asset records
+- network observations
+- collector metadata
+- software and security tooling detections
+- vulnerability enrichment
+- CMDB enrichment
+- identity enrichment
+- policy and capability context
+- timestamps
+- source system references
+
+When evidence is incomplete, stale, indirect, or low confidence, the AI Advisor
+should say so clearly in the finding output.
+
+### Evidence Card Schema
+
+An evidence card is a normalized reference to a source record that supports an
+AI finding.
+
+Suggested fields:
+
+- `evidence_id`
+- `evidence_type`
+- `source`
+- `source_record_id`
+- `asset_id`
+- `collector_id`
+- `observed_at`
+- `confidence`
+- `summary`
+- `raw_reference`
+
+Example evidence types:
+
+- `asset`
+- `network_observation`
+- `software_detection`
+- `vulnerability`
+- `identity`
+- `cmdb`
+- `policy`
+- `collector_status`
+- `capability`
+
+`raw_reference` should point back to the OpenAssetWatch record or source system
+reference needed for auditability. It should not expose secrets, credentials,
+private keys, tokens, or sensitive raw data in AI-generated reports.
+
+### AI Finding Schema
+
+An AI finding is an advisory output generated from one or more evidence cards.
+
+Suggested fields:
+
+- `finding_id`
+- `title`
+- `summary`
+- `severity`
+- `confidence`
+- `affected_assets`
+- `evidence`
+- `reasoning_summary`
+- `recommended_action`
+- `safe_validation_steps`
+- `business_impact`
+- `technical_details`
+- `framework_mappings`
+- `created_at`
+- `agent_name`
+- `model_provider`
+- `model_name`
+
+Severity values:
+
+- `informational`
+- `low`
+- `medium`
+- `high`
+- `critical`
+
+Confidence may use either:
+
+- `low`
+- `medium`
+- `high`
+
+or a numeric score from `0.0` to `1.0`.
+
+Confidence must reflect evidence quality, not only model certainty. A model may
+sound confident while the evidence is weak; in that case, finding confidence
+should remain low or medium.
+
+### Reasoning Summary
+
+The AI Advisor should provide a short reasoning summary, not private
+chain-of-thought.
+
+The reasoning summary should explain:
+
+- what evidence was used
+- why it matters
+- why the recommendation was made
+
+This summary should be concise, auditable, and suitable for reports. It should
+not expose hidden prompts, private deliberation, sensitive raw data, or secrets.
+
+### Framework Mappings
+
+AI findings may optionally include framework mappings when the mapping is
+supported by the evidence and useful for reporting.
+
+Potential mappings include:
+
+- CIS Controls
+- NIST CSF
+- NIST SP 800-207 Zero Trust
+- MITRE ATT&CK, where appropriate
+- OWASP AISVS for AI system security
+- OWASP Top 10 for LLM/Agentic Applications, where appropriate
+
+Mappings should be advisory and evidence-backed. The AI should not add
+framework references merely to make a finding look more severe.
+
+### Example Finding
+
+```json
+{
+  "finding_id": "ai-finding-example-unmanaged-device",
+  "title": "Unmanaged device observed on network",
+  "summary": "A device was observed through network neighbor discovery but has no matching security tooling, identity, or CMDB enrichment.",
+  "severity": "medium",
+  "confidence": "medium",
+  "affected_assets": ["asset-123"],
+  "evidence": [
+    {
+      "evidence_id": "evidence-network-observation-456",
+      "evidence_type": "network_observation",
+      "source": "collector_network_neighbors",
+      "source_record_id": "456",
+      "asset_id": "asset-123",
+      "collector_id": "collector-home-lab-01",
+      "observed_at": "2026-06-12T05:00:00Z",
+      "confidence": "medium",
+      "summary": "The asset was observed through ARP/neighbor discovery.",
+      "raw_reference": "network_observations/456"
+    }
+  ],
+  "reasoning_summary": "The asset has network observation evidence but no matching software detection, identity enrichment, or CMDB enrichment records. This suggests ownership and management status should be validated before treating it as trusted.",
+  "recommended_action": "Validate device ownership, confirm expected network placement, and determine whether security tooling or segmentation is required.",
+  "safe_validation_steps": [
+    "Confirm whether the IP and MAC address are expected on this network.",
+    "Check whether the device has an owner or inventory record.",
+    "Review whether the device belongs on the current network segment."
+  ],
+  "business_impact": "Unmanaged devices may increase blind spots and make incident response harder.",
+  "technical_details": "The finding is based on network neighbor discovery and absence of matching management enrichment records.",
+  "framework_mappings": [],
+  "created_at": "2026-06-12T05:05:00Z",
+  "agent_name": "ai_advisor_asset_posture",
+  "model_provider": "not_implemented",
+  "model_name": "not_implemented"
+}
+```
+
+### Safety Notes
+
+- AI must not invent evidence.
+- AI must clearly say when evidence is incomplete.
+- AI must not claim exploitation or compromise without supporting evidence.
+- AI must separate observed facts from recommendations.
+- AI must avoid exposing secrets or sensitive raw data in reports.
+
 ## Safety Principles
 
 The AI Advisor should follow these safety principles:
