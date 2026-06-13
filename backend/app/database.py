@@ -133,6 +133,36 @@ CREATE TABLE IF NOT EXISTS asset_software_detections (
 )
 """
 
+CREATE_COLLECTOR_POLICIES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS collector_policies (
+    id BIGSERIAL PRIMARY KEY,
+    policy_id TEXT NOT NULL UNIQUE,
+    policy_name TEXT,
+    policy_version INTEGER NOT NULL DEFAULT 1,
+    policy_json JSONB NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+"""
+
+CREATE_POLICY_ASSIGNMENTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS policy_assignments (
+    id BIGSERIAL PRIMARY KEY,
+    assignment_name TEXT,
+    policy_id TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    priority INTEGER NOT NULL DEFAULT 0,
+    collector_guid TEXT,
+    collector_id TEXT,
+    deployment_id TEXT,
+    platform TEXT,
+    label_selector JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+"""
+
 NORMALIZATION_INDEX_SQL = [
     "ALTER TABLE collector_inventory_submissions ADD COLUMN IF NOT EXISTS collector_guid TEXT",
     "CREATE INDEX IF NOT EXISTS idx_collector_inventory_submissions_collector_guid ON collector_inventory_submissions (collector_guid)",
@@ -150,6 +180,9 @@ NORMALIZATION_INDEX_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_asset_ip_history_asset_id ON asset_ip_history (asset_id)",
     "CREATE INDEX IF NOT EXISTS idx_asset_ip_history_ip_address ON asset_ip_history (ip_address)",
     "CREATE INDEX IF NOT EXISTS idx_asset_software_detections_asset_id ON asset_software_detections (asset_id)",
+    "CREATE INDEX IF NOT EXISTS idx_collector_policies_enabled ON collector_policies (enabled)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_assignments_enabled_priority ON policy_assignments (enabled, priority DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_assignments_policy_id ON policy_assignments (policy_id)",
 ]
 
 
@@ -167,6 +200,8 @@ def ensure_database_schema() -> None:
         connection.execute(text(CREATE_ASSETS_TABLE_SQL))
         connection.execute(text(CREATE_ASSET_IP_HISTORY_TABLE_SQL))
         connection.execute(text(CREATE_ASSET_SOFTWARE_DETECTIONS_TABLE_SQL))
+        connection.execute(text(CREATE_COLLECTOR_POLICIES_TABLE_SQL))
+        connection.execute(text(CREATE_POLICY_ASSIGNMENTS_TABLE_SQL))
         for statement in NORMALIZATION_INDEX_SQL:
             connection.execute(text(statement))
 
@@ -970,3 +1005,319 @@ def list_assets() -> list[dict[str, Any]]:
         asset["metadata"] = metadata
         assets.append(asset)
     return assets
+
+
+def _load_json_value(value: Any, default: Any) -> Any:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
+
+
+def upsert_collector_policy(
+    *,
+    policy_id: str,
+    policy_name: str | None,
+    policy_version: int,
+    policy_json: dict[str, Any],
+    enabled: bool,
+) -> dict[str, Any]:
+    ensure_database_schema()
+    statement = text(
+        """
+        INSERT INTO collector_policies (
+            policy_id,
+            policy_name,
+            policy_version,
+            policy_json,
+            enabled
+        )
+        VALUES (
+            :policy_id,
+            :policy_name,
+            :policy_version,
+            CAST(:policy_json AS JSONB),
+            :enabled
+        )
+        ON CONFLICT (policy_id) DO UPDATE SET
+            policy_name = EXCLUDED.policy_name,
+            policy_version = EXCLUDED.policy_version,
+            policy_json = EXCLUDED.policy_json,
+            enabled = EXCLUDED.enabled,
+            updated_at = NOW()
+        RETURNING
+            id,
+            policy_id,
+            policy_name,
+            policy_version,
+            policy_json,
+            enabled,
+            created_at,
+            updated_at
+        """
+    )
+    with get_engine().begin() as connection:
+        row = connection.execute(
+            statement,
+            {
+                "policy_id": policy_id,
+                "policy_name": policy_name,
+                "policy_version": policy_version,
+                "policy_json": _json_payload(policy_json),
+                "enabled": enabled,
+            },
+        ).mappings().one()
+    policy = dict(row)
+    policy["policy_json"] = _load_json_value(policy["policy_json"], {})
+    return policy
+
+
+def list_collector_policies() -> list[dict[str, Any]]:
+    ensure_database_schema()
+    statement = text(
+        """
+        SELECT
+            id,
+            policy_id,
+            policy_name,
+            policy_version,
+            policy_json,
+            enabled,
+            created_at,
+            updated_at
+        FROM collector_policies
+        ORDER BY updated_at DESC, id DESC
+        """
+    )
+    with get_engine().begin() as connection:
+        rows = connection.execute(statement).mappings().all()
+
+    policies: list[dict[str, Any]] = []
+    for row in rows:
+        policy = dict(row)
+        policy["policy_json"] = _load_json_value(policy["policy_json"], {})
+        policies.append(policy)
+    return policies
+
+
+def create_policy_assignment(
+    *,
+    assignment_name: str | None,
+    policy_id: str,
+    enabled: bool,
+    priority: int,
+    collector_guid: str | None,
+    collector_id: str | None,
+    deployment_id: str | None,
+    platform: str | None,
+    label_selector: dict[str, Any] | None,
+) -> dict[str, Any]:
+    ensure_database_schema()
+    statement = text(
+        """
+        INSERT INTO policy_assignments (
+            assignment_name,
+            policy_id,
+            enabled,
+            priority,
+            collector_guid,
+            collector_id,
+            deployment_id,
+            platform,
+            label_selector
+        )
+        VALUES (
+            :assignment_name,
+            :policy_id,
+            :enabled,
+            :priority,
+            :collector_guid,
+            :collector_id,
+            :deployment_id,
+            :platform,
+            CAST(:label_selector AS JSONB)
+        )
+        RETURNING
+            id,
+            assignment_name,
+            policy_id,
+            enabled,
+            priority,
+            collector_guid,
+            collector_id,
+            deployment_id,
+            platform,
+            label_selector,
+            created_at,
+            updated_at
+        """
+    )
+    with get_engine().begin() as connection:
+        row = connection.execute(
+            statement,
+            {
+                "assignment_name": assignment_name,
+                "policy_id": policy_id,
+                "enabled": enabled,
+                "priority": priority,
+                "collector_guid": collector_guid,
+                "collector_id": collector_id,
+                "deployment_id": deployment_id,
+                "platform": platform,
+                "label_selector": _json_payload(label_selector) if label_selector is not None else None,
+            },
+        ).mappings().one()
+    assignment = dict(row)
+    assignment["label_selector"] = _load_json_value(assignment["label_selector"], None)
+    return assignment
+
+
+def list_policy_assignments() -> list[dict[str, Any]]:
+    ensure_database_schema()
+    statement = text(
+        """
+        SELECT
+            id,
+            assignment_name,
+            policy_id,
+            enabled,
+            priority,
+            collector_guid,
+            collector_id,
+            deployment_id,
+            platform,
+            label_selector,
+            created_at,
+            updated_at
+        FROM policy_assignments
+        ORDER BY priority DESC, id ASC
+        """
+    )
+    with get_engine().begin() as connection:
+        rows = connection.execute(statement).mappings().all()
+
+    assignments: list[dict[str, Any]] = []
+    for row in rows:
+        assignment = dict(row)
+        assignment["label_selector"] = _load_json_value(assignment["label_selector"], None)
+        assignments.append(assignment)
+    return assignments
+
+
+def policy_assignment_matches(
+    assignment: dict[str, Any],
+    *,
+    collector_guid: str | None,
+    collector_id: str | None,
+    deployment_id: str | None,
+    platform: str | None,
+    labels: dict[str, Any] | None,
+) -> bool:
+    if not assignment.get("enabled", True):
+        return False
+
+    matched_any = False
+    for field_name, requested_value in (
+        ("collector_guid", collector_guid),
+        ("collector_id", collector_id),
+        ("deployment_id", deployment_id),
+    ):
+        assignment_value = _clean_text(assignment.get(field_name))
+        if assignment_value is None:
+            continue
+        matched_any = True
+        if assignment_value != _clean_text(requested_value):
+            return False
+
+    assignment_platform = _clean_text(assignment.get("platform"))
+    if assignment_platform is not None:
+        matched_any = True
+        if assignment_platform.lower() != (_clean_text(platform) or "").lower():
+            return False
+
+    label_selector = _load_json_value(assignment.get("label_selector"), None)
+    if isinstance(label_selector, dict) and label_selector:
+        matched_any = True
+        if not isinstance(labels, dict):
+            return False
+        for key, value in label_selector.items():
+            if labels.get(key) != value:
+                return False
+
+    return matched_any
+
+
+def select_matching_policy_assignment(
+    rows: list[dict[str, Any]],
+    *,
+    collector_guid: str | None,
+    collector_id: str | None,
+    deployment_id: str | None,
+    platform: str | None,
+    labels: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    enabled_rows = [row for row in rows if row.get("policy_enabled", row.get("enabled", True))]
+    ordered_rows = sorted(enabled_rows, key=lambda row: (int(row.get("priority") or 0), -int(row.get("id") or 0)), reverse=True)
+    for row in ordered_rows:
+        if policy_assignment_matches(
+            row,
+            collector_guid=collector_guid,
+            collector_id=collector_id,
+            deployment_id=deployment_id,
+            platform=platform,
+            labels=labels,
+        ):
+            return row
+    return None
+
+
+def find_assigned_collector_policy(
+    *,
+    collector_guid: str | None,
+    collector_id: str | None,
+    deployment_id: str | None,
+    platform: str | None,
+    labels: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    ensure_database_schema()
+    statement = text(
+        """
+        SELECT
+            a.id,
+            a.assignment_name,
+            a.policy_id,
+            a.enabled,
+            a.priority,
+            a.collector_guid,
+            a.collector_id,
+            a.deployment_id,
+            a.platform,
+            a.label_selector,
+            a.created_at AS assigned_at,
+            p.policy_name,
+            p.policy_version,
+            p.policy_json,
+            p.enabled AS policy_enabled
+        FROM policy_assignments a
+        JOIN collector_policies p ON p.policy_id = a.policy_id
+        WHERE a.enabled = TRUE
+          AND p.enabled = TRUE
+        ORDER BY a.priority DESC, a.id ASC
+        """
+    )
+    with get_engine().begin() as connection:
+        rows = [dict(row) for row in connection.execute(statement).mappings().all()]
+
+    for row in rows:
+        row["label_selector"] = _load_json_value(row.get("label_selector"), None)
+        row["policy_json"] = _load_json_value(row.get("policy_json"), {})
+
+    return select_matching_policy_assignment(
+        rows,
+        collector_guid=collector_guid,
+        collector_id=collector_id,
+        deployment_id=deployment_id,
+        platform=platform,
+        labels=labels,
+    )

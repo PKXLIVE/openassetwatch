@@ -7,12 +7,23 @@ from unittest.mock import Mock, patch
 from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.database import _normalize_mac_address, _upsert_collector
+from app.database import (
+    _normalize_mac_address,
+    _upsert_collector,
+    policy_assignment_matches,
+    select_matching_policy_assignment,
+)
 from app.main import (
+    AdminPolicyAssignmentRequest,
+    AdminPolicyRequest,
     CollectorCheckInRequest,
     CollectorPolicyStatusRequest,
     COLLECTOR_TOKEN_ENV,
+    admin_create_policy,
+    admin_create_policy_assignment,
     assets,
+    assigned_policy_payload,
+    calculate_policy_hash,
     collector_checkin,
     collector_inventory,
     collector_policy,
@@ -96,11 +107,14 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertEqual(response.status, "accepted")
 
     def test_policy_endpoint_returns_default_safe_policy(self) -> None:
-        response = collector_policy()
+        with patch("app.main.find_assigned_collector_policy", return_value=None):
+            response = collector_policy()
 
         self.assertEqual(response["policy_id"], "default-local-collector")
         self.assertEqual(response["policy_version"], 1)
         self.assertTrue(response["policy_hash"].startswith("sha256:"))
+        self.assertIsNone(response["assigned_at"])
+        self.assertIsNone(response["minimum_collector_version"])
         self.assertEqual(response["license_status"], "dev_mode")
         self.assertIn("device_inventory", response["assigned_capabilities"])
         self.assertIn("network_neighbors", response["assigned_capabilities"])
@@ -120,9 +134,215 @@ class CollectorInventoryTests(unittest.TestCase):
 
     def test_policy_endpoint_accepts_correct_token_when_configured(self) -> None:
         with patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: "change-me-dev-token"}):
-            response = collector_policy(collector_token="change-me-dev-token")
+            with patch("app.main.find_assigned_collector_policy", return_value=None):
+                response = collector_policy(collector_token="change-me-dev-token")
 
         self.assertEqual(response["policy_id"], "default-local-collector")
+
+    def test_policy_endpoint_returns_collector_guid_assignment_match(self) -> None:
+        assigned_record = {
+            "policy_id": "lab-policy",
+            "policy_version": 3,
+            "assigned_at": "2026-06-12T05:00:00+00:00",
+            "policy_json": {
+                "minimum_collector_version": "0.1.0",
+                "license_status": "dev_mode",
+                "assigned_capabilities": ["device_inventory"],
+                "denied_capabilities": ["nmap_light"],
+                "policy": {"mode": "device"},
+            },
+        }
+        with patch("app.main.find_assigned_collector_policy", return_value=assigned_record) as find_policy:
+            response = collector_policy(
+                collector_guid="11111111-1111-4111-8111-111111111111",
+                collector_id="collector-1",
+            )
+
+        self.assertEqual(response["policy_id"], "lab-policy")
+        self.assertEqual(response["policy_version"], 3)
+        self.assertEqual(response["policy"]["mode"], "device")
+        self.assertEqual(response["minimum_collector_version"], "0.1.0")
+        find_policy.assert_called_once()
+        self.assertEqual(find_policy.call_args.kwargs["collector_guid"], "11111111-1111-4111-8111-111111111111")
+
+    def test_policy_endpoint_parses_label_query(self) -> None:
+        with patch("app.main.find_assigned_collector_policy", return_value=None) as find_policy:
+            collector_policy(labels='{"owner":"dion","site":"home"}')
+
+        self.assertEqual(find_policy.call_args.kwargs["labels"], {"owner": "dion", "site": "home"})
+
+    def test_policy_endpoint_rejects_invalid_label_query(self) -> None:
+        with self.assertRaises(HTTPException) as raised:
+            collector_policy(labels="not-json")
+
+        self.assertEqual(raised.exception.status_code, 400)
+
+    def test_admin_policy_creation_saves_policy(self) -> None:
+        saved_policy = {
+            "id": 1,
+            "policy_id": "lab-policy",
+            "policy_name": "Lab Policy",
+            "policy_version": 2,
+            "policy_json": {"policy": {"mode": "device"}},
+            "enabled": True,
+        }
+        with patch("app.main.upsert_collector_policy", return_value=saved_policy) as upsert:
+            response = admin_create_policy(
+                AdminPolicyRequest(
+                    policy_id="lab-policy",
+                    policy_name="Lab Policy",
+                    policy_version=2,
+                    assigned_capabilities=["device_inventory"],
+                    policy={"mode": "device"},
+                )
+            )
+
+        self.assertEqual(response["status"], "accepted")
+        self.assertEqual(response["policy"]["policy_id"], "lab-policy")
+        self.assertEqual(upsert.call_args.kwargs["policy_json"]["policy"]["mode"], "device")
+
+    def test_admin_assignment_creation_saves_assignment(self) -> None:
+        saved_assignment = {
+            "id": 1,
+            "assignment_name": "Collector GUID",
+            "policy_id": "lab-policy",
+            "enabled": True,
+            "priority": 100,
+            "collector_guid": "11111111-1111-4111-8111-111111111111",
+        }
+        with patch("app.main.create_policy_assignment", return_value=saved_assignment) as create_assignment:
+            response = admin_create_policy_assignment(
+                AdminPolicyAssignmentRequest(
+                    assignment_name="Collector GUID",
+                    policy_id="lab-policy",
+                    priority=100,
+                    collector_guid="11111111-1111-4111-8111-111111111111",
+                )
+            )
+
+        self.assertEqual(response["status"], "accepted")
+        self.assertEqual(response["policy_assignment"]["policy_id"], "lab-policy")
+        self.assertEqual(create_assignment.call_args.kwargs["collector_guid"], "11111111-1111-4111-8111-111111111111")
+
+    def test_policy_assignment_matches_collector_id_deployment_platform_and_labels(self) -> None:
+        self.assertTrue(
+            policy_assignment_matches(
+                {
+                    "enabled": True,
+                    "collector_id": "collector-1",
+                    "deployment_id": "home-lab",
+                    "platform": "windows",
+                    "label_selector": {"owner": "dion"},
+                },
+                collector_guid=None,
+                collector_id="collector-1",
+                deployment_id="home-lab",
+                platform="Windows",
+                labels={"owner": "dion", "ring": "pilot"},
+            )
+        )
+
+    def test_policy_assignment_does_not_match_wrong_deployment(self) -> None:
+        self.assertFalse(
+            policy_assignment_matches(
+                {"enabled": True, "deployment_id": "prod"},
+                collector_guid=None,
+                collector_id="collector-1",
+                deployment_id="home-lab",
+                platform="linux",
+                labels={},
+            )
+        )
+
+    def test_policy_assignment_priority_selection_uses_highest_priority(self) -> None:
+        rows = [
+            {
+                "id": 1,
+                "policy_id": "low-policy",
+                "enabled": True,
+                "policy_enabled": True,
+                "priority": 10,
+                "collector_id": "collector-1",
+            },
+            {
+                "id": 2,
+                "policy_id": "high-policy",
+                "enabled": True,
+                "policy_enabled": True,
+                "priority": 50,
+                "collector_id": "collector-1",
+            },
+        ]
+
+        selected = select_matching_policy_assignment(
+            rows,
+            collector_guid=None,
+            collector_id="collector-1",
+            deployment_id=None,
+            platform=None,
+            labels=None,
+        )
+
+        self.assertEqual(selected["policy_id"], "high-policy")
+
+    def test_disabled_assignment_and_policy_are_ignored(self) -> None:
+        rows = [
+            {
+                "id": 1,
+                "policy_id": "disabled-assignment",
+                "enabled": False,
+                "policy_enabled": True,
+                "priority": 100,
+                "collector_id": "collector-1",
+            },
+            {
+                "id": 2,
+                "policy_id": "disabled-policy",
+                "enabled": True,
+                "policy_enabled": False,
+                "priority": 90,
+                "collector_id": "collector-1",
+            },
+            {
+                "id": 3,
+                "policy_id": "enabled-policy",
+                "enabled": True,
+                "policy_enabled": True,
+                "priority": 10,
+                "collector_id": "collector-1",
+            },
+        ]
+
+        selected = select_matching_policy_assignment(
+            rows,
+            collector_guid=None,
+            collector_id="collector-1",
+            deployment_id=None,
+            platform=None,
+            labels=None,
+        )
+
+        self.assertEqual(selected["policy_id"], "enabled-policy")
+
+    def test_assigned_policy_hash_is_stable_and_correct(self) -> None:
+        record = {
+            "policy_id": "stable-policy",
+            "policy_version": 1,
+            "assigned_at": "2026-06-12T05:00:00+00:00",
+            "policy_json": {
+                "license_status": "dev_mode",
+                "assigned_capabilities": ["device_inventory"],
+                "denied_capabilities": [],
+                "policy": {"mode": "device"},
+            },
+        }
+
+        first = assigned_policy_payload(record)
+        second = assigned_policy_payload(record)
+        policy_hash = first.pop("policy_hash")
+
+        self.assertEqual(policy_hash, second["policy_hash"])
+        self.assertEqual(policy_hash, calculate_policy_hash(first))
 
     def test_default_policy_hash_matches_payload(self) -> None:
         policy = default_collector_policy_payload()

@@ -59,6 +59,7 @@ Collector check-in metadata may include:
 The backend can assign policies based on:
 
 - `collector_guid`
+- `collector_id`
 - `deployment_id`
 - `labels`
 - platform
@@ -181,6 +182,34 @@ The emergency local override must be able to prevent remote policy application.
 This gives an operator a local recovery path if a backend policy is incorrect,
 unsafe for a specific network, or incompatible with a collector host.
 
+## MVP Policy Assignment Storage
+
+The MVP backend can store collector policies and simple policy assignments.
+This lets the OpenAssetWatch Control Plane return an assigned policy instead of
+only returning the built-in default policy.
+
+MVP tables:
+
+- `collector_policies`
+- `policy_assignments`
+
+Policy lookup supports these assignment fields:
+
+- exact `collector_guid`
+- exact `collector_id`
+- exact `deployment_id`
+- exact platform
+- simple JSON label selector matching
+
+When more than one assignment matches, the highest `priority` value wins.
+Disabled assignments and disabled policies are ignored. If no assignment
+matches, the backend falls back to the built-in `default-local-collector`
+policy.
+
+This MVP does not enforce tenant ownership, licensing, or entitlement rules yet.
+Those checks should be added before this model is used in a managed or SaaS
+deployment.
+
 ## Suggested Endpoints
 
 Policy-related endpoints may include:
@@ -190,16 +219,27 @@ Policy-related endpoints may include:
 - `GET /api/v1/collectors/policies/{policy_id}`
 - `POST /api/v1/collectors/policy-status`
 
-The MVP implements default policy retrieval and policy status reporting without
-a policy assignment database or backend UI. Rich assignment logic and policy
-bundle management are future scope.
+The MVP implements policy retrieval, policy status reporting, and simple
+database-backed policy assignment. Rich assignment logic, tenant enforcement,
+license enforcement, and backend UI workflows are future scope.
+
+Development-only admin endpoints currently include:
+
+- `GET /api/v1/admin/policies`
+- `POST /api/v1/admin/policies`
+- `GET /api/v1/admin/policy-assignments`
+- `POST /api/v1/admin/policy-assignments`
+
+These endpoints are for local Control Plane development and must gain proper
+authentication, authorization, and audit behavior before production use.
 
 ## Out of Scope
 
 Do not implement the following as part of this architecture note:
 
-- policy assignment database
 - backend UI
+- tenant enforcement
+- license enforcement
 - arbitrary remote command execution
 - package or binary updates
 - Nmap enablement

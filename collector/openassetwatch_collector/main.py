@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from . import __version__
@@ -671,8 +672,11 @@ def validate_policy_payload(policy_payload: dict[str, Any]) -> None:
 def send_policy_request(
     backend_url: str,
     backend_token: str | None = None,
+    query_params: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     url = f"{backend_url.rstrip('/')}/api/v1/collectors/policy"
+    if query_params:
+        url = f"{url}?{urlencode(query_params)}"
     request = Request(
         url,
         headers=backend_headers(backend_token),
@@ -681,6 +685,24 @@ def send_policy_request(
     with urlopen(request, timeout=15) as response:
         response_body = response.read().decode("utf-8")
     return json.loads(response_body) if response_body else {}
+
+
+def build_policy_query_params(args: argparse.Namespace) -> dict[str, str]:
+    query_params: dict[str, str] = {}
+    for key in ("collector_guid", "collector_id", "deployment_id"):
+        value = getattr(args, key, None)
+        if value:
+            query_params[key] = str(value)
+
+    platform_value = getattr(args, "policy_platform", None)
+    if platform_value:
+        query_params["platform"] = str(platform_value)
+
+    labels = getattr(args, "labels", None)
+    if isinstance(labels, dict) and labels:
+        query_params["labels"] = canonical_json(labels)
+
+    return query_params
 
 
 def send_policy_status(
@@ -829,7 +851,11 @@ def retrieve_and_apply_policy(args: argparse.Namespace) -> bool:
         return False
 
     try:
-        policy_payload = send_policy_request(args.backend_url, args.backend_token)
+        policy_payload = send_policy_request(
+            args.backend_url,
+            args.backend_token,
+            build_policy_query_params(args),
+        )
         validate_policy_payload(policy_payload)
         cache_policy(policy_payload, args.policy_cache_path)
         run_inventory_now = apply_policy_to_args(args, policy_payload)
@@ -915,6 +941,9 @@ def run_backend_cycle(
         open_detector_enabled=getattr(args, "open_detector_enabled", True),
     )
     args.supported_capabilities = payload.get("supported_capabilities", [])
+    platform_info = payload.get("platform")
+    if isinstance(platform_info, dict):
+        args.policy_platform = platform_info.get("system_key") or platform_info.get("system")
 
     if checkin:
         print(f"{utc_now()} collector check-in starting", file=sys.stderr)
@@ -935,6 +964,9 @@ def run_backend_cycle(
                 open_detector_enabled=getattr(args, "open_detector_enabled", True),
             )
             args.supported_capabilities = payload.get("supported_capabilities", [])
+            platform_info = payload.get("platform")
+            if isinstance(platform_info, dict):
+                args.policy_platform = platform_info.get("system_key") or platform_info.get("system")
         if run_inventory_now:
             upload_inventory = True
 

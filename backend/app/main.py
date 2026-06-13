@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import secrets
 from datetime import datetime, timezone
@@ -9,11 +10,16 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from .database import (
+    create_policy_assignment,
+    find_assigned_collector_policy,
     latest_inventory_submission,
     list_assets,
     list_collectors,
+    list_collector_policies,
+    list_policy_assignments,
     normalize_inventory_submission,
     save_inventory_submission,
+    upsert_collector_policy,
     upsert_collector_metadata,
 )
 
@@ -137,6 +143,8 @@ class CollectorPolicyResponse(BaseModel):
     policy_id: str
     policy_version: int
     policy_hash: str
+    assigned_at: str | None = None
+    minimum_collector_version: str | None = None
     license_status: str
     assigned_capabilities: list[str]
     denied_capabilities: list[str]
@@ -163,6 +171,31 @@ class CollectorPolicyStatusResponse(BaseModel):
     policy_status: str
 
 
+class AdminPolicyRequest(BaseModel):
+    policy_id: str = Field(..., min_length=1)
+    policy_name: str | None = None
+    policy_version: int = 1
+    enabled: bool = True
+    policy_json: dict[str, Any] | None = None
+    minimum_collector_version: str | None = None
+    license_status: str = "dev_mode"
+    assigned_capabilities: list[str] = Field(default_factory=list)
+    denied_capabilities: list[str] = Field(default_factory=list)
+    policy: dict[str, Any] | None = None
+
+
+class AdminPolicyAssignmentRequest(BaseModel):
+    assignment_name: str | None = None
+    policy_id: str = Field(..., min_length=1)
+    enabled: bool = True
+    priority: int = 0
+    collector_guid: str | None = None
+    collector_id: str | None = None
+    deployment_id: str | None = None
+    platform: str | None = None
+    label_selector: dict[str, Any] | None = None
+
+
 def calculate_policy_hash(policy_payload: dict[str, Any]) -> str:
     policy_copy = dict(policy_payload)
     policy_copy.pop("policy_hash", None)
@@ -171,8 +204,6 @@ def calculate_policy_hash(policy_payload: dict[str, Any]) -> str:
 
 
 def json_dumps_canonical(payload: dict[str, Any]) -> str:
-    import json
-
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
@@ -180,6 +211,8 @@ def default_collector_policy_payload() -> dict[str, Any]:
     payload: dict[str, Any] = {
         "policy_id": "default-local-collector",
         "policy_version": 1,
+        "assigned_at": None,
+        "minimum_collector_version": None,
         "license_status": "dev_mode",
         "assigned_capabilities": [
             "device_inventory",
@@ -209,6 +242,53 @@ def default_collector_policy_payload() -> dict[str, Any]:
     }
     payload["policy_hash"] = calculate_policy_hash(payload)
     return payload
+
+
+def policy_json_from_admin_request(payload: AdminPolicyRequest) -> dict[str, Any]:
+    if payload.policy_json is not None:
+        return payload.policy_json
+    return {
+        "minimum_collector_version": payload.minimum_collector_version,
+        "license_status": payload.license_status,
+        "assigned_capabilities": payload.assigned_capabilities,
+        "denied_capabilities": payload.denied_capabilities,
+        "policy": payload.policy or {},
+    }
+
+
+def assigned_policy_payload(policy_record: dict[str, Any]) -> dict[str, Any]:
+    policy_json = policy_record.get("policy_json")
+    if not isinstance(policy_json, dict):
+        policy_json = {}
+
+    assigned_at = policy_record.get("assigned_at")
+    if isinstance(assigned_at, datetime):
+        assigned_at = assigned_at.isoformat()
+
+    payload: dict[str, Any] = {
+        "policy_id": policy_record["policy_id"],
+        "policy_version": int(policy_record.get("policy_version") or 1),
+        "assigned_at": assigned_at,
+        "minimum_collector_version": policy_json.get("minimum_collector_version"),
+        "license_status": policy_json.get("license_status") or "dev_mode",
+        "assigned_capabilities": policy_json.get("assigned_capabilities") or [],
+        "denied_capabilities": policy_json.get("denied_capabilities") or [],
+        "policy": policy_json.get("policy") or {},
+    }
+    payload["policy_hash"] = calculate_policy_hash(payload)
+    return payload
+
+
+def parse_labels_query(labels: str | None) -> dict[str, Any] | None:
+    if not labels:
+        return None
+    try:
+        parsed = json.loads(labels)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="labels must be a JSON object") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=400, detail="labels must be a JSON object")
+    return parsed
 
 
 @app.post("/api/v1/collectors/checkin", response_model=CollectorCheckInResponse)
@@ -245,10 +325,84 @@ def collector_checkin(
 
 @app.get("/api/v1/collectors/policy", response_model=CollectorPolicyResponse)
 def collector_policy(
+    collector_guid: str | None = None,
+    collector_id: str | None = None,
+    deployment_id: str | None = None,
+    platform: str | None = None,
+    labels: str | None = None,
     collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
 ):
     require_collector_token(collector_token)
+    parsed_labels = parse_labels_query(labels)
+    try:
+        assigned_policy = find_assigned_collector_policy(
+            collector_guid=collector_guid,
+            collector_id=collector_id,
+            deployment_id=deployment_id,
+            platform=platform,
+            labels=parsed_labels,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to resolve collector policy") from exc
+    if assigned_policy is not None:
+        return assigned_policy_payload(assigned_policy)
     return default_collector_policy_payload()
+
+
+@app.get("/api/v1/admin/policies")
+def admin_policies():
+    # MVP/dev-only endpoint. Add authentication/authorization before production use.
+    try:
+        return {"policies": list_collector_policies()}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load policies") from exc
+
+
+@app.post("/api/v1/admin/policies")
+def admin_create_policy(payload: AdminPolicyRequest):
+    # MVP/dev-only endpoint. Add authentication/authorization before production use.
+    if payload.policy_version < 1:
+        raise HTTPException(status_code=400, detail="policy_version must be >= 1")
+    try:
+        policy = upsert_collector_policy(
+            policy_id=payload.policy_id,
+            policy_name=payload.policy_name,
+            policy_version=payload.policy_version,
+            policy_json=policy_json_from_admin_request(payload),
+            enabled=payload.enabled,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to save policy") from exc
+    return {"status": "accepted", "policy": policy}
+
+
+@app.get("/api/v1/admin/policy-assignments")
+def admin_policy_assignments():
+    # MVP/dev-only endpoint. Add authentication/authorization before production use.
+    try:
+        return {"policy_assignments": list_policy_assignments()}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load policy assignments") from exc
+
+
+@app.post("/api/v1/admin/policy-assignments")
+def admin_create_policy_assignment(payload: AdminPolicyAssignmentRequest):
+    # MVP/dev-only endpoint. Add authentication/authorization before production use.
+    try:
+        assignment = create_policy_assignment(
+            assignment_name=payload.assignment_name,
+            policy_id=payload.policy_id,
+            enabled=payload.enabled,
+            priority=payload.priority,
+            collector_guid=payload.collector_guid,
+            collector_id=payload.collector_id,
+            deployment_id=payload.deployment_id,
+            platform=payload.platform,
+            label_selector=payload.label_selector,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to save policy assignment") from exc
+    return {"status": "accepted", "policy_assignment": assignment}
 
 
 @app.post("/api/v1/collectors/policy-status", response_model=CollectorPolicyStatusResponse)

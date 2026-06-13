@@ -13,6 +13,7 @@ from openassetwatch_collector.main import (
     COLLECTOR_TOKEN_HEADER,
     ConfigError,
     apply_config_defaults,
+    build_policy_query_params,
     calculate_policy_hash,
     apply_policy_to_args,
     retrieve_and_apply_policy,
@@ -80,6 +81,7 @@ def make_args(**overrides: object) -> argparse.Namespace:
             "network_neighbors",
             "open_detector",
         ],
+        "policy_platform": "windows",
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -133,6 +135,41 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(header_value(captured["headers"], COLLECTOR_TOKEN_HEADER), "change-me-dev-token")
         self.assertEqual(captured["timeout"], 15)
         self.assertEqual(policy["policy_id"], "default-local-collector")
+
+    def test_send_policy_request_includes_assignment_query_params(self) -> None:
+        response_body = json.dumps(make_policy()).encode("utf-8")
+
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return response_body
+
+        captured = {}
+
+        def fake_urlopen(request: object, timeout: int) -> FakeResponse:
+            captured["url"] = request.full_url
+            return FakeResponse()
+
+        query_params = build_policy_query_params(
+            make_args(
+                deployment_id="home-lab",
+                labels={"owner": "dion"},
+                policy_platform="darwin",
+            )
+        )
+        with patch("openassetwatch_collector.main.urlopen", side_effect=fake_urlopen):
+            send_policy_request("http://localhost:8000", None, query_params)
+
+        self.assertIn("collector_guid=11111111-1111-4111-8111-111111111111", captured["url"])
+        self.assertIn("collector_id=local-dev-collector-01", captured["url"])
+        self.assertIn("deployment_id=home-lab", captured["url"])
+        self.assertIn("platform=darwin", captured["url"])
+        self.assertIn("labels=", captured["url"])
 
     def test_config_policy_values_map_to_args(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
