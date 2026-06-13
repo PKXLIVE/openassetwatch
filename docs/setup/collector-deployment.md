@@ -161,6 +161,10 @@ Future license/entitlement validation can use these fields for capability
 assignment and revocation. The MVP reports capability state only and does not
 enforce licensing.
 
+For the future tenancy, collector ownership, licensing, entitlement, and
+revocation model, see
+`docs/architecture/control-plane-tenancy-licensing.md`.
+
 Emergency local hold files must override backend policy retrieval and
 application:
 

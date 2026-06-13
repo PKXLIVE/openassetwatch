@@ -77,6 +77,9 @@ not be blindly enabled when they are not supported by the collector host.
 Future license/entitlement validation should use these fields for assignment,
 revocation, and reporting.
 
+For the future tenancy, ownership, licensing, entitlement, and revocation model,
+see `docs/architecture/control-plane-tenancy-licensing.md`.
+
 `collector_guid` should remain the strongest match for a specific installed
 collector. Deployment metadata and labels should support grouping by business
 unit, site, location, environment, rollout ring, or install campaign.
