@@ -770,6 +770,98 @@ The first implementation should prefer simple, auditable storage over opaque
 memory behavior. Users should be able to inspect, export, and delete memory
 records according to tenant policy.
 
+## AI Advisor Implementation Roadmap
+
+### Phase 1: Architecture and Schemas
+
+Phase 1 defines the foundation before any AI runtime is introduced.
+
+- AI Advisor foundation
+- evidence/finding schema
+- specialist agent roles
+- Tool Gateway safety model
+- memory/audit/handoff model
+- report templates
+
+### Phase 2: Read-Only AI Advisor MVP
+
+Phase 2 should introduce the first usable AI Advisor experience with read-only
+behavior.
+
+- read-only AI Advisor API
+- model/provider abstraction
+- local model option
+- prompt templates
+- evidence-grounded finding summaries
+- deterministic report generation
+- no tool execution beyond read-only queries
+
+### Phase 3: Specialist Agents
+
+Phase 3 should add focused specialist agents that operate on OpenAssetWatch
+evidence.
+
+- Asset Intelligence Agent
+- Network Behavior Agent
+- Exposure and Risk Agent
+- Segmentation Advisor
+- IoT and OT Advisor
+- Security Tooling Advisor
+- Remediation Planner
+- Report Writer
+- Detection and Splunk Advisor
+- Data Quality Agent
+
+### Phase 4: Tool Gateway and Integrations
+
+Phase 4 should add the controlled gateway layer for safe tool access and
+integration-specific advisory workflows.
+
+- policy-aware tool allowlist
+- tenant-scoped tools
+- audit logging
+- approval records
+- MCP-style adapter support
+- Splunk advisor integration
+- vulnerability enrichment advisor
+- CMDB/identity enrichment advisor
+
+### Phase 5: Controlled Actions with Approval
+
+Phase 5 may add tightly scoped, human-approved actions. These actions should
+remain constrained by policy, capability, tenant, license, and audit controls.
+
+- active scans only with approval
+- SNMP queries only with approval
+- ticket creation only with approval when it notifies others
+- collector policy changes only with approval
+- no arbitrary commands
+- no exploit execution
+- no destructive actions
+
+### Phase 6: Enterprise Readiness
+
+Phase 6 should prepare the AI Advisor for managed, enterprise, or SaaS-style
+deployments.
+
+- tenant controls
+- model/provider allowlists
+- external data sharing policies
+- memory retention controls
+- agent evaluation
+- prompt/tool security scanning
+- red-team testing
+- compliance mapping
+
+### Roadmap Safety Notes
+
+- AI remains advisory first.
+- Read-only comes before controlled actions.
+- Controlled actions require approval.
+- Evidence must be cited or referenced.
+- Tenant isolation is mandatory.
+- Memory must remain evidence-linked and auditable.
+
 ## Out of Scope
 
 The following are out of scope for this PR:

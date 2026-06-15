@@ -19,6 +19,10 @@ For the future AI memory, audit, and agent handoff model, see the
 `AI Memory, Audit, and Agent Handoff Model` section in
 `docs/architecture/ai-agent-architecture.md`.
 
+For the phased future implementation plan, see the
+`AI Advisor Implementation Roadmap` section in
+`docs/architecture/ai-agent-architecture.md`.
+
 The OpenAssetWatch AI Advisor is a future advisory layer that runs after data
 collection, normalization, and rule-based risk scoring.
 
