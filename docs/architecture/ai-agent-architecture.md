@@ -615,16 +615,175 @@ Example outputs:
 - invalid asset records
 - normalization improvement recommendations
 
+## AI Memory, Audit, and Agent Handoff Model
+
+### Purpose
+
+AI memory helps OpenAssetWatch agents remember prior findings, user feedback,
+remediation history, report history, and agent handoffs.
+
+Memory must not replace the OpenAssetWatch database as the source of truth.
+The database should remain authoritative for assets, collectors, observations,
+findings, enrichment records, policies, and audit records. AI memory should
+summarize context, preserve useful continuity, and link back to source evidence.
+
+Core rule:
+
+```text
+AI memory is tenant-scoped, evidence-linked, auditable, and advisory.
+```
+
+### Memory Scopes
+
+Memory scopes may include:
+
+- tenant memory
+- deployment memory
+- collector memory
+- asset memory
+- finding memory
+- agent session memory
+- global product/safety memory
+
+Tenant or customer memory must never cross tenant/customer boundaries. Global
+product/safety memory may describe general OpenAssetWatch behavior, safety
+rules, documentation patterns, or product guidance, but it must not include
+tenant-specific observations, asset details, or customer data.
+
+### Memory Types
+
+- asset memory: Stores useful historical context about an asset, such as prior
+  identity decisions, owner feedback, or recurring observations.
+- finding memory: Stores context about previous AI or rule-based findings,
+  including whether they were accepted, rejected, resolved, or superseded.
+- remediation memory: Stores remediation history, validation outcomes, owner
+  notes, and rollback considerations.
+- report memory: Stores generated report history, audience notes, recurring
+  summary patterns, and prior delivery context.
+- user feedback memory: Stores user corrections, confirmations, dismissals,
+  and preferences that should shape future advisory output.
+- agent handoff memory: Stores concise handoff notes from one specialist agent
+  to another.
+- policy/safety memory: Stores applicable safety constraints, policy decisions,
+  approval requirements, and known local operating limits.
+
+### Evidence-Linked Memory
+
+Memory records should link back to evidence whenever possible.
+
+Suggested reference fields:
+
+- `asset_id`
+- `collector_id`
+- `finding_id`
+- `network_observation_id`
+- `source_record_id`
+- `observed_at`
+- `created_at`
+- `updated_at`
+
+Memory should summarize context, but keep references back to the original
+evidence so users and future agents can audit why a memory exists. When current
+evidence conflicts with older memory, current evidence should take precedence
+and the stale memory should be marked accordingly.
+
+### Agent Handoff
+
+Agents may create handoff notes for other agents when a finding needs a
+specialized follow-up.
+
+Example:
+
+The Asset Intelligence Agent finds an unmanaged device. It creates a handoff
+for:
+
+- Exposure and Risk Agent
+- Segmentation Advisor
+- Report Writer
+
+Handoff records should include:
+
+- `source_agent`
+- `target_agent`
+- `summary`
+- `related_assets`
+- `related_findings`
+- `evidence_refs`
+- `recommended_next_step`
+- `created_at`
+
+Handoff notes should be concise, evidence-linked, and scoped to the tenant or
+deployment where the work originated. They should not contain secrets or
+unsupported claims.
+
+### Audit Model
+
+Memory writes and AI tool use should be auditable.
+
+Audit records should include:
+
+- `actor`
+- `agent_name`
+- `action`
+- `memory_type`
+- `tenant_id`
+- `related_asset_id`
+- `related_finding_id`
+- `created_at`
+- `model_provider`
+- `model_name`
+- `approval_id`, if applicable
+
+Audit records should make it possible to answer who or what wrote memory, which
+agent used it, what evidence was referenced, and whether approval was required
+for the action.
+
+### Memory Safety
+
+AI memory must follow these safety rules:
+
+- no cross-tenant memory access
+- no secrets in memory
+- no credentials, tokens, hashes, or private keys
+- sensitive fields should be redacted
+- memory should clearly indicate stale or old information
+- user feedback can correct or override AI assumptions
+- high-impact recommendations must still cite current evidence
+- memory poisoning must be treated as a threat
+- memory writes should be policy-controlled and audited
+
+Memory should be treated as helpful context, not truth by itself. AI agents
+should verify important claims against current OpenAssetWatch evidence before
+making high-impact recommendations.
+
+### Storage Direction
+
+Future storage options may include:
+
+- Postgres tables for structured memory
+- pgvector or vector search for semantic retrieval
+- local/self-hosted memory mode
+- managed Control Plane memory mode
+- JSON/YAML-style export for transparency
+
+The first implementation should prefer simple, auditable storage over opaque
+memory behavior. Users should be able to inspect, export, and delete memory
+records according to tenant policy.
+
 ## Out of Scope
 
 The following are out of scope for this PR:
 
+- memory database tables
+- vector database
 - AI runtime implementation
 - model or provider integration
 - MCP server implementation
 - tool runtime implementation
 - approval workflow implementation
+- cross-agent orchestration code
 - autonomous scanning
+- automated actions
 - exploit tools
 - packet capture
 - credential collection

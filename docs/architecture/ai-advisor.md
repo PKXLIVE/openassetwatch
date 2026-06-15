@@ -15,6 +15,10 @@ For the future AI Tool Gateway and MCP-style safety model, see the
 `AI Tool Gateway and MCP Safety Model` section in
 `docs/architecture/ai-agent-architecture.md`.
 
+For the future AI memory, audit, and agent handoff model, see the
+`AI Memory, Audit, and Agent Handoff Model` section in
+`docs/architecture/ai-agent-architecture.md`.
+
 The OpenAssetWatch AI Advisor is a future advisory layer that runs after data
 collection, normalization, and rule-based risk scoring.
 
