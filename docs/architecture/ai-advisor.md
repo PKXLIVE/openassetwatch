@@ -144,3 +144,7 @@ Potential CIM mapping areas:
 
 This is future scope only. The Splunk Technology Add-on should not be built
 until the core OpenAssetWatch event schemas are stable enough to map cleanly.
+
+## Local AI development tooling
+
+OpenAssetWatch contributors may use local AI coding tools such as Aider with Ollama for docs review, small branch work, and local experimentation. However, all generated changes must still be reviewed, tested, and committed manually.
