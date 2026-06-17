@@ -107,6 +107,52 @@ A conflicting `site_id` is rejected instead of silently overriding identity.
 Collection ignores unknown identity-file fields and does not store or emit
 enrollment tokens.
 
+## Local Agent Config File
+
+OpenAssetWatch also has a small non-secret agent config file for local
+defaults. The config file currently supports only:
+
+- `server_url`
+- `site_id`
+
+Create one explicitly:
+
+```powershell
+go run ./cmd/oaw-agent config init `
+  --server-url http://localhost:8000 `
+  --site-id site-local `
+  --output config.json
+```
+
+Config init validates the URL format but does not call the backend. It rejects
+URL credentials, query strings, and fragments. It writes only `server_url` and
+`site_id`; do not store enrollment tokens, API keys, passwords, license keys,
+or other secrets in this file.
+
+Default agent config paths are:
+
+- Windows: `%ProgramData%\OpenAssetWatch\agent\config.json`
+- Linux/macOS: `/etc/openassetwatch/agent/config.json`
+
+Explicit CLI flags remain highest priority. For collection:
+
+- `--site-id` overrides config `site_id`.
+- `--identity-file` supplies installed-agent identity fields.
+- if `--site-id` and identity `site_id` are both supplied, they must match.
+- if config `site_id` and identity `site_id` conflict and no explicit
+  `--site-id` is supplied, collection fails clearly.
+
+Collection can use an explicit config file for `site_id`:
+
+```powershell
+go run ./cmd/oaw-agent collect --once --config config.json --output inventory.json
+```
+
+If `--identity-file`, `--site-id`, and `--config` are omitted, collection
+tries the default identity path first. If that file is missing and a default
+config file exists, collection uses config `site_id`. It does not create
+privileged directories or config files during collection.
+
 ## Submit To Backend
 
 Once the backend is running, saved local collection JSON can be submitted to
@@ -128,8 +174,15 @@ go run ./cmd/oaw-agent submit --file inventory.json --server-url http://localhos
 
 The `submit` command posts the file to
 `/api/v1/collections/local-inventory` with `Content-Type: application/json`.
-In this pass, the backend URL must be explicitly provided with `--server-url`;
-the agent does not default to any external service.
+The backend URL can come from explicit `--server-url`, explicit `--config`, or
+the default agent config file. Explicit `--server-url` takes priority. The
+agent does not default to any external service.
+
+With a config file:
+
+```powershell
+go run ./cmd/oaw-agent submit --file inventory.json --config config.json
+```
 
 The submit command sends the JSON file unchanged. It does not collect
 credentials, add enrollment tokens, retry aggressively, or call any service

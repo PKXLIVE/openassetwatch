@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	agentconfig "github.com/openassetwatch/openassetwatch/internal/agent/config"
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
 	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
 	"github.com/openassetwatch/openassetwatch/internal/collector"
@@ -49,6 +50,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "identity" {
 		return runIdentity(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "config" {
+		return runConfig(args[1:], stdout, stderr)
 	}
 	if len(args) > 0 && args[0] == "paths" {
 		return runPaths(args[1:], stdout, stderr)
@@ -138,19 +142,23 @@ func runCollect(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runCheckIn(args []string, stdout io.Writer, stderr io.Writer) int {
+	var configPath string
 	var identityPath string
 	var serverURL string
 
 	flags := flag.NewFlagSet("oaw-agent check-in", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	flags.StringVar(&configPath, "config", "", "optional non-secret local agent config JSON file")
 	flags.StringVar(&identityPath, "identity-file", "", "non-secret local agent identity JSON file")
 	flags.StringVar(&serverURL, "server-url", "", "explicit OpenAssetWatch backend URL")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 
-	if serverURL == "" {
-		fmt.Fprintln(stderr, "oaw-agent check-in requires --server-url")
+	var err error
+	serverURL, err = resolveBackendServerURL(serverURL, configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 
@@ -224,12 +232,57 @@ func runIdentityInit(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
+func runConfig(args []string, stdout io.Writer, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "init" {
+		fmt.Fprintln(stderr, "oaw-agent config requires init")
+		return 2
+	}
+	return runConfigInit(args[1:], stdout, stderr)
+}
+
+func runConfigInit(args []string, stdout io.Writer, stderr io.Writer) int {
+	var outputPath string
+	var serverURL string
+	var siteID string
+
+	flags := flag.NewFlagSet("oaw-agent config init", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&outputPath, "output", "", "local config JSON output path")
+	flags.StringVar(&serverURL, "server-url", "", "OpenAssetWatch backend URL")
+	flags.StringVar(&siteID, "site-id", "", "safe site identifier")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+
+	if outputPath == "" {
+		fmt.Fprintln(stderr, "oaw-agent config init requires --output")
+		return 2
+	}
+	if config.IsQuarantinedPath(outputPath) {
+		fmt.Fprintf(stderr, "refusing to write agent config to quarantined path: %s\n", outputPath)
+		return 2
+	}
+
+	if _, err := agentconfig.CreateFile(outputPath, agentconfig.CreateParams{
+		ServerURL: serverURL,
+		SiteID:    siteID,
+	}); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+
+	fmt.Fprintln(stdout, "created local agent config file")
+	return 0
+}
+
 func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
+	var configPath string
 	var filePath string
 	var serverURL string
 
 	flags := flag.NewFlagSet("oaw-agent submit", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	flags.StringVar(&configPath, "config", "", "optional non-secret local agent config JSON file")
 	flags.StringVar(&filePath, "file", "", "local inventory JSON file to submit")
 	flags.StringVar(&serverURL, "server-url", "", "explicit OpenAssetWatch backend URL")
 	if err := flags.Parse(args); err != nil {
@@ -240,8 +293,11 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "oaw-agent submit requires --file")
 		return 2
 	}
-	if serverURL == "" {
-		fmt.Fprintln(stderr, "oaw-agent submit requires --server-url")
+
+	var err error
+	serverURL, err = resolveBackendServerURL(serverURL, configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 
@@ -267,26 +323,50 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 
 func loadCollectConfig(configPath string, siteID string, identityPath string) (config.Config, *agentidentity.Identity, error) {
 	cfg := config.Default(config.ModeAgent)
-	if configPath != "" {
-		loaded, err := config.LoadJSON(configPath)
-		if err != nil {
-			return config.Config{}, nil, err
-		}
-		cfg = loaded
-	}
 	cfg.Mode = config.ModeAgent
 
 	cliSiteID := strings.TrimSpace(siteID)
+	agentCfg, agentCfgLoaded, err := loadAgentFileConfig(configPath, false)
+	if err != nil {
+		return config.Config{}, nil, err
+	}
+	if agentCfgLoaded {
+		cfg.SiteID = agentCfg.SiteID
+	}
+
+	identityPath = strings.TrimSpace(identityPath)
 	if identityPath == "" && cliSiteID == "" && configPath == "" {
 		defaultIdentityPath := defaultAgentPaths().IdentityPath
 		if defaultIdentityPath != "" {
 			if _, err := os.Stat(defaultIdentityPath); err == nil {
 				identityPath = defaultIdentityPath
 			} else if errors.Is(err, os.ErrNotExist) {
-				return config.Config{}, nil, fmt.Errorf("default identity file not found at %s; pass --site-id or --identity-file", defaultIdentityPath)
+				defaultConfig, loaded, err := loadAgentFileConfig("", true)
+				if err != nil {
+					return config.Config{}, nil, err
+				}
+				if loaded {
+					cfg.SiteID = defaultConfig.SiteID
+					if err := cfg.Validate(); err != nil {
+						return config.Config{}, nil, err
+					}
+					return cfg, nil, nil
+				}
+				return config.Config{}, nil, fmt.Errorf("default identity file not found at %s and default config file not found at %s; pass --site-id, --identity-file, or --config", defaultIdentityPath, defaultAgentPaths().ConfigPath)
 			} else {
 				return config.Config{}, nil, fmt.Errorf("read default identity file: %w", err)
 			}
+		}
+		defaultConfig, loaded, err := loadAgentFileConfig("", true)
+		if err != nil {
+			return config.Config{}, nil, err
+		}
+		if loaded {
+			cfg.SiteID = defaultConfig.SiteID
+			if err := cfg.Validate(); err != nil {
+				return config.Config{}, nil, err
+			}
+			return cfg, nil, nil
 		}
 	}
 
@@ -316,7 +396,7 @@ func loadCollectConfig(configPath string, siteID string, identityPath string) (c
 	if cliSiteID != "" && cliSiteID != identity.SiteID {
 		return config.Config{}, nil, fmt.Errorf("site_id from --site-id conflicts with identity file site_id")
 	}
-	if cliSiteID == "" && cfg.SiteID != "" && cfg.SiteID != identity.SiteID {
+	if cliSiteID == "" && agentCfgLoaded && cfg.SiteID != "" && cfg.SiteID != identity.SiteID {
 		return config.Config{}, nil, fmt.Errorf("site_id from config conflicts with identity file site_id")
 	}
 
@@ -325,6 +405,59 @@ func loadCollectConfig(configPath string, siteID string, identityPath string) (c
 		return config.Config{}, nil, err
 	}
 	return cfg, &identity, nil
+}
+
+func loadAgentFileConfig(configPath string, useDefault bool) (agentconfig.Config, bool, error) {
+	configPath = strings.TrimSpace(configPath)
+	if configPath == "" {
+		if !useDefault {
+			return agentconfig.Config{}, false, nil
+		}
+		configPath = strings.TrimSpace(defaultAgentPaths().ConfigPath)
+		if configPath == "" {
+			return agentconfig.Config{}, false, nil
+		}
+		if _, err := os.Stat(configPath); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return agentconfig.Config{}, false, nil
+			}
+			return agentconfig.Config{}, false, fmt.Errorf("read default agent config file: %w", err)
+		}
+	}
+
+	if config.IsQuarantinedPath(configPath) {
+		return agentconfig.Config{}, false, fmt.Errorf("refusing to load config from quarantined path: %s", configPath)
+	}
+
+	cfg, err := agentconfig.ReadFile(configPath)
+	if err != nil {
+		return agentconfig.Config{}, false, err
+	}
+	return cfg, true, nil
+}
+
+func resolveBackendServerURL(serverURL string, configPath string) (string, error) {
+	serverURL = strings.TrimSpace(serverURL)
+	if serverURL != "" {
+		return serverURL, nil
+	}
+
+	cfg, loaded, err := loadAgentFileConfig(configPath, true)
+	if err != nil {
+		return "", err
+	}
+	if loaded {
+		return cfg.ServerURL, nil
+	}
+
+	defaultConfigPath := strings.TrimSpace(defaultAgentPaths().ConfigPath)
+	if strings.TrimSpace(configPath) != "" {
+		return "", fmt.Errorf("server-url is required; config file %s did not provide server_url", configPath)
+	}
+	if defaultConfigPath == "" {
+		return "", errors.New("server-url is required; default config path is not available; pass --server-url or --config")
+	}
+	return "", fmt.Errorf("server-url is required; default config file not found at %s; pass --server-url or --config", defaultConfigPath)
 }
 
 func runPaths(args []string, stdout io.Writer, stderr io.Writer) int {

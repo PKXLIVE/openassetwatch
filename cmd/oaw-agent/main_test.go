@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	agentconfig "github.com/openassetwatch/openassetwatch/internal/agent/config"
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
 	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
 	"github.com/openassetwatch/openassetwatch/pkg/models"
@@ -175,6 +177,61 @@ func TestRunCollectMissingDefaultIdentityFailsClearly(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "default identity file not found") {
 		t.Fatalf("stderr = %q, want missing default identity error", stderr.String())
+	}
+}
+
+func TestRunCollectUsesDefaultConfigSiteID(t *testing.T) {
+	restore := stubCollector(t)
+	defer restore()
+
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: "http://localhost:8000",
+		SiteID:    "site-config",
+	})
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(t.TempDir(), "missing-identity.json"),
+		ConfigPath:   configPath,
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"collect", "--once"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run collect code = %d, stderr = %q", code, stderr.String())
+	}
+
+	var inventory models.Inventory
+	if err := json.Unmarshal(stdout.Bytes(), &inventory); err != nil {
+		t.Fatalf("collect output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if inventory.SiteID != "site-config" {
+		t.Fatalf("site_id = %q, want config site_id", inventory.SiteID)
+	}
+}
+
+func TestRunCollectExplicitSiteIDOverridesConfig(t *testing.T) {
+	restore := stubCollector(t)
+	defer restore()
+
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: "http://localhost:8000",
+		SiteID:    "site-config",
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"collect", "--once", "--config", configPath, "--site-id", "site-cli"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run collect code = %d, stderr = %q", code, stderr.String())
+	}
+
+	var inventory models.Inventory
+	if err := json.Unmarshal(stdout.Bytes(), &inventory); err != nil {
+		t.Fatalf("collect output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if inventory.SiteID != "site-cli" {
+		t.Fatalf("site_id = %q, want CLI site_id", inventory.SiteID)
 	}
 }
 
@@ -368,6 +425,75 @@ func TestRunIdentityInitRejectsEmptySiteID(t *testing.T) {
 	}
 }
 
+func TestRunConfigInitCreatesNonSecretConfigFile(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "agent", "config.json")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{
+		"config", "init",
+		"--server-url", "http://localhost:8000",
+		"--site-id", "site-local",
+		"--output", outputPath,
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run config init code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "created local agent config file") {
+		t.Fatalf("stdout = %q, want creation message", stdout.String())
+	}
+
+	data, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 2 {
+		t.Fatalf("config fields = %v, want only server_url and site_id", fields)
+	}
+	if _, ok := fields["server_url"]; !ok {
+		t.Fatalf("missing server_url in %s", string(data))
+	}
+	if _, ok := fields["site_id"]; !ok {
+		t.Fatalf("missing site_id in %s", string(data))
+	}
+
+	combined := strings.ToLower(stdout.String() + stderr.String() + string(data))
+	for _, forbidden := range []string{"token", "secret", "password", "api_key", "credential"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("config init output included forbidden term %q: %s", forbidden, combined)
+		}
+	}
+}
+
+func TestRunConfigInitRejectsInvalidURL(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "config.json")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{
+		"config", "init",
+		"--server-url", "http://user:secret@localhost:8000",
+		"--site-id", "site-local",
+		"--output", outputPath,
+	}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run config init returned success for URL credentials")
+	}
+	if strings.Contains(stdout.String()+stderr.String(), "secret") {
+		t.Fatalf("config init output leaked URL credential: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "must not include credentials") {
+		t.Fatalf("stderr = %q, want credential rejection", stderr.String())
+	}
+	if _, err := os.Stat(outputPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("config file should not exist after invalid init, stat err = %v", err)
+	}
+}
+
 func TestRunCheckInPostsIdentityPayload(t *testing.T) {
 	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
 		IdentityPath: writeIdentityFile(t, agentidentity.Identity{
@@ -487,7 +613,7 @@ func TestRunCheckInUsesDefaultIdentityPath(t *testing.T) {
 	}
 }
 
-func TestRunCheckInRequiresServerURL(t *testing.T) {
+func TestRunCheckInUsesConfigServerURLWhenFlagOmitted(t *testing.T) {
 	identityPath := writeIdentityFile(t, agentidentity.Identity{
 		AgentID:   "22222222-2222-4222-8222-222222222222",
 		SiteID:    "site-local",
@@ -495,13 +621,49 @@ func TestRunCheckInRequiresServerURL(t *testing.T) {
 		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
 	})
 
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: server.URL,
+		SiteID:    "site-config",
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"check-in", "--identity-file", identityPath, "--config", configPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run check-in code = %d, stderr = %q", code, stderr.String())
+	}
+	if gotPath != "/api/v1/agents/check-in" {
+		t.Fatalf("path = %q, want agent check-in path", gotPath)
+	}
+}
+
+func TestRunCheckInRequiresServerURL(t *testing.T) {
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: identityPath,
+		ConfigPath:   filepath.Join(t.TempDir(), "missing-config.json"),
+	})
+	defer restorePaths()
+
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := run([]string{"check-in", "--identity-file", identityPath}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatal("run check-in without --server-url returned success")
 	}
-	if !strings.Contains(stderr.String(), "requires --server-url") {
+	if !strings.Contains(stderr.String(), "server-url is required") {
 		t.Fatalf("stderr = %q, want missing server-url error", stderr.String())
 	}
 }
@@ -721,6 +883,79 @@ func TestRunSubmitPostsCollectionJSON(t *testing.T) {
 	}
 }
 
+func TestRunSubmitUsesConfigServerURLWhenFlagOmitted(t *testing.T) {
+	body := []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`)
+	filePath := writeTempJSON(t, body)
+
+	var gotPath string
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: server.URL,
+		SiteID:    "site-config",
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"submit", "--file", filePath, "--config", configPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run submit code = %d, stderr = %q", code, stderr.String())
+	}
+	if gotPath != "/api/v1/collections/local-inventory" {
+		t.Fatalf("path = %q, want local inventory ingestion path", gotPath)
+	}
+	if string(gotBody) != string(body) {
+		t.Fatalf("body changed\ngot:  %s\nwant: %s", string(gotBody), string(body))
+	}
+}
+
+func TestRunSubmitExplicitServerURLOverridesConfig(t *testing.T) {
+	body := []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`)
+	filePath := writeTempJSON(t, body)
+
+	var configServerHit bool
+	configServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		configServerHit = true
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer configServer.Close()
+
+	var cliServerHit bool
+	cliServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cliServerHit = true
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer cliServer.Close()
+
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: configServer.URL,
+		SiteID:    "site-config",
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"submit", "--file", filePath, "--config", configPath, "--server-url", cliServer.URL}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run submit code = %d, stderr = %q", code, stderr.String())
+	}
+	if !cliServerHit {
+		t.Fatal("CLI server URL was not used")
+	}
+	if configServerHit {
+		t.Fatal("config server URL was used despite explicit --server-url")
+	}
+}
+
 func TestRunSubmitAppendsEndpointToServerBasePath(t *testing.T) {
 	body := []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`)
 	filePath := writeTempJSON(t, body)
@@ -794,12 +1029,20 @@ func TestRunSubmitHandlesTimeoutCleanly(t *testing.T) {
 
 func TestRunSubmitRejectsMissingServerURL(t *testing.T) {
 	filePath := writeTempJSON(t, []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`))
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(t.TempDir(), "identity.json"),
+		ConfigPath:   filepath.Join(t.TempDir(), "missing-config.json"),
+	})
+	defer restorePaths()
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := run([]string{"submit", "--file", filePath}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatal("run submit without --server-url returned success")
+	}
+	if !strings.Contains(stderr.String(), "server-url is required") {
+		t.Fatalf("stderr = %q, want missing server-url error", stderr.String())
 	}
 }
 
@@ -824,6 +1067,7 @@ func stubCollector(t *testing.T) func() {
 	collectLocalInventory = func(siteID string) models.Inventory {
 		return models.Inventory{
 			SchemaVersion: schema.InventorySchemaVersion,
+			SiteID:        siteID,
 			CollectedAt:   collectedAt,
 			Assets: []models.Asset{
 				{
@@ -892,6 +1136,15 @@ func writeIdentityFile(t *testing.T, identity agentidentity.Identity) string {
 	t.Helper()
 	filePath := filepath.Join(t.TempDir(), "identity.json")
 	if err := agentidentity.WriteFile(filePath, identity); err != nil {
+		t.Fatal(err)
+	}
+	return filePath
+}
+
+func writeAgentConfigFile(t *testing.T, cfg agentconfig.Config) string {
+	t.Helper()
+	filePath := filepath.Join(t.TempDir(), "config.json")
+	if err := agentconfig.WriteFile(filePath, cfg); err != nil {
 		t.Fatal(err)
 	}
 	return filePath
