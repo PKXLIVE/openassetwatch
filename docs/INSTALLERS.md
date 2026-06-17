@@ -57,6 +57,17 @@ not be embedded in the repository or examples. Use secret references or
 operator-provided placeholders only. Enrollment tokens are secrets and should
 not be logged; `deployment_id` is not a secret.
 
+Future installers should create or preserve a local identity file for
+non-secret deployment identity, such as `site_id`, `deployment_id`, `agent_id`,
+or `sensor_id`. This file must not contain enrollment tokens, license keys, API
+keys, signing keys, or customer secrets. Enrollment token values should be
+supplied through installer wrapper input, MDM/RMM secret delivery, CI/CD secret
+references, or a self-hosted administrator-provided secret store.
+
+The first backend agent check-in endpoint is documented in
+`docs/AGENT_CHECKIN.md`. It accepts identity and health metadata only; it does
+not perform active network collection, execute commands, or enforce licensing.
+
 ## Requirements Covered
 
 The scripts support:

@@ -148,6 +148,14 @@ class LocalInventoryCollectionResponse(BaseModel):
     message: str
 
 
+class AgentCheckInResponse(BaseModel):
+    status: str
+    site_id: str
+    agent_id: str | None = None
+    received_at: datetime
+    message: str
+
+
 class CollectorPolicyResponse(BaseModel):
     policy_id: str
     policy_version: int
@@ -218,6 +226,17 @@ LOCAL_INVENTORY_FORBIDDEN_TOP_LEVEL_FIELDS = frozenset(
     }
 )
 LOCAL_INVENTORY_COLLECTIONS: list[dict[str, Any]] = []
+AGENT_CHECKIN_FORBIDDEN_TOP_LEVEL_FIELDS = frozenset(
+    {
+        "command",
+        "args",
+        "additional_args",
+        "password",
+        "hash",
+        "script_content",
+    }
+)
+AGENT_CHECKINS: list[dict[str, Any]] = []
 
 
 def calculate_policy_hash(policy_payload: dict[str, Any]) -> str:
@@ -542,6 +561,88 @@ def save_local_inventory_collection(
         }
     )
     return observation_batch_id
+
+
+def agent_checkin_site_id(payload: dict[str, Any]) -> str:
+    site_id = payload.get("site_id")
+    if not isinstance(site_id, str) or not site_id.strip():
+        raise HTTPException(status_code=400, detail="site_id is required")
+    return site_id.strip()
+
+
+def agent_checkin_optional_text(payload: dict[str, Any], field_name: str) -> str | None:
+    value = payload.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a string")
+    text_value = value.strip()
+    return text_value or None
+
+
+def forbidden_agent_checkin_fields(payload: dict[str, Any]) -> list[str]:
+    return sorted(field for field in payload if field in AGENT_CHECKIN_FORBIDDEN_TOP_LEVEL_FIELDS)
+
+
+def save_agent_checkin(
+    *,
+    payload: dict[str, Any],
+    site_id: str,
+    agent_id: str | None,
+    received_at: datetime,
+) -> int:
+    # Transitional storage until durable agent identity and enrollment state
+    # have a database-backed repository.
+    checkin_id = len(AGENT_CHECKINS) + 1
+    stored_payload = {key: value for key, value in payload.items() if key != "enrollment_token"}
+    AGENT_CHECKINS.append(
+        {
+            "checkin_id": checkin_id,
+            "site_id": site_id,
+            "agent_id": agent_id,
+            "received_at": received_at,
+            "enrollment_token_present": "enrollment_token" in payload and payload["enrollment_token"] is not None,
+            "payload": stored_payload,
+        }
+    )
+    return checkin_id
+
+
+@app.post(
+    "/api/v1/agents/check-in",
+    response_model=AgentCheckInResponse,
+    response_model_exclude_none=True,
+)
+def agent_check_in(raw_payload: Any = Body(...)):
+    if not isinstance(raw_payload, dict):
+        raise HTTPException(status_code=400, detail="agent check-in payload must be a JSON object")
+    if not raw_payload:
+        raise HTTPException(status_code=400, detail="agent check-in payload must not be empty")
+
+    forbidden_fields = forbidden_agent_checkin_fields(raw_payload)
+    if forbidden_fields:
+        raise HTTPException(
+            status_code=400,
+            detail="agent check-in payload contains forbidden top-level fields: " + ", ".join(forbidden_fields),
+        )
+
+    site_id = agent_checkin_site_id(raw_payload)
+    agent_id = agent_checkin_optional_text(raw_payload, "agent_id")
+    received_at = datetime.now(timezone.utc)
+    save_agent_checkin(
+        payload=raw_payload,
+        site_id=site_id,
+        agent_id=agent_id,
+        received_at=received_at,
+    )
+
+    return AgentCheckInResponse(
+        status="accepted",
+        site_id=site_id,
+        agent_id=agent_id,
+        received_at=received_at,
+        message="agent check-in accepted as identity and health metadata",
+    )
 
 
 @app.post("/api/v1/collections/local-inventory", response_model=LocalInventoryCollectionResponse)
