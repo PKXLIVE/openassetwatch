@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
 	"github.com/openassetwatch/openassetwatch/internal/collector"
 	"github.com/openassetwatch/openassetwatch/internal/config"
 	"github.com/openassetwatch/openassetwatch/internal/output"
@@ -37,6 +38,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "submit" {
 		return runSubmit(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "identity" {
+		return runIdentity(args[1:], stdout, stderr)
 	}
 
 	var configPath string
@@ -113,6 +117,48 @@ func runCollect(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	return 0
+}
+
+func runIdentity(args []string, stdout io.Writer, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "init" {
+		fmt.Fprintln(stderr, "oaw-agent identity requires init")
+		return 2
+	}
+	return runIdentityInit(args[1:], stdout, stderr)
+}
+
+func runIdentityInit(args []string, stdout io.Writer, stderr io.Writer) int {
+	var deploymentID string
+	var outputPath string
+	var siteID string
+	var tenantID string
+
+	flags := flag.NewFlagSet("oaw-agent identity init", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&deploymentID, "deployment-id", "", "optional deployment GUID from installer or enrollment input")
+	flags.StringVar(&outputPath, "output", "", "local identity JSON output path")
+	flags.StringVar(&siteID, "site-id", "", "required safe site identifier")
+	flags.StringVar(&tenantID, "tenant-id", "", "optional tenant identifier")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+
+	if outputPath == "" {
+		fmt.Fprintln(stderr, "oaw-agent identity init requires --output")
+		return 2
+	}
+
+	if _, err := agentidentity.CreateFile(outputPath, agentidentity.CreateParams{
+		SiteID:       siteID,
+		DeploymentID: deploymentID,
+		TenantID:     tenantID,
+	}, time.Now().UTC()); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+
+	fmt.Fprintln(stdout, "created local agent identity file")
 	return 0
 }
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
 	"github.com/openassetwatch/openassetwatch/pkg/models"
 	"github.com/openassetwatch/openassetwatch/pkg/schema"
 )
@@ -76,6 +77,89 @@ func TestRunCollectRequiresOnce(t *testing.T) {
 	code := run([]string{"collect"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatal("run collect without --once returned success")
+	}
+}
+
+func TestRunIdentityInitCreatesIdentityFile(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "identity.json")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"identity", "init", "--site-id", "site-local", "--output", outputPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run identity init code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "created local agent identity file") {
+		t.Fatalf("stdout = %q, want creation message", stdout.String())
+	}
+
+	identity, err := agentidentity.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.AgentID == "" {
+		t.Fatal("agent_id is empty")
+	}
+	if identity.SiteID != "site-local" {
+		t.Fatalf("site_id = %q, want site-local", identity.SiteID)
+	}
+}
+
+func TestRunIdentityInitPreservesSuppliedDeploymentID(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "identity.json")
+	deploymentID := "11111111-1111-4111-8111-111111111111"
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{
+		"identity", "init",
+		"--site-id", "site-local",
+		"--deployment-id", deploymentID,
+		"--output", outputPath,
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run identity init code = %d, stderr = %q", code, stderr.String())
+	}
+
+	identity, err := agentidentity.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.DeploymentID != deploymentID {
+		t.Fatalf("deployment_id = %q, want %q", identity.DeploymentID, deploymentID)
+	}
+}
+
+func TestRunIdentityInitDoesNotFabricateDeploymentID(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "identity.json")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"identity", "init", "--site-id", "site-local", "--output", outputPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run identity init code = %d, stderr = %q", code, stderr.String())
+	}
+
+	identity, err := agentidentity.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.DeploymentID != "" {
+		t.Fatalf("deployment_id = %q, want empty", identity.DeploymentID)
+	}
+}
+
+func TestRunIdentityInitRejectsEmptySiteID(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "identity.json")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"identity", "init", "--site-id", "   ", "--output", outputPath}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run identity init returned success for empty site_id")
+	}
+	if !strings.Contains(stderr.String(), "site_id is required") {
+		t.Fatalf("stderr = %q, want site_id error", stderr.String())
 	}
 }
 
