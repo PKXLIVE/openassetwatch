@@ -40,7 +40,7 @@ In the Codex Windows environment, `go test ./...` hit an access denied error
 creating the default cache under:
 
 ```text
-C:\Users\stono\AppData\Local\go-build
+%LOCALAPPDATA%\go-build
 ```
 
 Use writable temp cache directories when needed:
@@ -64,7 +64,7 @@ project-local `.venv/`.
 Create the venv:
 
 ```powershell
-C:\Users\stono\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m venv .venv
+%USERPROFILE%\.cache\codex-runtimes\<runtime>\dependencies\python\python.exe -m venv <project-root>\.venv
 ```
 
 Activate it:

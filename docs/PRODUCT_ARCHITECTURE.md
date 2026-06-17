@@ -5,10 +5,10 @@ assets exist, explains what they are doing, identifies risk, and guides
 remediation. It remains asset-first, passive-first, evidence-first, and
 remediation-focused.
 
-OpenAssetWatch is not copying AiSOC or the prior source/reference project
-wholesale. AiSOC and the prior source material are reference inputs only. OAW
-keeps defensive concepts that fit its own product direction and rejects unsafe
-or offensive platform behavior.
+OpenAssetWatch is not copying any source project wholesale. Source-project
+review material, external product inspiration, and reference architecture
+patterns are reference inputs only. OAW keeps defensive concepts that fit its
+own product direction and rejects unsafe or offensive platform behavior.
 
 ## Hybrid Runtime
 
@@ -59,8 +59,8 @@ references and deployment-specific secret stores.
 
 ## Product Inspiration Boundaries
 
-AiSOC inspiration is future product and control-plane inspiration only. It may
-inform planning for:
+External product inspiration and reference architecture patterns are future
+product and control-plane inspiration only. They may inform planning for:
 
 - Advisor Run Ledger
 - Evidence Ledger

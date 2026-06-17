@@ -3,8 +3,8 @@
 ## Purpose
 
 This pass starts moving OpenAssetWatch toward a defensive, passive-first,
-evidence-based asset intelligence foundation. The source/reference project
-reviewed earlier is not the target architecture. It is reference material only.
+evidence-based asset intelligence foundation. Source-project review material is
+not the target architecture. It is reference material only.
 `docs/PRODUCT_ARCHITECTURE.md` captures the product-level hybrid runtime,
 deployment, licensing, and inspiration boundaries for future work.
 
@@ -52,8 +52,9 @@ Quarantined material must not be loaded by OpenAssetWatch production code.
   updater, installer service specs, models, schema, and version.
 - Installer scaffolding was added for Linux, macOS, Windows, and Docker.
 - Product architecture documentation now records supported deployment models,
-  future licensing/entitlement work, and AiSOC inspiration boundaries without
-  implementing license enforcement or copying another product wholesale.
+  future licensing/entitlement work, and external product inspiration
+  boundaries without implementing license enforcement or copying another
+  product wholesale.
 
 ## Validation Status
 
@@ -63,8 +64,8 @@ Quarantined material must not be loaded by OpenAssetWatch production code.
 - Go version used: `go1.26.4 windows/amd64`.
 - `gofmt -w cmd internal pkg` passed using the system Go install.
 - `go test ./...` initially could not create the default build cache under
-  `C:\Users\stono\AppData\Local\go-build` due an access denied error. It passed
-  after setting `GOCACHE` and `GOMODCACHE` to temp directories.
+  `%LOCALAPPDATA%\go-build` due an access denied error. It passed after setting
+  `GOCACHE` and `GOMODCACHE` to temp directories.
 - System `python` and `pip` are still not available on PATH in this environment.
 - A project-local `.venv/` was created using the bundled Codex Python runtime.
 - Python version used for tests: `Python 3.12.13`.
