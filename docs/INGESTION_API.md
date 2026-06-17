@@ -8,6 +8,64 @@ This pass implements backend import only. The Go agent does not call the
 server yet, and this endpoint does not implement cloud sync, licensing
 enforcement, enrollment, or CMDB connectors.
 
+## Agent Check-In Endpoint
+
+`POST /api/v1/agents/check-in`
+
+The endpoint accepts identity and health metadata for a future enrolled agent:
+
+```json
+{
+  "tenant_id": "tenant-example",
+  "site_id": "site-local",
+  "deployment_id": "11111111-1111-4111-8111-111111111111",
+  "agent_id": "22222222-2222-4222-8222-222222222222",
+  "sensor_id": "33333333-3333-4333-8333-333333333333",
+  "agent_version": "0.1.0",
+  "hostname": "workstation-01",
+  "platform": {
+    "os": "windows",
+    "architecture": "amd64"
+  },
+  "check_in_at": "2026-06-17T12:00:00Z",
+  "enrollment_token": "<enrollment-token-secret-ref>"
+}
+```
+
+`site_id` is required. `tenant_id`, `deployment_id`, `agent_id`, `sensor_id`,
+`agent_version`, `hostname`, `platform`, `check_in_at`, and
+`enrollment_token` are optional for now.
+
+The endpoint returns:
+
+```json
+{
+  "status": "accepted",
+  "site_id": "site-local",
+  "agent_id": "22222222-2222-4222-8222-222222222222",
+  "received_at": "2026-06-17T12:01:00Z",
+  "message": "agent check-in accepted as identity and health metadata"
+}
+```
+
+`deployment_id`, `agent_id`, and `sensor_id` must not be fabricated. If
+`agent_id` is absent, the response omits it.
+
+`enrollment_token` is a secret. It must never be returned in an API response,
+logged as a full token, or stored in repository examples as a real value. The
+first endpoint strips it from transitional in-memory storage.
+
+Check-in metadata is not privileged truth. Hosted and hybrid deployments must
+eventually bind tenant and deployment ownership through server-side enrollment
+and authentication context, not arbitrary client-submitted values.
+
+Top-level unsafe execution or credential fields are rejected, including
+`command`, `args`, `additional_args`, `password`, `hash`, and
+`script_content`.
+
+See `docs/AGENT_CHECKIN.md` for the agent check-in identity model, installer
+identity file direction, and token safety rules.
+
 ## Local Inventory Collection Endpoint
 
 `POST /api/v1/collections/local-inventory`
@@ -163,6 +221,10 @@ It must not introduce CIDR discovery, port checks, packet injection, credential
 handling, command execution, or trust elevation based only on client-submitted
 JSON.
 
+Agent check-in follows the same safety boundary. It accepts identity and health
+metadata only; it does not execute commands, validate credentials, perform
+active network collection, or load quarantined configuration material.
+
 ## Current State
 
 OpenAssetWatch already has a partial durable identity model in the transitional
@@ -214,6 +276,11 @@ secret references or placeholders only.
 
 `deployment_id` is safe to log. Enrollment tokens are secrets and must not be
 logged after initial validation.
+
+Agent check-in accepts an `enrollment_token` field as a future enrollment proof
+placeholder, but this first backend implementation does not complete
+enrollment. The token must be treated as a secret and excluded from responses,
+logs, and repository examples.
 
 ## Local Collection Behavior
 
