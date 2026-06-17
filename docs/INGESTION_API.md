@@ -1,9 +1,167 @@
-# Ingestion API Identity Model
+# Ingestion API
 
-This document records the identity model needed before adding the Go agent
-ingestion endpoint. It is design documentation only in this pass. It does not
-implement backend ingestion, cloud sync, licensing enforcement, enrollment, or
-CMDB connectors.
+This document records the first OpenAssetWatch backend ingestion endpoint for
+Go local inventory collection JSON, plus the identity model needed for future
+tenant, deployment, and CMDB reconciliation.
+
+This pass implements backend import only. The Go agent does not call the
+server yet, and this endpoint does not implement cloud sync, licensing
+enforcement, enrollment, or CMDB connectors.
+
+## Local Inventory Collection Endpoint
+
+`POST /api/v1/collections/local-inventory`
+
+The endpoint accepts JSON produced by:
+
+```powershell
+go run ./cmd/oaw-agent collect --once --site-id site-local
+```
+
+To manually post saved local collection JSON while the backend is running:
+
+```powershell
+curl.exe -X POST http://localhost:8000/api/v1/collections/local-inventory `
+  -H "Content-Type: application/json" `
+  --data-binary "@inventory.json"
+```
+
+The endpoint treats all submitted host, platform, interface, gateway, and
+neighbor data as passive observations. Client-submitted values are not treated
+as privileged truth and do not by themselves establish tenant ownership,
+license entitlement, or final asset identity.
+
+## Expected Request Shape
+
+```json
+{
+  "schema_version": "oaw.inventory.v1",
+  "tenant_id": "tenant-example",
+  "site_id": "site-local",
+  "deployment_id": "11111111-1111-4111-8111-111111111111",
+  "agent_id": "22222222-2222-4222-8222-222222222222",
+  "sensor_id": "33333333-3333-4333-8333-333333333333",
+  "collected_at": "2026-06-17T12:00:00Z",
+  "assets": [
+    {
+      "asset_id": "local-host",
+      "site_id": "site-local",
+      "external_ci_id": "ci-123",
+      "external_ci_source": "ServiceNow",
+      "hostname": "workstation-01",
+      "fqdn": "workstation-01.example.test",
+      "os": "windows",
+      "platform": "windows/amd64",
+      "architecture": "amd64",
+      "host": {
+        "hostname": "workstation-01",
+        "source": "os_hostname",
+        "collected_at": "2026-06-17T12:00:00Z"
+      },
+      "platform_info": {
+        "os": "windows",
+        "platform": "windows/amd64",
+        "architecture": "amd64",
+        "source": "go_runtime",
+        "collected_at": "2026-06-17T12:00:00Z"
+      },
+      "primary_interfaces": [
+        {
+          "name": "Ethernet",
+          "mac_address": "00:11:22:33:44:55",
+          "ip_addresses": [
+            {
+              "address": "192.0.2.10",
+              "family": "ipv4",
+              "interface": "Ethernet",
+              "source": "go_net_interfaces",
+              "collected_at": "2026-06-17T12:00:00Z"
+            }
+          ],
+          "source": "go_net_interfaces",
+          "collected_at": "2026-06-17T12:00:00Z"
+        }
+      ],
+      "ip_addresses": [],
+      "mac_addresses": [],
+      "default_gateway": {
+        "address": "192.0.2.1",
+        "interface": "Ethernet",
+        "source": "windows_get_net_route",
+        "collected_at": "2026-06-17T12:00:00Z"
+      },
+      "network_neighbors": [
+        {
+          "ip_address": "192.0.2.1",
+          "mac_address": "66:77:88:99:aa:bb",
+          "interface": "Ethernet",
+          "state": "reachable",
+          "source": "windows_get_net_neighbor",
+          "collected_at": "2026-06-17T12:00:00Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`tenant_id`, `deployment_id`, `agent_id`, and `sensor_id` are optional for now.
+The backend must not fabricate them when they are missing.
+
+## Validation Rules
+
+- malformed JSON is rejected by the API layer
+- empty payloads are rejected
+- `site_id` is required
+- `deployment_id`, `agent_id`, and `sensor_id` are optional until enrollment
+  and installed identity are implemented
+- `external_ci_id` and `external_ci_source` are accepted only as optional
+  reconciliation hints
+- `assets` must be a JSON array when present
+- top-level unsafe execution, credential, or raw scope selector fields are
+  rejected, including `command`, `args`, `additional_args`, `username`,
+  `password`, `hash`, and `script_content`
+
+## Response Shape
+
+```json
+{
+  "status": "accepted",
+  "observation_batch_id": 1,
+  "site_id": "site-local",
+  "received_at": "2026-06-17T12:01:00Z",
+  "observed_asset_count": 1,
+  "message": "local inventory collection accepted as passive observations"
+}
+```
+
+## Transitional Storage
+
+The first implementation stores accepted local inventory collections in an
+in-memory observation batch repository for backend tests and manual import
+experiments. This is intentionally transitional. Durable storage, asset
+matching, tenant authorization, and audit records should be added in a later
+backend workstream.
+
+## Passive Observation Safety Model
+
+Backend ingestion does not perform active collection. It does not run network
+discovery, connect to observed hosts, validate credentials, execute commands,
+load tool configs, or load anything from `configs/quarantine/`.
+
+The endpoint accepts passive local observations that were already collected by
+the agent from local operating-system state:
+
+- host identity
+- platform details
+- network interface inventory
+- IP and MAC address observations
+- default gateway observations
+- local neighbor/ARP cache observations
+
+It must not introduce CIDR discovery, port checks, packet injection, credential
+handling, command execution, or trust elevation based only on client-submitted
+JSON.
 
 ## Current State
 
@@ -86,9 +244,10 @@ That work should generate durable `agent_id` or `sensor_id` once, persist it
 locally, and include deployment identity from scoped config without inventing
 IDs silently.
 
-## Future Ingestion Shape
+## Future Durable Ingestion Shape
 
-Future ingestion should accept an inventory envelope shaped like:
+Future durable ingestion should continue accepting an inventory envelope shaped
+like:
 
 ```json
 {
@@ -128,9 +287,9 @@ OpenAssetWatch's own `asset_id` normalization and matching process.
 
 ## Non-Goals For This Pass
 
-- no backend ingestion endpoint implementation
 - no cloud sync
 - no licensing enforcement
 - no CMDB connector
+- no durable observation storage or asset matching migration
 - no secrets in docs or config examples
 - no change to quarantine policy

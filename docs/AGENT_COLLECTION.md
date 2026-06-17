@@ -27,6 +27,23 @@ go run ./cmd/oaw-agent collect --once --site-id site-local --output inventory.js
 The current command is local-only. It does not check in with the server, sync to
 cloud services, or upload inventory.
 
+## Manual Backend Import
+
+Once the backend is running, saved local collection JSON can be posted manually
+to the first ingestion endpoint:
+
+```powershell
+go run ./cmd/oaw-agent collect --once --site-id site-local --output inventory.json
+
+curl.exe -X POST http://localhost:8000/api/v1/collections/local-inventory `
+  -H "Content-Type: application/json" `
+  --data-binary "@inventory.json"
+```
+
+The agent does not call this endpoint automatically yet. Backend ingestion
+accepts the JSON as passive observations; it does not perform active
+collection, cloud sync, licensing checks, or CMDB reconciliation in this pass.
+
 ## Data Collected
 
 The output uses the Go inventory models and includes:
@@ -54,8 +71,8 @@ local identity files.
 
 Agent collection is passive and local-only:
 
-- no CIDR scanning
-- no port scanning
+- no CIDR discovery
+- no port checks
 - no packet injection
 - no credential use
 - no external network calls
