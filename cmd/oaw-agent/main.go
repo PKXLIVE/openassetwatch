@@ -1,10 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/openassetwatch/openassetwatch/internal/collector"
 	"github.com/openassetwatch/openassetwatch/internal/config"
@@ -13,6 +21,11 @@ import (
 )
 
 var collectLocalInventory = collector.CollectLocalInventory
+var submitHTTPClient = func() *http.Client {
+	return &http.Client{Timeout: 10 * time.Second}
+}
+
+const localInventorySubmitPath = "/api/v1/collections/local-inventory"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -21,6 +34,9 @@ func main() {
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "collect" {
 		return runCollect(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "submit" {
+		return runSubmit(args[1:], stdout, stderr)
 	}
 
 	var configPath string
@@ -100,6 +116,47 @@ func runCollect(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
+func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
+	var filePath string
+	var serverURL string
+
+	flags := flag.NewFlagSet("oaw-agent submit", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&filePath, "file", "", "local inventory JSON file to submit")
+	flags.StringVar(&serverURL, "server-url", "", "explicit OpenAssetWatch backend URL")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+
+	if filePath == "" {
+		fmt.Fprintln(stderr, "oaw-agent submit requires --file")
+		return 2
+	}
+	if serverURL == "" {
+		fmt.Fprintln(stderr, "oaw-agent submit requires --server-url")
+		return 2
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		fmt.Fprintln(stderr, "failed to read collection file")
+		return 1
+	}
+	if !json.Valid(data) {
+		fmt.Fprintln(stderr, "collection file must contain valid JSON")
+		return 2
+	}
+
+	statusCode, err := submitLocalInventory(context.Background(), submitHTTPClient(), serverURL, data)
+	if err != nil {
+		fmt.Fprintf(stderr, "submit failed: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "submitted local inventory collection: HTTP %d\n", statusCode)
+	return 0
+}
+
 func loadAgentConfig(configPath string, siteID string) (config.Config, error) {
 	cfg := config.Default(config.ModeAgent)
 	if configPath != "" {
@@ -117,4 +174,52 @@ func loadAgentConfig(configPath string, siteID string) (config.Config, error) {
 		return config.Config{}, err
 	}
 	return cfg, nil
+}
+
+func submitLocalInventory(ctx context.Context, client *http.Client, serverURL string, body []byte) (int, error) {
+	if client == nil {
+		client = submitHTTPClient()
+	}
+
+	endpoint, err := localInventoryEndpointURL(serverURL)
+	if err != nil {
+		return 0, err
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return 0, errors.New("failed to build submit request")
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, errors.New("request failed")
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
+
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return response.StatusCode, fmt.Errorf("backend returned HTTP status %d", response.StatusCode)
+	}
+	return response.StatusCode, nil
+}
+
+func localInventoryEndpointURL(serverURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(serverURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", errors.New("server-url must include http or https scheme and host")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", errors.New("server-url must use http or https")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("server-url must not include query or fragment")
+	}
+
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + localInventorySubmitPath
+	parsed.RawPath = ""
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
 }

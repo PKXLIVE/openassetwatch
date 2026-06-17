@@ -79,6 +79,19 @@ go run ./cmd/oaw-agent collect --once --site-id site-local
 To manually post saved local collection JSON while the backend is running:
 
 ```powershell
+go run ./cmd/oaw-agent collect --once --site-id site-local --output inventory.json
+
+go run ./cmd/oaw-agent submit --file inventory.json --server-url http://localhost:8000
+```
+
+The submit command posts to `/api/v1/collections/local-inventory` using
+`Content-Type: application/json`. In this pass, the backend URL must be
+explicitly supplied with `--server-url`; OpenAssetWatch must not default to an
+external service.
+
+Manual import with `curl.exe` remains equivalent for local testing:
+
+```powershell
 curl.exe -X POST http://localhost:8000/api/v1/collections/local-inventory `
   -H "Content-Type: application/json" `
   --data-binary "@inventory.json"
@@ -224,6 +237,11 @@ JSON.
 Agent check-in follows the same safety boundary. It accepts identity and health
 metadata only; it does not execute commands, validate credentials, perform
 active network collection, or load quarantined configuration material.
+
+Agent submit is the only agent-side network action added in this workstream. It
+performs a single POST to the explicitly configured OpenAssetWatch backend URL,
+does not add arbitrary headers, does not include enrollment tokens, and does
+not retry aggressively.
 
 ## Current State
 

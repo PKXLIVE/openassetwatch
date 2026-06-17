@@ -3,8 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,6 +79,150 @@ func TestRunCollectRequiresOnce(t *testing.T) {
 	}
 }
 
+func TestRunSubmitPostsCollectionJSON(t *testing.T) {
+	body := []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`)
+	filePath := writeTempJSON(t, body)
+
+	var gotMethod string
+	var gotPath string
+	var gotContentType string
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotContentType = r.Header.Get("Content-Type")
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"status":"accepted"}`))
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"submit", "--file", filePath, "--server-url", server.URL}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run submit code = %d, stderr = %q", code, stderr.String())
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/api/v1/collections/local-inventory" {
+		t.Fatalf("path = %q, want local inventory ingestion path", gotPath)
+	}
+	if gotContentType != "application/json" {
+		t.Fatalf("content-type = %q, want application/json", gotContentType)
+	}
+	if string(gotBody) != string(body) {
+		t.Fatalf("body changed\ngot:  %s\nwant: %s", string(gotBody), string(body))
+	}
+	if !strings.Contains(stdout.String(), "HTTP 202") {
+		t.Fatalf("stdout = %q, want success status", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunSubmitAppendsEndpointToServerBasePath(t *testing.T) {
+	body := []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`)
+	filePath := writeTempJSON(t, body)
+
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"submit", "--file", filePath, "--server-url", server.URL + "/oaw"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run submit code = %d, stderr = %q", code, stderr.String())
+	}
+	if gotPath != "/oaw/api/v1/collections/local-inventory" {
+		t.Fatalf("path = %q, want endpoint appended to base path", gotPath)
+	}
+}
+
+func TestRunSubmitHandlesNon2xxResponseCleanly(t *testing.T) {
+	secret := "sensitive-token-value"
+	filePath := writeTempJSON(t, []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","enrollment_token":"`+secret+`","assets":[]}`))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(secret))
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"submit", "--file", filePath, "--server-url", server.URL}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run submit returned success for non-2xx response")
+	}
+	combined := stdout.String() + stderr.String()
+	if strings.Contains(combined, secret) {
+		t.Fatalf("submit output leaked token-like value: %q", combined)
+	}
+	if !strings.Contains(stderr.String(), "HTTP status 500") {
+		t.Fatalf("stderr = %q, want safe HTTP status error", stderr.String())
+	}
+}
+
+func TestRunSubmitHandlesTimeoutCleanly(t *testing.T) {
+	restore := stubSubmitHTTPClient(t, 1*time.Millisecond)
+	defer restore()
+
+	filePath := writeTempJSON(t, []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"submit", "--file", filePath, "--server-url", server.URL}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run submit returned success for timeout")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on timeout", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "request failed") {
+		t.Fatalf("stderr = %q, want safe request failure", stderr.String())
+	}
+}
+
+func TestRunSubmitRejectsMissingServerURL(t *testing.T) {
+	filePath := writeTempJSON(t, []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`))
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"submit", "--file", filePath}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run submit without --server-url returned success")
+	}
+}
+
+func TestRunSubmitRejectsInvalidJSONFile(t *testing.T) {
+	filePath := writeTempJSON(t, []byte(`{"schema_version":`))
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"submit", "--file", filePath, "--server-url", "http://127.0.0.1:8080"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run submit returned success for invalid JSON")
+	}
+	if !strings.Contains(stderr.String(), "valid JSON") {
+		t.Fatalf("stderr = %q, want JSON validation error", stderr.String())
+	}
+}
+
 func stubCollector(t *testing.T) func() {
 	t.Helper()
 	previous := collectLocalInventory
@@ -124,4 +272,24 @@ func stubCollector(t *testing.T) func() {
 	return func() {
 		collectLocalInventory = previous
 	}
+}
+
+func stubSubmitHTTPClient(t *testing.T, timeout time.Duration) func() {
+	t.Helper()
+	previous := submitHTTPClient
+	submitHTTPClient = func() *http.Client {
+		return &http.Client{Timeout: timeout}
+	}
+	return func() {
+		submitHTTPClient = previous
+	}
+}
+
+func writeTempJSON(t *testing.T, body []byte) string {
+	t.Helper()
+	filePath := filepath.Join(t.TempDir(), "collection.json")
+	if err := os.WriteFile(filePath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return filePath
 }
