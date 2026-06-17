@@ -5,9 +5,10 @@ metadata:
 
 `POST /api/v1/agents/check-in`
 
-This is a foundation endpoint only. The Go agent does not call it
-automatically yet, and it does not implement enrollment, licensing
-enforcement, cloud sync, CMDB reconciliation, or durable agent state.
+This is a foundation endpoint only. The Go agent can call it explicitly with a
+local identity file, but it does not run automatically and it does not
+implement enrollment, licensing enforcement, cloud sync, CMDB reconciliation,
+or daemon state.
 
 ## Request Shape
 
@@ -134,11 +135,27 @@ The collection command can consume this file explicitly:
 go run ./cmd/oaw-agent collect --once --identity-file identity.json --output inventory.json
 ```
 
-The agent does not have a `check-in --identity-file` command yet. That should
-be a small follow-up workstream that reads the same non-secret identity file,
-posts identity and health metadata to `POST /api/v1/agents/check-in`, and
-continues to keep enrollment tokens out of local identity storage and command
-output.
+The agent can also send a manual check-in using the same non-secret identity
+file:
+
+```powershell
+go run ./cmd/oaw-agent check-in --identity-file identity.json --server-url http://localhost:8000
+```
+
+The `check-in` command:
+
+- requires an explicit `--server-url`
+- rejects server URLs with embedded credentials, query strings, or fragments
+- requires `--identity-file`
+- posts to `/api/v1/agents/check-in`
+- sends `site_id`, `tenant_id`, `deployment_id`, and `agent_id` when present in
+  the identity file
+- includes local hostname, platform, and agent version metadata when available
+- uses `Content-Type: application/json`
+- does not send enrollment tokens
+- does not print request or response bodies
+- does not default to an external service URL
+- does not retry aggressively or run as a daemon
 
 ## Deployment Models
 
@@ -163,6 +180,7 @@ Agent check-in is identity and health metadata only:
 - no packet injection
 - no credential validation
 - no command execution
+- no arbitrary request headers
 - no raw command wrappers
 - no arbitrary arguments
 - no loading from `configs/quarantine/`

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ var submitHTTPClient = func() *http.Client {
 }
 
 const localInventorySubmitPath = "/api/v1/collections/local-inventory"
+const agentCheckInPath = "/api/v1/agents/check-in"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -39,6 +41,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "submit" {
 		return runSubmit(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "check-in" {
+		return runCheckIn(args[1:], stdout, stderr)
 	}
 	if len(args) > 0 && args[0] == "identity" {
 		return runIdentity(args[1:], stdout, stderr)
@@ -127,6 +132,54 @@ func runCollect(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
+func runCheckIn(args []string, stdout io.Writer, stderr io.Writer) int {
+	var identityPath string
+	var serverURL string
+
+	flags := flag.NewFlagSet("oaw-agent check-in", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&identityPath, "identity-file", "", "non-secret local agent identity JSON file")
+	flags.StringVar(&serverURL, "server-url", "", "explicit OpenAssetWatch backend URL")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+
+	if identityPath == "" {
+		fmt.Fprintln(stderr, "oaw-agent check-in requires --identity-file")
+		return 2
+	}
+	if serverURL == "" {
+		fmt.Fprintln(stderr, "oaw-agent check-in requires --server-url")
+		return 2
+	}
+
+	if config.IsQuarantinedPath(identityPath) {
+		fmt.Fprintf(stderr, "refusing to load identity from quarantined path: %s\n", identityPath)
+		return 2
+	}
+
+	identity, err := agentidentity.ReadFile(identityPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "failed to read identity file")
+		return 1
+	}
+
+	body, err := json.Marshal(buildAgentCheckInPayload(identity))
+	if err != nil {
+		fmt.Fprintln(stderr, "failed to build check-in payload")
+		return 1
+	}
+
+	statusCode, err := postJSON(context.Background(), submitHTTPClient(), serverURL, agentCheckInPath, body)
+	if err != nil {
+		fmt.Fprintf(stderr, "check-in failed: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "agent check-in accepted: HTTP %d\n", statusCode)
+	return 0
+}
+
 func runIdentity(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "init" {
 		fmt.Fprintln(stderr, "oaw-agent identity requires init")
@@ -200,7 +253,7 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 
-	statusCode, err := submitLocalInventory(context.Background(), submitHTTPClient(), serverURL, data)
+	statusCode, err := postJSON(context.Background(), submitHTTPClient(), serverURL, localInventorySubmitPath, data)
 	if err != nil {
 		fmt.Fprintf(stderr, "submit failed: %v\n", err)
 		return 1
@@ -289,12 +342,34 @@ func applyCollectionIdentity(inventory *models.Inventory, identity agentidentity
 	}
 }
 
-func submitLocalInventory(ctx context.Context, client *http.Client, serverURL string, body []byte) (int, error) {
+func buildAgentCheckInPayload(identity agentidentity.Identity) map[string]any {
+	payload := map[string]any{
+		"site_id":       strings.TrimSpace(identity.SiteID),
+		"agent_id":      strings.TrimSpace(identity.AgentID),
+		"agent_version": version.Number,
+		"platform": map[string]string{
+			"os":           runtime.GOOS,
+			"architecture": runtime.GOARCH,
+		},
+	}
+	if tenantID := strings.TrimSpace(identity.TenantID); tenantID != "" {
+		payload["tenant_id"] = tenantID
+	}
+	if deploymentID := strings.TrimSpace(identity.DeploymentID); deploymentID != "" {
+		payload["deployment_id"] = deploymentID
+	}
+	if hostname, err := os.Hostname(); err == nil && strings.TrimSpace(hostname) != "" {
+		payload["hostname"] = strings.TrimSpace(hostname)
+	}
+	return payload
+}
+
+func postJSON(ctx context.Context, client *http.Client, serverURL string, path string, body []byte) (int, error) {
 	if client == nil {
 		client = submitHTTPClient()
 	}
 
-	endpoint, err := localInventoryEndpointURL(serverURL)
+	endpoint, err := backendEndpointURL(serverURL, path)
 	if err != nil {
 		return 0, err
 	}
@@ -318,7 +393,7 @@ func submitLocalInventory(ctx context.Context, client *http.Client, serverURL st
 	return response.StatusCode, nil
 }
 
-func localInventoryEndpointURL(serverURL string) (string, error) {
+func backendEndpointURL(serverURL string, path string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(serverURL))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return "", errors.New("server-url must include http or https scheme and host")
@@ -329,8 +404,11 @@ func localInventoryEndpointURL(serverURL string) (string, error) {
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", errors.New("server-url must not include query or fragment")
 	}
+	if parsed.User != nil {
+		return "", errors.New("server-url must not include credentials")
+	}
 
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + localInventorySubmitPath
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + path
 	parsed.RawPath = ""
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
