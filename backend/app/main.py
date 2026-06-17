@@ -139,6 +139,15 @@ class CollectorInventoryLatestResponse(BaseModel):
     payload: dict[str, Any]
 
 
+class LocalInventoryCollectionResponse(BaseModel):
+    status: str
+    observation_batch_id: int
+    site_id: str
+    received_at: datetime
+    observed_asset_count: int
+    message: str
+
+
 class CollectorPolicyResponse(BaseModel):
     policy_id: str
     policy_version: int
@@ -194,6 +203,21 @@ class AdminPolicyAssignmentRequest(BaseModel):
     deployment_id: str | None = None
     platform: str | None = None
     label_selector: dict[str, Any] | None = None
+
+
+LOCAL_INVENTORY_FORBIDDEN_TOP_LEVEL_FIELDS = frozenset(
+    {
+        "command",
+        "args",
+        "additional_args",
+        "target",
+        "username",
+        "password",
+        "hash",
+        "script_content",
+    }
+)
+LOCAL_INVENTORY_COLLECTIONS: list[dict[str, Any]] = []
 
 
 def calculate_policy_hash(policy_payload: dict[str, Any]) -> str:
@@ -474,6 +498,87 @@ def network_observation_count(network: list[dict[str, Any]] | dict[str, Any] | N
             return len(observations)
         return 1 if network else 0
     return 0
+
+
+def local_inventory_site_id(payload: dict[str, Any]) -> str:
+    site_id = payload.get("site_id")
+    if not isinstance(site_id, str) or not site_id.strip():
+        raise HTTPException(status_code=400, detail="site_id is required")
+    return site_id.strip()
+
+
+def local_inventory_observed_asset_count(payload: dict[str, Any]) -> int:
+    assets = payload.get("assets", [])
+    if assets is None:
+        return 0
+    if not isinstance(assets, list):
+        raise HTTPException(status_code=400, detail="assets must be a JSON array")
+    if any(not isinstance(asset, dict) for asset in assets):
+        raise HTTPException(status_code=400, detail="assets must contain JSON objects")
+    return len(assets)
+
+
+def forbidden_local_inventory_fields(payload: dict[str, Any]) -> list[str]:
+    return sorted(field for field in payload if field in LOCAL_INVENTORY_FORBIDDEN_TOP_LEVEL_FIELDS)
+
+
+def save_local_inventory_collection(
+    *,
+    payload: dict[str, Any],
+    site_id: str,
+    received_at: datetime,
+    observed_asset_count: int,
+) -> int:
+    # Transitional storage until the ingestion pipeline has durable observation
+    # batch persistence and asset matching.
+    observation_batch_id = len(LOCAL_INVENTORY_COLLECTIONS) + 1
+    LOCAL_INVENTORY_COLLECTIONS.append(
+        {
+            "observation_batch_id": observation_batch_id,
+            "site_id": site_id,
+            "received_at": received_at,
+            "observed_asset_count": observed_asset_count,
+            "payload": payload,
+        }
+    )
+    return observation_batch_id
+
+
+@app.post("/api/v1/collections/local-inventory", response_model=LocalInventoryCollectionResponse)
+def local_inventory_collection(raw_payload: Any = Body(...)):
+    if not isinstance(raw_payload, dict):
+        raise HTTPException(status_code=400, detail="local inventory collection payload must be a JSON object")
+    if not raw_payload:
+        raise HTTPException(status_code=400, detail="local inventory collection payload must not be empty")
+
+    forbidden_fields = forbidden_local_inventory_fields(raw_payload)
+    if forbidden_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "local inventory collection payload contains forbidden top-level fields: "
+                + ", ".join(forbidden_fields)
+            ),
+        )
+
+    site_id = local_inventory_site_id(raw_payload)
+    observed_asset_count = local_inventory_observed_asset_count(raw_payload)
+    received_at = datetime.now(timezone.utc)
+    observation_batch_id = save_local_inventory_collection(
+        payload=raw_payload,
+        site_id=site_id,
+        received_at=received_at,
+        observed_asset_count=observed_asset_count,
+    )
+
+    return LocalInventoryCollectionResponse(
+        status="accepted",
+        observation_batch_id=observation_batch_id,
+        site_id=site_id,
+        received_at=received_at,
+        observed_asset_count=observed_asset_count,
+        message="local inventory collection accepted as passive observations",
+    )
 
 
 @app.post("/api/v1/collectors/inventory", response_model=CollectorInventoryResponse)

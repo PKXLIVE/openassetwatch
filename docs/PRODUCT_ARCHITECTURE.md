@@ -38,6 +38,35 @@ OpenAssetWatch should support multiple enterprise deployment models:
 All deployment models must preserve passive-first collection, scoped
 configuration, auditability, tenant/site boundaries, and evidence provenance.
 
+## Deployment Identity
+
+Future hosted, self-hosted, and hybrid deployments need a durable identity model
+so the control plane can distinguish tenant, site, deployment, installed agent
+or sensor instance, normalized OAW asset, and future external CMDB mappings.
+
+The intended identity fields are:
+
+- `tenant_id`: customer/account boundary. Optional in self-hosted single-tenant
+  mode for now.
+- `site_id`: required environment, site, workspace, or operational boundary.
+- `deployment_id`: unique GUID for an installer or deployment package. It is
+  safe to log and should come from deployment config, enrollment config, or an
+  installer wrapper.
+- `agent_id`: unique installed agent instance ID, generated on first install or
+  first run and persisted locally.
+- `sensor_id`: unique installed sensor instance ID, generated on first install
+  or first run and persisted locally.
+- `asset_id`: OpenAssetWatch asset identity after normalization and matching.
+- `external_ci_id`: optional external CMDB CI identifier for future
+  reconciliation.
+- `external_ci_source`: optional CMDB source name such as `ServiceNow`,
+  `Jira Assets`, or `Device42`.
+
+Signed binaries and installers should remain generic where possible. Enrollment
+tokens, license keys, signing keys, and customer secrets must be represented as
+secret references or placeholders, never committed raw values. `deployment_id`
+is safe to log; enrollment tokens are secrets.
+
 ## Licensing Direction
 
 OpenAssetWatch is a licensed product. Licensing and entitlement design will be
