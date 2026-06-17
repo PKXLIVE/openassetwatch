@@ -35,6 +35,28 @@ The current scaffolds define:
 - least-privilege service defaults where practical
 - no embedded secrets
 
+## Deployment Identity And Enrollment
+
+Signed binaries and native installers should remain generic where possible.
+Tenant and deployment identity should be supplied by deployment config,
+enrollment config, installer wrapper, MDM/RMM profile, or self-hosted
+administrator-provided config.
+
+Future installers should support:
+
+- `site_id`: required environment/site/workspace boundary.
+- `deployment_id`: unique GUID for the installer or deployment package. This is
+  safe to log.
+- `agent_id`: generated once per installed agent instance and persisted locally.
+- `sensor_id`: generated once per installed sensor instance and persisted
+  locally.
+- optional `tenant_id` for hosted or multi-tenant control-plane enrollment.
+
+Enrollment tokens, license keys, signing keys, and package signing material must
+not be embedded in the repository or examples. Use secret references or
+operator-provided placeholders only. Enrollment tokens are secrets and should
+not be logged; `deployment_id` is not a secret.
+
 ## Requirements Covered
 
 The scripts support:

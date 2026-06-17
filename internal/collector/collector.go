@@ -47,8 +47,11 @@ func CollectLocalInventory(siteID string) models.Inventory {
 
 	return models.Inventory{
 		SchemaVersion: schema.InventorySchemaVersion,
-		CollectedAt:   collectedAt,
-		Assets:        []models.Asset{asset},
+		SiteID:        siteID,
+		// TODO: populate deployment_id and agent_id from enrollment/install
+		// identity config. Local collection must not fabricate durable IDs.
+		CollectedAt: collectedAt,
+		Assets:      []models.Asset{asset},
 		Evidence: []models.Evidence{
 			{
 				Source:     "oaw_agent",

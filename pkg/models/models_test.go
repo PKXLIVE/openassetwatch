@@ -12,18 +12,24 @@ func TestInventoryJSONShapeIsStable(t *testing.T) {
 	collectedAt := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	inventory := Inventory{
 		SchemaVersion: schema.InventorySchemaVersion,
+		TenantID:      "tenant-1",
+		SiteID:        "site-1",
+		DeploymentID:  "11111111-1111-4111-8111-111111111111",
+		AgentID:       "22222222-2222-4222-8222-222222222222",
 		CollectedAt:   collectedAt,
 		Assets: []Asset{
 			{
-				AssetID:      "local-host",
-				SiteID:       "site-1",
-				Hostname:     "host-1",
-				FQDN:         "host-1.example.test",
-				OS:           "linux",
-				Platform:     "linux/amd64",
-				Architecture: "amd64",
-				Host:         &HostObservation{Hostname: "host-1", FQDN: "host-1.example.test", Source: "fixture", CollectedAt: collectedAt},
-				PlatformInfo: &PlatformObservation{OS: "linux", Platform: "linux/amd64", Architecture: "amd64", ArchitectureFamily: "x86_64", Source: "fixture", CollectedAt: collectedAt},
+				AssetID:          "local-host",
+				SiteID:           "site-1",
+				ExternalCIID:     "ci-123",
+				ExternalCISource: "ServiceNow",
+				Hostname:         "host-1",
+				FQDN:             "host-1.example.test",
+				OS:               "linux",
+				Platform:         "linux/amd64",
+				Architecture:     "amd64",
+				Host:             &HostObservation{Hostname: "host-1", FQDN: "host-1.example.test", Source: "fixture", CollectedAt: collectedAt},
+				PlatformInfo:     &PlatformObservation{OS: "linux", Platform: "linux/amd64", Architecture: "amd64", ArchitectureFamily: "x86_64", Source: "fixture", CollectedAt: collectedAt},
 				PrimaryInterfaces: []NetworkInterface{
 					{
 						Name:        "eth0",
@@ -51,11 +57,17 @@ func TestInventoryJSONShapeIsStable(t *testing.T) {
 
 	want := `{
   "schema_version": "oaw.inventory.v1",
+  "tenant_id": "tenant-1",
+  "site_id": "site-1",
+  "deployment_id": "11111111-1111-4111-8111-111111111111",
+  "agent_id": "22222222-2222-4222-8222-222222222222",
   "collected_at": "2026-06-17T12:00:00Z",
   "assets": [
     {
       "asset_id": "local-host",
       "site_id": "site-1",
+      "external_ci_id": "ci-123",
+      "external_ci_source": "ServiceNow",
       "hostname": "host-1",
       "fqdn": "host-1.example.test",
       "os": "linux",

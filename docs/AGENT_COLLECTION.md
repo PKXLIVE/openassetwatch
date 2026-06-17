@@ -9,7 +9,7 @@ agent workflows.
 From the repository root:
 
 ```powershell
-go run ./cmd/oaw-agent collect --once
+go run ./cmd/oaw-agent collect --once --site-id site-local
 ```
 
 To include a site identifier:
@@ -21,7 +21,7 @@ go run ./cmd/oaw-agent collect --once --site-id site-local
 To write JSON to a local file instead of stdout:
 
 ```powershell
-go run ./cmd/oaw-agent collect --once --output inventory.json
+go run ./cmd/oaw-agent collect --once --site-id site-local --output inventory.json
 ```
 
 The current command is local-only. It does not check in with the server, sync to
@@ -32,6 +32,7 @@ cloud services, or upload inventory.
 The output uses the Go inventory models and includes:
 
 - `schema_version`
+- `site_id` when provided by CLI/config
 - `collected_at`
 - host identity: hostname and FQDN when already available locally
 - platform details: operating system, platform, architecture, and architecture
@@ -42,6 +43,12 @@ The output uses the Go inventory models and includes:
 - default gateway observation when safely available
 - passive neighbor/local ARP cache observations when safely available
 - `source` and `collected_at` fields on observations
+
+The Go inventory model also has optional identity fields for future ingestion:
+`tenant_id`, `deployment_id`, `agent_id`, and `sensor_id`. The local collection
+command does not generate or fake those values yet. Future enrollment/install
+work should populate durable installed-instance identity from scoped config or
+local identity files.
 
 ## Safety Model
 
@@ -69,6 +76,7 @@ they do not discover new hosts.
 ```json
 {
   "schema_version": "oaw.inventory.v1",
+  "site_id": "site-local",
   "collected_at": "2026-06-17T12:00:00Z",
   "assets": [
     {

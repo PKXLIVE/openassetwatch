@@ -13,6 +13,8 @@ type Evidence struct {
 type Asset struct {
 	AssetID           string                     `json:"asset_id,omitempty"`
 	SiteID            string                     `json:"site_id,omitempty"`
+	ExternalCIID      string                     `json:"external_ci_id,omitempty"`
+	ExternalCISource  string                     `json:"external_ci_source,omitempty"`
 	Hostname          string                     `json:"hostname,omitempty"`
 	FQDN              string                     `json:"fqdn,omitempty"`
 	OS                string                     `json:"os,omitempty"`
@@ -98,16 +100,23 @@ type Finding struct {
 }
 
 type CollectorHeartbeat struct {
-	SiteID      string    `json:"site_id,omitempty"`
-	AgentID     string    `json:"agent_id,omitempty"`
-	SensorID    string    `json:"sensor_id,omitempty"`
-	Mode        string    `json:"mode"`
-	Version     string    `json:"version"`
-	CheckedInAt time.Time `json:"checked_in_at"`
+	TenantID     string    `json:"tenant_id,omitempty"`
+	SiteID       string    `json:"site_id,omitempty"`
+	DeploymentID string    `json:"deployment_id,omitempty"`
+	AgentID      string    `json:"agent_id,omitempty"`
+	SensorID     string    `json:"sensor_id,omitempty"`
+	Mode         string    `json:"mode"`
+	Version      string    `json:"version"`
+	CheckedInAt  time.Time `json:"checked_in_at"`
 }
 
 type Inventory struct {
 	SchemaVersion string     `json:"schema_version"`
+	TenantID      string     `json:"tenant_id,omitempty"`
+	SiteID        string     `json:"site_id,omitempty"`
+	DeploymentID  string     `json:"deployment_id,omitempty"`
+	AgentID       string     `json:"agent_id,omitempty"`
+	SensorID      string     `json:"sensor_id,omitempty"`
 	CollectedAt   time.Time  `json:"collected_at"`
 	Assets        []Asset    `json:"assets"`
 	Findings      []Finding  `json:"findings,omitempty"`
