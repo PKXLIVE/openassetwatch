@@ -18,6 +18,7 @@ import (
 	"github.com/openassetwatch/openassetwatch/internal/collector"
 	"github.com/openassetwatch/openassetwatch/internal/config"
 	"github.com/openassetwatch/openassetwatch/internal/output"
+	"github.com/openassetwatch/openassetwatch/pkg/models"
 	"github.com/openassetwatch/openassetwatch/pkg/version"
 )
 
@@ -76,6 +77,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 
 func runCollect(args []string, stdout io.Writer, stderr io.Writer) int {
 	var configPath string
+	var identityPath string
 	var outputPath string
 	var once bool
 	var siteID string
@@ -84,6 +86,7 @@ func runCollect(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	flags.BoolVar(&once, "once", false, "run one passive local inventory collection")
 	flags.StringVar(&configPath, "config", "", "path to an OAW agent JSON config")
+	flags.StringVar(&identityPath, "identity-file", "", "optional non-secret local agent identity JSON file")
 	flags.StringVar(&outputPath, "output", "", "optional local file path for JSON output")
 	flags.StringVar(&siteID, "site-id", "", "safe site identifier")
 	if err := flags.Parse(args); err != nil {
@@ -95,7 +98,7 @@ func runCollect(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 
-	cfg, err := loadAgentConfig(configPath, siteID)
+	cfg, identity, err := loadCollectConfig(configPath, siteID, identityPath)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -113,7 +116,11 @@ func runCollect(args []string, stdout io.Writer, stderr io.Writer) int {
 		writer = file
 	}
 
-	if err := output.WriteJSON(writer, collectLocalInventory(cfg.SiteID)); err != nil {
+	inventory := collectLocalInventory(cfg.SiteID)
+	if identity != nil {
+		applyCollectionIdentity(&inventory, *identity)
+	}
+	if err := output.WriteJSON(writer, inventory); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -203,6 +210,55 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
+func loadCollectConfig(configPath string, siteID string, identityPath string) (config.Config, *agentidentity.Identity, error) {
+	cfg := config.Default(config.ModeAgent)
+	if configPath != "" {
+		loaded, err := config.LoadJSON(configPath)
+		if err != nil {
+			return config.Config{}, nil, err
+		}
+		cfg = loaded
+	}
+	cfg.Mode = config.ModeAgent
+
+	cliSiteID := strings.TrimSpace(siteID)
+	if identityPath == "" {
+		if cliSiteID != "" {
+			cfg.SiteID = cliSiteID
+		}
+		if err := cfg.Validate(); err != nil {
+			return config.Config{}, nil, err
+		}
+		return cfg, nil, nil
+	}
+
+	if config.IsQuarantinedPath(identityPath) {
+		return config.Config{}, nil, fmt.Errorf("refusing to load identity from quarantined path: %s", identityPath)
+	}
+
+	identity, err := agentidentity.ReadFile(identityPath)
+	if err != nil {
+		return config.Config{}, nil, err
+	}
+	identity.SiteID = strings.TrimSpace(identity.SiteID)
+	identity.TenantID = strings.TrimSpace(identity.TenantID)
+	identity.DeploymentID = strings.TrimSpace(identity.DeploymentID)
+	identity.AgentID = strings.TrimSpace(identity.AgentID)
+
+	if cliSiteID != "" && cliSiteID != identity.SiteID {
+		return config.Config{}, nil, fmt.Errorf("site_id from --site-id conflicts with identity file site_id")
+	}
+	if cliSiteID == "" && cfg.SiteID != "" && cfg.SiteID != identity.SiteID {
+		return config.Config{}, nil, fmt.Errorf("site_id from config conflicts with identity file site_id")
+	}
+
+	cfg.SiteID = identity.SiteID
+	if err := cfg.Validate(); err != nil {
+		return config.Config{}, nil, err
+	}
+	return cfg, &identity, nil
+}
+
 func loadAgentConfig(configPath string, siteID string) (config.Config, error) {
 	cfg := config.Default(config.ModeAgent)
 	if configPath != "" {
@@ -220,6 +276,17 @@ func loadAgentConfig(configPath string, siteID string) (config.Config, error) {
 		return config.Config{}, err
 	}
 	return cfg, nil
+}
+
+func applyCollectionIdentity(inventory *models.Inventory, identity agentidentity.Identity) {
+	inventory.SiteID = identity.SiteID
+	inventory.TenantID = identity.TenantID
+	inventory.DeploymentID = identity.DeploymentID
+	inventory.AgentID = identity.AgentID
+
+	for index := range inventory.Assets {
+		inventory.Assets[index].SiteID = identity.SiteID
+	}
 }
 
 func submitLocalInventory(ctx context.Context, client *http.Client, serverURL string, body []byte) (int, error) {

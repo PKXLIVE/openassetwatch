@@ -71,6 +71,145 @@ func TestRunCollectOnceWritesJSONToOutputFile(t *testing.T) {
 	}
 }
 
+func TestRunCollectLoadsIdentityFields(t *testing.T) {
+	restore := stubCollector(t)
+	defer restore()
+
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:      "22222222-2222-4222-8222-222222222222",
+		DeploymentID: "11111111-1111-4111-8111-111111111111",
+		SiteID:       "site-identity",
+		TenantID:     "tenant-example",
+		CreatedAt:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"collect", "--once", "--identity-file", identityPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run collect code = %d, stderr = %q", code, stderr.String())
+	}
+
+	var inventory models.Inventory
+	if err := json.Unmarshal(stdout.Bytes(), &inventory); err != nil {
+		t.Fatalf("collect output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if inventory.SiteID != "site-identity" {
+		t.Fatalf("site_id = %q, want identity site_id", inventory.SiteID)
+	}
+	if inventory.TenantID != "tenant-example" {
+		t.Fatalf("tenant_id = %q, want tenant-example", inventory.TenantID)
+	}
+	if inventory.DeploymentID != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("deployment_id = %q", inventory.DeploymentID)
+	}
+	if inventory.AgentID != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("agent_id = %q", inventory.AgentID)
+	}
+	if len(inventory.Assets) != 1 || inventory.Assets[0].SiteID != "site-identity" {
+		t.Fatalf("asset site_id was not updated from identity: %+v", inventory.Assets)
+	}
+}
+
+func TestRunCollectRejectsConflictingSiteID(t *testing.T) {
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-identity",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"collect", "--once", "--site-id", "site-other", "--identity-file", identityPath}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run collect returned success for conflicting site_id")
+	}
+	if !strings.Contains(stderr.String(), "conflicts with identity file site_id") {
+		t.Fatalf("stderr = %q, want conflict error", stderr.String())
+	}
+}
+
+func TestRunCollectAcceptsMatchingSiteID(t *testing.T) {
+	restore := stubCollector(t)
+	defer restore()
+
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-identity",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"collect", "--once", "--site-id", "site-identity", "--identity-file", identityPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run collect code = %d, stderr = %q", code, stderr.String())
+	}
+}
+
+func TestRunCollectKeepsMissingDeploymentIDEmpty(t *testing.T) {
+	restore := stubCollector(t)
+	defer restore()
+
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-identity",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"collect", "--once", "--identity-file", identityPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run collect code = %d, stderr = %q", code, stderr.String())
+	}
+
+	var inventory models.Inventory
+	if err := json.Unmarshal(stdout.Bytes(), &inventory); err != nil {
+		t.Fatalf("collect output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if inventory.DeploymentID != "" {
+		t.Fatalf("deployment_id = %q, want empty", inventory.DeploymentID)
+	}
+	if inventory.AgentID == "" {
+		t.Fatal("agent_id should come from identity file")
+	}
+}
+
+func TestRunCollectIdentityFileDoesNotLeakUnknownSecret(t *testing.T) {
+	restore := stubCollector(t)
+	defer restore()
+
+	secret := "identity-secret-token-value"
+	identityPath := filepath.Join(t.TempDir(), "identity.json")
+	body := []byte(`{
+  "agent_id": "22222222-2222-4222-8222-222222222222",
+  "site_id": "site-identity",
+  "created_at": "2026-06-17T12:00:00Z",
+  "updated_at": "2026-06-17T12:00:00Z",
+  "enrollment_token": "` + secret + `"
+}`)
+	if err := os.WriteFile(identityPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"collect", "--once", "--identity-file", identityPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run collect code = %d, stderr = %q", code, stderr.String())
+	}
+
+	combined := stdout.String() + stderr.String()
+	if strings.Contains(combined, secret) {
+		t.Fatalf("collect output leaked token-like value: %q", combined)
+	}
+}
+
 func TestRunCollectRequiresOnce(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -373,6 +512,15 @@ func writeTempJSON(t *testing.T, body []byte) string {
 	t.Helper()
 	filePath := filepath.Join(t.TempDir(), "collection.json")
 	if err := os.WriteFile(filePath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return filePath
+}
+
+func writeIdentityFile(t *testing.T, identity agentidentity.Identity) string {
+	t.Helper()
+	filePath := filepath.Join(t.TempDir(), "identity.json")
+	if err := agentidentity.WriteFile(filePath, identity); err != nil {
 		t.Fatal(err)
 	}
 	return filePath

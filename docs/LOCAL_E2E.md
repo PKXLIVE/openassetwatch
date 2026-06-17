@@ -62,6 +62,16 @@ go run ./cmd/oaw-agent collect --once --site-id site-local --output inventory.js
 go run ./cmd/oaw-agent submit --file inventory.json --server-url http://localhost:8000
 ```
 
+With a local non-secret agent identity file:
+
+```powershell
+go run ./cmd/oaw-agent identity init --site-id site-local --output identity.json
+
+go run ./cmd/oaw-agent collect --once --identity-file identity.json --output inventory.json
+
+go run ./cmd/oaw-agent submit --file inventory.json --server-url http://localhost:8000
+```
+
 Expected success output includes an HTTP 2xx status:
 
 ```text
