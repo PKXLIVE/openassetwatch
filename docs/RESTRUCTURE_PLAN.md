@@ -58,9 +58,10 @@ Quarantined material must not be loaded by OpenAssetWatch production code.
   `C:\Users\stono\AppData\Local\go-build` due an access denied error. It passed
   after setting `GOCACHE` and `GOMODCACHE` to temp directories.
 - System `python` and `pip` are still not available on PATH in this environment.
-- Python version used for tests: `Python 3.12.13` from the bundled Codex
-  runtime.
-- Backend dependencies were installed into a temp virtual environment from
+- A project-local `.venv/` was created using the bundled Codex Python runtime.
+- Python version used for tests: `Python 3.12.13`.
+- Pip used for tests: `.venv\Scripts\python.exe -m pip`.
+- Backend dependencies were installed into `.venv/` from
   `backend/requirements.txt`.
 - `python -m unittest discover -s collector\tests -t collector` passed: 80
   tests OK.
@@ -79,6 +80,8 @@ Quarantined material must not be loaded by OpenAssetWatch production code.
 - Ensure the Go build cache path is writable, or set `GOCACHE` to a writable
   local/temp directory.
 - Install Python/pip persistently or create a project virtual environment.
+- For this workspace, `.venv/` is the recommended local Python environment and
+  is ignored by Git.
 - Run `gofmt -w cmd internal pkg`.
 - Run `go test ./...`.
 - Install backend test dependencies from `backend/requirements.txt`.

@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+**/__pycache__/
 *.py[codz]
 *$py.class
 
@@ -151,11 +152,18 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv/
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Local Go validation caches
+.go-cache/
+.go-modcache/
+oaw-go-cache/
+oaw-go-modcache/
 
 # Spyder project settings
 .spyderproject

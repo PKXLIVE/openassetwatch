@@ -63,3 +63,20 @@ packages and commands added in this pass.
 The Go foundation intentionally starts small: version output, safe config
 loading, passive inventory primitives, evidence models, and installer service
 specs. Larger features should be added only after the package boundaries settle.
+
+## Windows Validation Note
+
+On Windows, the persistent Go install may live at:
+
+```text
+C:\Program Files\Go\bin\go.exe
+```
+
+If a Codex or CI shell does not resolve `go` through PATH, use the absolute
+path or update PATH for that shell. If `go test ./...` cannot create the default
+Go build cache, set writable cache paths before running tests:
+
+```powershell
+$env:GOCACHE = Join-Path $env:TEMP 'oaw-system-go-cache'
+$env:GOMODCACHE = Join-Path $env:TEMP 'oaw-system-go-modcache'
+```
