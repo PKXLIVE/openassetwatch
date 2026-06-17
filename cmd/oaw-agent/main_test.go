@@ -302,6 +302,226 @@ func TestRunIdentityInitRejectsEmptySiteID(t *testing.T) {
 	}
 }
 
+func TestRunCheckInPostsIdentityPayload(t *testing.T) {
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:      "22222222-2222-4222-8222-222222222222",
+		DeploymentID: "11111111-1111-4111-8111-111111111111",
+		SiteID:       "site-local",
+		TenantID:     "tenant-example",
+		CreatedAt:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+
+	var gotMethod string
+	var gotPath string
+	var gotContentType string
+	var gotPayload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotContentType = r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"status":"accepted"}`))
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"check-in", "--identity-file", identityPath, "--server-url", server.URL}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run check-in code = %d, stderr = %q", code, stderr.String())
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/api/v1/agents/check-in" {
+		t.Fatalf("path = %q, want agent check-in path", gotPath)
+	}
+	if gotContentType != "application/json" {
+		t.Fatalf("content-type = %q, want application/json", gotContentType)
+	}
+	if gotPayload["site_id"] != "site-local" {
+		t.Fatalf("site_id = %v", gotPayload["site_id"])
+	}
+	if gotPayload["tenant_id"] != "tenant-example" {
+		t.Fatalf("tenant_id = %v", gotPayload["tenant_id"])
+	}
+	if gotPayload["deployment_id"] != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("deployment_id = %v", gotPayload["deployment_id"])
+	}
+	if gotPayload["agent_id"] != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("agent_id = %v", gotPayload["agent_id"])
+	}
+	if _, ok := gotPayload["agent_version"].(string); !ok {
+		t.Fatalf("agent_version = %T, want string", gotPayload["agent_version"])
+	}
+	if _, ok := gotPayload["platform"].(map[string]any); !ok {
+		t.Fatalf("platform = %T, want object", gotPayload["platform"])
+	}
+	if _, ok := gotPayload["enrollment_token"]; ok {
+		t.Fatalf("check-in sent enrollment_token: %+v", gotPayload)
+	}
+	if !strings.Contains(stdout.String(), "HTTP 202") {
+		t.Fatalf("stdout = %q, want success status", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunCheckInRequiresServerURL(t *testing.T) {
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"check-in", "--identity-file", identityPath}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run check-in without --server-url returned success")
+	}
+	if !strings.Contains(stderr.String(), "requires --server-url") {
+		t.Fatalf("stderr = %q, want missing server-url error", stderr.String())
+	}
+}
+
+func TestRunCheckInRequiresIdentityFile(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"check-in", "--server-url", "http://127.0.0.1:8080"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run check-in without --identity-file returned success")
+	}
+	if !strings.Contains(stderr.String(), "requires --identity-file") {
+		t.Fatalf("stderr = %q, want missing identity-file error", stderr.String())
+	}
+}
+
+func TestRunCheckInDoesNotSendEnrollmentToken(t *testing.T) {
+	identityPath := filepath.Join(t.TempDir(), "identity.json")
+	secret := "identity-secret-token-value"
+	body := []byte(`{
+  "agent_id": "22222222-2222-4222-8222-222222222222",
+  "site_id": "site-local",
+  "created_at": "2026-06-17T12:00:00Z",
+  "updated_at": "2026-06-17T12:00:00Z",
+  "enrollment_token": "` + secret + `"
+}`)
+	if err := os.WriteFile(identityPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"check-in", "--identity-file", identityPath, "--server-url", server.URL}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run check-in code = %d, stderr = %q", code, stderr.String())
+	}
+
+	combined := stdout.String() + stderr.String() + string(gotBody)
+	if strings.Contains(combined, secret) || strings.Contains(string(gotBody), "enrollment_token") {
+		t.Fatalf("check-in leaked token-like value or field: %q", combined)
+	}
+}
+
+func TestRunCheckInHandlesNon2xxResponseCleanly(t *testing.T) {
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	secret := "response-secret-token-value"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(secret))
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"check-in", "--identity-file", identityPath, "--server-url", server.URL}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run check-in returned success for non-2xx response")
+	}
+	combined := stdout.String() + stderr.String()
+	if strings.Contains(combined, secret) {
+		t.Fatalf("check-in output leaked token-like value: %q", combined)
+	}
+	if !strings.Contains(stderr.String(), "HTTP status 500") {
+		t.Fatalf("stderr = %q, want safe HTTP status error", stderr.String())
+	}
+}
+
+func TestRunCheckInHandlesTimeoutCleanly(t *testing.T) {
+	restore := stubSubmitHTTPClient(t, 1*time.Millisecond)
+	defer restore()
+
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"check-in", "--identity-file", identityPath, "--server-url", server.URL}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run check-in returned success for timeout")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on timeout", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "request failed") {
+		t.Fatalf("stderr = %q, want safe request failure", stderr.String())
+	}
+}
+
+func TestRunCheckInRejectsURLCredentials(t *testing.T) {
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"check-in", "--identity-file", identityPath, "--server-url", "http://user:secret@127.0.0.1:8080"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run check-in returned success for URL credentials")
+	}
+	if strings.Contains(stdout.String()+stderr.String(), "secret") {
+		t.Fatalf("check-in output leaked URL credential: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "must not include credentials") {
+		t.Fatalf("stderr = %q, want URL credentials error", stderr.String())
+	}
+}
+
 func TestRunSubmitPostsCollectionJSON(t *testing.T) {
 	body := []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`)
 	filePath := writeTempJSON(t, body)
