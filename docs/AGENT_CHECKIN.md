@@ -142,11 +142,26 @@ file:
 go run ./cmd/oaw-agent check-in --identity-file identity.json --server-url http://localhost:8000
 ```
 
+OpenAssetWatch also exposes the resolved default local paths:
+
+```powershell
+go run ./cmd/oaw-agent paths
+```
+
+Default agent identity paths are:
+
+- Windows: `%ProgramData%\OpenAssetWatch\agent\identity.json`
+- Linux/macOS: `/etc/openassetwatch/agent/identity.json`
+
+When `--identity-file` is omitted, `check-in` reads the default identity path.
+If the default file is missing, the command fails clearly and does not create
+privileged directories. Explicit `--identity-file` always takes priority.
+
 The `check-in` command:
 
 - requires an explicit `--server-url`
 - rejects server URLs with embedded credentials, query strings, or fragments
-- requires `--identity-file`
+- uses `--identity-file` when supplied, otherwise the default identity path
 - posts to `/api/v1/agents/check-in`
 - sends `site_id`, `tenant_id`, `deployment_id`, and `agent_id` when present in
   the identity file

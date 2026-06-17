@@ -16,6 +16,7 @@ import (
 	"time"
 
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
+	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
 	"github.com/openassetwatch/openassetwatch/internal/collector"
 	"github.com/openassetwatch/openassetwatch/internal/config"
 	"github.com/openassetwatch/openassetwatch/internal/output"
@@ -27,6 +28,7 @@ var collectLocalInventory = collector.CollectLocalInventory
 var submitHTTPClient = func() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
+var defaultAgentPaths = agentpaths.DefaultAgentPaths
 
 const localInventorySubmitPath = "/api/v1/collections/local-inventory"
 const agentCheckInPath = "/api/v1/agents/check-in"
@@ -47,6 +49,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "identity" {
 		return runIdentity(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "paths" {
+		return runPaths(args[1:], stdout, stderr)
 	}
 
 	var configPath string
@@ -144,23 +149,20 @@ func runCheckIn(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 
-	if identityPath == "" {
-		fmt.Fprintln(stderr, "oaw-agent check-in requires --identity-file")
-		return 2
-	}
 	if serverURL == "" {
 		fmt.Fprintln(stderr, "oaw-agent check-in requires --server-url")
 		return 2
 	}
 
-	if config.IsQuarantinedPath(identityPath) {
-		fmt.Fprintf(stderr, "refusing to load identity from quarantined path: %s\n", identityPath)
+	identityPath, explicitIdentityPath, err := resolveCheckInIdentityPath(identityPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 
-	identity, err := agentidentity.ReadFile(identityPath)
+	identity, err := readAgentIdentityFile(identityPath, explicitIdentityPath)
 	if err != nil {
-		fmt.Fprintln(stderr, "failed to read identity file")
+		fmt.Fprintln(stderr, err)
 		return 1
 	}
 
@@ -275,6 +277,19 @@ func loadCollectConfig(configPath string, siteID string, identityPath string) (c
 	cfg.Mode = config.ModeAgent
 
 	cliSiteID := strings.TrimSpace(siteID)
+	if identityPath == "" && cliSiteID == "" && configPath == "" {
+		defaultIdentityPath := defaultAgentPaths().IdentityPath
+		if defaultIdentityPath != "" {
+			if _, err := os.Stat(defaultIdentityPath); err == nil {
+				identityPath = defaultIdentityPath
+			} else if errors.Is(err, os.ErrNotExist) {
+				return config.Config{}, nil, fmt.Errorf("default identity file not found at %s; pass --site-id or --identity-file", defaultIdentityPath)
+			} else {
+				return config.Config{}, nil, fmt.Errorf("read default identity file: %w", err)
+			}
+		}
+	}
+
 	if identityPath == "" {
 		if cliSiteID != "" {
 			cfg.SiteID = cliSiteID
@@ -310,6 +325,24 @@ func loadCollectConfig(configPath string, siteID string, identityPath string) (c
 		return config.Config{}, nil, err
 	}
 	return cfg, &identity, nil
+}
+
+func runPaths(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("oaw-agent paths", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "oaw-agent paths does not accept positional arguments")
+		return 2
+	}
+
+	if err := output.WriteJSON(stdout, defaultAgentPaths()); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
 }
 
 func loadAgentConfig(configPath string, siteID string) (config.Config, error) {
@@ -362,6 +395,34 @@ func buildAgentCheckInPayload(identity agentidentity.Identity) map[string]any {
 		payload["hostname"] = strings.TrimSpace(hostname)
 	}
 	return payload
+}
+
+func resolveCheckInIdentityPath(identityPath string) (string, bool, error) {
+	identityPath = strings.TrimSpace(identityPath)
+	if identityPath != "" {
+		return identityPath, true, nil
+	}
+
+	defaultIdentityPath := strings.TrimSpace(defaultAgentPaths().IdentityPath)
+	if defaultIdentityPath == "" {
+		return "", false, errors.New("default identity path is not available; pass --identity-file")
+	}
+	return defaultIdentityPath, false, nil
+}
+
+func readAgentIdentityFile(identityPath string, explicit bool) (agentidentity.Identity, error) {
+	if config.IsQuarantinedPath(identityPath) {
+		return agentidentity.Identity{}, fmt.Errorf("refusing to load identity from quarantined path: %s", identityPath)
+	}
+
+	identity, err := agentidentity.ReadFile(identityPath)
+	if err == nil {
+		return identity, nil
+	}
+	if !explicit && errors.Is(err, os.ErrNotExist) {
+		return agentidentity.Identity{}, fmt.Errorf("default identity file not found at %s; run oaw-agent paths or pass --identity-file", identityPath)
+	}
+	return agentidentity.Identity{}, err
 }
 
 func postJSON(ctx context.Context, client *http.Client, serverURL string, path string, body []byte) (int, error) {
