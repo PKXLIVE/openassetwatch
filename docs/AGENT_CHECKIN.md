@@ -157,6 +157,9 @@ The `check-in` command:
 - does not default to an external service URL
 - does not retry aggressively or run as a daemon
 
+For a local validation helper that runs identity init, check-in, collection,
+and submit against a local backend, see `docs/LOCAL_E2E.md`.
+
 ## Deployment Models
 
 The check-in identity model should support:

@@ -1,11 +1,19 @@
 # Local E2E Validation
 
 This guide validates the current manual OpenAssetWatch agent workflow against a
-local backend:
+local backend. By default, the helper validates:
 
 1. collect passive local inventory to a temporary JSON file
 2. submit that JSON to the local backend ingestion endpoint
 3. confirm the backend returns an accepted HTTP response
+
+With `-IncludeCheckIn`, the helper validates the fuller manual flow:
+
+1. create a temporary non-secret identity file
+2. send an agent check-in with that identity file
+3. collect passive local inventory with that identity file
+4. submit that JSON to the local backend ingestion endpoint
+5. confirm check-in and submit return accepted HTTP responses
 
 This is a local development helper only. It does not add daemon mode,
 scheduling, licensing enforcement, UI behavior, active network collection,
@@ -54,6 +62,17 @@ successful run. Use `-KeepTemp` if you need to inspect the generated JSON:
 .\scripts\e2e\local_collect_submit.ps1 -ServerUrl http://localhost:8000 -SiteId site-local -KeepTemp
 ```
 
+To run the full current manual agent flow:
+
+```powershell
+.\scripts\e2e\local_collect_submit.ps1 -ServerUrl http://localhost:8000 -SiteId site-local -IncludeCheckIn
+```
+
+With `-IncludeCheckIn`, the helper creates a temporary `identity.json`, runs
+`oaw-agent identity init`, sends `oaw-agent check-in`, collects inventory with
+`--identity-file`, submits the inventory JSON, and deletes the temp files unless
+`-KeepTemp` is used.
+
 ## Manual Equivalent
 
 ```powershell
@@ -86,7 +105,7 @@ The helper:
 
 - requires an explicit local `ServerUrl`
 - refuses URL credentials, query strings, and fragments
-- uses a temporary collection file
+- uses temporary identity and collection files
 - does not print request bodies or response bodies
 - does not collect credentials
 - does not add enrollment tokens

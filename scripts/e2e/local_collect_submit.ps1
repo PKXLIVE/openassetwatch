@@ -4,6 +4,8 @@ param(
 
     [string]$SiteId = "site-local",
 
+    [switch]$IncludeCheckIn,
+
     [switch]$KeepTemp
 )
 
@@ -66,6 +68,7 @@ $serverUri = Resolve-LocalServerUrl -Value $ServerUrl
 $goCommand = Resolve-GoCommand
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "oaw-e2e-$([System.Guid]::NewGuid().ToString('N'))"
+$identityPath = Join-Path $tempDir "identity.json"
 $inventoryPath = Join-Path $tempDir "inventory.json"
 $pushedLocation = $false
 
@@ -82,7 +85,31 @@ try {
         throw "Backend is not reachable at $healthUrl. Start the local backend before running this helper."
     }
 
-    & $goCommand run ./cmd/oaw-agent collect --once --site-id $SiteId --output $inventoryPath
+    if ($IncludeCheckIn) {
+        $identityOutput = & $goCommand run ./cmd/oaw-agent identity init --site-id $SiteId --output $identityPath 2>&1
+        $identityExit = $LASTEXITCODE
+        if ($identityExit -ne 0) {
+            throw "Identity initialization failed. $identityOutput"
+        }
+
+        if (-not (Test-Path $identityPath)) {
+            throw "Identity initialization did not create the expected identity JSON file."
+        }
+
+        $checkInOutput = & $goCommand run ./cmd/oaw-agent check-in --identity-file $identityPath --server-url $ServerUrl 2>&1
+        $checkInExit = $LASTEXITCODE
+        if ($checkInExit -ne 0) {
+            throw "Agent check-in failed. $checkInOutput"
+        }
+
+        if ($checkInOutput -notmatch "HTTP 2\d\d") {
+            throw "Agent check-in did not report an accepted HTTP response. $checkInOutput"
+        }
+
+        & $goCommand run ./cmd/oaw-agent collect --once --identity-file $identityPath --output $inventoryPath
+    } else {
+        & $goCommand run ./cmd/oaw-agent collect --once --site-id $SiteId --output $inventoryPath
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Local collection failed."
     }
@@ -101,9 +128,17 @@ try {
         throw "Submit did not report an accepted HTTP response. $submitOutput"
     }
 
-    Write-Host "Local collect and submit E2E passed for site_id '$SiteId'."
+    if ($IncludeCheckIn) {
+        Write-Host "Local identity, check-in, collect, and submit E2E passed for site_id '$SiteId'."
+        Write-Host $checkInOutput
+    } else {
+        Write-Host "Local collect and submit E2E passed for site_id '$SiteId'."
+    }
     Write-Host $submitOutput
     if ($KeepTemp) {
+        if ($IncludeCheckIn) {
+            Write-Host "Identity JSON retained at $identityPath"
+        }
         Write-Host "Inventory JSON retained at $inventoryPath"
     }
 } finally {
