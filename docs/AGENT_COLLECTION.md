@@ -27,22 +27,35 @@ go run ./cmd/oaw-agent collect --once --site-id site-local --output inventory.js
 The current command is local-only. It does not check in with the server, sync to
 cloud services, or upload inventory.
 
-## Manual Backend Import
+## Submit To Backend
 
-Once the backend is running, saved local collection JSON can be posted manually
-to the first ingestion endpoint:
+Once the backend is running, saved local collection JSON can be submitted to
+the first ingestion endpoint with the Go agent:
 
 ```powershell
 go run ./cmd/oaw-agent collect --once --site-id site-local --output inventory.json
 
+go run ./cmd/oaw-agent submit --file inventory.json --server-url http://localhost:8000
+```
+
+The `submit` command posts the file to
+`/api/v1/collections/local-inventory` with `Content-Type: application/json`.
+In this pass, the backend URL must be explicitly provided with `--server-url`;
+the agent does not default to any external service.
+
+The submit command does not collect credentials, add enrollment tokens, retry
+aggressively, or call any service other than the configured OpenAssetWatch
+backend URL. Backend ingestion accepts the JSON as passive observations; it
+does not perform active collection, cloud sync, licensing checks, or CMDB
+reconciliation in this pass.
+
+Manual import with `curl.exe` remains equivalent for local testing:
+
+```powershell
 curl.exe -X POST http://localhost:8000/api/v1/collections/local-inventory `
   -H "Content-Type: application/json" `
   --data-binary "@inventory.json"
 ```
-
-The agent does not call this endpoint automatically yet. Backend ingestion
-accepts the JSON as passive observations; it does not perform active
-collection, cloud sync, licensing checks, or CMDB reconciliation in this pass.
 
 ## Data Collected
 
@@ -75,7 +88,7 @@ Agent collection is passive and local-only:
 - no port checks
 - no packet injection
 - no credential use
-- no external network calls
+- no external network calls except explicit submit to the configured OAW backend
 - no active probing
 - no cloud sync
 - no raw command wrappers
