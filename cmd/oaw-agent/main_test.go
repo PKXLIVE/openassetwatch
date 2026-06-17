@@ -13,6 +13,7 @@ import (
 	"time"
 
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
+	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
 	"github.com/openassetwatch/openassetwatch/pkg/models"
 	"github.com/openassetwatch/openassetwatch/pkg/schema"
 )
@@ -74,6 +75,16 @@ func TestRunCollectOnceWritesJSONToOutputFile(t *testing.T) {
 func TestRunCollectLoadsIdentityFields(t *testing.T) {
 	restore := stubCollector(t)
 	defer restore()
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: writeIdentityFile(t, agentidentity.Identity{
+			AgentID:   "33333333-3333-4333-8333-333333333333",
+			SiteID:    "site-default",
+			CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+			UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		}),
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+	})
+	defer restorePaths()
 
 	identityPath := writeIdentityFile(t, agentidentity.Identity{
 		AgentID:      "22222222-2222-4222-8222-222222222222",
@@ -109,6 +120,61 @@ func TestRunCollectLoadsIdentityFields(t *testing.T) {
 	}
 	if len(inventory.Assets) != 1 || inventory.Assets[0].SiteID != "site-identity" {
 		t.Fatalf("asset site_id was not updated from identity: %+v", inventory.Assets)
+	}
+}
+
+func TestRunCollectLoadsDefaultIdentityWithoutSiteID(t *testing.T) {
+	restore := stubCollector(t)
+	defer restore()
+
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:      "22222222-2222-4222-8222-222222222222",
+		DeploymentID: "11111111-1111-4111-8111-111111111111",
+		SiteID:       "site-default",
+		TenantID:     "tenant-example",
+		CreatedAt:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: identityPath,
+		ConfigPath:   filepath.Join(t.TempDir(), "config.json"),
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"collect", "--once"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run collect code = %d, stderr = %q", code, stderr.String())
+	}
+
+	var inventory models.Inventory
+	if err := json.Unmarshal(stdout.Bytes(), &inventory); err != nil {
+		t.Fatalf("collect output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if inventory.SiteID != "site-default" {
+		t.Fatalf("site_id = %q, want default identity site_id", inventory.SiteID)
+	}
+	if inventory.AgentID != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("agent_id = %q", inventory.AgentID)
+	}
+}
+
+func TestRunCollectMissingDefaultIdentityFailsClearly(t *testing.T) {
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(t.TempDir(), "missing-identity.json"),
+		ConfigPath:   filepath.Join(t.TempDir(), "config.json"),
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"collect", "--once"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run collect without site_id or default identity returned success")
+	}
+	if !strings.Contains(stderr.String(), "default identity file not found") {
+		t.Fatalf("stderr = %q, want missing default identity error", stderr.String())
 	}
 }
 
@@ -303,6 +369,17 @@ func TestRunIdentityInitRejectsEmptySiteID(t *testing.T) {
 }
 
 func TestRunCheckInPostsIdentityPayload(t *testing.T) {
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: writeIdentityFile(t, agentidentity.Identity{
+			AgentID:   "33333333-3333-4333-8333-333333333333",
+			SiteID:    "site-default",
+			CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+			UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		}),
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+	})
+	defer restorePaths()
+
 	identityPath := writeIdentityFile(t, agentidentity.Identity{
 		AgentID:      "22222222-2222-4222-8222-222222222222",
 		DeploymentID: "11111111-1111-4111-8111-111111111111",
@@ -372,6 +449,44 @@ func TestRunCheckInPostsIdentityPayload(t *testing.T) {
 	}
 }
 
+func TestRunCheckInUsesDefaultIdentityPath(t *testing.T) {
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:      "22222222-2222-4222-8222-222222222222",
+		DeploymentID: "11111111-1111-4111-8111-111111111111",
+		SiteID:       "site-default",
+		TenantID:     "tenant-example",
+		CreatedAt:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: identityPath,
+		ConfigPath:   filepath.Join(t.TempDir(), "config.json"),
+	})
+	defer restorePaths()
+
+	var gotPayload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"check-in", "--server-url", server.URL}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run check-in code = %d, stderr = %q", code, stderr.String())
+	}
+	if gotPayload["site_id"] != "site-default" {
+		t.Fatalf("site_id = %v, want site-default", gotPayload["site_id"])
+	}
+	if gotPayload["agent_id"] != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("agent_id = %v", gotPayload["agent_id"])
+	}
+}
+
 func TestRunCheckInRequiresServerURL(t *testing.T) {
 	identityPath := writeIdentityFile(t, agentidentity.Identity{
 		AgentID:   "22222222-2222-4222-8222-222222222222",
@@ -391,15 +506,21 @@ func TestRunCheckInRequiresServerURL(t *testing.T) {
 	}
 }
 
-func TestRunCheckInRequiresIdentityFile(t *testing.T) {
+func TestRunCheckInMissingDefaultIdentityFailsClearly(t *testing.T) {
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(t.TempDir(), "missing-identity.json"),
+		ConfigPath:   filepath.Join(t.TempDir(), "config.json"),
+	})
+	defer restorePaths()
+
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := run([]string{"check-in", "--server-url", "http://127.0.0.1:8080"}, &stdout, &stderr)
 	if code == 0 {
-		t.Fatal("run check-in without --identity-file returned success")
+		t.Fatal("run check-in without identity file returned success")
 	}
-	if !strings.Contains(stderr.String(), "requires --identity-file") {
-		t.Fatalf("stderr = %q, want missing identity-file error", stderr.String())
+	if !strings.Contains(stderr.String(), "default identity file not found") {
+		t.Fatalf("stderr = %q, want missing default identity error", stderr.String())
 	}
 }
 
@@ -519,6 +640,36 @@ func TestRunCheckInRejectsURLCredentials(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "must not include credentials") {
 		t.Fatalf("stderr = %q, want URL credentials error", stderr.String())
+	}
+}
+
+func TestRunPathsPrintsDefaultPathsOnly(t *testing.T) {
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: filepath.Join("C:\\ProgramData", "OpenAssetWatch", "agent", "identity.json"),
+		ConfigPath:   filepath.Join("C:\\ProgramData", "OpenAssetWatch", "agent", "config.json"),
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"paths"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run paths code = %d, stderr = %q", code, stderr.String())
+	}
+
+	var paths agentpaths.AgentPaths
+	if err := json.Unmarshal(stdout.Bytes(), &paths); err != nil {
+		t.Fatalf("paths output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if paths.IdentityPath == "" || paths.ConfigPath == "" {
+		t.Fatalf("paths output missing defaults: %+v", paths)
+	}
+
+	combined := strings.ToLower(stdout.String() + stderr.String())
+	for _, forbidden := range []string{"token", "secret", "password", "enrollment"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("paths output included forbidden term %q: %s", forbidden, stdout.String())
+		}
 	}
 }
 
@@ -744,4 +895,15 @@ func writeIdentityFile(t *testing.T, identity agentidentity.Identity) string {
 		t.Fatal(err)
 	}
 	return filePath
+}
+
+func stubDefaultAgentPaths(t *testing.T, paths agentpaths.AgentPaths) func() {
+	t.Helper()
+	previous := defaultAgentPaths
+	defaultAgentPaths = func() agentpaths.AgentPaths {
+		return paths
+	}
+	return func() {
+		defaultAgentPaths = previous
+	}
 }

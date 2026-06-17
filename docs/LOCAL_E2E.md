@@ -73,6 +73,11 @@ With `-IncludeCheckIn`, the helper creates a temporary `identity.json`, runs
 `--identity-file`, submits the inventory JSON, and deletes the temp files unless
 `-KeepTemp` is used.
 
+The helper intentionally uses a temporary explicit identity file instead of the
+default agent identity path. This keeps local E2E validation from creating or
+modifying privileged paths such as `%ProgramData%\OpenAssetWatch\agent` or
+`/etc/openassetwatch/agent`.
+
 ## Manual Equivalent
 
 ```powershell

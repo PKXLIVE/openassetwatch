@@ -71,6 +71,22 @@ The local collection command can load this identity file explicitly:
 go run ./cmd/oaw-agent collect --once --identity-file identity.json --output inventory.json
 ```
 
+To see the resolved default identity and config paths:
+
+```powershell
+go run ./cmd/oaw-agent paths
+```
+
+Default agent identity paths are:
+
+- Windows: `%ProgramData%\OpenAssetWatch\agent\identity.json`
+- Linux/macOS: `/etc/openassetwatch/agent/identity.json`
+
+If `--identity-file`, `--site-id`, and `--config` are omitted, collection tries
+the default identity path. If that file is missing, collection fails clearly
+instead of creating privileged directories. Explicit `--identity-file` always
+takes priority.
+
 When `--identity-file` is supplied, collection copies `site_id`, `tenant_id`,
 `deployment_id`, and `agent_id` from the identity file into the inventory JSON
 when those fields are present. It does not fabricate a missing
