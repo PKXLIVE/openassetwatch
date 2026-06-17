@@ -1,0 +1,16 @@
+tool:
+  name: evidence_review
+  category: advisor
+  status: production-safe-pattern
+
+parameters:
+  site_id: example-site
+  asset_id: example-asset
+  evidence_artifact_id: example-evidence-artifact
+  review_profile: standard
+
+controls:
+  passive_first: true
+  evidence_required: true
+  may_change_assets: false
+  may_execute_code: false

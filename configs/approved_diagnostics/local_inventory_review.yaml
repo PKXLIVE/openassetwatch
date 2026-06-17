@@ -1,0 +1,19 @@
+diagnostic:
+  name: local_inventory_review
+  category: approved_diagnostic
+  status: production-safe-pattern
+
+scope:
+  site_id: example-site
+  approved_scope_id: example-approved-scope
+  sensor_id: example-sensor
+
+parameters:
+  review_profile: passive_inventory
+  evidence_artifact_id: example-evidence-artifact
+
+controls:
+  passive_first: true
+  least_privilege: true
+  may_probe_network: false
+  may_validate_credentials: false

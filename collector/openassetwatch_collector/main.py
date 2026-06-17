@@ -47,8 +47,23 @@ KNOWN_CAPABILITIES = (
     "ssdp",
     "netbios",
     "snmp",
-    "nmap_light",
-    "passive_sensor",
+)
+UNSAFE_POLICY_MODULE_TERMS = (
+    "args",
+    "brute",
+    "c2",
+    "command",
+    "credential",
+    "exploit",
+    "fuzz",
+    "hash",
+    "masscan",
+    "nmap",
+    "payload",
+    "password",
+    "shell",
+    "terminal",
+    "webshell",
 )
 INVALID_MAC_TEXT_VALUES = {
     "(incomplete)",
@@ -83,6 +98,15 @@ def default_policy_hold_file_path() -> str:
 
 class ConfigError(ValueError):
     """Raised when a collector config file cannot be loaded."""
+
+
+def is_quarantined_config_path(path: str) -> bool:
+    normalized = str(path).replace("\\", "/")
+    parts = [part.lower() for part in normalized.split("/") if part]
+    return any(
+        part == "configs" and index + 1 < len(parts) and parts[index + 1] == "quarantine"
+        for index, part in enumerate(parts)
+    )
 
 
 def utc_now() -> str:
@@ -664,6 +688,17 @@ def validate_policy_payload(policy_payload: dict[str, Any]) -> None:
     modules = policy.get("modules", {})
     if modules is not None and not isinstance(modules, dict):
         raise ConfigError("policy.modules must be an object")
+    if isinstance(modules, dict):
+        unsafe_modules = sorted(
+            str(module_name)
+            for module_name in modules
+            if any(term in str(module_name).lower() for term in UNSAFE_POLICY_MODULE_TERMS)
+        )
+        if unsafe_modules:
+            raise ConfigError(
+                "policy.modules contains unsafe or out-of-scope modules: "
+                + ", ".join(unsafe_modules)
+            )
     actions = policy.get("actions", {})
     if actions is not None and not isinstance(actions, dict):
         raise ConfigError("policy.actions must be an object")
@@ -1081,6 +1116,8 @@ def load_simple_yaml_config(text: str) -> dict[str, Any]:
 def load_config(path: str | None) -> dict[str, Any]:
     if not path:
         return {}
+    if is_quarantined_config_path(path):
+        raise ConfigError(f"refusing to load quarantined config file '{path}'")
 
     try:
         with open(path, encoding="utf-8") as config_file:

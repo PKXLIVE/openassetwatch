@@ -232,8 +232,6 @@ def default_collector_policy_payload() -> dict[str, Any]:
                 "mdns": {"enabled": False},
                 "ssdp": {"enabled": False},
                 "snmp": {"enabled": False},
-                "nmap_light": {"enabled": False},
-                "passive_sensor": {"enabled": False},
             },
             "actions": {
                 "run_inventory_now": False,

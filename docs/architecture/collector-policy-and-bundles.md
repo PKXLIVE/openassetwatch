@@ -105,8 +105,11 @@ Example future modules:
 - `ssdp`
 - `netbios`
 - `snmp`
-- `nmap_light`, later and disabled by default
-- passive sensor, later and disabled by default
+
+Scanner-launcher style capabilities such as Nmap or masscan are not valid
+production collector capabilities. Passive sensor behavior belongs in the
+separate OAW sensor path and must remain explicitly scoped and disabled until
+that path is implemented.
 
 Bundles should describe desired collector behavior using explicit schema fields.
 They should not contain arbitrary scripts or shell command strings.

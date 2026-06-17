@@ -1,0 +1,21 @@
+roles:
+  - id: inventory_viewer
+    description: View assets, evidence, and findings.
+    permissions:
+      - assets.read
+      - evidence.read
+      - findings.read
+
+  - id: finding_triage
+    description: Review findings and update remediation status.
+    permissions:
+      - assets.read
+      - evidence.read
+      - findings.read
+      - findings.update_status
+
+  - id: connector_operator
+    description: Configure approved passive connectors.
+    permissions:
+      - connectors.read
+      - connectors.configure

@@ -121,8 +121,8 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertIn("open_detector", response["assigned_capabilities"])
         self.assertEqual(response["denied_capabilities"], [])
         self.assertEqual(response["policy"]["mode"], "hybrid")
-        self.assertFalse(response["policy"]["modules"]["nmap_light"]["enabled"])
-        self.assertFalse(response["policy"]["modules"]["passive_sensor"]["enabled"])
+        self.assertNotIn("nmap_light", response["policy"]["modules"])
+        self.assertNotIn("passive_sensor", response["policy"]["modules"])
 
     def test_policy_endpoint_rejects_missing_token_when_configured(self) -> None:
         with patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: "change-me-dev-token"}):
@@ -148,7 +148,7 @@ class CollectorInventoryTests(unittest.TestCase):
                 "minimum_collector_version": "0.1.0",
                 "license_status": "dev_mode",
                 "assigned_capabilities": ["device_inventory"],
-                "denied_capabilities": ["nmap_light"],
+                "denied_capabilities": ["legacy_raw_scanner"],
                 "policy": {"mode": "device"},
             },
         }
