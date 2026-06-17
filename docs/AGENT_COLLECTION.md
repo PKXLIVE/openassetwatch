@@ -57,6 +57,8 @@ curl.exe -X POST http://localhost:8000/api/v1/collections/local-inventory `
   --data-binary "@inventory.json"
 ```
 
+For a scripted local validation path, see `docs/LOCAL_E2E.md`.
+
 ## Data Collected
 
 The output uses the Go inventory models and includes:
