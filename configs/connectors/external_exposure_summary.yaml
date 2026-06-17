@@ -1,0 +1,16 @@
+connector:
+  name: external_exposure_summary
+  category: external_exposure
+  status: production-safe-pattern
+
+parameters:
+  connector_id: example-connector
+  site_id: example-site
+  domain_id: example-domain
+  evidence_artifact_id: example-evidence-artifact
+  review_profile: exposure_summary
+
+controls:
+  import_observations_only: true
+  may_launch_scanners: false
+  may_store_secrets: false

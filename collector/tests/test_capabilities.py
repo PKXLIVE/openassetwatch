@@ -8,6 +8,7 @@ from openassetwatch_collector.main import (
     collect_supported_capabilities,
     build_payload,
 )
+from openassetwatch_collector.capabilities import passive_inventory_sources
 
 
 def linux_platform(commands: list[str] | None = None) -> dict[str, object]:
@@ -35,6 +36,14 @@ class CapabilityReportingTests(unittest.TestCase):
         self.assertIn("device_inventory", capabilities)
         self.assertIn("open_detector", capabilities)
         self.assertNotIn("network_neighbors", capabilities)
+
+    def test_passive_inventory_sources_do_not_report_scanner_buckets(self) -> None:
+        sources = passive_inventory_sources("linux", ["ip", "arp", "nmap", "tcpdump"])
+
+        self.assertIn("neighbor_cache", sources)
+        self.assertNotIn("active_light", sources)
+        self.assertNotIn("nmap", str(sources))
+        self.assertNotIn("tcpdump", str(sources))
 
     def test_device_mode_enabled_capabilities(self) -> None:
         supported = ["device_inventory", "network_neighbors", "open_detector"]

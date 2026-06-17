@@ -46,8 +46,6 @@ def make_policy(**overrides: object) -> dict[str, object]:
                 "mdns": {"enabled": False},
                 "ssdp": {"enabled": False},
                 "snmp": {"enabled": False},
-                "nmap_light": {"enabled": False},
-                "passive_sensor": {"enabled": False},
             },
             "actions": {
                 "run_inventory_now": False,
@@ -285,7 +283,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_unsupported_assigned_capabilities_are_ignored(self) -> None:
         policy = make_policy(
-            assigned_capabilities=["device_inventory", "nmap_light"],
+            assigned_capabilities=["device_inventory", "legacy_unsupported_capability"],
             policy={
                 "mode": "hybrid",
                 "modules": {"open_detector": {"enabled": True}},
@@ -301,7 +299,19 @@ class PolicyTests(unittest.TestCase):
             apply_policy_to_args(args, policy)
 
         self.assertFalse(args.open_detector_enabled)
-        self.assertIn("nmap_light", stderr.getvalue())
+        self.assertIn("legacy_unsupported_capability", stderr.getvalue())
+
+    def test_policy_rejects_unsafe_module_names(self) -> None:
+        policy = make_policy(
+            policy={
+                "mode": "hybrid",
+                "modules": {"nmap_light": {"enabled": False}},
+                "actions": {"run_inventory_now": False},
+            },
+        )
+
+        with self.assertRaisesRegex(ConfigError, "unsafe or out-of-scope"):
+            validate_policy_payload(policy)
 
 
 def make_config_args(config: str | None = None, **overrides: object) -> argparse.Namespace:

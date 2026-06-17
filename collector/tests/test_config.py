@@ -121,6 +121,12 @@ class ConfigLoadingTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "unable to read config file"):
             load_config("__missing-openassetwatch-config.yaml")
 
+    def test_quarantined_config_path_is_refused(self) -> None:
+        with self.assertRaisesRegex(ConfigError, "quarantined config"):
+            load_config("configs/quarantine/unsafe-source-tool.yaml")
+        with self.assertRaisesRegex(ConfigError, "quarantined config"):
+            load_config(r"configs\quarantine\unsafe-source-tool.yaml")
+
     def test_invalid_config_raises_clear_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = Path(temp_dir) / "collector.json"

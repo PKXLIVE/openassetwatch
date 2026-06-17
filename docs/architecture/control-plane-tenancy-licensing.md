@@ -81,8 +81,6 @@ Current and future capability names include:
 - `ssdp`
 - `netbios`
 - `snmp`
-- `nmap_light`
-- `passive_sensor`
 - `vulnerability_enrichment`
 - `cmdb_enrichment`
 - `identity_enrichment`

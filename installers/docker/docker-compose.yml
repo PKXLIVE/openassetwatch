@@ -1,0 +1,30 @@
+services:
+  oaw-server:
+    image: ghcr.io/openassetwatch/oaw-server:foundation
+    restart: unless-stopped
+    environment:
+      OAW_DATABASE_URL: postgresql://openassetwatch:${OAW_POSTGRES_PASSWORD:?Set OAW_POSTGRES_PASSWORD outside this file}@postgres:5432/openassetwatch
+      OAW_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openassetwatch
+      POSTGRES_USER: openassetwatch
+      POSTGRES_PASSWORD: ${OAW_POSTGRES_PASSWORD:?Set OAW_POSTGRES_PASSWORD outside this file}
+    volumes:
+      - oaw-postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+volumes:
+  oaw-postgres-data:

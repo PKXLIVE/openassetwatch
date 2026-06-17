@@ -1,4 +1,4 @@
-"""Platform and tool capability detection for collector hosts."""
+"""Platform and passive inventory capability detection for collector hosts."""
 
 from __future__ import annotations
 
@@ -16,25 +16,12 @@ COMMANDS_BY_SYSTEM = {
         "ipconfig",
         "getmac",
         "powershell",
-        "netsh",
-        "nslookup",
-        "ping",
-        "nmap",
     ],
     "linux": [
         "ip",
         "arp",
-        "arp-scan",
-        "nmap",
-        "avahi-resolve-address",
-        "avahi-browse",
-        "nmblookup",
-        "dig",
-        "nslookup",
         "hostname",
         "nmcli",
-        "tcpdump",
-        "zeek",
     ],
     "darwin": [
         "arp",
@@ -43,8 +30,6 @@ COMMANDS_BY_SYSTEM = {
         "networksetup",
         "dns-sd",
         "scutil",
-        "nmap",
-        "tcpdump",
     ],
 }
 
@@ -145,47 +130,35 @@ def recommended_modes(system_key: str, available_commands: list[str]) -> list[st
     return modes
 
 
-def future_fingerprinting_tools(
+def passive_inventory_sources(
     system_key: str,
     available_commands: list[str],
 ) -> dict[str, list[str]]:
     if system_key == "windows":
         return {
-            "passive": [],
-            "active_light": available_only(["arp", "ping", "nmap"], available_commands),
-            "name_resolution": available_only(["nslookup"], available_commands),
-            "netbios": available_only(["netsh"], available_commands),
-            "mdns": [],
-            "sensor": [],
+            "neighbor_cache": available_only(["arp", "powershell"], available_commands),
+            "local_host_metadata": available_only(["ipconfig", "getmac"], available_commands),
+            "approved_diagnostics": [],
         }
 
     if system_key == "linux":
         return {
-            "passive": available_only(["tcpdump"], available_commands),
-            "active_light": available_only(["ip", "arp", "arp-scan", "nmap"], available_commands),
-            "name_resolution": available_only(["dig", "nslookup", "hostname"], available_commands),
-            "netbios": available_only(["nmblookup"], available_commands),
-            "mdns": available_only(["avahi-resolve-address", "avahi-browse"], available_commands),
-            "sensor": available_only(["zeek"], available_commands),
+            "neighbor_cache": available_only(["ip", "arp"], available_commands),
+            "local_host_metadata": available_only(["hostname", "nmcli"], available_commands),
+            "approved_diagnostics": [],
         }
 
     if system_key == "darwin":
         return {
-            "passive": available_only(["tcpdump"], available_commands),
-            "active_light": available_only(["arp", "route", "nmap"], available_commands),
-            "name_resolution": available_only(["dns-sd", "scutil"], available_commands),
-            "netbios": [],
-            "mdns": available_only(["dns-sd"], available_commands),
-            "sensor": [],
+            "neighbor_cache": available_only(["arp", "route"], available_commands),
+            "local_host_metadata": available_only(["ifconfig", "networksetup", "scutil"], available_commands),
+            "approved_diagnostics": available_only(["dns-sd"], available_commands),
         }
 
     return {
-        "passive": [],
-        "active_light": [],
-        "name_resolution": [],
-        "netbios": [],
-        "mdns": [],
-        "sensor": [],
+        "neighbor_cache": [],
+        "local_host_metadata": [],
+        "approved_diagnostics": [],
     }
 
 
@@ -213,7 +186,7 @@ def collect_platform_capabilities() -> dict[str, object]:
         "missing_commands": missing_commands,
         "supported_modes": SUPPORTED_MODES,
         "recommended_modes": recommended_modes(system_key, available_commands),
-        "future_fingerprinting_tools": future_fingerprinting_tools(
+        "passive_inventory_sources": passive_inventory_sources(
             system_key,
             available_commands,
         ),
