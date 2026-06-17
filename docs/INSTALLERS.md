@@ -64,6 +64,22 @@ keys, signing keys, or customer secrets. Enrollment token values should be
 supplied through installer wrapper input, MDM/RMM secret delivery, CI/CD secret
 references, or a self-hosted administrator-provided secret store.
 
+Future default installed-agent identity locations should be:
+
+- Windows: `%PROGRAMDATA%\OpenAssetWatch\agent\identity.json`
+- Linux: `/var/lib/openassetwatch/agent/identity.json`
+- macOS: `/Library/Application Support/OpenAssetWatch/agent/identity.json`
+
+The current Go agent can explicitly initialize this non-secret file for local
+development:
+
+```powershell
+go run ./cmd/oaw-agent identity init --site-id site-local --output identity.json
+```
+
+The command generates `agent_id` only for the local identity file. It preserves
+a supplied `deployment_id` but does not fabricate one when it is omitted.
+
 The first backend agent check-in endpoint is documented in
 `docs/AGENT_CHECKIN.md`. It accepts identity and health metadata only; it does
 not perform active network collection, execute commands, or enforce licensing.

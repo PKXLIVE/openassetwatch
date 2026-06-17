@@ -4,6 +4,7 @@ Internal Go packages are implementation details for OpenAssetWatch commands.
 They should stay defensive, passive-first, and evidence-oriented.
 
 - `agent`: agent heartbeat/runtime helpers.
+- `agent/identity`: non-secret durable local agent identity file helpers.
 - `sensor`: passive sensor profile helpers.
 - `collector`: local inventory assembly.
 - `collector/platform`: passive runtime platform detection.

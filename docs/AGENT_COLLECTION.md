@@ -27,6 +27,48 @@ go run ./cmd/oaw-agent collect --once --site-id site-local --output inventory.js
 The current command is local-only. It does not check in with the server, sync to
 cloud services, or upload inventory.
 
+## Local Agent Identity File
+
+OpenAssetWatch now has a small durable local identity-file foundation for
+installed agents. The identity file stores non-secret identifiers only:
+
+- `agent_id`
+- `deployment_id` when supplied by installer, enrollment, or config input
+- `site_id`
+- `tenant_id` when supplied
+- `created_at`
+- `updated_at`
+
+Create a local identity file explicitly:
+
+```powershell
+go run ./cmd/oaw-agent identity init --site-id site-local --output identity.json
+```
+
+Optional deployment and tenant identifiers can be supplied:
+
+```powershell
+go run ./cmd/oaw-agent identity init `
+  --site-id site-local `
+  --deployment-id 11111111-1111-4111-8111-111111111111 `
+  --tenant-id tenant-example `
+  --output identity.json
+```
+
+This command generates `agent_id` only when creating the identity file. It does
+not fabricate `deployment_id`, and it does not store enrollment tokens, license
+keys, API keys, signing keys, or customer secrets.
+
+Future installed-agent default identity locations should be:
+
+- Windows: `%PROGRAMDATA%\OpenAssetWatch\agent\identity.json`
+- Linux: `/var/lib/openassetwatch/agent/identity.json`
+- macOS: `/Library/Application Support/OpenAssetWatch/agent/identity.json`
+
+The local collection command does not automatically load this identity file
+yet. Future enrollment and installer work should connect the identity file to
+collection, check-in, and submit workflows.
+
 ## Submit To Backend
 
 Once the backend is running, saved local collection JSON can be submitted to

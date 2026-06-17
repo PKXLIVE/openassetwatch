@@ -91,9 +91,39 @@ containing non-secret identifiers such as:
 {
   "site_id": "site-local",
   "deployment_id": "11111111-1111-4111-8111-111111111111",
-  "agent_id": "22222222-2222-4222-8222-222222222222"
+  "agent_id": "22222222-2222-4222-8222-222222222222",
+  "created_at": "2026-06-17T12:00:00Z",
+  "updated_at": "2026-06-17T12:00:00Z"
 }
 ```
+
+The current Go agent includes a small local foundation command for creating
+this non-secret identity file explicitly:
+
+```powershell
+go run ./cmd/oaw-agent identity init --site-id site-local --output identity.json
+```
+
+Optional installer or enrollment input can supply:
+
+```powershell
+go run ./cmd/oaw-agent identity init `
+  --site-id site-local `
+  --deployment-id 11111111-1111-4111-8111-111111111111 `
+  --tenant-id tenant-example `
+  --output identity.json
+```
+
+This command generates `agent_id` only when creating the local identity file.
+It does not fabricate `deployment_id`; that value must come from future
+deployment config, enrollment config, installer input, or an administrator
+provided wrapper.
+
+Future default installed-agent identity locations should be:
+
+- Windows: `%PROGRAMDATA%\OpenAssetWatch\agent\identity.json`
+- Linux: `/var/lib/openassetwatch/agent/identity.json`
+- macOS: `/Library/Application Support/OpenAssetWatch/agent/identity.json`
 
 Do not place enrollment tokens, license keys, signing keys, API keys, or
 customer secrets in that file.
