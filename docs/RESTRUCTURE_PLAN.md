@@ -49,16 +49,24 @@ Quarantined material must not be loaded by OpenAssetWatch production code.
 
 ## Validation Status
 
-- `gofmt -w cmd internal pkg` was attempted but could not run because `gofmt`
-  is not installed or available on PATH in this environment.
-- `go version` was attempted and failed because the Go toolchain is not
-  installed or available on PATH in this environment.
-- `go test ./...` could not be run for the same reason.
-- `python -m unittest discover -s collector\tests -t collector` using the
-  bundled Codex Python runtime passed: 80 tests OK.
-- `python -m unittest discover -s backend\tests -t backend` using the bundled
-  Codex Python runtime failed before running backend tests because `fastapi` is
-  not installed in that runtime.
+- System Go is installed at `C:\Program Files\Go\bin\go.exe`. The current
+  Codex PowerShell process did not resolve `go` through PATH, so validation used
+  the system install by absolute path.
+- Go version used: `go1.26.4 windows/amd64`.
+- `gofmt -w cmd internal pkg` passed using the system Go install.
+- `go test ./...` initially could not create the default build cache under
+  `C:\Users\stono\AppData\Local\go-build` due an access denied error. It passed
+  after setting `GOCACHE` and `GOMODCACHE` to temp directories.
+- System `python` and `pip` are still not available on PATH in this environment.
+- Python version used for tests: `Python 3.12.13` from the bundled Codex
+  runtime.
+- Backend dependencies were installed into a temp virtual environment from
+  `backend/requirements.txt`.
+- `python -m unittest discover -s collector\tests -t collector` passed: 80
+  tests OK.
+- `python -m unittest discover -s backend\tests -t backend` passed: 37 tests
+  OK.
+- Backend startup import check passed with `PYTHONPATH=backend`.
 - A repository scan for forbidden active config fields under `configs/` found
   no matches.
 - A repository scan for scanner/offensive terms found remaining active-code
@@ -66,10 +74,15 @@ Quarantined material must not be loaded by OpenAssetWatch production code.
 
 ## Next Required Local Validation
 
-- Install Go.
+- Ensure `C:\Program Files\Go\bin` is available on PATH for new shells, or use
+  the absolute system Go path.
+- Ensure the Go build cache path is writable, or set `GOCACHE` to a writable
+  local/temp directory.
+- Install Python/pip persistently or create a project virtual environment.
 - Run `gofmt -w cmd internal pkg`.
 - Run `go test ./...`.
-- Install backend test dependencies.
+- Install backend test dependencies from `backend/requirements.txt`.
+- Run collector tests with `python -m unittest discover -s collector\tests -t collector`.
 - Run backend tests with `python -m unittest discover -s backend\tests -t backend`.
 
 ## Next Steps
