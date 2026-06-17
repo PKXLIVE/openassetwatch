@@ -128,6 +128,18 @@ Future default installed-agent identity locations should be:
 Do not place enrollment tokens, license keys, signing keys, API keys, or
 customer secrets in that file.
 
+The collection command can consume this file explicitly:
+
+```powershell
+go run ./cmd/oaw-agent collect --once --identity-file identity.json --output inventory.json
+```
+
+The agent does not have a `check-in --identity-file` command yet. That should
+be a small follow-up workstream that reads the same non-secret identity file,
+posts identity and health metadata to `POST /api/v1/agents/check-in`, and
+continues to keep enrollment tokens out of local identity storage and command
+output.
+
 ## Deployment Models
 
 The check-in identity model should support:

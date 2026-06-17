@@ -65,9 +65,31 @@ Future installed-agent default identity locations should be:
 - Linux: `/var/lib/openassetwatch/agent/identity.json`
 - macOS: `/Library/Application Support/OpenAssetWatch/agent/identity.json`
 
-The local collection command does not automatically load this identity file
-yet. Future enrollment and installer work should connect the identity file to
-collection, check-in, and submit workflows.
+The local collection command can load this identity file explicitly:
+
+```powershell
+go run ./cmd/oaw-agent collect --once --identity-file identity.json --output inventory.json
+```
+
+When `--identity-file` is supplied, collection copies `site_id`, `tenant_id`,
+`deployment_id`, and `agent_id` from the identity file into the inventory JSON
+when those fields are present. It does not fabricate a missing
+`deployment_id`, and it does not generate `agent_id`; `agent_id` is generated
+only by explicit `identity init`.
+
+If `--site-id` and `--identity-file` are both supplied, the values must match:
+
+```powershell
+go run ./cmd/oaw-agent collect `
+  --once `
+  --site-id site-local `
+  --identity-file identity.json `
+  --output inventory.json
+```
+
+A conflicting `site_id` is rejected instead of silently overriding identity.
+Collection ignores unknown identity-file fields and does not store or emit
+enrollment tokens.
 
 ## Submit To Backend
 
@@ -80,16 +102,24 @@ go run ./cmd/oaw-agent collect --once --site-id site-local --output inventory.js
 go run ./cmd/oaw-agent submit --file inventory.json --server-url http://localhost:8000
 ```
 
+With an identity file:
+
+```powershell
+go run ./cmd/oaw-agent collect --once --identity-file identity.json --output inventory.json
+
+go run ./cmd/oaw-agent submit --file inventory.json --server-url http://localhost:8000
+```
+
 The `submit` command posts the file to
 `/api/v1/collections/local-inventory` with `Content-Type: application/json`.
 In this pass, the backend URL must be explicitly provided with `--server-url`;
 the agent does not default to any external service.
 
-The submit command does not collect credentials, add enrollment tokens, retry
-aggressively, or call any service other than the configured OpenAssetWatch
-backend URL. Backend ingestion accepts the JSON as passive observations; it
-does not perform active collection, cloud sync, licensing checks, or CMDB
-reconciliation in this pass.
+The submit command sends the JSON file unchanged. It does not collect
+credentials, add enrollment tokens, retry aggressively, or call any service
+other than the configured OpenAssetWatch backend URL. Backend ingestion accepts
+the JSON as passive observations; it does not perform active collection, cloud
+sync, licensing checks, or CMDB reconciliation in this pass.
 
 Manual import with `curl.exe` remains equivalent for local testing:
 
@@ -107,6 +137,8 @@ The output uses the Go inventory models and includes:
 
 - `schema_version`
 - `site_id` when provided by CLI/config
+- `tenant_id`, `deployment_id`, and `agent_id` when loaded from an explicit
+  local identity file
 - `collected_at`
 - host identity: hostname and FQDN when already available locally
 - platform details: operating system, platform, architecture, and architecture
@@ -120,9 +152,8 @@ The output uses the Go inventory models and includes:
 
 The Go inventory model also has optional identity fields for future ingestion:
 `tenant_id`, `deployment_id`, `agent_id`, and `sensor_id`. The local collection
-command does not generate or fake those values yet. Future enrollment/install
-work should populate durable installed-instance identity from scoped config or
-local identity files.
+command only fills installed-agent identity fields from the explicit local
+identity file. It does not generate or fake those values during collection.
 
 ## Safety Model
 
@@ -150,7 +181,10 @@ they do not discover new hosts.
 ```json
 {
   "schema_version": "oaw.inventory.v1",
+  "tenant_id": "tenant-example",
   "site_id": "site-local",
+  "deployment_id": "11111111-1111-4111-8111-111111111111",
+  "agent_id": "22222222-2222-4222-8222-222222222222",
   "collected_at": "2026-06-17T12:00:00Z",
   "assets": [
     {
