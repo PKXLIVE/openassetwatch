@@ -5,6 +5,8 @@
 This pass starts moving OpenAssetWatch toward a defensive, passive-first,
 evidence-based asset intelligence foundation. The source/reference project
 reviewed earlier is not the target architecture. It is reference material only.
+`docs/PRODUCT_ARCHITECTURE.md` captures the product-level hybrid runtime,
+deployment, licensing, and inspiration boundaries for future work.
 
 ## Kept
 
@@ -16,6 +18,9 @@ reviewed earlier is not the target architecture. It is reference material only.
 - Existing architecture and setup docs that already describe defensive,
   passive-first principles.
 - Existing root Docker Compose local development stack.
+- Hybrid product direction: Go for portable local runtime components and Python
+  for AI Advisor, enrichment, scoring, reporting, export experiments,
+  evaluation, and LLM workflows.
 
 ## Discarded From Active Defaults
 
@@ -46,6 +51,9 @@ Quarantined material must not be loaded by OpenAssetWatch production code.
   config loading, output, API path constants, auth references, audit, storage,
   updater, installer service specs, models, schema, and version.
 - Installer scaffolding was added for Linux, macOS, Windows, and Docker.
+- Product architecture documentation now records supported deployment models,
+  future licensing/entitlement work, and AiSOC inspiration boundaries without
+  implementing license enforcement or copying another product wholesale.
 
 ## Validation Status
 
@@ -72,6 +80,13 @@ Quarantined material must not be loaded by OpenAssetWatch production code.
   no matches.
 - A repository scan for scanner/offensive terms found remaining active-code
   references only in the collector unsafe-policy denylist.
+- First Go local-inventory migration validation passed after adding passive
+  platform, host, interface, default-gateway, and neighbor-cache collection
+  packages under `internal/collector/`, including per-observation `source` and
+  `collected_at` fields for JSON/API/export readiness.
+- `gofmt -w cmd internal pkg` passed for the Go local-inventory migration.
+- `go test ./...` passed for the Go local-inventory migration using the
+  documented temporary `GOCACHE` and `GOMODCACHE` workaround.
 
 ## Next Required Local Validation
 
@@ -91,7 +106,10 @@ Quarantined material must not be loaded by OpenAssetWatch production code.
 ## Next Steps
 
 - Expand Go tests around config validation, schema policy, and inventory output.
-- Move local platform and neighbor discovery from the Python collector into Go.
+- Continue migrating Python collector scheduler/check-in/backend upload behavior
+  into Go after the local inventory package boundaries settle.
+- Add licensing and entitlement design as a future control-plane workstream; do
+  not implement license enforcement in this foundation pass.
 - Define production schema files for assets, evidence, findings, connectors,
   and approved diagnostics.
 - Continue tightening loader-level enforcement for future config types.

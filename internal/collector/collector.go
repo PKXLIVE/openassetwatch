@@ -3,16 +3,51 @@ package collector
 import (
 	"time"
 
-	"github.com/openassetwatch/openassetwatch/internal/detector"
+	collectorhost "github.com/openassetwatch/openassetwatch/internal/collector/host"
+	collectornetwork "github.com/openassetwatch/openassetwatch/internal/collector/network"
+	collectorplatform "github.com/openassetwatch/openassetwatch/internal/collector/platform"
 	"github.com/openassetwatch/openassetwatch/pkg/models"
 	"github.com/openassetwatch/openassetwatch/pkg/schema"
 )
 
 func CollectLocalInventory(siteID string) models.Inventory {
-	asset := detector.LocalAsset(siteID)
+	collectedAt := time.Now().UTC()
+	host := collectorhost.DetectAt(collectedAt)
+	platform := collectorplatform.DetectAt(collectedAt)
+	interfaces := collectornetwork.CollectInterfacesAt(collectedAt)
+
+	asset := models.Asset{
+		AssetID:           "local-host",
+		SiteID:            siteID,
+		Hostname:          host.Hostname,
+		FQDN:              host.FQDN,
+		OS:                platform.OS,
+		Platform:          platform.Platform,
+		Architecture:      platform.Architecture,
+		Host:              &host,
+		PlatformInfo:      &platform,
+		PrimaryInterfaces: interfaces.PrimaryInterfaces,
+		IPAddresses:       interfaces.IPAddresses,
+		MACAddresses:      interfaces.MACAddresses,
+		DefaultGateway:    collectornetwork.CollectDefaultGatewayAt(collectedAt),
+		NetworkNeighbors:  collectornetwork.CollectNeighborsAt(collectedAt),
+		Evidence: []models.Evidence{
+			{
+				Source:     "local_platform",
+				Summary:    "Local platform metadata collected without active probing",
+				Confidence: "high",
+			},
+			{
+				Source:     "local_network_cache",
+				Summary:    "Local interfaces and neighbor cache collected without active scanning",
+				Confidence: "medium",
+			},
+		},
+	}
+
 	return models.Inventory{
 		SchemaVersion: schema.InventorySchemaVersion,
-		CollectedAt:   time.Now().UTC(),
+		CollectedAt:   collectedAt,
 		Assets:        []models.Asset{asset},
 		Evidence: []models.Evidence{
 			{

@@ -6,6 +6,10 @@ They should stay defensive, passive-first, and evidence-oriented.
 - `agent`: agent heartbeat/runtime helpers.
 - `sensor`: passive sensor profile helpers.
 - `collector`: local inventory assembly.
+- `collector/platform`: passive runtime platform detection.
+- `collector/host`: passive local hostname identity.
+- `collector/network`: local interface, default gateway, and neighbor-cache
+  inventory without active scanning.
 - `detector`: platform and local evidence detection.
 - `network`: neighbor observation models and safe processing helpers.
 - `config`: runtime config loading and quarantine-path refusal.
