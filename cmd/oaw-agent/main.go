@@ -252,11 +252,19 @@ func runConfig(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runService(args []string, stdout io.Writer, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "plan" {
-		fmt.Fprintln(stderr, "oaw-agent service requires plan")
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "oaw-agent service requires plan or template")
 		return 2
 	}
-	return runServicePlan(args[1:], stdout, stderr)
+	switch args[0] {
+	case "plan":
+		return runServicePlan(args[1:], stdout, stderr)
+	case "template":
+		return runServiceTemplate(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintln(stderr, "oaw-agent service requires plan or template")
+		return 2
+	}
 }
 
 func runServicePlan(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -270,19 +278,41 @@ func runServicePlan(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 
+	plan := buildCurrentServicePlan()
+	if err := output.WriteJSON(stdout, plan); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func runServiceTemplate(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("oaw-agent service template", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "oaw-agent service template does not accept positional arguments")
+		return 2
+	}
+
+	template := agentserviceplan.BuildTemplate(buildCurrentServicePlan())
+	if err := output.WriteJSON(stdout, template); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func buildCurrentServicePlan() agentserviceplan.Plan {
 	var osRelease []byte
 	if runtime.GOOS == "linux" {
 		if data, err := readOSRelease("/etc/os-release"); err == nil {
 			osRelease = data
 		}
 	}
-
-	plan := agentserviceplan.Build(runtime.GOOS, defaultAgentPaths(), osRelease)
-	if err := output.WriteJSON(stdout, plan); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	return 0
+	return agentserviceplan.Build(runtime.GOOS, defaultAgentPaths(), osRelease)
 }
 
 func runConfigInit(args []string, stdout io.Writer, stderr io.Writer) int {

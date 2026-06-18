@@ -1353,6 +1353,99 @@ func TestRunServicePlanOutputContainsNoTokenOrSecretTerms(t *testing.T) {
 	}
 }
 
+func TestRunServiceTemplatePrintsJSONOnly(t *testing.T) {
+	tempDir := t.TempDir()
+	paths := agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	}
+	restorePaths := stubDefaultAgentPaths(t, paths)
+	defer restorePaths()
+	restoreOSRelease := stubOSReleaseReader(t, []byte("ID=ubuntu\nID_LIKE=debian\n"), nil)
+	defer restoreOSRelease()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"service", "template"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run service template code = %d, stderr = %q", code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON-only output", stderr.String())
+	}
+
+	template := decodeServiceTemplate(t, stdout.Bytes())
+	if template.ServiceTarget == "" || template.ServiceName == "" || template.TemplateType == "" || template.Template == "" {
+		t.Fatalf("service template missing fields: %+v", template)
+	}
+	for _, want := range []string{paths.ConfigPath, paths.IdentityPath, paths.LogDir, paths.StatusPath} {
+		if !strings.Contains(template.Template, want) {
+			t.Fatalf("service template missing path %q:\n%s", want, template.Template)
+		}
+	}
+}
+
+func TestRunServiceTemplateDoesNotCreateFilesOrDirectories(t *testing.T) {
+	tempDir := t.TempDir()
+	paths := agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	}
+	restorePaths := stubDefaultAgentPaths(t, paths)
+	defer restorePaths()
+	restoreOSRelease := stubOSReleaseReader(t, []byte("ID=ubuntu\nID_LIKE=debian\n"), nil)
+	defer restoreOSRelease()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"service", "template"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run service template code = %d, stderr = %q", code, stderr.String())
+	}
+
+	for _, path := range []string{paths.ConfigPath, paths.IdentityPath, paths.LogDir, paths.StatusPath} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("service template should not create %s, stat err = %v", path, err)
+		}
+	}
+}
+
+func TestRunServiceTemplateOutputContainsNoTokenOrSecretTerms(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "oaw-service-template-output-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	})
+	defer restorePaths()
+	restoreOSRelease := stubOSReleaseReader(t, []byte("ID=ubuntu\nID_LIKE=debian\n"), nil)
+	defer restoreOSRelease()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"service", "template"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run service template code = %d, stderr = %q", code, stderr.String())
+	}
+
+	combined := strings.ToLower(stdout.String() + stderr.String())
+	for _, forbidden := range []string{"token", "secret", "password", "credential"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("service template output included forbidden term %q: %s", forbidden, combined)
+		}
+	}
+}
+
 func TestRunSubmitPostsCollectionJSON(t *testing.T) {
 	body := []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`)
 	filePath := writeTempJSON(t, body)
@@ -1693,6 +1786,15 @@ func decodeServicePlan(t *testing.T, data []byte) agentserviceplan.Plan {
 		t.Fatalf("service plan output is not JSON: %v\n%s", err, string(data))
 	}
 	return plan
+}
+
+func decodeServiceTemplate(t *testing.T, data []byte) agentserviceplan.Template {
+	t.Helper()
+	var template agentserviceplan.Template
+	if err := json.Unmarshal(data, &template); err != nil {
+		t.Fatalf("service template output is not JSON: %v\n%s", err, string(data))
+	}
+	return template
 }
 
 func findDoctorCheck(t *testing.T, report doctorReport, name string) doctorCheck {

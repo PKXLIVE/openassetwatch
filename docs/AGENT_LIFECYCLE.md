@@ -123,7 +123,30 @@ It does not create files or directories, install packages, run service-manager
 commands, run package-manager commands, start services, stop services, schedule
 work, contact the backend, or run a backend health check.
 
-### 7. Check In
+### 7. Preview Future Service Template
+
+```powershell
+go run ./cmd/oaw-agent service template
+```
+
+`service template` writes JSON only. The JSON includes the future service
+target, service name, template type, template text, and warnings. The template
+text is generated for the current operating system:
+
+- Windows: Windows Service metadata and example administrator command text
+- Linux: systemd unit file content
+- macOS: launchd plist content
+
+The generated template includes expected binary, config, identity, log, and
+status-file paths. It may include conservative future retry or scheduling
+placeholders as comments or inert text, but it does not implement scheduling.
+
+It does not create files or directories, write service definitions, install
+packages, run service-manager commands, run package-manager commands, start
+services, stop services, schedule work, contact the backend, or run a backend
+health check.
+
+### 8. Check In
 
 ```powershell
 go run ./cmd/oaw-agent check-in --identity-file identity.json --config config.json
@@ -133,7 +156,7 @@ Check-in sends identity and health metadata to
 `/api/v1/agents/check-in`. It does not perform collection, active probing, or
 remote command execution.
 
-### 8. Collect Inventory
+### 9. Collect Inventory
 
 ```powershell
 go run ./cmd/oaw-agent collect --once --identity-file identity.json --config config.json --output inventory.json
@@ -144,7 +167,7 @@ interface, gateway, and local neighbor-cache observations where available.
 It does not perform CIDR discovery, port checks, packet injection, credential
 collection, or external service calls.
 
-### 9. Submit Inventory
+### 10. Submit Inventory
 
 ```powershell
 go run ./cmd/oaw-agent submit --file inventory.json --config config.json
@@ -155,7 +178,7 @@ Submit posts the local inventory JSON to
 and does not add enrollment tokens, arbitrary headers, retries, scheduling, or
 daemon behavior.
 
-### 10. Run Local E2E Helper
+### 11. Run Local E2E Helper
 
 Default local collect and submit flow:
 
@@ -186,6 +209,8 @@ or installer behavior.
   status-file locations.
 - [ ] `oaw-agent service plan` reports the expected future service target and
   planned paths without modifying the host.
+- [ ] `oaw-agent service template` previews future service definition content
+  without writing files or modifying the host.
 - [ ] Backend URL is configured through non-secret config.
 - [ ] Check-in succeeds against the intended backend.
 - [ ] Local collection succeeds without elevated privileges where possible.
@@ -222,6 +247,9 @@ introducing broad new capabilities.
 Use `oaw-agent service plan` to inspect the future service target for the
 current operating system before any service install, uninstall, daemon, or
 scheduler implementation exists. The command is intentionally read-only.
+Use `oaw-agent service template` to preview future Windows Service, Linux
+systemd, or macOS launchd definition content. The template command is also
+read-only and writes generated text only to stdout inside JSON.
 
 ### Windows Service
 
@@ -355,6 +383,7 @@ The current service-planning foundation does not add:
 - scheduler code
 - installer code
 - service wrappers
+- service definition file writes
 - background execution
 - service install or uninstall code
 - service start or stop behavior
