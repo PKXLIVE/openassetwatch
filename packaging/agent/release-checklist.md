@@ -133,6 +133,32 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] no services are unregistered, started, stopped, installed, or modified
 - [ ] no package-manager or service-manager commands are executed
 
+## Local Sandbox Upgrade And Rollback Proof
+
+- [ ] `scripts/release/upgrade_agent_local.py` passes for upgrade mode
+- [ ] `scripts/release/upgrade_agent_local.py` passes for rollback mode
+- [ ] upgrade and rollback output is JSON only
+- [ ] output includes `ok`, `mode`, `from_version`, `to_version`,
+      `install_root`, `backup`, `checks`, `warnings`, and `errors`
+- [ ] helper operates only under `dist/local-install/agent/`, `dist/agent/`,
+      and `dist/staging/agent/`
+- [ ] target release package exists and validates before changing local
+      sandbox install output
+- [ ] backup metadata is written under ignored
+      `dist/local-install/agent/_backups/`
+- [ ] sandbox config and identity placeholder directories are preserved
+- [ ] no real config values or identity values are created
+- [ ] generated release packages under `dist/agent/<version>/packages/` remain
+      in place
+- [ ] config, identity, logs, and status outside the sandbox install root are
+      not removed
+- [ ] paths outside the repository are refused
+- [ ] paths that look like Program Files, ProgramData, `/usr`, `/etc`, `/var`,
+      or `/Library` are refused
+- [ ] no services are registered, unregistered, started, stopped, installed, or
+      modified
+- [ ] no package-manager or service-manager commands are executed
+
 ## Agent Installation Foundation Status
 
 The current phase proves that OpenAssetWatch can build, package, validate, and

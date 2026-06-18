@@ -40,6 +40,11 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/uninstall_agent_local.py](../scripts/release/uninstall_agent_local.py).
   It removes only repo-local sandbox install roots under ignored
   `dist/local-install/` paths.
+- Local sandbox upgrade and rollback proof exists through
+  [scripts/release/upgrade_agent_local.py](../scripts/release/upgrade_agent_local.py).
+  It validates local packages, writes backup metadata under ignored
+  `dist/local-install/` paths, and creates only repo-local sandbox install
+  roots.
 - No native signed packages are produced yet.
 - No package build, installer execution, service installation, or
   package-manager execution is implemented by the scaffold.
@@ -237,6 +242,33 @@ package metadata from `install_agent_local.py`.
 
 This is not a real system uninstall. It does not remove generated release
 packages, unregister services, start services, stop services, execute
+package-manager commands, execute service-manager commands, contact network
+services, remove config, identity, logs, or status outside the local sandbox
+install root, or modify the host operating system.
+
+## Local Sandbox Upgrade And Rollback Proof
+
+Use the local sandbox upgrade and rollback helper to validate version
+transitions inside ignored repo-local `dist/` paths:
+
+```powershell
+python .\scripts\release\upgrade_agent_local.py upgrade `
+  --from-version 0.1.0-local `
+  --to-version 0.1.1-local
+
+python .\scripts\release\upgrade_agent_local.py rollback `
+  --from-version 0.1.1-local `
+  --to-version 0.1.0-local
+```
+
+The helper emits JSON only with `ok`, `mode`, `from_version`, `to_version`,
+`install_root`, `backup`, `checks`, `warnings`, and `errors`. It operates only
+under `dist/local-install/agent/`, `dist/agent/`, and `dist/staging/agent/`.
+Backup metadata is written under ignored
+`dist/local-install/agent/_backups/`.
+
+This is not a real system upgrade or rollback. It does not remove generated
+release packages, unregister services, start services, stop services, execute
 package-manager commands, execute service-manager commands, contact network
 services, remove config, identity, logs, or status outside the local sandbox
 install root, or modify the host operating system.
