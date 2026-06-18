@@ -102,7 +102,28 @@ last known status file exist. It is a read-only local setup snapshot. It does
 not create files or directories, write logs, contact the backend, or run a
 backend health check.
 
-### 6. Review Future Service Plan
+### 6. Review Install Plan
+
+```powershell
+go run ./cmd/oaw-agent install plan
+```
+
+`install plan` writes JSON only. It reports the current operating system,
+architecture, recommended package type, install model, expected binary path,
+config path, identity path, log directory, status file path, service definition
+path where known, package validation expectations, and warnings.
+
+On Linux, it may read `/etc/os-release` and infer the package family:
+
+- Debian and Ubuntu: `deb`
+- RHEL, Rocky Linux, AlmaLinux, CentOS, Fedora, SUSE, and openSUSE: `rpm`
+- unknown or unsupported Linux: `tar.gz/manual`
+
+It does not create files or directories, install packages, run service-manager
+commands, run package-manager commands, modify services, contact the backend,
+or run a backend health check.
+
+### 7. Review Future Service Plan
 
 ```powershell
 go run ./cmd/oaw-agent service plan
@@ -123,7 +144,7 @@ It does not create files or directories, install packages, run service-manager
 commands, run package-manager commands, start services, stop services, schedule
 work, contact the backend, or run a backend health check.
 
-### 7. Preview Future Service Template
+### 8. Preview Future Service Template
 
 ```powershell
 go run ./cmd/oaw-agent service template
@@ -146,7 +167,7 @@ packages, run service-manager commands, run package-manager commands, start
 services, stop services, schedule work, contact the backend, or run a backend
 health check.
 
-### 8. Check In
+### 9. Check In
 
 ```powershell
 go run ./cmd/oaw-agent check-in --identity-file identity.json --config config.json
@@ -156,7 +177,7 @@ Check-in sends identity and health metadata to
 `/api/v1/agents/check-in`. It does not perform collection, active probing, or
 remote command execution.
 
-### 9. Collect Inventory
+### 10. Collect Inventory
 
 ```powershell
 go run ./cmd/oaw-agent collect --once --identity-file identity.json --config config.json --output inventory.json
@@ -167,7 +188,7 @@ interface, gateway, and local neighbor-cache observations where available.
 It does not perform CIDR discovery, port checks, packet injection, credential
 collection, or external service calls.
 
-### 10. Submit Inventory
+### 11. Submit Inventory
 
 ```powershell
 go run ./cmd/oaw-agent submit --file inventory.json --config config.json
@@ -178,7 +199,7 @@ Submit posts the local inventory JSON to
 and does not add enrollment tokens, arbitrary headers, retries, scheduling, or
 daemon behavior.
 
-### 11. Run Local E2E Helper
+### 12. Run Local E2E Helper
 
 Default local collect and submit flow:
 
@@ -207,6 +228,8 @@ or installer behavior.
 - [ ] `oaw-agent doctor` passes before service registration or first run.
 - [ ] `oaw-agent status` reports the expected local config, identity, log, and
   status-file locations.
+- [ ] `oaw-agent install plan` reports the expected package and deployment
+  recommendation without modifying the host.
 - [ ] `oaw-agent service plan` reports the expected future service target and
   planned paths without modifying the host.
 - [ ] `oaw-agent service template` previews future service definition content

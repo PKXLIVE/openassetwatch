@@ -15,6 +15,7 @@ import (
 
 	agentconfig "github.com/openassetwatch/openassetwatch/internal/agent/config"
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
+	agentinstallplan "github.com/openassetwatch/openassetwatch/internal/agent/installplan"
 	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
 	agentserviceplan "github.com/openassetwatch/openassetwatch/internal/agent/serviceplan"
 	"github.com/openassetwatch/openassetwatch/pkg/models"
@@ -1446,6 +1447,100 @@ func TestRunServiceTemplateOutputContainsNoTokenOrSecretTerms(t *testing.T) {
 	}
 }
 
+func TestRunInstallPlanPrintsJSONOnly(t *testing.T) {
+	tempDir := t.TempDir()
+	paths := agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	}
+	restorePaths := stubDefaultAgentPaths(t, paths)
+	defer restorePaths()
+	restoreOSRelease := stubOSReleaseReader(t, []byte("ID=ubuntu\nID_LIKE=debian\nVERSION_ID=\"24.04\"\n"), nil)
+	defer restoreOSRelease()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"install", "plan"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run install plan code = %d, stderr = %q", code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON-only output", stderr.String())
+	}
+
+	plan := decodeInstallPlan(t, stdout.Bytes())
+	if plan.OS == "" || plan.Arch == "" || plan.RecommendedPackageType == "" || plan.InstallModel == "" {
+		t.Fatalf("install plan missing recommendation details: %+v", plan)
+	}
+	if plan.ConfigPath != paths.ConfigPath || plan.IdentityPath != paths.IdentityPath || plan.LogDir != paths.LogDir || plan.StatusPath != paths.StatusPath {
+		t.Fatalf("install plan paths = %+v, want %+v", plan, paths)
+	}
+	if len(plan.PackageValidationExpectations) == 0 || len(plan.Warnings) == 0 {
+		t.Fatalf("install plan missing validation expectations or warnings: %+v", plan)
+	}
+}
+
+func TestRunInstallPlanDoesNotCreateFilesOrDirectories(t *testing.T) {
+	tempDir := t.TempDir()
+	paths := agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	}
+	restorePaths := stubDefaultAgentPaths(t, paths)
+	defer restorePaths()
+	restoreOSRelease := stubOSReleaseReader(t, []byte("ID=ubuntu\nID_LIKE=debian\n"), nil)
+	defer restoreOSRelease()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"install", "plan"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run install plan code = %d, stderr = %q", code, stderr.String())
+	}
+
+	for _, path := range []string{paths.ConfigPath, paths.IdentityPath, paths.LogDir, paths.StatusPath} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("install plan should not create %s, stat err = %v", path, err)
+		}
+	}
+}
+
+func TestRunInstallPlanOutputContainsNoTokenOrSecretTerms(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "oaw-install-plan-output-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	})
+	defer restorePaths()
+	restoreOSRelease := stubOSReleaseReader(t, []byte("ID=ubuntu\nID_LIKE=debian\n"), nil)
+	defer restoreOSRelease()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"install", "plan"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run install plan code = %d, stderr = %q", code, stderr.String())
+	}
+
+	combined := strings.ToLower(stdout.String() + stderr.String())
+	for _, forbidden := range []string{"token", "secret", "password", "credential"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("install plan output included forbidden term %q: %s", forbidden, combined)
+		}
+	}
+}
+
 func TestRunSubmitPostsCollectionJSON(t *testing.T) {
 	body := []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`)
 	filePath := writeTempJSON(t, body)
@@ -1784,6 +1879,15 @@ func decodeServicePlan(t *testing.T, data []byte) agentserviceplan.Plan {
 	var plan agentserviceplan.Plan
 	if err := json.Unmarshal(data, &plan); err != nil {
 		t.Fatalf("service plan output is not JSON: %v\n%s", err, string(data))
+	}
+	return plan
+}
+
+func decodeInstallPlan(t *testing.T, data []byte) agentinstallplan.Plan {
+	t.Helper()
+	var plan agentinstallplan.Plan
+	if err := json.Unmarshal(data, &plan); err != nil {
+		t.Fatalf("install plan output is not JSON: %v\n%s", err, string(data))
 	}
 	return plan
 }
