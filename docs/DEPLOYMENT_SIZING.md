@@ -105,6 +105,83 @@ The AI/MCP server can be right-sized later based on whether AI Advisor work
 uses local models, hosted model APIs, lightweight heuristics, or a mixture of
 those approaches.
 
+## AI/MCP Deployment Model
+
+AI/MCP is optional for MVP. OpenAssetWatch core check-in, inventory ingestion,
+asset inventory, and finding workflows must work without it.
+
+For single-node lab deployments, AI/MCP can run on the same host when resource
+limits are understood and AI is disabled or backed by an external LLM API.
+Simulated-production MVP should use a separate AI/MCP server so advisor work,
+MCP gateway operations, and future tool integrations do not compete directly
+with the core Control Tower API.
+
+AI/MCP must be isolated from the core Control Tower API. AI jobs must be
+asynchronous and queue-backed. AI must not block agent check-in or inventory
+ingestion.
+
+## AI/MCP MVP Sizing
+
+MVP AI/MCP sizing should favor predictable queue behavior over high
+concurrency:
+
+- MVP target: 3-5 concurrent AI workflows.
+- MVP queue target: 10-25 queued AI jobs.
+- CPU-only with external LLM API: 10-25 concurrent lightweight jobs.
+- Local GPU model: 2-8 concurrent jobs, depending on model size.
+- Large local reasoning model: 1-3 concurrent jobs.
+- Multiple AI worker nodes can scale horizontally later.
+
+These are starting estimates, not hard platform limits. The queue should make
+backpressure visible before AI work can affect ingestion, check-in, or core
+asset workflows.
+
+## MCP Safety Model
+
+MCP access must go through an approved gateway. The gateway is a control point,
+not a bypass around OpenAssetWatch safety policy.
+
+Baseline MCP safety requirements:
+
+- allowlisted tools only
+- no arbitrary shell execution
+- no unrestricted filesystem access
+- no direct database write access by default
+- credentials separated from the core API
+- audit logging required
+- tenant and site boundaries required
+- human approval required for risky actions
+- no automated remediation by default
+
+MCP tooling should support evidence review, enrichment, reporting, and
+approved diagnostics before any approval-gated action path exists.
+
+## Future SOAR/Automation Add-On
+
+SOAR is a future integration or add-on, not MVP core. It should not be
+implemented as part of the deployment sizing baseline.
+
+Future SOAR and automation use cases may include:
+
+- ticket creation
+- enrichment workflows
+- notification workflows
+- approval-based remediation recommendations
+- Splunk SOAR or other SOAR platform integration
+
+Any future remediation must require policy controls, audit logging, and human
+approval. Automated remediation should not be enabled by default.
+
+## Scaling Boundaries
+
+Control Tower ingestion must continue if AI/MCP is offline. AI/MCP failures
+should degrade advisory features only. Core inventory and check-in should
+remain independent.
+
+AI/MCP should scale by adding workers, queue capacity, and dedicated AI/MCP
+nodes, not by overloading the Control Tower API. Ingestion and check-in
+capacity should be sized and monitored separately from AI workflow capacity.
+
 ## Safety Boundaries
 
 This sizing baseline does not change OpenAssetWatch's safe deployment posture:
@@ -115,3 +192,4 @@ This sizing baseline does not change OpenAssetWatch's safe deployment posture:
 - no package-manager execution by the running agent
 - no service-manager execution by planning commands
 - no synchronous AI dependency in the ingestion path
+- no automated remediation by default
