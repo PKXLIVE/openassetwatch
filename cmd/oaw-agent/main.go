@@ -18,6 +18,7 @@ import (
 	agentconfig "github.com/openassetwatch/openassetwatch/internal/agent/config"
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
 	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
+	agentserviceplan "github.com/openassetwatch/openassetwatch/internal/agent/serviceplan"
 	"github.com/openassetwatch/openassetwatch/internal/collector"
 	"github.com/openassetwatch/openassetwatch/internal/config"
 	"github.com/openassetwatch/openassetwatch/internal/output"
@@ -30,6 +31,7 @@ var submitHTTPClient = func() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
 var defaultAgentPaths = agentpaths.DefaultAgentPaths
+var readOSRelease = os.ReadFile
 
 const localInventorySubmitPath = "/api/v1/collections/local-inventory"
 const agentCheckInPath = "/api/v1/agents/check-in"
@@ -62,6 +64,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "status" {
 		return runStatus(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "service" {
+		return runService(args[1:], stdout, stderr)
 	}
 
 	var configPath string
@@ -244,6 +249,40 @@ func runConfig(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 	return runConfigInit(args[1:], stdout, stderr)
+}
+
+func runService(args []string, stdout io.Writer, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "plan" {
+		fmt.Fprintln(stderr, "oaw-agent service requires plan")
+		return 2
+	}
+	return runServicePlan(args[1:], stdout, stderr)
+}
+
+func runServicePlan(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("oaw-agent service plan", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "oaw-agent service plan does not accept positional arguments")
+		return 2
+	}
+
+	var osRelease []byte
+	if runtime.GOOS == "linux" {
+		if data, err := readOSRelease("/etc/os-release"); err == nil {
+			osRelease = data
+		}
+	}
+
+	plan := agentserviceplan.Build(runtime.GOOS, defaultAgentPaths(), osRelease)
+	if err := output.WriteJSON(stdout, plan); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
 }
 
 func runConfigInit(args []string, stdout io.Writer, stderr io.Writer) int {

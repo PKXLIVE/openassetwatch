@@ -16,6 +16,7 @@ import (
 	agentconfig "github.com/openassetwatch/openassetwatch/internal/agent/config"
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
 	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
+	agentserviceplan "github.com/openassetwatch/openassetwatch/internal/agent/serviceplan"
 	"github.com/openassetwatch/openassetwatch/pkg/models"
 	"github.com/openassetwatch/openassetwatch/pkg/schema"
 )
@@ -1261,6 +1262,97 @@ func TestRunPathsPrintsDefaultPathsOnly(t *testing.T) {
 	}
 }
 
+func TestRunServicePlanPrintsJSONOnly(t *testing.T) {
+	tempDir := t.TempDir()
+	paths := agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	}
+	restorePaths := stubDefaultAgentPaths(t, paths)
+	defer restorePaths()
+	restoreOSRelease := stubOSReleaseReader(t, []byte("ID=ubuntu\nID_LIKE=debian\nVERSION_ID=\"24.04\"\n"), nil)
+	defer restoreOSRelease()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"service", "plan"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run service plan code = %d, stderr = %q", code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON-only output", stderr.String())
+	}
+
+	plan := decodeServicePlan(t, stdout.Bytes())
+	if plan.OS == "" || plan.ServiceTarget == "" || plan.ServiceName == "" {
+		t.Fatalf("service plan missing target details: %+v", plan)
+	}
+	if plan.ConfigPath != paths.ConfigPath || plan.IdentityPath != paths.IdentityPath || plan.LogDir != paths.LogDir || plan.StatusPath != paths.StatusPath {
+		t.Fatalf("service plan paths = %+v, want %+v", plan, paths)
+	}
+}
+
+func TestRunServicePlanDoesNotCreateFilesOrDirectories(t *testing.T) {
+	tempDir := t.TempDir()
+	paths := agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	}
+	restorePaths := stubDefaultAgentPaths(t, paths)
+	defer restorePaths()
+	restoreOSRelease := stubOSReleaseReader(t, []byte("ID=ubuntu\nID_LIKE=debian\n"), nil)
+	defer restoreOSRelease()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"service", "plan"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run service plan code = %d, stderr = %q", code, stderr.String())
+	}
+
+	for _, path := range []string{paths.ConfigPath, paths.IdentityPath, paths.LogDir, paths.StatusPath} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("service plan should not create %s, stat err = %v", path, err)
+		}
+	}
+}
+
+func TestRunServicePlanOutputContainsNoTokenOrSecretTerms(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "oaw-service-plan-output-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	})
+	defer restorePaths()
+	restoreOSRelease := stubOSReleaseReader(t, []byte("ID=ubuntu\nID_LIKE=debian\n"), nil)
+	defer restoreOSRelease()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"service", "plan"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run service plan code = %d, stderr = %q", code, stderr.String())
+	}
+
+	combined := strings.ToLower(stdout.String() + stderr.String())
+	for _, forbidden := range []string{"token", "secret", "password", "credential"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("service plan output included forbidden term %q: %s", forbidden, combined)
+		}
+	}
+}
+
 func TestRunSubmitPostsCollectionJSON(t *testing.T) {
 	body := []byte(`{"schema_version":"oaw.inventory.v1","site_id":"site-test","assets":[]}`)
 	filePath := writeTempJSON(t, body)
@@ -1594,6 +1686,15 @@ func decodeStatusReport(t *testing.T, data []byte) statusReport {
 	return report
 }
 
+func decodeServicePlan(t *testing.T, data []byte) agentserviceplan.Plan {
+	t.Helper()
+	var plan agentserviceplan.Plan
+	if err := json.Unmarshal(data, &plan); err != nil {
+		t.Fatalf("service plan output is not JSON: %v\n%s", err, string(data))
+	}
+	return plan
+}
+
 func findDoctorCheck(t *testing.T, report doctorReport, name string) doctorCheck {
 	t.Helper()
 	for _, check := range report.Checks {
@@ -1622,5 +1723,16 @@ func stubDefaultAgentPaths(t *testing.T, paths agentpaths.AgentPaths) func() {
 	}
 	return func() {
 		defaultAgentPaths = previous
+	}
+}
+
+func stubOSReleaseReader(t *testing.T, data []byte, err error) func() {
+	t.Helper()
+	previous := readOSRelease
+	readOSRelease = func(string) ([]byte, error) {
+		return data, err
+	}
+	return func() {
+		readOSRelease = previous
 	}
 }
