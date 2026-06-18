@@ -6,6 +6,8 @@ param(
 
     [switch]$IncludeCheckIn,
 
+    [switch]$UseConfig,
+
     [switch]$KeepTemp
 )
 
@@ -68,6 +70,7 @@ $serverUri = Resolve-LocalServerUrl -Value $ServerUrl
 $goCommand = Resolve-GoCommand
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "oaw-e2e-$([System.Guid]::NewGuid().ToString('N'))"
+$configPath = Join-Path $tempDir "config.json"
 $identityPath = Join-Path $tempDir "identity.json"
 $inventoryPath = Join-Path $tempDir "inventory.json"
 $pushedLocation = $false
@@ -85,6 +88,18 @@ try {
         throw "Backend is not reachable at $healthUrl. Start the local backend before running this helper."
     }
 
+    if ($UseConfig) {
+        $configOutput = & $goCommand run ./cmd/oaw-agent config init --server-url $ServerUrl --site-id $SiteId --output $configPath 2>&1
+        $configExit = $LASTEXITCODE
+        if ($configExit -ne 0) {
+            throw "Agent config initialization failed. $configOutput"
+        }
+
+        if (-not (Test-Path $configPath)) {
+            throw "Agent config initialization did not create the expected config JSON file."
+        }
+    }
+
     if ($IncludeCheckIn) {
         $identityOutput = & $goCommand run ./cmd/oaw-agent identity init --site-id $SiteId --output $identityPath 2>&1
         $identityExit = $LASTEXITCODE
@@ -96,7 +111,11 @@ try {
             throw "Identity initialization did not create the expected identity JSON file."
         }
 
-        $checkInOutput = & $goCommand run ./cmd/oaw-agent check-in --identity-file $identityPath --server-url $ServerUrl 2>&1
+        if ($UseConfig) {
+            $checkInOutput = & $goCommand run ./cmd/oaw-agent check-in --identity-file $identityPath --config $configPath 2>&1
+        } else {
+            $checkInOutput = & $goCommand run ./cmd/oaw-agent check-in --identity-file $identityPath --server-url $ServerUrl 2>&1
+        }
         $checkInExit = $LASTEXITCODE
         if ($checkInExit -ne 0) {
             throw "Agent check-in failed. $checkInOutput"
@@ -106,7 +125,13 @@ try {
             throw "Agent check-in did not report an accepted HTTP response. $checkInOutput"
         }
 
-        & $goCommand run ./cmd/oaw-agent collect --once --identity-file $identityPath --output $inventoryPath
+        if ($UseConfig) {
+            & $goCommand run ./cmd/oaw-agent collect --once --identity-file $identityPath --config $configPath --output $inventoryPath
+        } else {
+            & $goCommand run ./cmd/oaw-agent collect --once --identity-file $identityPath --output $inventoryPath
+        }
+    } elseif ($UseConfig) {
+        & $goCommand run ./cmd/oaw-agent collect --once --config $configPath --output $inventoryPath
     } else {
         & $goCommand run ./cmd/oaw-agent collect --once --site-id $SiteId --output $inventoryPath
     }
@@ -118,7 +143,11 @@ try {
         throw "Local collection did not create the expected inventory JSON file."
     }
 
-    $submitOutput = & $goCommand run ./cmd/oaw-agent submit --file $inventoryPath --server-url $ServerUrl 2>&1
+    if ($UseConfig) {
+        $submitOutput = & $goCommand run ./cmd/oaw-agent submit --file $inventoryPath --config $configPath 2>&1
+    } else {
+        $submitOutput = & $goCommand run ./cmd/oaw-agent submit --file $inventoryPath --server-url $ServerUrl 2>&1
+    }
     $submitExit = $LASTEXITCODE
     if ($submitExit -ne 0) {
         throw "Submit failed. $submitOutput"
@@ -129,13 +158,22 @@ try {
     }
 
     if ($IncludeCheckIn) {
-        Write-Host "Local identity, check-in, collect, and submit E2E passed for site_id '$SiteId'."
+        if ($UseConfig) {
+            Write-Host "Local config, identity, check-in, collect, and submit E2E passed for site_id '$SiteId'."
+        } else {
+            Write-Host "Local identity, check-in, collect, and submit E2E passed for site_id '$SiteId'."
+        }
         Write-Host $checkInOutput
+    } elseif ($UseConfig) {
+        Write-Host "Local config, collect, and submit E2E passed for site_id '$SiteId'."
     } else {
         Write-Host "Local collect and submit E2E passed for site_id '$SiteId'."
     }
     Write-Host $submitOutput
     if ($KeepTemp) {
+        if ($UseConfig) {
+            Write-Host "Config JSON retained at $configPath"
+        }
         if ($IncludeCheckIn) {
             Write-Host "Identity JSON retained at $identityPath"
         }

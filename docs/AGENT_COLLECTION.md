@@ -198,7 +198,8 @@ curl.exe -X POST http://localhost:8000/api/v1/collections/local-inventory `
   --data-binary "@inventory.json"
 ```
 
-For a scripted local validation path, see `docs/LOCAL_E2E.md`.
+For a scripted local validation path, including the config-backed
+`config init`, collection, and submit flow, see `docs/LOCAL_E2E.md`.
 
 ## Data Collected
 

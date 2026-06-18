@@ -15,6 +15,13 @@ With `-IncludeCheckIn`, the helper validates the fuller manual flow:
 4. submit that JSON to the local backend ingestion endpoint
 5. confirm check-in and submit return accepted HTTP responses
 
+With `-UseConfig`, the helper validates the local agent config-file flow:
+
+1. create a temporary non-secret config file
+2. use config `site_id` during collection where appropriate
+3. use config `server_url` for submit
+4. when combined with `-IncludeCheckIn`, use config `server_url` for check-in
+
 This is a local development helper only. It does not add daemon mode,
 scheduling, licensing enforcement, UI behavior, active network collection,
 credential handling, or external service calls.
@@ -68,10 +75,34 @@ To run the full current manual agent flow:
 .\scripts\e2e\local_collect_submit.ps1 -ServerUrl http://localhost:8000 -SiteId site-local -IncludeCheckIn
 ```
 
+To validate config-file collection and submit:
+
+```powershell
+.\scripts\e2e\local_collect_submit.ps1 -ServerUrl http://localhost:8000 -SiteId site-local -UseConfig
+```
+
+To validate config-file check-in, collection, and submit:
+
+```powershell
+.\scripts\e2e\local_collect_submit.ps1 -ServerUrl http://localhost:8000 -SiteId site-local -UseConfig -IncludeCheckIn
+```
+
 With `-IncludeCheckIn`, the helper creates a temporary `identity.json`, runs
 `oaw-agent identity init`, sends `oaw-agent check-in`, collects inventory with
 `--identity-file`, submits the inventory JSON, and deletes the temp files unless
 `-KeepTemp` is used.
+
+With `-UseConfig`, the helper creates a temporary `config.json`, runs
+`oaw-agent config init`, collects inventory with `--config`, submits with
+`--config`, and deletes the temp files unless `-KeepTemp` is used.
+
+With both switches, the helper runs the full config-backed flow:
+
+1. `oaw-agent config init`
+2. `oaw-agent identity init`
+3. `oaw-agent check-in --identity-file <identity.json> --config <config.json>`
+4. `oaw-agent collect --once --identity-file <identity.json> --config <config.json>`
+5. `oaw-agent submit --file <inventory.json> --config <config.json>`
 
 The helper intentionally uses a temporary explicit identity file instead of the
 default agent identity path. This keeps local E2E validation from creating or
@@ -80,7 +111,11 @@ modifying privileged paths such as `%ProgramData%\OpenAssetWatch\agent` or
 
 The helper also requires an explicit `-ServerUrl` instead of relying on the
 default agent config file. This keeps the live E2E path local and obvious.
-Agent config file behavior can be validated manually with the commands below.
+When `-UseConfig` is supplied, the helper creates a temporary explicit config
+file from that local URL instead of reading or writing the default agent config
+path. This keeps validation from creating or modifying privileged paths while
+still exercising `oaw-agent config init`, config-backed check-in, config-backed
+collection, and config-backed submit.
 
 ## Manual Equivalent
 
@@ -134,7 +169,7 @@ The helper:
 
 - requires an explicit local `ServerUrl`
 - refuses URL credentials, query strings, and fragments
-- uses temporary identity and collection files
+- uses temporary config, identity, and collection files
 - does not print request bodies or response bodies
 - does not collect credentials
 - does not add enrollment tokens
@@ -149,6 +184,8 @@ The helper:
   `http://127.0.0.1:8000`.
 - `Go is not available`: install Go, restart the shell if needed, and verify
   `go version` works.
+- `Agent config initialization failed`: verify `oaw-agent config init` accepts
+  the local URL and site ID.
 - `Local collection failed`: verify `go run ./cmd/oaw-agent collect --once
   --site-id site-local` works.
 - `Submit failed`: confirm the backend has
