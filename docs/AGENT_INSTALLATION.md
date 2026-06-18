@@ -307,6 +307,38 @@ service-manager paths, or package-manager metadata paths. It does not create
 real config values, identity values, logs, runtime status files, service
 definitions, tokens, credentials, or secrets.
 
+## Local Sandbox Uninstall Proof
+
+Use the local sandbox uninstall helper to remove only a repo-local sandbox
+install proof:
+
+```powershell
+python .\scripts\release\uninstall_agent_local.py `
+  --version 0.1.0-local
+```
+
+The helper removes only install roots shaped like:
+
+`dist/local-install/agent/<version>/<os>-<arch>/`
+
+It can also remove an explicit repo-local sandbox install root:
+
+```powershell
+python .\scripts\release\uninstall_agent_local.py `
+  --install-root dist\local-install\agent\0.1.0-local\windows-amd64
+```
+
+By default, the helper requires expected package metadata produced by the local
+install helper. `--force` may remove an incomplete repo-local sandbox install
+root, but it still refuses paths outside the repository and paths that look
+like Program Files, ProgramData, `/usr`, `/etc`, `/var`, or `/Library`.
+
+This is not a real system uninstall. It does not remove generated release
+packages, unregister services, start services, stop services, execute
+package-manager commands, execute service-manager commands, delete config,
+identity, logs, or status outside the sandbox install root, or modify the host
+operating system.
+
 ## Agent Installation Foundation Status
 
 The current phase proves that OpenAssetWatch can build, package, validate, and
