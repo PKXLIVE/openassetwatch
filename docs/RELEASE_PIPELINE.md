@@ -10,6 +10,9 @@ OpenAssetWatch. It is not fully implemented yet.
 - Agent package scaffolding exists under
   [packaging/agent](../packaging/agent/README.md) for future Windows MSI,
   Linux `.deb`, Linux `.rpm`, Linux `.tar.gz`, and macOS package planning.
+- The MVP deployment sizing baseline is documented in
+  [Deployment Sizing](DEPLOYMENT_SIZING.md) so release and packaging work can
+  stay aligned with the Linux-first Control Tower deployment target.
 - Local agent binary artifact generation exists through
   [scripts/release/build_agent_dist.ps1](../scripts/release/build_agent_dist.ps1).
   It builds only the `oaw-agent` binary into ignored `dist/` paths and writes

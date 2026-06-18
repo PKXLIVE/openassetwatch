@@ -435,6 +435,7 @@ The current service-planning foundation does not add:
 - [Agent Collection](AGENT_COLLECTION.md)
 - [Agent Check-In](AGENT_CHECKIN.md)
 - [Agent Installation](AGENT_INSTALLATION.md)
+- [Deployment Sizing](DEPLOYMENT_SIZING.md)
 - [Local E2E Validation](LOCAL_E2E.md)
 - [Installers](INSTALLERS.md)
 - [Agent Package Scaffold](../packaging/agent/README.md)
