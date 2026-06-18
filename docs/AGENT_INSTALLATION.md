@@ -264,6 +264,7 @@ host-modifying package or service actions explicitly.
 - [Agent Lifecycle](AGENT_LIFECYCLE.md)
 - [Agent Check-In](AGENT_CHECKIN.md)
 - [Agent Collection](AGENT_COLLECTION.md)
+- [Deployment Sizing](DEPLOYMENT_SIZING.md)
 - [Local E2E Validation](LOCAL_E2E.md)
 - [Installers](INSTALLERS.md)
 - [Signed Releases](SIGNED_RELEASES.md)
