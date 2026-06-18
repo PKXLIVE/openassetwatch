@@ -10,10 +10,40 @@ OpenAssetWatch. It is not fully implemented yet.
 - Agent package scaffolding exists under
   [packaging/agent](../packaging/agent/README.md) for future Windows MSI,
   Linux `.deb`, Linux `.rpm`, Linux `.tar.gz`, and macOS package planning.
+- Local agent binary artifact generation exists through
+  [scripts/release/build_agent_dist.ps1](../scripts/release/build_agent_dist.ps1).
+  It builds only the `oaw-agent` binary into ignored `dist/` paths and writes
+  SHA256 plus manifest metadata.
 - No native signed packages are produced yet.
 - No package build, installer execution, service installation, or
   package-manager execution is implemented by the scaffold.
 - No signing keys or credentials are stored in the repository.
+
+## Local Agent Binary Artifacts
+
+Use the local release helper to build a host-platform `oaw-agent` binary into
+`dist/`:
+
+```powershell
+.\scripts\release\build_agent_dist.ps1 -Version 0.1.0-local
+```
+
+The helper writes:
+
+- `dist/agent/<version>/<os>-<arch>/oaw-agent`
+- `dist/agent/<version>/<os>-<arch>/oaw-agent.exe` on Windows
+- `<artifact>.sha256`
+- `<artifact>.manifest.json`
+
+The JSON manifest records artifact name, version, OS, architecture,
+repo-relative path, SHA256, build timestamp, and git commit when available.
+The helper refuses output paths outside the repository and does not build MSI,
+DEB, RPM, PKG, or TAR.GZ packages. It does not install software, modify the OS,
+write service definitions, run package-manager commands, run service-manager
+commands, contact external services, or store secrets.
+
+Generated `dist/` artifacts are local validation output and must not be
+committed.
 
 ## Target Pipeline
 
