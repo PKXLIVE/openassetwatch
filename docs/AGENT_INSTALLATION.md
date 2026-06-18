@@ -236,6 +236,43 @@ Before install, upgrade, or rollback:
 Signing keys must remain in CI/CD secret stores or signing infrastructure. They
 must not be committed to the repository or copied into installer examples.
 
+## Local Debian Package Artifact
+
+Use the local Debian helper to build an unsigned Linux amd64 `.deb` artifact
+from an existing Linux agent dist artifact:
+
+```powershell
+.\scripts\release\build_agent_dist.ps1 `
+  -Version 0.1.0-local `
+  -TargetOS linux `
+  -TargetArch amd64
+
+python .\scripts\release\package_agent_deb.py `
+  --version 0.1.0-local
+```
+
+The helper writes only under ignored `dist/` output:
+
+- `dist/agent/<version>/packages/openassetwatch-agent_<version>_amd64.deb`
+- `dist/agent/<version>/packages/openassetwatch-agent_<version>_amd64.deb.sha256`
+- `dist/agent/<version>/packages/openassetwatch-agent_<version>_amd64.deb.manifest.json`
+
+The package archive is intended to contain:
+
+- `/usr/bin/oaw-agent`
+- `/etc/openassetwatch/agent/config.example.json`
+- `/etc/openassetwatch/agent/identity.example.json`
+- `/lib/systemd/system/oaw-agent.service`
+- `/usr/share/doc/openassetwatch-agent/README.md`
+- `/usr/share/doc/openassetwatch-agent/release-manifest.json`
+
+This is package artifact generation, not host installation. The helper does
+not run `dpkg`, `apt`, `systemctl`, `service`, `sudo`, package-manager
+commands, or service-manager commands. It does not install software, enable
+services, start services, write to host `/usr`, `/etc`, `/var`, `/lib`, `/opt`,
+or create real config values, real identity values, logs, runtime status,
+tokens, credentials, API keys, or secrets.
+
 ## Local Install Staging
 
 Use the local install-staging helper to validate an existing local TAR.GZ
@@ -386,6 +423,9 @@ Complete for this phase:
 - [x] binary manifest generation
 - [x] TAR.GZ package creation
 - [x] TAR.GZ checksum generation
+- [x] Debian package artifact creation
+- [x] Debian package checksum generation
+- [x] Debian package manifest generation
 - [x] package manifest generation
 - [x] local release orchestration helper
 - [x] release validation helper
@@ -402,7 +442,7 @@ Future work:
 - [ ] service installation
 - [ ] daemon or service runtime
 - [ ] scheduling
-- [ ] `.deb` package build
+- [ ] signed `.deb` release publication and install validation
 - [ ] `.rpm` package build
 - [ ] Windows MSI
 - [ ] macOS signed/notarized package

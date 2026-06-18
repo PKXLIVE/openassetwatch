@@ -21,6 +21,10 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/package_agent_targz.ps1](../scripts/release/package_agent_targz.ps1).
   It consumes an existing `oaw-agent` dist artifact directory and writes only
   `.tar.gz`, SHA256, and package manifest output under ignored `dist/` paths.
+- Local Linux Debian package artifact generation exists through
+  [scripts/release/package_agent_deb.py](../scripts/release/package_agent_deb.py).
+  It consumes an existing Linux amd64 `oaw-agent` dist artifact and writes only
+  `.deb`, SHA256, and package manifest output under ignored `dist/` paths.
 - Local release artifact validation exists through
   [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
   It verifies existing dist/package artifacts and emits JSON only.
@@ -45,9 +49,9 @@ OpenAssetWatch. It is not fully implemented yet.
   It validates local packages, writes backup metadata under ignored
   `dist/local-install/` paths, and creates only repo-local sandbox install
   roots.
-- No native signed packages are produced yet.
-- No package build, installer execution, service installation, or
-  package-manager execution is implemented by the scaffold.
+- No signed native packages are produced yet.
+- No installer execution, service installation, or package-manager execution
+  is implemented by the scaffold.
 - No signing keys or credentials are stored in the repository.
 
 ## Local Agent Binary Artifacts
@@ -75,6 +79,45 @@ commands, contact external services, or store secrets.
 
 Generated `dist/` artifacts are local validation output and must not be
 committed.
+
+## Local Debian Package Artifacts
+
+After building a Linux amd64 agent binary artifact, use the local Debian helper
+to create an unsigned `.deb` artifact under ignored `dist/` output:
+
+```powershell
+.\scripts\release\build_agent_dist.ps1 `
+  -Version 0.1.0-local `
+  -TargetOS linux `
+  -TargetArch amd64
+
+python .\scripts\release\package_agent_deb.py `
+  --version 0.1.0-local
+```
+
+The helper writes:
+
+- `dist/agent/<version>/packages/openassetwatch-agent_<version>_amd64.deb`
+- `dist/agent/<version>/packages/openassetwatch-agent_<version>_amd64.deb.sha256`
+- `dist/agent/<version>/packages/openassetwatch-agent_<version>_amd64.deb.manifest.json`
+
+The package contains only intended Linux package archive paths:
+
+- `/usr/bin/oaw-agent`
+- `/etc/openassetwatch/agent/config.example.json`
+- `/etc/openassetwatch/agent/identity.example.json`
+- `/lib/systemd/system/oaw-agent.service`
+- `/usr/share/doc/openassetwatch-agent/README.md`
+- `/usr/share/doc/openassetwatch-agent/release-manifest.json`
+
+The package builder validates the source binary manifest, source binary
+checksum, package checksum, package manifest, expected package paths, and
+forbidden package content. It uses Python standard library archive writers and
+does not run `dpkg`, `apt`, `systemctl`, `service`, `sudo`, package-manager
+commands, or service-manager commands. It does not install the package, enable
+services, start services, write to host `/usr`, `/etc`, `/var`, `/lib`, `/opt`,
+or store real config values, real identity values, logs, status state, tokens,
+credentials, API keys, or secrets.
 
 ## Local TAR.GZ Package Artifacts
 
@@ -285,6 +328,9 @@ Complete for this phase:
 - [x] binary manifest generation
 - [x] TAR.GZ package creation
 - [x] TAR.GZ checksum generation
+- [x] Debian package artifact creation
+- [x] Debian package checksum generation
+- [x] Debian package manifest generation
 - [x] package manifest generation
 - [x] local release orchestration helper
 - [x] release validation helper
@@ -301,7 +347,7 @@ Future work:
 - [ ] service installation
 - [ ] daemon or service runtime
 - [ ] scheduling
-- [ ] `.deb` package build
+- [ ] signed `.deb` release publication and install validation
 - [ ] `.rpm` package build
 - [ ] Windows MSI
 - [ ] macOS signed/notarized package

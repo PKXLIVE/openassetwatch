@@ -62,6 +62,39 @@ uninstall, upgrade, roll back, or publish anything.
       generated secrets
 - [ ] generated `dist/` artifacts remain ignored and are not committed
 
+## Debian Package Metadata
+
+- [ ] `scripts/release/package_agent_deb.py` passes against an existing
+      Linux amd64 dist artifact
+- [ ] `.deb` package is written under ignored
+      `dist/agent/<version>/packages/`
+- [ ] `.deb` package name is
+      `openassetwatch-agent_<version>_amd64.deb`
+- [ ] `.deb` SHA256 checksum file is written next to the package
+- [ ] `.deb` package manifest JSON is written next to the package
+- [ ] package manifest contains package name, version, OS, architecture,
+      package type, package path, SHA256, build timestamp, git commit, and
+      package contents
+- [ ] package contents include `/usr/bin/oaw-agent`
+- [ ] package contents include
+      `/etc/openassetwatch/agent/config.example.json`
+- [ ] package contents include
+      `/etc/openassetwatch/agent/identity.example.json`
+- [ ] package contents include `/lib/systemd/system/oaw-agent.service`
+- [ ] package contents include
+      `/usr/share/doc/openassetwatch-agent/README.md`
+- [ ] package contents include
+      `/usr/share/doc/openassetwatch-agent/release-manifest.json`
+- [ ] service unit does not contain shell execution
+- [ ] service unit runs only `/usr/bin/oaw-agent`
+- [ ] package build does not run `dpkg`, `apt`, `systemctl`, `service`,
+      `sudo`, package-manager commands, or service-manager commands
+- [ ] package build does not install software, enable services, start
+      services, or modify host OS state
+- [ ] package does not contain real config values, real identity values, logs,
+      status state, tokens, credentials, API keys, or secrets
+- [ ] generated `dist/` artifacts remain ignored and are not committed
+
 ## Local Install Staging
 
 - [ ] `scripts/release/stage_agent_install.py` passes against the selected
@@ -171,6 +204,9 @@ Complete for this phase:
 - [x] binary manifest generation
 - [x] TAR.GZ package creation
 - [x] TAR.GZ checksum generation
+- [x] Debian package artifact creation
+- [x] Debian package checksum generation
+- [x] Debian package manifest generation
 - [x] package manifest generation
 - [x] local release orchestration helper
 - [x] release validation helper
@@ -187,7 +223,7 @@ Future work:
 - [ ] service installation
 - [ ] daemon or service runtime
 - [ ] scheduling
-- [ ] `.deb` package build
+- [ ] signed `.deb` release publication and install validation
 - [ ] `.rpm` package build
 - [ ] Windows MSI
 - [ ] macOS signed/notarized package
