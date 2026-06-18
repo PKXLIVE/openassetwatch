@@ -62,6 +62,22 @@ uninstall, upgrade, roll back, or publish anything.
       generated secrets
 - [ ] generated `dist/` artifacts remain ignored and are not committed
 
+## Local Release Orchestration
+
+- [ ] `scripts/release/release_agent_local.ps1` passes for the selected
+      version
+- [ ] orchestration output is JSON only
+- [ ] output includes `ok`, `version`, `artifacts`, `packages`, `checks`,
+      `warnings`, and `errors`
+- [ ] orchestration calls the build, TAR.GZ package, and release validation
+      helpers rather than duplicating their logic
+- [ ] generated artifacts remain under ignored `dist/` paths
+- [ ] generated artifacts are not staged or committed
+- [ ] orchestration does not build MSI, DEB, RPM, or PKG packages
+- [ ] orchestration does not install software, modify the OS, write service
+      definitions, execute package-manager commands, execute service-manager
+      commands, contact network services, or store secrets
+
 ## Package Build
 
 - [ ] package build planned for each target package type

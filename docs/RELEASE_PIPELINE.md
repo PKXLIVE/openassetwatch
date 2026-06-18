@@ -21,6 +21,10 @@ OpenAssetWatch. It is not fully implemented yet.
 - Local release artifact validation exists through
   [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
   It verifies existing dist/package artifacts and emits JSON only.
+- Local release orchestration exists through
+  [scripts/release/release_agent_local.ps1](../scripts/release/release_agent_local.ps1).
+  It runs the local binary build, TAR.GZ wrapping, and release validation
+  helpers together and emits JSON only.
 - No native signed packages are produced yet.
 - No package build, installer execution, service installation, or
   package-manager execution is implemented by the scaffold.
@@ -107,6 +111,36 @@ The validator does not build installers, build native packages, install
 software, modify the OS, write service definitions, execute package-manager
 commands, execute service-manager commands, contact network services, or store
 secrets.
+
+## Local Release Orchestration
+
+Use the local release orchestrator to run build, TAR.GZ wrapping, and
+validation in one safe local flow:
+
+```powershell
+.\scripts\release\release_agent_local.ps1 -Version 0.1.0-local
+```
+
+The orchestrator calls the existing local helpers:
+
+1. `build_agent_dist.ps1`
+2. `package_agent_targz.ps1`
+3. `validate_agent_release.ps1 -IncludePackages`
+
+The orchestrator writes JSON only with:
+
+- `ok`
+- `version`
+- `artifacts`
+- `packages`
+- `checks`
+- `warnings`
+- `errors`
+
+Generated artifacts remain under ignored `dist/` paths. The orchestrator does
+not build MSI, DEB, RPM, or PKG packages. It does not install software, modify
+the OS, write service definitions, execute package-manager commands, execute
+service-manager commands, contact network services, or store secrets.
 
 ## Target Pipeline
 
