@@ -221,6 +221,9 @@ curl.exe -X POST http://localhost:8000/api/v1/collections/local-inventory `
 For a scripted local validation path, including the config-backed
 `config init`, collection, and submit flow, see `docs/LOCAL_E2E.md`.
 
+For the full manual agent lifecycle and service-readiness checklist, see
+`docs/AGENT_LIFECYCLE.md`.
+
 ## Data Collected
 
 The output uses the Go inventory models and includes:

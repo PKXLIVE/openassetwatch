@@ -60,6 +60,9 @@ go run ./cmd/oaw-agent doctor --config config.json --identity-file identity.json
 `doctor` validates local config and identity files only. It does not contact
 the backend or create files.
 
+For the full manual agent lifecycle and service-readiness checklist, see
+`docs/AGENT_LIFECYCLE.md`.
+
 ## Run The Helper
 
 From the repository root:
