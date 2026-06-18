@@ -86,6 +86,31 @@ uninstall, upgrade, roll back, or publish anything.
       paths
 - [ ] generated staging artifacts remain ignored and are not committed
 
+## Local Sandbox Install Proof
+
+- [ ] `scripts/release/install_agent_local.py` passes against the selected
+      staged layout or TAR.GZ package
+- [ ] install output is JSON only
+- [ ] install output includes `ok`, `install_root`, `files`, `checks`,
+      `warnings`, and `errors`
+- [ ] default install output is written under ignored
+      `dist/local-install/agent/<version>/<os>-<arch>/`
+- [ ] explicit install roots outside the repository are refused
+- [ ] local proof layout contains `binary/`, `config/`, `identity/`, `logs/`,
+      `status/`, `service/`, and `package-metadata/`
+- [ ] only safe files are copied: agent binary, checksum files, manifest files,
+      README/install notes, and package metadata
+- [ ] config and identity directories contain only placeholder README files,
+      not real values
+- [ ] logs and status directories contain only placeholder README files, not
+      runtime state
+- [ ] service directory contains only placeholder README files, not installed
+      service definitions
+- [ ] no files are written to Program Files, ProgramData, `/usr`, `/etc`,
+      `/var`, `/Library`, service-manager paths, or package-manager metadata
+      paths
+- [ ] generated local install artifacts remain ignored and are not committed
+
 ## Agent Installation Foundation Status
 
 The current phase proves that OpenAssetWatch can build, package, validate, and
@@ -103,6 +128,8 @@ Complete for this phase:
 - [x] release validation helper
 - [x] local install-staging helper
 - [x] proof install layout under ignored `dist/staging/`
+- [x] local sandbox install helper
+- [x] proof local install layout under ignored `dist/local-install/`
 
 Future work:
 
