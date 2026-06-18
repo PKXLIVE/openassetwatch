@@ -233,6 +233,9 @@ For a local validation helper that can run identity init, config init,
 check-in, collection, and submit against a local backend, see
 `docs/LOCAL_E2E.md`.
 
+For the full manual agent lifecycle and service-readiness checklist, see
+`docs/AGENT_LIFECYCLE.md`.
+
 ## Deployment Models
 
 The check-in identity model should support:
