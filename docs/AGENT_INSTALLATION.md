@@ -52,14 +52,16 @@ configuration, identity, logs, and service metadata.
 
 ### Linux Systemd
 
-- binary path: `/usr/bin/oaw-agent`
+- binary path: `/opt/openassetwatch/agent/bin/oaw-agent`
+- compatibility command path: `/usr/bin/oaw-agent`, as a package-managed
+  symlink to `/opt/openassetwatch/agent/bin/oaw-agent`
 - config path: `/etc/openassetwatch/agent/config.json`
 - identity path: `/etc/openassetwatch/agent/identity.json`
 - log directory: `/var/log/openassetwatch/agent/`
 - status file path: `/var/log/openassetwatch/agent/status.json`
-- service name: `openassetwatch-agent`
+- service name: `oaw-agent`
 - service definition path:
-  `/etc/systemd/system/openassetwatch-agent.service`
+  `/lib/systemd/system/oaw-agent.service` for the Debian package
 - `.deb` package metadata: dpkg database under `/var/lib/dpkg/status` and
   package file records under `/var/lib/dpkg/info/openassetwatch-agent.*`
 - `.rpm` package metadata: rpm database under `/var/lib/rpm/` or
@@ -259,7 +261,9 @@ The helper writes only under ignored `dist/` output:
 
 The package archive is intended to contain:
 
-- `/usr/bin/oaw-agent`
+- `/opt/openassetwatch/agent/bin/oaw-agent`
+- `/usr/bin/oaw-agent`, as a symlink to
+  `/opt/openassetwatch/agent/bin/oaw-agent`
 - `/etc/openassetwatch/agent/config.example.json`
 - `/etc/openassetwatch/agent/identity.example.json`
 - `/lib/systemd/system/oaw-agent.service`
@@ -268,21 +272,38 @@ The package archive is intended to contain:
 - `/usr/share/doc/openassetwatch-agent/README.md`
 - `/usr/share/doc/openassetwatch-agent/release-manifest.json`
 
-The package control metadata declares the Linux runtime/service dependency on
-`systemd`. The packaged systemd unit uses the safest supported service model
-available today: a one-shot readiness check that runs only:
+The package control metadata declares Linux runtime/service dependencies on
+`systemd` and `passwd`. The packaged systemd unit uses the safest supported
+service model available today: a one-shot readiness check that runs only:
 
-`/usr/bin/oaw-agent doctor --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json`
+`/opt/openassetwatch/agent/bin/oaw-agent doctor --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json`
 
 The unit includes `ConditionPathExists=` checks for both required real config
 and identity files. It does not include shell execution, arbitrary command
-execution, service start hooks, network calls, or embedded secrets.
+execution, service start hooks, network calls, or embedded secrets. It runs as
+`User=openassetwatch` and `Group=openassetwatch`; no long-running daemon
+command is invented in this package phase.
 
 The package may include conservative `postinst` and `postrm` maintainer
-scripts. These scripts are limited to `systemctl daemon-reload` on the target
-Linux machine after package install or remove. They must not enable the
-service, start the service, overwrite config, overwrite identity, create
-secrets, call network services, or execute administrator-provided commands.
+scripts. The `postinst` script may create the `openassetwatch` system group and
+non-interactive `openassetwatch` system user with `/usr/sbin/nologin`, set
+ownership on `/opt/openassetwatch/agent/`, `/var/lib/openassetwatch/agent/`,
+and `/var/log/openassetwatch/agent/`, and run `systemctl daemon-reload` on the
+target Linux machine. The `postrm` script is limited to `systemctl
+daemon-reload`. Maintainer scripts must not enable the service, start the
+service, overwrite config, overwrite identity, create secrets, call network
+services, execute administrator-provided commands, or grant sudo permissions.
+
+Package ownership expectations:
+
+- `/opt/openassetwatch/agent/` is owned by
+  `openassetwatch:openassetwatch`.
+- `/var/lib/openassetwatch/agent/` is owned by
+  `openassetwatch:openassetwatch`.
+- `/var/log/openassetwatch/agent/` is owned by
+  `openassetwatch:openassetwatch`.
+- `/etc/openassetwatch/agent/` remains root-controlled, with readable example
+  placeholder files only.
 
 This is package artifact generation, not host installation. The helper does
 not run `dpkg`, `apt`, `systemctl`, `service`, `sudo`, package-manager
@@ -302,9 +323,11 @@ The validator inspects the existing package under `dist/agent/<version>/`,
 verifies the package checksum and manifest, checks expected Debian archive
 members and install paths, confirms example config and identity placeholders,
 checks the service unit, validates the `systemd` dependency, validates the
-daemon-reload-only maintainer scripts, rejects unexpected maintainer files, and
-looks for forbidden package content. It does not install the package or run
-host package-manager or service-manager commands.
+`passwd` dependency, validates the service-account maintainer scripts, rejects
+unexpected maintainer files, confirms the `/opt` binary plus `/usr/bin`
+compatibility symlink, verifies service user/group settings, and looks for
+forbidden package content. It does not install the package or run host
+package-manager or service-manager commands.
 
 ## Disposable Linux Install Test Guidance
 
@@ -316,11 +339,12 @@ Manual commands for a disposable Debian or Ubuntu test environment only:
 
 ```bash
 sudo apt install ./openassetwatch-agent_<version>_amd64.deb
+test -x /opt/openassetwatch/agent/bin/oaw-agent
 test -x /usr/bin/oaw-agent
 test -f /etc/openassetwatch/agent/config.example.json
 test -f /etc/openassetwatch/agent/identity.example.json
 test -f /lib/systemd/system/oaw-agent.service
-/usr/bin/oaw-agent paths
+/opt/openassetwatch/agent/bin/oaw-agent paths
 systemctl status oaw-agent.service
 sudo apt remove openassetwatch-agent
 ```
@@ -331,6 +355,7 @@ Expected checks inside the disposable Linux environment:
 - the service is not automatically enabled or started by package artifact
   creation
 - real config and identity files are not created without administrator action
+- the service account is non-interactive and no sudoers file is created
 - no tokens, credentials, API keys, logs, runtime status, or secrets are
   present in package examples
 - cleanup removes package-managed files while preserving administrator-owned

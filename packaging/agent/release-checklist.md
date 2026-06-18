@@ -75,8 +75,10 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] package manifest contains package name, version, OS, architecture,
       package type, package path, SHA256, build timestamp, git commit, and
       package contents
-- [ ] package control metadata includes `Depends: systemd`
-- [ ] package contents include `/usr/bin/oaw-agent`
+- [ ] package control metadata includes `Depends: systemd, passwd`
+- [ ] package contents include `/opt/openassetwatch/agent/bin/oaw-agent`
+- [ ] package contents include `/usr/bin/oaw-agent` as a symlink to
+      `/opt/openassetwatch/agent/bin/oaw-agent`
 - [ ] package contents include
       `/etc/openassetwatch/agent/config.example.json`
 - [ ] package contents include
@@ -90,17 +92,26 @@ uninstall, upgrade, roll back, or publish anything.
       `/usr/share/doc/openassetwatch-agent/release-manifest.json`
 - [ ] package contains only expected maintainer scripts: `postinst` and
       `postrm`
-- [ ] maintainer scripts run only `systemctl daemon-reload` on the target
-      Linux machine
+- [ ] `postinst` creates or reuses only the `openassetwatch` system group and
+      non-interactive `openassetwatch` system user
+- [ ] `postinst` uses `/usr/sbin/nologin` for the service account shell
+- [ ] `postinst` sets ownership on `/opt/openassetwatch/agent/`,
+      `/var/lib/openassetwatch/agent/`, and `/var/log/openassetwatch/agent/`
+- [ ] maintainer scripts may run only `systemctl daemon-reload` for service
+      manager interaction on the target Linux machine
 - [ ] maintainer scripts do not enable services, start services, overwrite
-      config, overwrite identity, create secrets, call network services, or
-      execute arbitrary user-controlled commands
+      config, overwrite identity, create secrets, call network services,
+      execute arbitrary user-controlled commands, or grant sudo permissions
 - [ ] service unit uses a one-shot readiness check because no long-running
       daemon command exists yet
 - [ ] service unit includes `ConditionPathExists=` checks for config and
       identity
 - [ ] service unit does not contain shell execution
-- [ ] service unit runs only `/usr/bin/oaw-agent`
+- [ ] service unit runs only
+      `/opt/openassetwatch/agent/bin/oaw-agent doctor`
+- [ ] service unit includes `User=openassetwatch`
+- [ ] service unit includes `Group=openassetwatch`
+- [ ] no sudoers file is included in the package
 - [ ] package build does not run `dpkg`, `apt`, `systemctl`, `service`,
       `sudo`, package-manager commands, or service-manager commands
 - [ ] package build does not install software, enable services, start
@@ -124,15 +135,26 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] expected Debian archive members exist
 - [ ] expected data archive paths exist
 - [ ] expected package directories exist
-- [ ] service unit exists and runs only `/usr/bin/oaw-agent doctor`
+- [ ] service unit exists and runs only
+      `/opt/openassetwatch/agent/bin/oaw-agent doctor`
+- [ ] service unit includes `User=openassetwatch`
+- [ ] service unit includes `Group=openassetwatch`
 - [ ] service unit includes config and identity preconditions
 - [ ] example config and identity files contain placeholders only
 - [ ] release manifest exists and matches expected package paths
-- [ ] package control metadata includes `Depends: systemd`
+- [ ] package control metadata includes `Depends: systemd, passwd`
+- [ ] `/opt/openassetwatch/agent/bin/oaw-agent` exists in the package
+- [ ] `/usr/bin/oaw-agent` exists as a symlink to the `/opt` binary
+- [ ] `/opt/openassetwatch/agent/`, `/var/lib/openassetwatch/agent/`, and
+      `/var/log/openassetwatch/agent/` are owned by
+      `openassetwatch:openassetwatch`
+- [ ] `/etc/openassetwatch/agent/` remains root-controlled
 - [ ] expected maintainer scripts are present
 - [ ] unexpected maintainer files are refused
+- [ ] maintainer scripts create the non-interactive service account safely
 - [ ] maintainer scripts do not enable or start services
 - [ ] maintainer scripts do not overwrite config or identity
+- [ ] maintainer scripts do not grant sudo permissions
 - [ ] package content outside intended Linux install paths is refused
 - [ ] validator does not install the package or run package-manager or
       service-manager commands

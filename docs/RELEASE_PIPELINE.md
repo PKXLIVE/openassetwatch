@@ -107,7 +107,9 @@ The helper writes:
 
 The package contains only intended Linux package archive paths:
 
-- `/usr/bin/oaw-agent`
+- `/opt/openassetwatch/agent/bin/oaw-agent`
+- `/usr/bin/oaw-agent`, as a symlink to
+  `/opt/openassetwatch/agent/bin/oaw-agent`
 - `/etc/openassetwatch/agent/config.example.json`
 - `/etc/openassetwatch/agent/identity.example.json`
 - `/lib/systemd/system/oaw-agent.service`
@@ -116,16 +118,22 @@ The package contains only intended Linux package archive paths:
 - `/usr/share/doc/openassetwatch-agent/README.md`
 - `/usr/share/doc/openassetwatch-agent/release-manifest.json`
 
-The package control metadata declares `Depends: systemd`. Because the agent
-does not yet provide a long-running daemon command, the systemd unit is a
+The package control metadata declares `Depends: systemd, passwd`. Because the
+agent does not yet provide a long-running daemon command, the systemd unit is a
 one-shot readiness check that runs the supported `oaw-agent doctor` command
-with explicit `/etc/openassetwatch/agent/` config and identity paths. The unit
-uses `ConditionPathExists=` checks and does not use shell execution.
+from `/opt/openassetwatch/agent/bin/oaw-agent` with explicit
+`/etc/openassetwatch/agent/` config and identity paths. The unit uses
+`ConditionPathExists=` checks, runs as `User=openassetwatch` and
+`Group=openassetwatch`, and does not use shell execution.
 
-The package may include `postinst` and `postrm` maintainer scripts limited to
-`systemctl daemon-reload` on the target Linux machine. They do not enable or
-start the service, overwrite config or identity, create secrets, call network
-services, or execute arbitrary user-controlled commands.
+The package may include `postinst` and `postrm` maintainer scripts. `postinst`
+may create the `openassetwatch` system group and non-interactive system user
+with `/usr/sbin/nologin`, set ownership on `/opt/openassetwatch/agent/`,
+`/var/lib/openassetwatch/agent/`, and `/var/log/openassetwatch/agent/`, and run
+`systemctl daemon-reload` on the target Linux machine. `postrm` is limited to
+`systemctl daemon-reload`. Maintainer scripts do not enable or start the
+service, overwrite config or identity, create secrets, call network services,
+execute arbitrary user-controlled commands, or grant sudo permissions.
 
 The package builder validates the source binary manifest, source binary
 checksum, package checksum, package manifest, expected package paths, and
@@ -146,9 +154,11 @@ python .\scripts\release\validate_agent_deb.py `
 The validator checks package existence, checksum, manifest, Debian archive
 members, expected install paths, service unit safety, example config and
 identity placeholders, release manifest, required package directories, the
-`systemd` dependency, approved maintainer scripts, unexpected maintainer files,
-forbidden content, and path containment. It does not install the package and
-does not run host package-manager or service-manager commands.
+`systemd` and `passwd` dependencies, approved service-account maintainer
+scripts, unexpected maintainer files, `/opt` binary layout, `/usr/bin`
+compatibility symlink, forbidden content, and path containment. It does not
+install the package and does not run host package-manager or service-manager
+commands.
 
 ## Disposable Linux Install Test Guidance
 
@@ -160,11 +170,12 @@ Manual commands for a disposable Debian or Ubuntu test environment only:
 
 ```bash
 sudo apt install ./openassetwatch-agent_<version>_amd64.deb
+test -x /opt/openassetwatch/agent/bin/oaw-agent
 test -x /usr/bin/oaw-agent
 test -f /etc/openassetwatch/agent/config.example.json
 test -f /etc/openassetwatch/agent/identity.example.json
 test -f /lib/systemd/system/oaw-agent.service
-/usr/bin/oaw-agent paths
+/opt/openassetwatch/agent/bin/oaw-agent paths
 systemctl status oaw-agent.service
 sudo apt remove openassetwatch-agent
 ```
@@ -173,7 +184,9 @@ These commands are documentation-only guidance for an isolated Linux test
 environment. They are not executed by the release scripts. Package install
 tests should verify that the package lays down the expected files, does not
 start the service automatically, leaves real config and identity creation under
-administrator control, and cleans up according to the package lifecycle policy.
+administrator control, creates only the non-interactive `openassetwatch`
+service identity, does not create sudoers entries, and cleans up according to
+the package lifecycle policy.
 
 ## Local TAR.GZ Package Artifacts
 
