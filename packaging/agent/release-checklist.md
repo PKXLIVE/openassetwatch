@@ -75,16 +75,30 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] package manifest contains package name, version, OS, architecture,
       package type, package path, SHA256, build timestamp, git commit, and
       package contents
+- [ ] package control metadata includes `Depends: systemd`
 - [ ] package contents include `/usr/bin/oaw-agent`
 - [ ] package contents include
       `/etc/openassetwatch/agent/config.example.json`
 - [ ] package contents include
       `/etc/openassetwatch/agent/identity.example.json`
 - [ ] package contents include `/lib/systemd/system/oaw-agent.service`
+- [ ] package contains `/var/lib/openassetwatch/agent/`
+- [ ] package contains `/var/log/openassetwatch/agent/`
 - [ ] package contents include
       `/usr/share/doc/openassetwatch-agent/README.md`
 - [ ] package contents include
       `/usr/share/doc/openassetwatch-agent/release-manifest.json`
+- [ ] package contains only expected maintainer scripts: `postinst` and
+      `postrm`
+- [ ] maintainer scripts run only `systemctl daemon-reload` on the target
+      Linux machine
+- [ ] maintainer scripts do not enable services, start services, overwrite
+      config, overwrite identity, create secrets, call network services, or
+      execute arbitrary user-controlled commands
+- [ ] service unit uses a one-shot readiness check because no long-running
+      daemon command exists yet
+- [ ] service unit includes `ConditionPathExists=` checks for config and
+      identity
 - [ ] service unit does not contain shell execution
 - [ ] service unit runs only `/usr/bin/oaw-agent`
 - [ ] package build does not run `dpkg`, `apt`, `systemctl`, `service`,
@@ -109,10 +123,16 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] package manifest SHA256 matches the package
 - [ ] expected Debian archive members exist
 - [ ] expected data archive paths exist
-- [ ] service unit exists and runs only `/usr/bin/oaw-agent`
+- [ ] expected package directories exist
+- [ ] service unit exists and runs only `/usr/bin/oaw-agent doctor`
+- [ ] service unit includes config and identity preconditions
 - [ ] example config and identity files contain placeholders only
 - [ ] release manifest exists and matches expected package paths
+- [ ] package control metadata includes `Depends: systemd`
+- [ ] expected maintainer scripts are present
 - [ ] unexpected maintainer files are refused
+- [ ] maintainer scripts do not enable or start services
+- [ ] maintainer scripts do not overwrite config or identity
 - [ ] package content outside intended Linux install paths is refused
 - [ ] validator does not install the package or run package-manager or
       service-manager commands

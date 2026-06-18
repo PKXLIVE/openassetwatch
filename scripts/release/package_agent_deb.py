@@ -29,6 +29,31 @@ EXPECTED_DATA_PATHS = (
     "./usr/share/doc/openassetwatch-agent/README.md",
     "./usr/share/doc/openassetwatch-agent/release-manifest.json",
 )
+EXPECTED_DATA_DIRS = (
+    "./usr",
+    "./usr/bin",
+    "./usr/share",
+    "./usr/share/doc",
+    "./usr/share/doc/openassetwatch-agent",
+    "./etc",
+    "./etc/openassetwatch",
+    "./etc/openassetwatch/agent",
+    "./lib",
+    "./lib/systemd",
+    "./lib/systemd/system",
+    "./var",
+    "./var/lib",
+    "./var/lib/openassetwatch",
+    "./var/lib/openassetwatch/agent",
+    "./var/log",
+    "./var/log/openassetwatch",
+    "./var/log/openassetwatch/agent",
+)
+EXPECTED_CONTROL_PATHS = (
+    "./control",
+    "./postinst",
+    "./postrm",
+)
 REQUIRED_BINARY_FIELDS = (
     "artifact_name",
     "version",
@@ -209,11 +234,26 @@ def control_file(version: str) -> bytes:
         "Priority: optional",
         f"Architecture: {DEBIAN_ARCH}",
         "Maintainer: OpenAssetWatch <noreply@openassetwatch.example>",
+        "Depends: systemd",
         "Installed-Size: 1",
         description.rstrip("\n"),
         "",
     ]
     return "\n".join(fields).encode("utf-8")
+
+
+def maintainer_script() -> bytes:
+    return "\n".join(
+        [
+            "#!/bin/sh",
+            "set -e",
+            'if command -v systemctl >/dev/null 2>&1; then',
+            "    systemctl daemon-reload || true",
+            "fi",
+            "exit 0",
+            "",
+        ]
+    ).encode("utf-8")
 
 
 def config_example() -> bytes:
@@ -257,8 +297,6 @@ def service_unit() -> bytes:
             "",
             "[Service]",
             "Type=oneshot",
-            "User=openassetwatch",
-            "Group=openassetwatch",
             "ExecStart=/usr/bin/oaw-agent doctor --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json",
             "NoNewPrivileges=true",
             "PrivateTmp=true",
@@ -312,9 +350,14 @@ def release_manifest(
         "installed_paths": list(EXPECTED_DATA_PATHS),
         "service": {
             "path": "/lib/systemd/system/oaw-agent.service",
+            "model": "oneshot-readiness-check",
+            "command": "/usr/bin/oaw-agent doctor --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json",
             "enabled_by_package_build": False,
             "started_by_package_build": False,
         },
+        "directories": list(EXPECTED_DATA_DIRS),
+        "dependencies": ["systemd"],
+        "maintainer_scripts": ["postinst", "postrm"],
         "build_timestamp": utc_timestamp(),
     }
     return (json.dumps(value, indent=2) + "\n").encode("utf-8")
@@ -348,6 +391,8 @@ def build_control_tar(version: str, mtime: int) -> bytes:
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w:gz", format=tarfile.GNU_FORMAT) as tar:
         add_file(tar, "./control", control_file(version), 0o644, mtime)
+        add_file(tar, "./postinst", maintainer_script(), 0o755, mtime)
+        add_file(tar, "./postrm", maintainer_script(), 0o755, mtime)
     return output.getvalue()
 
 
@@ -369,22 +414,9 @@ def build_data_tar(
         "./usr/share/doc/openassetwatch-agent/README.md": (package_readme(version), 0o644),
         "./usr/share/doc/openassetwatch-agent/release-manifest.json": (release_manifest_data, 0o644),
     }
-    directories = [
-        "./usr",
-        "./usr/bin",
-        "./usr/share",
-        "./usr/share/doc",
-        "./usr/share/doc/openassetwatch-agent",
-        "./etc",
-        "./etc/openassetwatch",
-        "./etc/openassetwatch/agent",
-        "./lib",
-        "./lib/systemd",
-        "./lib/systemd/system",
-    ]
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w:gz", format=tarfile.GNU_FORMAT) as tar:
-        for directory in directories:
+        for directory in EXPECTED_DATA_DIRS:
             add_dir(tar, directory, mtime)
         for path, (data, mode) in files.items():
             add_file(tar, path, data, mode, mtime)
@@ -486,11 +518,62 @@ def validate_service_unit(contents: bytes) -> None:
     found = [item for item in forbidden if item in text]
     if found:
         raise ValueError(f"Service unit contains unsafe directives or shell usage: {', '.join(found)}.")
+    if "User=" in text or "Group=" in text:
+        raise ValueError("Service unit must not reference an unprovisioned fixed service user or group.")
     exec_lines = [line for line in text.splitlines() if line.startswith("ExecStart=")]
     if exec_lines != [
         "ExecStart=/usr/bin/oaw-agent doctor --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json"
     ]:
         raise ValueError("Service unit ExecStart must run only the oaw-agent binary.")
+    required_lines = (
+        "Type=oneshot",
+        "ConditionPathExists=/etc/openassetwatch/agent/config.json",
+        "ConditionPathExists=/etc/openassetwatch/agent/identity.json",
+        "NoNewPrivileges=true",
+        "ProtectSystem=strict",
+        "ProtectHome=true",
+    )
+    for line in required_lines:
+        if line not in text:
+            raise ValueError(f"Service unit missing expected safe line: {line}")
+
+
+def validate_maintainer_script(name: str, contents: bytes) -> None:
+    expected = maintainer_script().decode("utf-8")
+    text = contents.decode("utf-8")
+    if text != expected:
+        raise ValueError(f"{name} maintainer script must match the approved daemon-reload-only template.")
+    forbidden = (
+        " enable ",
+        " start ",
+        " restart ",
+        " reload-or-restart ",
+        " apt",
+        " dpkg",
+        " curl",
+        " wget",
+        " useradd",
+        " adduser",
+        "groupadd",
+        "chown",
+        "chmod",
+        "cat >",
+        "tee ",
+    )
+    found = [item for item in forbidden if item in text]
+    if found:
+        raise ValueError(f"{name} maintainer script contains unsafe command text: {', '.join(found)}.")
+
+
+def validate_control_archive(control_members: dict[str, bytes | None]) -> None:
+    if set(control_members) != set(EXPECTED_CONTROL_PATHS):
+        raise ValueError("DEB control archive must contain only control, postinst, and postrm.")
+    control = (control_members["./control"] or b"").decode("utf-8")
+    for line in (f"Package: {PACKAGE_NAME}", "Architecture: amd64", "Depends: systemd"):
+        if line not in control:
+            raise ValueError(f"DEB control file missing expected line: {line}")
+    validate_maintainer_script("postinst", control_members["./postinst"] or b"")
+    validate_maintainer_script("postrm", control_members["./postrm"] or b"")
 
 
 def validate_deb_contents(package_path: Path, reporter: Reporter) -> None:
@@ -501,8 +584,7 @@ def validate_deb_contents(package_path: Path, reporter: Reporter) -> None:
     if members["debian-binary"] != b"2.0\n":
         raise ValueError("DEB debian-binary member must be 2.0.")
     control_members = tar_members_from_gzip(members["control.tar.gz"])
-    if "./control" not in control_members:
-        raise ValueError("DEB control archive must contain ./control.")
+    validate_control_archive(control_members)
     data_members = tar_members_from_gzip(members["data.tar.gz"])
     missing = [path for path in EXPECTED_DATA_PATHS if path not in data_members]
     if missing:
@@ -551,6 +633,9 @@ def write_package_metadata(
         "build_timestamp": utc_timestamp(),
         "git_commit": binary_manifest["git_commit"],
         "contents": list(EXPECTED_DATA_PATHS),
+        "directories": list(EXPECTED_DATA_DIRS),
+        "control_members": list(EXPECTED_CONTROL_PATHS),
+        "dependencies": ["systemd"],
         "package_builder": "scripts/release/package_agent_deb.py",
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

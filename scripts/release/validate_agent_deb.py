@@ -40,6 +40,18 @@ ALLOWED_DATA_DIRS = {
     "./lib",
     "./lib/systemd",
     "./lib/systemd/system",
+    "./var",
+    "./var/lib",
+    "./var/lib/openassetwatch",
+    "./var/lib/openassetwatch/agent",
+    "./var/log",
+    "./var/log/openassetwatch",
+    "./var/log/openassetwatch/agent",
+}
+EXPECTED_CONTROL_FILES = {
+    "./control",
+    "./postinst",
+    "./postrm",
 }
 REQUIRED_MANIFEST_FIELDS = (
     "package_name",
@@ -200,6 +212,15 @@ def validate_package_metadata(repo_root: Path, package_path: Path, version: str)
     contents = set(manifest.get("contents", []))
     if contents != EXPECTED_DATA_FILES:
         raise ValueError("DEB package manifest contents do not match expected package paths.")
+    directories = set(manifest.get("directories", []))
+    if directories != ALLOWED_DATA_DIRS:
+        raise ValueError("DEB package manifest directories do not match expected package directories.")
+    control_members = set(manifest.get("control_members", []))
+    if control_members != EXPECTED_CONTROL_FILES:
+        raise ValueError("DEB package manifest control_members do not match expected maintainer files.")
+    dependencies = set(manifest.get("dependencies", []))
+    if "systemd" not in dependencies:
+        raise ValueError("DEB package manifest dependencies must include systemd.")
     return manifest_path, manifest
 
 
@@ -249,17 +270,59 @@ def tar_members_from_gzip(data: bytes) -> tuple[dict[str, bytes], set[str]]:
 
 
 def validate_control_archive(control_files: dict[str, bytes]) -> None:
-    if set(control_files) != {"./control"}:
-        unexpected = ", ".join(sorted(set(control_files) - {"./control"}))
-        raise ValueError(f"DEB control archive contains unexpected maintainer files: {unexpected}")
+    if set(control_files) != EXPECTED_CONTROL_FILES:
+        unexpected = ", ".join(sorted(set(control_files) - EXPECTED_CONTROL_FILES))
+        missing = ", ".join(sorted(EXPECTED_CONTROL_FILES - set(control_files)))
+        detail = "; ".join(item for item in (f"missing: {missing}" if missing else "", f"unexpected: {unexpected}" if unexpected else "") if item)
+        raise ValueError(f"DEB control archive maintainer files mismatch ({detail}).")
     control_text = control_files["./control"].decode("utf-8")
     required_lines = (
         f"Package: {PACKAGE_NAME}",
         "Architecture: amd64",
+        "Depends: systemd",
     )
     for line in required_lines:
         if line not in control_text:
             raise ValueError(f"DEB control file missing expected line: {line}")
+    validate_maintainer_script("postinst", control_files["./postinst"])
+    validate_maintainer_script("postrm", control_files["./postrm"])
+
+
+def validate_maintainer_script(name: str, data: bytes) -> None:
+    text = data.decode("utf-8")
+    expected = "\n".join(
+        [
+            "#!/bin/sh",
+            "set -e",
+            'if command -v systemctl >/dev/null 2>&1; then',
+            "    systemctl daemon-reload || true",
+            "fi",
+            "exit 0",
+            "",
+        ]
+    )
+    if text != expected:
+        raise ValueError(f"{name} maintainer script must match the approved daemon-reload-only template.")
+    forbidden = (
+        " enable ",
+        " start ",
+        " restart ",
+        " reload-or-restart ",
+        " apt",
+        " dpkg",
+        " curl",
+        " wget",
+        " useradd",
+        " adduser",
+        "groupadd",
+        "chown",
+        "chmod",
+        "cat >",
+        "tee ",
+    )
+    found = [item for item in forbidden if item in text]
+    if found:
+        raise ValueError(f"{name} maintainer script contains unsafe command text: {', '.join(found)}.")
 
 
 def validate_example_config(data: bytes) -> None:
@@ -292,10 +355,16 @@ def validate_service_unit(data: bytes) -> None:
     found = [item for item in forbidden if item in text]
     if found:
         raise ValueError(f"Service unit contains unsafe directives or shell usage: {', '.join(found)}.")
+    if "User=" in text or "Group=" in text:
+        raise ValueError("Service unit must not reference an unprovisioned fixed service user or group.")
     required_lines = {
+        "Type=oneshot",
         "ConditionPathExists=/etc/openassetwatch/agent/config.json",
         "ConditionPathExists=/etc/openassetwatch/agent/identity.json",
         "ExecStart=/usr/bin/oaw-agent doctor --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json",
+        "NoNewPrivileges=true",
+        "ProtectSystem=strict",
+        "ProtectHome=true",
     }
     missing = [line for line in sorted(required_lines) if line not in text]
     if missing:
@@ -316,6 +385,16 @@ def validate_release_manifest(data: bytes, version: str) -> None:
     service = value.get("service", {})
     if service.get("enabled_by_package_build") is not False or service.get("started_by_package_build") is not False:
         raise ValueError("Release manifest must show service is not enabled or started by package build.")
+    if service.get("model") != "oneshot-readiness-check":
+        raise ValueError("Release manifest service model must be oneshot-readiness-check.")
+    if service.get("command") != "/usr/bin/oaw-agent doctor --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json":
+        raise ValueError("Release manifest service command must reference the supported oaw-agent doctor command.")
+    if set(value.get("directories", [])) != ALLOWED_DATA_DIRS:
+        raise ValueError("Release manifest directories do not match expected package directories.")
+    if "systemd" not in set(value.get("dependencies", [])):
+        raise ValueError("Release manifest dependencies must include systemd.")
+    if set(value.get("maintainer_scripts", [])) != {"postinst", "postrm"}:
+        raise ValueError("Release manifest maintainer_scripts must be postinst and postrm.")
 
 
 def validate_forbidden_content(data_files: dict[str, bytes]) -> None:
