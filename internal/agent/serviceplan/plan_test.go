@@ -99,6 +99,95 @@ func TestUnknownLinuxMapsToManualArchive(t *testing.T) {
 	}
 }
 
+func TestBuildTemplateMapsCurrentOSTarget(t *testing.T) {
+	paths := fixturePaths(t)
+	tests := []struct {
+		goos         string
+		wantTarget   string
+		wantTemplate string
+	}{
+		{goos: "windows", wantTarget: "Windows Service", wantTemplate: "windows_service_metadata"},
+		{goos: "linux", wantTarget: "systemd", wantTemplate: "systemd_unit"},
+		{goos: "darwin", wantTarget: "launchd", wantTemplate: "launchd_plist"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.goos, func(t *testing.T) {
+			template := BuildTemplate(Build(tt.goos, paths, nil))
+			if template.ServiceTarget != tt.wantTarget {
+				t.Fatalf("service target = %q, want %q", template.ServiceTarget, tt.wantTarget)
+			}
+			if template.TemplateType != tt.wantTemplate {
+				t.Fatalf("template type = %q, want %q", template.TemplateType, tt.wantTemplate)
+			}
+			if template.ServiceName == "" || template.Template == "" {
+				t.Fatalf("template missing service name or content: %+v", template)
+			}
+		})
+	}
+}
+
+func TestSystemdTemplateContainsExpectedSafeFields(t *testing.T) {
+	plan := Build("linux", fixturePaths(t), []byte("ID=ubuntu\nID_LIKE=debian\n"))
+	template := BuildTemplate(plan)
+
+	for _, want := range []string{
+		"[Unit]",
+		"[Service]",
+		"ExecStart=" + plan.BinaryPath,
+		"--config " + plan.ConfigPath,
+		"--identity-file " + plan.IdentityPath,
+		"ReadWritePaths=" + plan.LogDir,
+		"Environment=OAW_AGENT_STATUS_FILE=" + plan.StatusPath,
+		"Scheduling is intentionally not configured",
+	} {
+		if !strings.Contains(template.Template, want) {
+			t.Fatalf("systemd template missing %q:\n%s", want, template.Template)
+		}
+	}
+}
+
+func TestWindowsTemplateIsPlanTextOnly(t *testing.T) {
+	plan := Build("windows", fixturePaths(t), nil)
+	template := BuildTemplate(plan)
+
+	for _, want := range []string{
+		"Text only",
+		"does not run New-Service",
+		"ServiceName: " + plan.ServiceName,
+		"BinaryPath:",
+		plan.ConfigPath,
+		plan.IdentityPath,
+		plan.LogDir,
+		plan.StatusPath,
+	} {
+		if !strings.Contains(template.Template, want) {
+			t.Fatalf("windows template missing %q:\n%s", want, template.Template)
+		}
+	}
+}
+
+func TestLaunchdTemplateContainsExpectedSafeFields(t *testing.T) {
+	plan := Build("darwin", fixturePaths(t), nil)
+	template := BuildTemplate(plan)
+
+	for _, want := range []string{
+		"<plist version=\"1.0\">",
+		"<string>" + plan.ServiceName + "</string>",
+		"<string>" + plan.BinaryPath + "</string>",
+		"<string>--config</string>",
+		"<string>" + plan.ConfigPath + "</string>",
+		"<string>--identity-file</string>",
+		"<string>" + plan.IdentityPath + "</string>",
+		"Status file: " + plan.StatusPath,
+		"Scheduling is intentionally not configured",
+	} {
+		if !strings.Contains(template.Template, want) {
+			t.Fatalf("launchd template missing %q:\n%s", want, template.Template)
+		}
+	}
+}
+
 func TestPlanOutputContainsNoTokenOrSecretTerms(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "oaw-plan-output-")
 	if err != nil {
@@ -124,6 +213,29 @@ func TestPlanOutputContainsNoTokenOrSecretTerms(t *testing.T) {
 	for _, forbidden := range []string{"token", "secret", "password", "credential"} {
 		if strings.Contains(combined, forbidden) {
 			t.Fatalf("plan output included forbidden term %q: %s", forbidden, combined)
+		}
+	}
+}
+
+func TestTemplateOutputContainsNoTokenOrSecretTerms(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "oaw-template-output-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	paths := agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	}
+	template := BuildTemplate(Build("linux", paths, []byte("ID=ubuntu\nID_LIKE=debian\n")))
+	combined := strings.ToLower(template.ServiceTarget + template.ServiceName + template.TemplateType + template.Template + strings.Join(template.Warnings, ""))
+
+	for _, forbidden := range []string{"token", "secret", "password", "credential"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("template output included forbidden term %q: %s", forbidden, combined)
 		}
 	}
 }
