@@ -32,6 +32,10 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/stage_agent_install.py](../scripts/release/stage_agent_install.py).
   It validates an existing local TAR.GZ package and expands it only under
   ignored `dist/staging/` paths to prove the future installed layout.
+- Local sandbox install proof exists through
+  [scripts/release/install_agent_local.py](../scripts/release/install_agent_local.py).
+  It consumes a staged layout or TAR.GZ package and writes only under ignored
+  `dist/local-install/` paths by default.
 - No native signed packages are produced yet.
 - No package build, installer execution, service installation, or
   package-manager execution is implemented by the scaffold.
@@ -181,6 +185,37 @@ package-manager commands, execute service-manager commands, contact network
 services, write real config or identity values, write logs, write runtime
 status, or store secrets.
 
+## Local Sandbox Install Proof
+
+Use the local sandbox install helper to copy a staged layout or TAR.GZ package
+into a repo-local install proof:
+
+```powershell
+python .\scripts\release\install_agent_local.py `
+  --version 0.1.0-local
+```
+
+By default the helper writes under:
+
+- `dist/local-install/agent/<version>/<os>-<arch>/binary/`
+- `dist/local-install/agent/<version>/<os>-<arch>/config/`
+- `dist/local-install/agent/<version>/<os>-<arch>/identity/`
+- `dist/local-install/agent/<version>/<os>-<arch>/logs/`
+- `dist/local-install/agent/<version>/<os>-<arch>/status/`
+- `dist/local-install/agent/<version>/<os>-<arch>/service/`
+- `dist/local-install/agent/<version>/<os>-<arch>/package-metadata/`
+
+The helper emits JSON only with `ok`, `install_root`, `files`, `checks`,
+`warnings`, and `errors`. It refuses install roots outside the repository and
+does not write outside ignored local `dist/` output in the documented flow.
+
+This is not a real system install. It does not write to Program Files,
+ProgramData, `/usr`, `/etc`, `/var`, `/Library`, or other system paths. It
+does not register services, start services, stop services, execute
+package-manager commands, execute service-manager commands, contact network
+services, write real config or identity values, write logs, write runtime
+status, or store secrets.
+
 ## Agent Installation Foundation Status
 
 The current phase proves that OpenAssetWatch can build, package, validate, and
@@ -198,6 +233,8 @@ Complete for this phase:
 - [x] release validation helper
 - [x] local install-staging helper
 - [x] proof install layout under ignored `dist/staging/`
+- [x] local sandbox install helper
+- [x] proof local install layout under ignored `dist/local-install/`
 
 Future work:
 

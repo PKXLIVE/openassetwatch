@@ -266,6 +266,47 @@ without writing to Program Files, ProgramData, `/usr`, `/etc`, `/var`,
 helper does not create real config values, identity values, logs, runtime
 status files, service definitions, tokens, credentials, or secrets.
 
+## Local Sandbox Install Proof
+
+Use the local sandbox install helper to copy a validated staged layout or
+TAR.GZ package into a repo-local install proof:
+
+```powershell
+python .\scripts\release\install_agent_local.py `
+  --version 0.1.0-local
+```
+
+The helper can also consume an explicit package or staged layout:
+
+```powershell
+python .\scripts\release\install_agent_local.py `
+  --package dist\agent\0.1.0-local\packages\openassetwatch-agent-0.1.0-local-windows-amd64.tar.gz
+
+python .\scripts\release\install_agent_local.py `
+  --staging-dir dist\staging\agent\0.1.0-local\windows-amd64
+```
+
+The default install root is:
+
+`dist/local-install/agent/<version>/<os>-<arch>/`
+
+The local install proof contains:
+
+- `binary/`
+- `config/`
+- `identity/`
+- `logs/`
+- `status/`
+- `service/`
+- `package-metadata/`
+
+This completes the local installation proof path without touching real system
+paths. The helper refuses install roots outside the repository. It does not
+write to Program Files, ProgramData, `/usr`, `/etc`, `/var`, `/Library`,
+service-manager paths, or package-manager metadata paths. It does not create
+real config values, identity values, logs, runtime status files, service
+definitions, tokens, credentials, or secrets.
+
 ## Agent Installation Foundation Status
 
 The current phase proves that OpenAssetWatch can build, package, validate, and
@@ -283,6 +324,8 @@ Complete for this phase:
 - [x] release validation helper
 - [x] local install-staging helper
 - [x] proof install layout under ignored `dist/staging/`
+- [x] local sandbox install helper
+- [x] proof local install layout under ignored `dist/local-install/`
 
 Future work:
 
