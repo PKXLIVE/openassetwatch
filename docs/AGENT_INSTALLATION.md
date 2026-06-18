@@ -263,8 +263,26 @@ The package archive is intended to contain:
 - `/etc/openassetwatch/agent/config.example.json`
 - `/etc/openassetwatch/agent/identity.example.json`
 - `/lib/systemd/system/oaw-agent.service`
+- `/var/lib/openassetwatch/agent/`
+- `/var/log/openassetwatch/agent/`
 - `/usr/share/doc/openassetwatch-agent/README.md`
 - `/usr/share/doc/openassetwatch-agent/release-manifest.json`
+
+The package control metadata declares the Linux runtime/service dependency on
+`systemd`. The packaged systemd unit uses the safest supported service model
+available today: a one-shot readiness check that runs only:
+
+`/usr/bin/oaw-agent doctor --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json`
+
+The unit includes `ConditionPathExists=` checks for both required real config
+and identity files. It does not include shell execution, arbitrary command
+execution, service start hooks, network calls, or embedded secrets.
+
+The package may include conservative `postinst` and `postrm` maintainer
+scripts. These scripts are limited to `systemctl daemon-reload` on the target
+Linux machine after package install or remove. They must not enable the
+service, start the service, overwrite config, overwrite identity, create
+secrets, call network services, or execute administrator-provided commands.
 
 This is package artifact generation, not host installation. The helper does
 not run `dpkg`, `apt`, `systemctl`, `service`, `sudo`, package-manager
@@ -283,9 +301,10 @@ python .\scripts\release\validate_agent_deb.py `
 The validator inspects the existing package under `dist/agent/<version>/`,
 verifies the package checksum and manifest, checks expected Debian archive
 members and install paths, confirms example config and identity placeholders,
-checks the service unit, rejects unexpected maintainer files, and looks for
-forbidden package content. It does not install the package or run host
-package-manager or service-manager commands.
+checks the service unit, validates the `systemd` dependency, validates the
+daemon-reload-only maintainer scripts, rejects unexpected maintainer files, and
+looks for forbidden package content. It does not install the package or run
+host package-manager or service-manager commands.
 
 ## Disposable Linux Install Test Guidance
 

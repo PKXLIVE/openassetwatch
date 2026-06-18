@@ -111,8 +111,21 @@ The package contains only intended Linux package archive paths:
 - `/etc/openassetwatch/agent/config.example.json`
 - `/etc/openassetwatch/agent/identity.example.json`
 - `/lib/systemd/system/oaw-agent.service`
+- `/var/lib/openassetwatch/agent/`
+- `/var/log/openassetwatch/agent/`
 - `/usr/share/doc/openassetwatch-agent/README.md`
 - `/usr/share/doc/openassetwatch-agent/release-manifest.json`
+
+The package control metadata declares `Depends: systemd`. Because the agent
+does not yet provide a long-running daemon command, the systemd unit is a
+one-shot readiness check that runs the supported `oaw-agent doctor` command
+with explicit `/etc/openassetwatch/agent/` config and identity paths. The unit
+uses `ConditionPathExists=` checks and does not use shell execution.
+
+The package may include `postinst` and `postrm` maintainer scripts limited to
+`systemctl daemon-reload` on the target Linux machine. They do not enable or
+start the service, overwrite config or identity, create secrets, call network
+services, or execute arbitrary user-controlled commands.
 
 The package builder validates the source binary manifest, source binary
 checksum, package checksum, package manifest, expected package paths, and
@@ -132,9 +145,10 @@ python .\scripts\release\validate_agent_deb.py `
 
 The validator checks package existence, checksum, manifest, Debian archive
 members, expected install paths, service unit safety, example config and
-identity placeholders, release manifest, unexpected maintainer files, forbidden
-content, and path containment. It does not install the package and does not run
-host package-manager or service-manager commands.
+identity placeholders, release manifest, required package directories, the
+`systemd` dependency, approved maintainer scripts, unexpected maintainer files,
+forbidden content, and path containment. It does not install the package and
+does not run host package-manager or service-manager commands.
 
 ## Disposable Linux Install Test Guidance
 
