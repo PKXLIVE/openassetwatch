@@ -98,12 +98,18 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] `postinst` uses `/usr/sbin/nologin` for the service account shell
 - [ ] `postinst` sets ownership on `/opt/openassetwatch/agent/`,
       `/var/lib/openassetwatch/agent/`, and `/var/log/openassetwatch/agent/`
-- [ ] maintainer scripts may run only `systemctl daemon-reload` for service
-      manager interaction on the target Linux machine
-- [ ] maintainer scripts do not enable services, start services, overwrite
-      config, overwrite identity, create secrets, call network services,
-      execute arbitrary user-controlled commands, or grant sudo permissions
-      beyond the packaged allowlist
+- [ ] `postinst` may run `systemctl daemon-reload` and
+      `systemctl enable oaw-agent.service` on the target Linux machine
+- [ ] `postinst` starts or restarts `oaw-agent.service` only when both
+      `/etc/openassetwatch/agent/config.json` and
+      `/etc/openassetwatch/agent/identity.json` exist
+- [ ] `postinst` does not start the service unconditionally
+- [ ] `postrm` is limited to `systemctl daemon-reload` for service-manager
+      cleanup
+- [ ] maintainer scripts do not overwrite config, overwrite identity, create
+      secrets, call network services, execute arbitrary user-controlled
+      commands, change sudoers, or grant sudo permissions beyond the packaged
+      allowlist
 - [ ] sudoers file is owned by root in package metadata
 - [ ] sudoers file mode is `0440`
 - [ ] sudoers file applies only to the `openassetwatch` service user
@@ -168,7 +174,12 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] expected maintainer scripts are present
 - [ ] unexpected maintainer files are refused
 - [ ] maintainer scripts create the non-interactive service account safely
-- [ ] maintainer scripts do not enable or start services
+- [ ] `postinst` enables `oaw-agent.service`
+- [ ] `postinst` starts or restarts `oaw-agent.service` only when both real
+      config and identity files exist
+- [ ] `postinst` does not start services unconditionally
+- [ ] `postinst` does not change sudoers
+- [ ] `postrm` is limited to approved daemon-reload cleanup
 - [ ] maintainer scripts do not overwrite config or identity
 - [ ] maintainer scripts do not grant sudo permissions beyond the packaged
       allowlist
@@ -181,7 +192,12 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] install tests run only inside a disposable Debian or Ubuntu VM/container
 - [ ] install commands are not run on the Windows build host
 - [ ] expected files are present after install in the disposable environment
-- [ ] service is not enabled or started as part of package artifact creation
+- [ ] package artifact creation does not enable or start services on the build
+      host
+- [ ] package installation enables `oaw-agent.service` inside the disposable
+      Linux environment
+- [ ] package installation starts or restarts the service only when both real
+      config and identity files already exist
 - [ ] real config and identity files remain administrator-controlled
 - [ ] cleanup commands are run only inside the disposable environment
 
@@ -317,8 +333,9 @@ Future work:
 - [ ] `.rpm` package build
 - [ ] Windows MSI
 - [ ] macOS signed/notarized package
-- [ ] package-manager execution
-- [ ] service-manager execution
+- [ ] package-manager execution by local release helpers
+- [ ] service-manager execution by local release helpers beyond packaged,
+      guarded Debian maintainer-script behavior
 - [ ] self-update
 - [ ] licensing enforcement
 

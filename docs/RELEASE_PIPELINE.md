@@ -130,12 +130,17 @@ from `/opt/openassetwatch/agent/bin/oaw-agent` with explicit
 The package may include `postinst` and `postrm` maintainer scripts. `postinst`
 may create the `openassetwatch` system group and non-interactive system user
 with `/usr/sbin/nologin`, set ownership on `/opt/openassetwatch/agent/`,
-`/var/lib/openassetwatch/agent/`, and `/var/log/openassetwatch/agent/`, and run
-`systemctl daemon-reload` on the target Linux machine. `postrm` is limited to
-`systemctl daemon-reload`. Maintainer scripts do not enable or start the
-service, overwrite config or identity, create secrets, call network services,
-execute arbitrary user-controlled commands, or grant sudo permissions beyond
-the packaged allowlist.
+`/var/lib/openassetwatch/agent/`, and `/var/log/openassetwatch/agent/`, run
+`systemctl daemon-reload`, and enable `oaw-agent.service` on the target Linux
+machine. `postinst` may restart the service only when both
+`/etc/openassetwatch/agent/config.json` and
+`/etc/openassetwatch/agent/identity.json` already exist. If either file is
+missing, `postinst` does not start or restart the service. `postrm` is limited
+to `systemctl daemon-reload`; it does not delete admin-created config or
+identity files, remove the `openassetwatch` user or group, or call network
+services. Maintainer scripts do not overwrite config or identity, create
+secrets, execute arbitrary user-controlled commands, or grant sudo permissions
+beyond the packaged allowlist.
 
 The Debian package includes `/etc/sudoers.d/openassetwatch-agent` as a
 root-owned file with mode `0440`. The file applies only to the
@@ -174,8 +179,11 @@ identity placeholders, release manifest, required package directories, the
 `systemd` and `passwd` dependencies, approved service-account maintainer
 scripts, unexpected maintainer files, `/opt` binary layout, `/usr/bin`
 compatibility symlink, sudoers owner/mode/content, forbidden content, and path
-containment. It does not install the package and does not run host
-package-manager or service-manager commands.
+containment. It also checks that `postinst` enables `oaw-agent.service`,
+starts or restarts only when both config and identity files exist, does not
+change sudoers, and does not start the service unconditionally. It does not
+install the package and does not run host package-manager or service-manager
+commands.
 
 ## Disposable Linux Install Test Guidance
 
@@ -200,8 +208,9 @@ sudo apt remove openassetwatch-agent
 
 These commands are documentation-only guidance for an isolated Linux test
 environment. They are not executed by the release scripts. Package install
-tests should verify that the package lays down the expected files, does not
-start the service automatically, leaves real config and identity creation under
+tests should verify that the package lays down the expected files, enables
+`oaw-agent.service`, starts or restarts it only when both real config and
+identity files exist, leaves real config and identity creation under
 administrator control, creates only the non-interactive `openassetwatch`
 service identity, creates only the narrow documented sudoers allowlist, and
 cleans up according to the package lifecycle policy.
@@ -438,8 +447,9 @@ Future work:
 - [ ] `.rpm` package build
 - [ ] Windows MSI
 - [ ] macOS signed/notarized package
-- [ ] package-manager execution
-- [ ] service-manager execution
+- [ ] package-manager execution by local release helpers
+- [ ] service-manager execution by local release helpers beyond packaged,
+  guarded Debian maintainer-script behavior
 - [ ] self-update
 - [ ] licensing enforcement
 
