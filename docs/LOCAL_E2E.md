@@ -78,6 +78,10 @@ default agent identity path. This keeps local E2E validation from creating or
 modifying privileged paths such as `%ProgramData%\OpenAssetWatch\agent` or
 `/etc/openassetwatch/agent`.
 
+The helper also requires an explicit `-ServerUrl` instead of relying on the
+default agent config file. This keeps the live E2E path local and obvious.
+Agent config file behavior can be validated manually with the commands below.
+
 ## Manual Equivalent
 
 ```powershell
@@ -97,6 +101,26 @@ go run ./cmd/oaw-agent collect --once --identity-file identity.json --output inv
 
 go run ./cmd/oaw-agent submit --file inventory.json --server-url http://localhost:8000
 ```
+
+With a local non-secret agent config file:
+
+```powershell
+go run ./cmd/oaw-agent config init `
+  --server-url http://localhost:8000 `
+  --site-id site-local `
+  --output config.json
+
+go run ./cmd/oaw-agent identity init --site-id site-local --output identity.json
+
+go run ./cmd/oaw-agent check-in --identity-file identity.json --config config.json
+
+go run ./cmd/oaw-agent collect --once --config config.json --output inventory.json
+
+go run ./cmd/oaw-agent submit --file inventory.json --config config.json
+```
+
+Explicit flags remain highest priority. For example, `--server-url` overrides
+config `server_url`, and `--site-id` overrides config `site_id`.
 
 Expected success output includes an HTTP 2xx status:
 

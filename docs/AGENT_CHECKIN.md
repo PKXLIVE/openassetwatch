@@ -153,13 +153,49 @@ Default agent identity paths are:
 - Windows: `%ProgramData%\OpenAssetWatch\agent\identity.json`
 - Linux/macOS: `/etc/openassetwatch/agent/identity.json`
 
+Default agent config paths are:
+
+- Windows: `%ProgramData%\OpenAssetWatch\agent\config.json`
+- Linux/macOS: `/etc/openassetwatch/agent/config.json`
+
 When `--identity-file` is omitted, `check-in` reads the default identity path.
 If the default file is missing, the command fails clearly and does not create
 privileged directories. Explicit `--identity-file` always takes priority.
 
+The local agent config file can provide non-secret defaults:
+
+```json
+{
+  "server_url": "http://localhost:8000",
+  "site_id": "site-local"
+}
+```
+
+Create it explicitly:
+
+```powershell
+go run ./cmd/oaw-agent config init `
+  --server-url http://localhost:8000 `
+  --site-id site-local `
+  --output config.json
+```
+
+Config init validates the URL format but does not contact the backend. It
+rejects URL credentials, query strings, and fragments. It writes only
+`server_url` and `site_id`; do not store enrollment tokens, API keys,
+passwords, license keys, or other secrets in this file.
+
+Check-in can use an explicit config file for `server_url`:
+
+```powershell
+go run ./cmd/oaw-agent check-in --identity-file identity.json --config config.json
+```
+
 The `check-in` command:
 
-- requires an explicit `--server-url`
+- requires a backend URL from explicit `--server-url`, explicit `--config`, or
+  the default agent config file
+- treats explicit `--server-url` as highest priority
 - rejects server URLs with embedded credentials, query strings, or fragments
 - uses `--identity-file` when supplied, otherwise the default identity path
 - posts to `/api/v1/agents/check-in`
