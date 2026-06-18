@@ -51,6 +51,15 @@ In another terminal, confirm the backend is healthy:
 Invoke-WebRequest http://localhost:8000/health -UseBasicParsing
 ```
 
+Optional local setup check:
+
+```powershell
+go run ./cmd/oaw-agent doctor --config config.json --identity-file identity.json
+```
+
+`doctor` validates local config and identity files only. It does not contact
+the backend or create files.
+
 ## Run The Helper
 
 From the repository root:

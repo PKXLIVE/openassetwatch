@@ -494,6 +494,229 @@ func TestRunConfigInitRejectsInvalidURL(t *testing.T) {
 	}
 }
 
+func TestRunDoctorReportsMissingFilesClearly(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "missing-config.json")
+	identityPath := filepath.Join(tempDir, "missing-identity.json")
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: identityPath,
+		ConfigPath:   configPath,
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"doctor"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run doctor returned success for missing files")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON-only diagnostics", stderr.String())
+	}
+
+	report := decodeDoctorReport(t, stdout.Bytes())
+	if report.OK {
+		t.Fatalf("doctor report ok = true, want false: %+v", report)
+	}
+	if !containsString(report.Errors, "config file is missing") {
+		t.Fatalf("errors = %v, want missing config", report.Errors)
+	}
+	if !containsString(report.Errors, "identity file is missing") {
+		t.Fatalf("errors = %v, want missing identity", report.Errors)
+	}
+	if check := findDoctorCheck(t, report, "config_file_exists"); check.OK {
+		t.Fatalf("config_file_exists check = %+v, want failure", check)
+	}
+	if check := findDoctorCheck(t, report, "identity_file_exists"); check.OK {
+		t.Fatalf("identity_file_exists check = %+v, want failure", check)
+	}
+	if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("doctor should not create config file, stat err = %v", err)
+	}
+	if _, err := os.Stat(identityPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("doctor should not create identity file, stat err = %v", err)
+	}
+}
+
+func TestRunDoctorParsesValidConfigAndIdentity(t *testing.T) {
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: "http://localhost:8000",
+		SiteID:    "site-local",
+	})
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: identityPath,
+		ConfigPath:   configPath,
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"doctor"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run doctor code = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+
+	report := decodeDoctorReport(t, stdout.Bytes())
+	if !report.OK {
+		t.Fatalf("doctor report ok = false: %+v", report)
+	}
+	for _, name := range []string{
+		"config_file_parses",
+		"identity_file_parses",
+		"config_has_server_url",
+		"config_has_site_id",
+		"identity_has_site_id",
+		"identity_has_agent_id",
+	} {
+		if check := findDoctorCheck(t, report, name); !check.OK {
+			t.Fatalf("%s check = %+v, want ok", name, check)
+		}
+	}
+}
+
+func TestRunDoctorReportsMalformedConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"server_url":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"doctor", "--config", configPath, "--identity-file", identityPath}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run doctor returned success for malformed config")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+
+	report := decodeDoctorReport(t, stdout.Bytes())
+	if check := findDoctorCheck(t, report, "config_file_parses"); check.OK {
+		t.Fatalf("config_file_parses check = %+v, want failure", check)
+	}
+	if !containsString(report.Errors, "config file is malformed JSON") {
+		t.Fatalf("errors = %v, want malformed config", report.Errors)
+	}
+}
+
+func TestRunDoctorReportsMalformedIdentity(t *testing.T) {
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: "http://localhost:8000",
+		SiteID:    "site-local",
+	})
+	identityPath := filepath.Join(t.TempDir(), "identity.json")
+	if err := os.WriteFile(identityPath, []byte(`{"agent_id":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"doctor", "--config", configPath, "--identity-file", identityPath}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run doctor returned success for malformed identity")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+
+	report := decodeDoctorReport(t, stdout.Bytes())
+	if check := findDoctorCheck(t, report, "identity_file_parses"); check.OK {
+		t.Fatalf("identity_file_parses check = %+v, want failure", check)
+	}
+	if !containsString(report.Errors, "identity file is malformed JSON") {
+		t.Fatalf("errors = %v, want malformed identity", report.Errors)
+	}
+}
+
+func TestRunDoctorExplicitPathsOverrideDefaults(t *testing.T) {
+	explicitConfigPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: "http://localhost:8000",
+		SiteID:    "site-explicit",
+	})
+	explicitIdentityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-explicit",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(t.TempDir(), "missing-default-identity.json"),
+		ConfigPath:   filepath.Join(t.TempDir(), "missing-default-config.json"),
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"doctor", "--config", explicitConfigPath, "--identity-file", explicitIdentityPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run doctor code = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
+	}
+
+	report := decodeDoctorReport(t, stdout.Bytes())
+	configPathCheck := findDoctorCheck(t, report, "config_path_resolved")
+	if configPathCheck.Source != "explicit" || configPathCheck.Path != explicitConfigPath {
+		t.Fatalf("config_path_resolved = %+v", configPathCheck)
+	}
+	identityPathCheck := findDoctorCheck(t, report, "identity_path_resolved")
+	if identityPathCheck.Source != "explicit" || identityPathCheck.Path != explicitIdentityPath {
+		t.Fatalf("identity_path_resolved = %+v", identityPathCheck)
+	}
+}
+
+func TestRunDoctorOutputContainsNoTokenOrSecretTerms(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "oaw-doctor-output-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := agentconfig.WriteFile(configPath, agentconfig.Config{
+		ServerURL: "http://localhost:8000",
+		SiteID:    "site-local",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	identityPath := filepath.Join(tempDir, "identity.json")
+	if err := agentidentity.WriteFile(identityPath, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"doctor", "--config", configPath, "--identity-file", identityPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run doctor code = %d, stderr = %q", code, stderr.String())
+	}
+
+	combined := strings.ToLower(stdout.String() + stderr.String())
+	for _, forbidden := range []string{"token", "secret", "password", "credential"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("doctor output included forbidden term %q: %s", forbidden, combined)
+		}
+	}
+}
+
 func TestRunCheckInPostsIdentityPayload(t *testing.T) {
 	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
 		IdentityPath: writeIdentityFile(t, agentidentity.Identity{
@@ -1148,6 +1371,35 @@ func writeAgentConfigFile(t *testing.T, cfg agentconfig.Config) string {
 		t.Fatal(err)
 	}
 	return filePath
+}
+
+func decodeDoctorReport(t *testing.T, data []byte) doctorReport {
+	t.Helper()
+	var report doctorReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatalf("doctor output is not JSON: %v\n%s", err, string(data))
+	}
+	return report
+}
+
+func findDoctorCheck(t *testing.T, report doctorReport, name string) doctorCheck {
+	t.Helper()
+	for _, check := range report.Checks {
+		if check.Name == name {
+			return check
+		}
+	}
+	t.Fatalf("doctor report missing check %q: %+v", name, report.Checks)
+	return doctorCheck{}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func stubDefaultAgentPaths(t *testing.T, paths agentpaths.AgentPaths) func() {
