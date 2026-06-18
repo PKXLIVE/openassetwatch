@@ -134,6 +134,16 @@ Default agent config paths are:
 - Windows: `%ProgramData%\OpenAssetWatch\agent\config.json`
 - Linux/macOS: `/etc/openassetwatch/agent/config.json`
 
+Default agent log paths are:
+
+- Windows: `%ProgramData%\OpenAssetWatch\agent\logs\`
+- Linux/macOS: `/var/log/openassetwatch/agent/`
+
+The planned last-known local status file is:
+
+- Windows: `%ProgramData%\OpenAssetWatch\agent\logs\status.json`
+- Linux/macOS: `/var/log/openassetwatch/agent/status.json`
+
 Explicit CLI flags remain highest priority. For collection:
 
 - `--site-id` overrides config `site_id`.
@@ -172,6 +182,17 @@ go run ./cmd/oaw-agent doctor --config config.json --identity-file identity.json
 required non-secret fields such as `server_url`, `site_id`, and `agent_id`. It
 does not create files, modify files, contact the backend, collect inventory, or
 perform active network activity.
+
+Use `status` when you only need a read-only local setup snapshot:
+
+```powershell
+go run ./cmd/oaw-agent status --config config.json --identity-file identity.json
+```
+
+`status` emits JSON only. It reports resolved config, identity, log, and
+status-file paths plus whether the config, identity, log directory, and last
+known status file exist. It does not create files or directories, write logs,
+contact the backend, collect inventory, or perform active network activity.
 
 ## Submit To Backend
 

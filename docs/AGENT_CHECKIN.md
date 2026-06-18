@@ -158,6 +158,16 @@ Default agent config paths are:
 - Windows: `%ProgramData%\OpenAssetWatch\agent\config.json`
 - Linux/macOS: `/etc/openassetwatch/agent/config.json`
 
+Default agent log paths are:
+
+- Windows: `%ProgramData%\OpenAssetWatch\agent\logs\`
+- Linux/macOS: `/var/log/openassetwatch/agent/`
+
+The planned last-known local status file is:
+
+- Windows: `%ProgramData%\OpenAssetWatch\agent\logs\status.json`
+- Linux/macOS: `/var/log/openassetwatch/agent/status.json`
+
 When `--identity-file` is omitted, `check-in` reads the default identity path.
 If the default file is missing, the command fails clearly and does not create
 privileged directories. Explicit `--identity-file` always takes priority.
@@ -228,6 +238,17 @@ It checks only local setup: resolved config and identity paths, file existence,
 JSON parsing, `server_url`, `site_id`, and `agent_id` presence. It does not
 contact the backend, create files, modify files, print request or response
 bodies, or read enrollment tokens.
+
+Use `status` for a lighter read-only local setup snapshot:
+
+```powershell
+go run ./cmd/oaw-agent status --config config.json --identity-file identity.json
+```
+
+`status` emits JSON only. It reports resolved config, identity, log, and
+status-file paths plus whether those local files or directories exist. It does
+not create files or directories, write logs, contact the backend, or run a
+backend health check.
 
 For a local validation helper that can run identity init, config init,
 check-in, collection, and submit against a local backend, see
