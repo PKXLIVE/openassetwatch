@@ -9,8 +9,22 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] version is selected from an approved release channel
 - [ ] source commit is reviewed and tagged according to release policy
 - [ ] Go agent binary build is reproducible for each supported OS/architecture
+- [ ] local `dist/` binary artifact generated with
+      `scripts/release/build_agent_dist.ps1` where appropriate
 - [ ] package manifest template is selected for the target OS
 - [ ] no secrets are present in manifests, docs, config examples, or artifacts
+
+## Binary Artifact Metadata
+
+- [ ] artifact is written under ignored `dist/agent/<version>/<os>-<arch>/`
+- [ ] artifact name is `oaw-agent` or `oaw-agent.exe` on Windows
+- [ ] SHA256 checksum file is generated
+- [ ] JSON manifest is generated
+- [ ] manifest includes artifact name, version, OS, architecture,
+      repo-relative path, SHA256, build timestamp, and git commit when
+      available
+- [ ] generated `dist/` artifacts are not committed
+- [ ] local binary generation does not build installers or native packages
 
 ## Package Build
 

@@ -49,6 +49,23 @@ Package templates must not contain secrets. Signing, notarization, publishing,
 and enrollment material must be referenced only through CI/CD secret references
 or deployment-system placeholders.
 
+## Local Binary Artifact Generation
+
+The local release helper
+[`scripts/release/build_agent_dist.ps1`](../../scripts/release/build_agent_dist.ps1)
+can build only the `oaw-agent` binary into ignored `dist/` paths before any
+native package build exists:
+
+```powershell
+.\scripts\release\build_agent_dist.ps1 -Version 0.1.0-local
+```
+
+The helper writes a binary, SHA256 checksum file, and JSON manifest under
+`dist/agent/<version>/<os>-<arch>/`. It does not create MSI, DEB, RPM, PKG, or
+TAR.GZ packages, install software, write service definitions, execute
+package-manager commands, execute service-manager commands, or contact network
+services.
+
 ## Related Docs
 
 - [Agent Installation Lifecycle](../../docs/AGENT_INSTALLATION.md)
