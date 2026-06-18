@@ -60,6 +60,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "doctor" {
 		return runDoctor(args[1:], stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == "status" {
+		return runStatus(args[1:], stdout, stderr)
+	}
 
 	var configPath string
 	var siteID string
@@ -339,6 +342,30 @@ type doctorCheck struct {
 	Message string `json:"message,omitempty"`
 }
 
+type statusReport struct {
+	OK       bool         `json:"ok"`
+	Paths    statusPaths  `json:"paths"`
+	Exists   statusExists `json:"exists"`
+	Warnings []string     `json:"warnings"`
+	Errors   []string     `json:"errors"`
+}
+
+type statusPaths struct {
+	Config      string `json:"config"`
+	ConfigSrc   string `json:"config_source"`
+	Identity    string `json:"identity"`
+	IdentitySrc string `json:"identity_source"`
+	LogDir      string `json:"log_dir"`
+	StatusFile  string `json:"status_file"`
+}
+
+type statusExists struct {
+	Config     bool `json:"config"`
+	Identity   bool `json:"identity"`
+	LogDir     bool `json:"log_dir"`
+	LastStatus bool `json:"last_status"`
+}
+
 func runDoctor(args []string, stdout io.Writer, stderr io.Writer) int {
 	var configPath string
 	var identityPath string
@@ -356,6 +383,33 @@ func runDoctor(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 
 	report := buildDoctorReport(configPath, identityPath)
+	if err := output.WriteJSON(stdout, report); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if !report.OK {
+		return 1
+	}
+	return 0
+}
+
+func runStatus(args []string, stdout io.Writer, stderr io.Writer) int {
+	var configPath string
+	var identityPath string
+
+	flags := flag.NewFlagSet("oaw-agent status", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&configPath, "config", "", "optional non-secret local agent config JSON file")
+	flags.StringVar(&identityPath, "identity-file", "", "optional non-secret local agent identity JSON file")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "oaw-agent status does not accept positional arguments")
+		return 2
+	}
+
+	report := buildStatusReport(configPath, identityPath)
 	if err := output.WriteJSON(stdout, report); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -398,6 +452,128 @@ func buildDoctorReport(configPath string, identityPath string) doctorReport {
 
 	report.OK = len(report.Errors) == 0
 	return report
+}
+
+func buildStatusReport(configPath string, identityPath string) statusReport {
+	defaults := defaultAgentPaths()
+	resolvedConfigPath, configSource := resolveDoctorPath(configPath, defaults.ConfigPath)
+	resolvedIdentityPath, identitySource := resolveDoctorPath(identityPath, defaults.IdentityPath)
+
+	report := statusReport{
+		Paths: statusPaths{
+			Config:      resolvedConfigPath,
+			ConfigSrc:   configSource,
+			Identity:    resolvedIdentityPath,
+			IdentitySrc: identitySource,
+			LogDir:      strings.TrimSpace(defaults.LogDir),
+			StatusFile:  strings.TrimSpace(defaults.StatusPath),
+		},
+		Warnings: []string{},
+		Errors:   []string{},
+	}
+
+	report.inspectStatusFile("config", resolvedConfigPath, true)
+	report.inspectStatusFile("identity", resolvedIdentityPath, true)
+	report.inspectLogDir(report.Paths.LogDir)
+	report.inspectStatusFile("last_status", report.Paths.StatusFile, false)
+
+	report.OK = len(report.Errors) == 0
+	return report
+}
+
+func (report *statusReport) inspectStatusFile(name string, path string, required bool) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		message := name + " path is unavailable"
+		if required {
+			report.addStatusError(message)
+		} else {
+			report.addStatusWarning(message)
+		}
+		return
+	}
+	if config.IsQuarantinedPath(path) {
+		message := name + " path is not allowed"
+		if required {
+			report.addStatusError(message)
+		} else {
+			report.addStatusWarning(message)
+		}
+		return
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			message := name + " file is missing"
+			if required {
+				report.addStatusError(message)
+			} else {
+				report.addStatusWarning(message)
+			}
+			return
+		}
+		message := name + " file could not be inspected"
+		if required {
+			report.addStatusError(message)
+		} else {
+			report.addStatusWarning(message)
+		}
+		return
+	}
+	if info.IsDir() {
+		message := name + " path is a directory"
+		if required {
+			report.addStatusError(message)
+		} else {
+			report.addStatusWarning(message)
+		}
+		return
+	}
+
+	switch name {
+	case "config":
+		report.Exists.Config = true
+	case "identity":
+		report.Exists.Identity = true
+	case "last_status":
+		report.Exists.LastStatus = true
+	}
+}
+
+func (report *statusReport) inspectLogDir(path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		report.addStatusWarning("log path is unavailable")
+		return
+	}
+	if config.IsQuarantinedPath(path) {
+		report.addStatusWarning("log path is not allowed")
+		return
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			report.addStatusWarning("log directory is missing")
+			return
+		}
+		report.addStatusWarning("log directory could not be inspected")
+		return
+	}
+	if !info.IsDir() {
+		report.addStatusWarning("log path is not a directory")
+		return
+	}
+	report.Exists.LogDir = true
+}
+
+func (report *statusReport) addStatusError(message string) {
+	report.Errors = append(report.Errors, message)
+}
+
+func (report *statusReport) addStatusWarning(message string) {
+	report.Warnings = append(report.Warnings, message)
 }
 
 func resolveDoctorPath(explicitPath string, defaultPath string) (string, string) {

@@ -717,6 +717,204 @@ func TestRunDoctorOutputContainsNoTokenOrSecretTerms(t *testing.T) {
 	}
 }
 
+func TestRunStatusReportsJSONOnly(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: "http://localhost:8000",
+		SiteID:    "site-local",
+	})
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	logDir := filepath.Join(tempDir, "logs")
+	if err := os.Mkdir(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	statusPath := filepath.Join(logDir, "status.json")
+	if err := os.WriteFile(statusPath, []byte(`{"ok":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: identityPath,
+		ConfigPath:   configPath,
+		LogDir:       logDir,
+		StatusPath:   statusPath,
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"status"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run status code = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON-only status", stderr.String())
+	}
+
+	report := decodeStatusReport(t, stdout.Bytes())
+	if !report.OK {
+		t.Fatalf("status report ok = false: %+v", report)
+	}
+	if !report.Exists.Config || !report.Exists.Identity || !report.Exists.LogDir || !report.Exists.LastStatus {
+		t.Fatalf("status existence flags = %+v", report.Exists)
+	}
+}
+
+func TestRunStatusExplicitPathsOverrideDefaults(t *testing.T) {
+	explicitConfigPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: "http://localhost:8000",
+		SiteID:    "site-explicit",
+	})
+	explicitIdentityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-explicit",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	tempDir := t.TempDir()
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: filepath.Join(tempDir, "missing-default-identity.json"),
+		ConfigPath:   filepath.Join(tempDir, "missing-default-config.json"),
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"status", "--config", explicitConfigPath, "--identity-file", explicitIdentityPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run status code = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
+	}
+
+	report := decodeStatusReport(t, stdout.Bytes())
+	if report.Paths.ConfigSrc != "explicit" || report.Paths.Config != explicitConfigPath {
+		t.Fatalf("config path = %+v", report.Paths)
+	}
+	if report.Paths.IdentitySrc != "explicit" || report.Paths.Identity != explicitIdentityPath {
+		t.Fatalf("identity path = %+v", report.Paths)
+	}
+}
+
+func TestRunStatusReportsMissingFilesClearly(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "missing-config.json")
+	identityPath := filepath.Join(tempDir, "missing-identity.json")
+	logDir := filepath.Join(tempDir, "logs")
+	statusPath := filepath.Join(logDir, "status.json")
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: identityPath,
+		ConfigPath:   configPath,
+		LogDir:       logDir,
+		StatusPath:   statusPath,
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"status"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run status returned success for missing setup files")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON-only status", stderr.String())
+	}
+
+	report := decodeStatusReport(t, stdout.Bytes())
+	if report.OK {
+		t.Fatalf("status report ok = true, want false: %+v", report)
+	}
+	if !containsString(report.Errors, "config file is missing") {
+		t.Fatalf("errors = %v, want missing config", report.Errors)
+	}
+	if !containsString(report.Errors, "identity file is missing") {
+		t.Fatalf("errors = %v, want missing identity", report.Errors)
+	}
+	if report.Exists.Config || report.Exists.Identity || report.Exists.LogDir || report.Exists.LastStatus {
+		t.Fatalf("status existence flags = %+v, want all false", report.Exists)
+	}
+}
+
+func TestRunStatusDoesNotCreateFilesOrDirectories(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "missing-config.json")
+	identityPath := filepath.Join(tempDir, "missing-identity.json")
+	logDir := filepath.Join(tempDir, "logs")
+	statusPath := filepath.Join(logDir, "status.json")
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: identityPath,
+		ConfigPath:   configPath,
+		LogDir:       logDir,
+		StatusPath:   statusPath,
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	_ = run([]string{"status"}, &stdout, &stderr)
+
+	for _, path := range []string{configPath, identityPath, logDir, statusPath} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("status should not create %s, stat err = %v", path, err)
+		}
+	}
+}
+
+func TestRunStatusOutputContainsNoTokenOrSecretTerms(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "oaw-status-output-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := agentconfig.WriteFile(configPath, agentconfig.Config{
+		ServerURL: "http://localhost:8000",
+		SiteID:    "site-local",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	identityPath := filepath.Join(tempDir, "identity.json")
+	if err := agentidentity.WriteFile(identityPath, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	logDir := filepath.Join(tempDir, "logs")
+	if err := os.Mkdir(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	statusPath := filepath.Join(logDir, "status.json")
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: identityPath,
+		ConfigPath:   configPath,
+		LogDir:       logDir,
+		StatusPath:   statusPath,
+	})
+	defer restorePaths()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"status"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run status code = %d, stderr = %q", code, stderr.String())
+	}
+
+	combined := strings.ToLower(stdout.String() + stderr.String())
+	for _, forbidden := range []string{"token", "secret", "password", "credential"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("status output included forbidden term %q: %s", forbidden, combined)
+		}
+	}
+}
+
 func TestRunCheckInPostsIdentityPayload(t *testing.T) {
 	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
 		IdentityPath: writeIdentityFile(t, agentidentity.Identity{
@@ -1032,6 +1230,8 @@ func TestRunPathsPrintsDefaultPathsOnly(t *testing.T) {
 	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
 		IdentityPath: filepath.Join("C:\\ProgramData", "OpenAssetWatch", "agent", "identity.json"),
 		ConfigPath:   filepath.Join("C:\\ProgramData", "OpenAssetWatch", "agent", "config.json"),
+		LogDir:       filepath.Join("C:\\ProgramData", "OpenAssetWatch", "agent", "logs"),
+		StatusPath:   filepath.Join("C:\\ProgramData", "OpenAssetWatch", "agent", "logs", "status.json"),
 	})
 	defer restorePaths()
 
@@ -1048,6 +1248,9 @@ func TestRunPathsPrintsDefaultPathsOnly(t *testing.T) {
 	}
 	if paths.IdentityPath == "" || paths.ConfigPath == "" {
 		t.Fatalf("paths output missing defaults: %+v", paths)
+	}
+	if paths.LogDir == "" || paths.StatusPath == "" {
+		t.Fatalf("paths output missing log/status defaults: %+v", paths)
 	}
 
 	combined := strings.ToLower(stdout.String() + stderr.String())
@@ -1378,6 +1581,15 @@ func decodeDoctorReport(t *testing.T, data []byte) doctorReport {
 	var report doctorReport
 	if err := json.Unmarshal(data, &report); err != nil {
 		t.Fatalf("doctor output is not JSON: %v\n%s", err, string(data))
+	}
+	return report
+}
+
+func decodeStatusReport(t *testing.T, data []byte) statusReport {
+	t.Helper()
+	var report statusReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatalf("status output is not JSON: %v\n%s", err, string(data))
 	}
 	return report
 }

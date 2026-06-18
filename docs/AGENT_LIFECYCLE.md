@@ -18,15 +18,19 @@ Run commands from the repository root during local development.
 go run ./cmd/oaw-agent paths
 ```
 
-This prints JSON with the resolved default identity and config paths. It does
-not create files or directories.
+This prints JSON with the resolved default identity, config, log, and status
+paths. It does not create files or directories.
 
 Default paths are:
 
 - Windows identity: `%ProgramData%\OpenAssetWatch\agent\identity.json`
 - Windows config: `%ProgramData%\OpenAssetWatch\agent\config.json`
+- Windows logs: `%ProgramData%\OpenAssetWatch\agent\logs\`
+- Windows status file: `%ProgramData%\OpenAssetWatch\agent\logs\status.json`
 - Linux/macOS identity: `/etc/openassetwatch/agent/identity.json`
 - Linux/macOS config: `/etc/openassetwatch/agent/config.json`
+- Linux/macOS logs: `/var/log/openassetwatch/agent/`
+- Linux/macOS status file: `/var/log/openassetwatch/agent/status.json`
 
 ### 2. Initialize Config
 
@@ -86,7 +90,19 @@ go run ./cmd/oaw-agent doctor --config config.json --identity-file identity.json
 It does not create files, modify files, contact the backend, or run a backend
 health check.
 
-### 5. Check In
+### 5. Review Local Status
+
+```powershell
+go run ./cmd/oaw-agent status --config config.json --identity-file identity.json
+```
+
+`status` writes JSON only. It reports resolved config, identity, log, and
+status-file paths and whether the local config, identity, log directory, and
+last known status file exist. It is a read-only local setup snapshot. It does
+not create files or directories, write logs, contact the backend, or run a
+backend health check.
+
+### 6. Check In
 
 ```powershell
 go run ./cmd/oaw-agent check-in --identity-file identity.json --config config.json
@@ -96,7 +112,7 @@ Check-in sends identity and health metadata to
 `/api/v1/agents/check-in`. It does not perform collection, active probing, or
 remote command execution.
 
-### 6. Collect Inventory
+### 7. Collect Inventory
 
 ```powershell
 go run ./cmd/oaw-agent collect --once --identity-file identity.json --config config.json --output inventory.json
@@ -107,7 +123,7 @@ interface, gateway, and local neighbor-cache observations where available.
 It does not perform CIDR discovery, port checks, packet injection, credential
 collection, or external service calls.
 
-### 7. Submit Inventory
+### 8. Submit Inventory
 
 ```powershell
 go run ./cmd/oaw-agent submit --file inventory.json --config config.json
@@ -118,7 +134,7 @@ Submit posts the local inventory JSON to
 and does not add enrollment tokens, arbitrary headers, retries, scheduling, or
 daemon behavior.
 
-### 8. Run Local E2E Helper
+### 9. Run Local E2E Helper
 
 Default local collect and submit flow:
 
@@ -145,11 +161,14 @@ or installer behavior.
 - [ ] Config file exists before service start.
 - [ ] Identity file exists before service start.
 - [ ] `oaw-agent doctor` passes before service registration or first run.
+- [ ] `oaw-agent status` reports the expected local config, identity, log, and
+  status-file locations.
 - [ ] Backend URL is configured through non-secret config.
 - [ ] Check-in succeeds against the intended backend.
 - [ ] Local collection succeeds without elevated privileges where possible.
 - [ ] Inventory submit succeeds against the intended backend.
 - [ ] Local log location is defined per operating system.
+- [ ] Last known local status file location is defined per operating system.
 - [ ] Service account or user model is defined per operating system.
 - [ ] Install behavior is defined.
 - [ ] Uninstall behavior is defined.
@@ -284,8 +303,9 @@ Logs should be local, minimal, and safe:
 - no raw config dumps
 - no raw identity dumps
 
-`doctor` should remain the first local setup diagnostic. Backend health checks
-and service health reporting should be separate future work.
+`doctor` should remain the first local setup diagnostic. `status` should
+remain a read-only local setup snapshot. Backend health checks and service
+health reporting should be separate future work.
 
 ### Default Safety Posture
 
