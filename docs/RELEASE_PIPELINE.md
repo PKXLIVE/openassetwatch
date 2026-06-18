@@ -112,6 +112,7 @@ The package contains only intended Linux package archive paths:
   `/opt/openassetwatch/agent/bin/oaw-agent`
 - `/etc/openassetwatch/agent/config.example.json`
 - `/etc/openassetwatch/agent/identity.example.json`
+- `/etc/sudoers.d/openassetwatch-agent`
 - `/lib/systemd/system/oaw-agent.service`
 - `/var/lib/openassetwatch/agent/`
 - `/var/log/openassetwatch/agent/`
@@ -133,7 +134,23 @@ with `/usr/sbin/nologin`, set ownership on `/opt/openassetwatch/agent/`,
 `systemctl daemon-reload` on the target Linux machine. `postrm` is limited to
 `systemctl daemon-reload`. Maintainer scripts do not enable or start the
 service, overwrite config or identity, create secrets, call network services,
-execute arbitrary user-controlled commands, or grant sudo permissions.
+execute arbitrary user-controlled commands, or grant sudo permissions beyond
+the packaged allowlist.
+
+The Debian package includes `/etc/sudoers.d/openassetwatch-agent` as a
+root-owned file with mode `0440`. The file applies only to the
+`openassetwatch` service user and grants `NOPASSWD` only for exact read-only
+local discovery commands:
+
+- `/usr/sbin/ip neigh show`, for local kernel neighbor-cache review.
+- `/usr/sbin/ip addr show`, for local interface and address review.
+
+The sudoers file does not contain `NOPASSWD: ALL`, broad `ALL=(ALL) ALL`
+grants, shells, interpreters, downloaders, package managers, service managers,
+file mutation commands, offensive tooling, wildcards, or arbitrary arguments.
+The initial package intentionally excludes `hostname`, `cat`, `readlink`, and
+`stat` because the Go agent currently uses Go APIs and local cache files for
+host identity and Linux inventory.
 
 The package builder validates the source binary manifest, source binary
 checksum, package checksum, package manifest, expected package paths, and
@@ -156,9 +173,9 @@ members, expected install paths, service unit safety, example config and
 identity placeholders, release manifest, required package directories, the
 `systemd` and `passwd` dependencies, approved service-account maintainer
 scripts, unexpected maintainer files, `/opt` binary layout, `/usr/bin`
-compatibility symlink, forbidden content, and path containment. It does not
-install the package and does not run host package-manager or service-manager
-commands.
+compatibility symlink, sudoers owner/mode/content, forbidden content, and path
+containment. It does not install the package and does not run host
+package-manager or service-manager commands.
 
 ## Disposable Linux Install Test Guidance
 
@@ -174,6 +191,7 @@ test -x /opt/openassetwatch/agent/bin/oaw-agent
 test -x /usr/bin/oaw-agent
 test -f /etc/openassetwatch/agent/config.example.json
 test -f /etc/openassetwatch/agent/identity.example.json
+test -f /etc/sudoers.d/openassetwatch-agent
 test -f /lib/systemd/system/oaw-agent.service
 /opt/openassetwatch/agent/bin/oaw-agent paths
 systemctl status oaw-agent.service
@@ -185,8 +203,8 @@ environment. They are not executed by the release scripts. Package install
 tests should verify that the package lays down the expected files, does not
 start the service automatically, leaves real config and identity creation under
 administrator control, creates only the non-interactive `openassetwatch`
-service identity, does not create sudoers entries, and cleans up according to
-the package lifecycle policy.
+service identity, creates only the narrow documented sudoers allowlist, and
+cleans up according to the package lifecycle policy.
 
 ## Local TAR.GZ Package Artifacts
 

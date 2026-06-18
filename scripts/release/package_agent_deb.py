@@ -32,6 +32,12 @@ SERVICE_COMMAND = (
     "--identity-file /etc/openassetwatch/agent/identity.json"
 )
 PACKAGE_DEPENDENCIES = ("systemd", "passwd")
+SUDOERS_PACKAGE_PATH = "./etc/sudoers.d/openassetwatch-agent"
+SUDOERS_INSTALL_PATH = "/etc/sudoers.d/openassetwatch-agent"
+APPROVED_SUDOERS_COMMANDS = (
+    "/usr/sbin/ip neigh show",
+    "/usr/sbin/ip addr show",
+)
 SERVICE_OWNED_DIRS = (
     "./opt/openassetwatch/agent",
     "./opt/openassetwatch/agent/bin",
@@ -42,6 +48,7 @@ EXPECTED_DATA_FILES = (
     OPT_BINARY_PACKAGE_PATH,
     "./etc/openassetwatch/agent/config.example.json",
     "./etc/openassetwatch/agent/identity.example.json",
+    SUDOERS_PACKAGE_PATH,
     "./lib/systemd/system/oaw-agent.service",
     "./usr/share/doc/openassetwatch-agent/README.md",
     "./usr/share/doc/openassetwatch-agent/release-manifest.json",
@@ -63,6 +70,7 @@ EXPECTED_DATA_DIRS = (
     "./etc",
     "./etc/openassetwatch",
     "./etc/openassetwatch/agent",
+    "./etc/sudoers.d",
     "./lib",
     "./lib/systemd",
     "./lib/systemd/system",
@@ -338,6 +346,20 @@ def identity_example() -> bytes:
     ).encode("utf-8")
 
 
+def sudoers_file() -> bytes:
+    return "\n".join(
+        [
+            "# OpenAssetWatch agent read-only local discovery allowlist.",
+            "# This file is intentionally narrow and applies only to the openassetwatch service user.",
+            "# ip neigh show reads the local kernel neighbor cache; it does not scan networks.",
+            f"{SERVICE_USER} ALL=(root) NOPASSWD: /usr/sbin/ip neigh show",
+            "# ip addr show reads local interface and address metadata; it does not scan networks.",
+            f"{SERVICE_USER} ALL=(root) NOPASSWD: /usr/sbin/ip addr show",
+            "",
+        ]
+    ).encode("utf-8")
+
+
 def service_unit() -> bytes:
     return "\n".join(
         [
@@ -418,8 +440,15 @@ def release_manifest(
             "root:root": [
                 "./etc/openassetwatch/agent",
                 "./usr/bin/oaw-agent",
+                SUDOERS_PACKAGE_PATH,
                 "./lib/systemd/system/oaw-agent.service",
             ],
+        },
+        "sudoers": {
+            "path": SUDOERS_INSTALL_PATH,
+            "mode": "0440",
+            "user": SERVICE_USER,
+            "commands": list(APPROVED_SUDOERS_COMMANDS),
         },
         "dependencies": list(PACKAGE_DEPENDENCIES),
         "maintainer_scripts": ["postinst", "postrm"],
@@ -498,6 +527,7 @@ def build_data_tar(
         OPT_BINARY_PACKAGE_PATH: (binary_data, 0o755),
         "./etc/openassetwatch/agent/config.example.json": (config_example(), 0o644),
         "./etc/openassetwatch/agent/identity.example.json": (identity_example(), 0o644),
+        SUDOERS_PACKAGE_PATH: (sudoers_file(), 0o440),
         "./lib/systemd/system/oaw-agent.service": (service_unit(), 0o644),
         "./usr/share/doc/openassetwatch-agent/README.md": (package_readme(version), 0o644),
         "./usr/share/doc/openassetwatch-agent/release-manifest.json": (release_manifest_data, 0o644),
@@ -584,11 +614,14 @@ def parse_ar(path: Path) -> dict[str, bytes]:
     return members
 
 
-def tar_members_from_gzip(data: bytes) -> tuple[dict[str, bytes], set[str], dict[str, str], dict[str, tuple[str, str]]]:
+def tar_members_from_gzip(
+    data: bytes,
+) -> tuple[dict[str, bytes], set[str], dict[str, str], dict[str, tuple[str, str]], dict[str, int]]:
     files: dict[str, bytes] = {}
     directories: set[str] = set()
     symlinks: dict[str, str] = {}
     ownership: dict[str, tuple[str, str]] = {}
+    modes: dict[str, int] = {}
     with gzip.GzipFile(fileobj=io.BytesIO(data), mode="rb") as gz:
         tar_bytes = gz.read()
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as tar:
@@ -599,6 +632,7 @@ def tar_members_from_gzip(data: bytes) -> tuple[dict[str, bytes], set[str], dict
             if not (member.isdir() or member.isfile() or member.issym()):
                 raise ValueError(f"Package archive contains unsupported entry type: {member.name}")
             ownership[member.name] = (member.uname or "root", member.gname or "root")
+            modes[member.name] = member.mode & 0o7777
             if member.isfile():
                 source = tar.extractfile(member)
                 files[member.name] = source.read() if source else b""
@@ -606,7 +640,7 @@ def tar_members_from_gzip(data: bytes) -> tuple[dict[str, bytes], set[str], dict
                 directories.add(member.name)
             else:
                 symlinks[member.name] = member.linkname
-    return files, directories, symlinks, ownership
+    return files, directories, symlinks, ownership, modes
 
 
 def validate_service_unit(contents: bytes) -> None:
@@ -672,6 +706,49 @@ def validate_maintainer_script(name: str, contents: bytes) -> None:
         raise ValueError("postrm must not create users, groups, or change ownership.")
 
 
+def validate_sudoers_file(contents: bytes) -> None:
+    text = contents.decode("utf-8")
+    rule_lines = [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
+    rule_text = "\n".join(rule_lines)
+    forbidden = (
+        "NOPASSWD: ALL",
+        "ALL=(ALL) ALL",
+        "ALL=(ALL:ALL)",
+        "/bin/sh",
+        "/bin/bash",
+        " bash",
+        " sh ",
+        "python",
+        "curl",
+        "wget",
+        " nc",
+        "nmap",
+        "tcpdump",
+        "apt",
+        "dpkg",
+        "systemctl",
+        "service",
+        "chmod",
+        "chown",
+        "rm ",
+        "cp ",
+        "mv ",
+        "*",
+        "?",
+    )
+    found = [item for item in forbidden if item in rule_text]
+    if found:
+        raise ValueError(f"sudoers file contains unsafe allowlist text: {', '.join(found)}.")
+
+    expected_lines = [f"{SERVICE_USER} ALL=(root) NOPASSWD: {command}" for command in APPROVED_SUDOERS_COMMANDS]
+    if rule_lines != expected_lines:
+        raise ValueError("sudoers file must contain only the approved openassetwatch command allowlist.")
+
+    for line in rule_lines:
+        if not line.startswith(f"{SERVICE_USER} ALL=(root) NOPASSWD: "):
+            raise ValueError("sudoers file must apply only to the openassetwatch service user.")
+
+
 def validate_control_archive(control_members: dict[str, bytes | None]) -> None:
     if set(control_members) != set(EXPECTED_CONTROL_PATHS):
         raise ValueError("DEB control archive must contain only control, postinst, and postrm.")
@@ -690,11 +767,11 @@ def validate_deb_contents(package_path: Path, reporter: Reporter) -> None:
         raise ValueError("DEB archive must contain debian-binary, control.tar.gz, and data.tar.gz.")
     if members["debian-binary"] != b"2.0\n":
         raise ValueError("DEB debian-binary member must be 2.0.")
-    control_files, control_dirs, control_symlinks, _control_ownership = tar_members_from_gzip(members["control.tar.gz"])
+    control_files, control_dirs, control_symlinks, _control_ownership, _control_modes = tar_members_from_gzip(members["control.tar.gz"])
     if control_dirs or control_symlinks:
         raise ValueError("DEB control archive must not contain directories or symlinks.")
     validate_control_archive(control_files)
-    data_files, data_dirs, data_symlinks, ownership = tar_members_from_gzip(members["data.tar.gz"])
+    data_files, data_dirs, data_symlinks, ownership, modes = tar_members_from_gzip(members["data.tar.gz"])
     missing_files = [path for path in EXPECTED_DATA_FILES if path not in data_files]
     missing_links = [path for path in EXPECTED_DATA_SYMLINKS if data_symlinks.get(path) != EXPECTED_DATA_SYMLINKS[path]]
     missing_dirs = [path for path in EXPECTED_DATA_DIRS if path not in data_dirs]
@@ -711,6 +788,9 @@ def validate_deb_contents(package_path: Path, reporter: Reporter) -> None:
             continue
         if name in {"./etc/openassetwatch/agent/config.example.json", "./etc/openassetwatch/agent/identity.example.json"}:
             continue
+        if name == SUDOERS_PACKAGE_PATH:
+            validate_sudoers_file(contents or b"")
+            continue
         if name == "./lib/systemd/system/oaw-agent.service":
             validate_service_unit(contents or b"")
             continue
@@ -725,6 +805,10 @@ def validate_deb_contents(package_path: Path, reporter: Reporter) -> None:
         raise ValueError("Packaged /opt agent binary must be owned by openassetwatch:openassetwatch.")
     if ownership.get("./etc/openassetwatch/agent") != ("root", "root"):
         raise ValueError("Config directory must remain root-controlled.")
+    if ownership.get(SUDOERS_PACKAGE_PATH) != ("root", "root"):
+        raise ValueError("sudoers file must be owned by root:root in package metadata.")
+    if modes.get(SUDOERS_PACKAGE_PATH) != 0o440:
+        raise ValueError("sudoers file must use mode 0440 in package metadata.")
     for path in EXPECTED_DATA_PATHS:
         reporter.add_content(path)
 
@@ -759,6 +843,12 @@ def write_package_metadata(
         "contents": list(EXPECTED_DATA_PATHS),
         "directories": list(EXPECTED_DATA_DIRS),
         "symlinks": dict(EXPECTED_DATA_SYMLINKS),
+        "sudoers": {
+            "path": SUDOERS_INSTALL_PATH,
+            "mode": "0440",
+            "user": SERVICE_USER,
+            "commands": list(APPROVED_SUDOERS_COMMANDS),
+        },
         "control_members": list(EXPECTED_CONTROL_PATHS),
         "dependencies": list(PACKAGE_DEPENDENCIES),
         "package_builder": "scripts/release/package_agent_deb.py",
