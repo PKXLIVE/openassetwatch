@@ -83,6 +83,7 @@ uninstall, upgrade, roll back, or publish anything.
       `/etc/openassetwatch/agent/config.example.json`
 - [ ] package contents include
       `/etc/openassetwatch/agent/identity.example.json`
+- [ ] package contents include `/etc/sudoers.d/openassetwatch-agent`
 - [ ] package contents include `/lib/systemd/system/oaw-agent.service`
 - [ ] package contains `/var/lib/openassetwatch/agent/`
 - [ ] package contains `/var/log/openassetwatch/agent/`
@@ -102,6 +103,16 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] maintainer scripts do not enable services, start services, overwrite
       config, overwrite identity, create secrets, call network services,
       execute arbitrary user-controlled commands, or grant sudo permissions
+      beyond the packaged allowlist
+- [ ] sudoers file is owned by root in package metadata
+- [ ] sudoers file mode is `0440`
+- [ ] sudoers file applies only to the `openassetwatch` service user
+- [ ] sudoers file allows only exact read-only local discovery commands:
+      `/usr/sbin/ip neigh show` and `/usr/sbin/ip addr show`
+- [ ] sudoers file does not include `NOPASSWD: ALL`, broad `ALL=(ALL) ALL`
+      grants, shell/interpreter access, downloaders, package managers,
+      service managers, file mutation commands, offensive tooling, wildcards,
+      or arbitrary arguments
 - [ ] service unit uses a one-shot readiness check because no long-running
       daemon command exists yet
 - [ ] service unit includes `ConditionPathExists=` checks for config and
@@ -111,7 +122,6 @@ uninstall, upgrade, roll back, or publish anything.
       `/opt/openassetwatch/agent/bin/oaw-agent doctor`
 - [ ] service unit includes `User=openassetwatch`
 - [ ] service unit includes `Group=openassetwatch`
-- [ ] no sudoers file is included in the package
 - [ ] package build does not run `dpkg`, `apt`, `systemctl`, `service`,
       `sudo`, package-manager commands, or service-manager commands
 - [ ] package build does not install software, enable services, start
@@ -145,6 +155,12 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] package control metadata includes `Depends: systemd, passwd`
 - [ ] `/opt/openassetwatch/agent/bin/oaw-agent` exists in the package
 - [ ] `/usr/bin/oaw-agent` exists as a symlink to the `/opt` binary
+- [ ] `/etc/sudoers.d/openassetwatch-agent` exists in the package
+- [ ] sudoers file uses mode `0440` and root ownership in package metadata
+- [ ] sudoers file contains only the approved `openassetwatch` command
+      allowlist
+- [ ] sudoers file refuses broad grants such as `NOPASSWD: ALL` and
+      `ALL=(ALL) ALL`
 - [ ] `/opt/openassetwatch/agent/`, `/var/lib/openassetwatch/agent/`, and
       `/var/log/openassetwatch/agent/` are owned by
       `openassetwatch:openassetwatch`
@@ -154,7 +170,8 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] maintainer scripts create the non-interactive service account safely
 - [ ] maintainer scripts do not enable or start services
 - [ ] maintainer scripts do not overwrite config or identity
-- [ ] maintainer scripts do not grant sudo permissions
+- [ ] maintainer scripts do not grant sudo permissions beyond the packaged
+      allowlist
 - [ ] package content outside intended Linux install paths is refused
 - [ ] validator does not install the package or run package-manager or
       service-manager commands

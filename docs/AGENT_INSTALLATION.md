@@ -266,6 +266,7 @@ The package archive is intended to contain:
   `/opt/openassetwatch/agent/bin/oaw-agent`
 - `/etc/openassetwatch/agent/config.example.json`
 - `/etc/openassetwatch/agent/identity.example.json`
+- `/etc/sudoers.d/openassetwatch-agent`
 - `/lib/systemd/system/oaw-agent.service`
 - `/var/lib/openassetwatch/agent/`
 - `/var/log/openassetwatch/agent/`
@@ -292,7 +293,27 @@ and `/var/log/openassetwatch/agent/`, and run `systemctl daemon-reload` on the
 target Linux machine. The `postrm` script is limited to `systemctl
 daemon-reload`. Maintainer scripts must not enable the service, start the
 service, overwrite config, overwrite identity, create secrets, call network
-services, execute administrator-provided commands, or grant sudo permissions.
+services, execute administrator-provided commands, or grant sudo permissions
+beyond the packaged allowlist.
+
+The package includes a root-owned sudoers file at
+`/etc/sudoers.d/openassetwatch-agent` with mode `0440`. The file applies only
+to the `openassetwatch` service user and grants `NOPASSWD` only for these exact
+read-only local discovery commands:
+
+- `/usr/sbin/ip neigh show`: reads the local kernel neighbor cache. This is
+  aligned with the legacy collector's passive `ip neigh` discovery path and
+  does not scan networks.
+- `/usr/sbin/ip addr show`: reads local interface and address metadata. This
+  is aligned with documented collector sudoers guidance and does not scan
+  networks.
+
+The sudoers file must not include `NOPASSWD: ALL`, broad `ALL=(ALL) ALL`
+grants, shells, interpreters, downloaders, package managers, service managers,
+file modification commands, offensive tooling, command wildcards, or arbitrary
+arguments. Commands such as `hostname`, `cat`, `readlink`, and `stat` are not
+included in the initial agent package allowlist because the Go agent currently
+uses Go APIs and local cache files for host identity and Linux inventory.
 
 Package ownership expectations:
 
@@ -304,6 +325,8 @@ Package ownership expectations:
   `openassetwatch:openassetwatch`.
 - `/etc/openassetwatch/agent/` remains root-controlled, with readable example
   placeholder files only.
+- `/etc/sudoers.d/openassetwatch-agent` remains root-controlled and uses mode
+  `0440`.
 
 This is package artifact generation, not host installation. The helper does
 not run `dpkg`, `apt`, `systemctl`, `service`, `sudo`, package-manager
@@ -326,8 +349,10 @@ checks the service unit, validates the `systemd` dependency, validates the
 `passwd` dependency, validates the service-account maintainer scripts, rejects
 unexpected maintainer files, confirms the `/opt` binary plus `/usr/bin`
 compatibility symlink, verifies service user/group settings, and looks for
-forbidden package content. It does not install the package or run host
-package-manager or service-manager commands.
+forbidden package content. It also validates the sudoers path, owner, mode,
+user scope, exact command allowlist, and absence of broad sudo grants. It does
+not install the package or run host package-manager or service-manager
+commands.
 
 ## Disposable Linux Install Test Guidance
 
@@ -343,6 +368,7 @@ test -x /opt/openassetwatch/agent/bin/oaw-agent
 test -x /usr/bin/oaw-agent
 test -f /etc/openassetwatch/agent/config.example.json
 test -f /etc/openassetwatch/agent/identity.example.json
+test -f /etc/sudoers.d/openassetwatch-agent
 test -f /lib/systemd/system/oaw-agent.service
 /opt/openassetwatch/agent/bin/oaw-agent paths
 systemctl status oaw-agent.service
@@ -355,7 +381,9 @@ Expected checks inside the disposable Linux environment:
 - the service is not automatically enabled or started by package artifact
   creation
 - real config and identity files are not created without administrator action
-- the service account is non-interactive and no sudoers file is created
+- the service account is non-interactive
+- the sudoers file contains only the documented read-only local discovery
+  commands and no broad sudo grants
 - no tokens, credentials, API keys, logs, runtime status, or secrets are
   present in package examples
 - cleanup removes package-managed files while preserving administrator-owned

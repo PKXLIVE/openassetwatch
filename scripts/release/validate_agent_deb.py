@@ -31,6 +31,12 @@ SERVICE_COMMAND = (
     "--identity-file /etc/openassetwatch/agent/identity.json"
 )
 PACKAGE_DEPENDENCIES = {"systemd", "passwd"}
+SUDOERS_PACKAGE_PATH = "./etc/sudoers.d/openassetwatch-agent"
+SUDOERS_INSTALL_PATH = "/etc/sudoers.d/openassetwatch-agent"
+APPROVED_SUDOERS_COMMANDS = (
+    "/usr/sbin/ip neigh show",
+    "/usr/sbin/ip addr show",
+)
 SERVICE_OWNED_DIRS = {
     "./opt/openassetwatch/agent",
     "./opt/openassetwatch/agent/bin",
@@ -41,6 +47,7 @@ EXPECTED_DATA_FILES = {
     OPT_BINARY_PACKAGE_PATH,
     "./etc/openassetwatch/agent/config.example.json",
     "./etc/openassetwatch/agent/identity.example.json",
+    SUDOERS_PACKAGE_PATH,
     "./lib/systemd/system/oaw-agent.service",
     "./usr/share/doc/openassetwatch-agent/README.md",
     "./usr/share/doc/openassetwatch-agent/release-manifest.json",
@@ -62,6 +69,7 @@ ALLOWED_DATA_DIRS = {
     "./etc",
     "./etc/openassetwatch",
     "./etc/openassetwatch/agent",
+    "./etc/sudoers.d",
     "./lib",
     "./lib/systemd",
     "./lib/systemd/system",
@@ -243,6 +251,15 @@ def validate_package_metadata(repo_root: Path, package_path: Path, version: str)
     symlinks = manifest.get("symlinks", {})
     if symlinks != EXPECTED_DATA_SYMLINKS:
         raise ValueError("DEB package manifest symlinks do not match expected compatibility links.")
+    sudoers = manifest.get("sudoers", {})
+    if sudoers.get("path") != SUDOERS_INSTALL_PATH:
+        raise ValueError("DEB package manifest sudoers path mismatch.")
+    if sudoers.get("mode") != "0440":
+        raise ValueError("DEB package manifest sudoers mode must be 0440.")
+    if sudoers.get("user") != SERVICE_USER:
+        raise ValueError("DEB package manifest sudoers user must be openassetwatch.")
+    if tuple(sudoers.get("commands", [])) != APPROVED_SUDOERS_COMMANDS:
+        raise ValueError("DEB package manifest sudoers commands do not match the approved allowlist.")
     control_members = set(manifest.get("control_members", []))
     if control_members != EXPECTED_CONTROL_FILES:
         raise ValueError("DEB package manifest control_members do not match expected maintainer files.")
@@ -277,11 +294,14 @@ def parse_ar(path: Path) -> dict[str, bytes]:
     return members
 
 
-def tar_members_from_gzip(data: bytes) -> tuple[dict[str, bytes], set[str], dict[str, str], dict[str, tuple[str, str]]]:
+def tar_members_from_gzip(
+    data: bytes,
+) -> tuple[dict[str, bytes], set[str], dict[str, str], dict[str, tuple[str, str]], dict[str, int]]:
     files: dict[str, bytes] = {}
     directories: set[str] = set()
     symlinks: dict[str, str] = {}
     ownership: dict[str, tuple[str, str]] = {}
+    modes: dict[str, int] = {}
     with gzip.GzipFile(fileobj=io.BytesIO(data), mode="rb") as gz:
         tar_bytes = gz.read()
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as tar:
@@ -292,6 +312,7 @@ def tar_members_from_gzip(data: bytes) -> tuple[dict[str, bytes], set[str], dict
             if not (member.isdir() or member.isfile() or member.issym()):
                 raise ValueError(f"Package archive contains unsupported entry type: {member.name}")
             ownership[member.name] = (member.uname or "root", member.gname or "root")
+            modes[member.name] = member.mode & 0o7777
             if member.isfile():
                 source = tar.extractfile(member)
                 files[member.name] = source.read() if source else b""
@@ -299,7 +320,7 @@ def tar_members_from_gzip(data: bytes) -> tuple[dict[str, bytes], set[str], dict
                 directories.add(member.name)
             else:
                 symlinks[member.name] = member.linkname
-    return files, directories, symlinks, ownership
+    return files, directories, symlinks, ownership, modes
 
 
 def validate_control_archive(control_files: dict[str, bytes]) -> None:
@@ -395,6 +416,47 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
         raise ValueError("postrm must not create users, groups, or change ownership.")
 
 
+def validate_sudoers_file(data: bytes) -> None:
+    text = data.decode("utf-8")
+    rule_lines = [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
+    rule_text = "\n".join(rule_lines)
+    forbidden = (
+        "NOPASSWD: ALL",
+        "ALL=(ALL) ALL",
+        "ALL=(ALL:ALL)",
+        "/bin/sh",
+        "/bin/bash",
+        " bash",
+        " sh ",
+        "python",
+        "curl",
+        "wget",
+        " nc",
+        "nmap",
+        "tcpdump",
+        "apt",
+        "dpkg",
+        "systemctl",
+        "service",
+        "chmod",
+        "chown",
+        "rm ",
+        "cp ",
+        "mv ",
+        "*",
+        "?",
+    )
+    found = [item for item in forbidden if item in rule_text]
+    if found:
+        raise ValueError(f"sudoers file contains unsafe allowlist text: {', '.join(found)}.")
+    expected_lines = [f"{SERVICE_USER} ALL=(root) NOPASSWD: {command}" for command in APPROVED_SUDOERS_COMMANDS]
+    if rule_lines != expected_lines:
+        raise ValueError("sudoers file must contain only the approved openassetwatch command allowlist.")
+    for line in rule_lines:
+        if not line.startswith(f"{SERVICE_USER} ALL=(root) NOPASSWD: "):
+            raise ValueError("sudoers file must apply only to the openassetwatch service user.")
+
+
 def validate_example_config(data: bytes) -> None:
     value = json.loads(data.decode("utf-8"))
     if set(value) != {"server_url", "site_id"}:
@@ -470,6 +532,15 @@ def validate_release_manifest(data: bytes, version: str) -> None:
     ownership = value.get("ownership", {})
     if set(ownership.get("openassetwatch:openassetwatch", [])) != SERVICE_OWNED_DIRS:
         raise ValueError("Release manifest service-owned directories do not match expected layout.")
+    sudoers = value.get("sudoers", {})
+    if sudoers.get("path") != SUDOERS_INSTALL_PATH:
+        raise ValueError("Release manifest sudoers path mismatch.")
+    if sudoers.get("mode") != "0440":
+        raise ValueError("Release manifest sudoers mode must be 0440.")
+    if sudoers.get("user") != SERVICE_USER:
+        raise ValueError("Release manifest sudoers user must be openassetwatch.")
+    if tuple(sudoers.get("commands", [])) != APPROVED_SUDOERS_COMMANDS:
+        raise ValueError("Release manifest sudoers commands do not match the approved allowlist.")
 
 
 def validate_forbidden_content(data_files: dict[str, bytes]) -> None:
@@ -480,6 +551,7 @@ def validate_forbidden_content(data_files: dict[str, bytes]) -> None:
             "./etc/openassetwatch/agent/config.example.json",
             "./etc/openassetwatch/agent/identity.example.json",
             "./lib/systemd/system/oaw-agent.service",
+            SUDOERS_PACKAGE_PATH,
         }:
             continue
         leaf = PurePosixPath(name).name
@@ -495,6 +567,7 @@ def validate_data_archive(
     data_dirs: set[str],
     data_symlinks: dict[str, str],
     ownership: dict[str, tuple[str, str]],
+    modes: dict[str, int],
     version: str,
 ) -> None:
     if set(data_files) != EXPECTED_DATA_FILES:
@@ -518,8 +591,13 @@ def validate_data_archive(
         raise ValueError("Packaged /opt agent binary must be owned by openassetwatch:openassetwatch.")
     if ownership.get("./etc/openassetwatch/agent") != ("root", "root"):
         raise ValueError("Config directory must remain root-controlled.")
+    if ownership.get(SUDOERS_PACKAGE_PATH) != ("root", "root"):
+        raise ValueError("sudoers file must be owned by root:root in package metadata.")
+    if modes.get(SUDOERS_PACKAGE_PATH) != 0o440:
+        raise ValueError("sudoers file must use mode 0440 in package metadata.")
     validate_example_config(data_files["./etc/openassetwatch/agent/config.example.json"])
     validate_example_identity(data_files["./etc/openassetwatch/agent/identity.example.json"])
+    validate_sudoers_file(data_files[SUDOERS_PACKAGE_PATH])
     validate_service_unit(data_files["./lib/systemd/system/oaw-agent.service"])
     validate_release_manifest(data_files["./usr/share/doc/openassetwatch-agent/release-manifest.json"], version)
     validate_forbidden_content(data_files)
@@ -532,14 +610,14 @@ def validate_deb(package_path: Path, version: str) -> None:
         raise ValueError("DEB archive must contain debian-binary, control.tar.gz, and data.tar.gz.")
     if ar_members["debian-binary"] != b"2.0\n":
         raise ValueError("DEB debian-binary member must be 2.0.")
-    control_files, control_dirs, control_symlinks, _control_ownership = tar_members_from_gzip(ar_members["control.tar.gz"])
+    control_files, control_dirs, control_symlinks, _control_ownership, _control_modes = tar_members_from_gzip(ar_members["control.tar.gz"])
     if control_dirs:
         raise ValueError("DEB control archive contains unexpected directories.")
     if control_symlinks:
         raise ValueError("DEB control archive contains unexpected symlinks.")
     validate_control_archive(control_files)
-    data_files, data_dirs, data_symlinks, ownership = tar_members_from_gzip(ar_members["data.tar.gz"])
-    validate_data_archive(data_files, data_dirs, data_symlinks, ownership, version)
+    data_files, data_dirs, data_symlinks, ownership, modes = tar_members_from_gzip(ar_members["data.tar.gz"])
+    validate_data_archive(data_files, data_dirs, data_symlinks, ownership, modes, version)
 
 
 def parse_args() -> argparse.Namespace:
