@@ -25,6 +25,10 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/package_agent_deb.py](../scripts/release/package_agent_deb.py).
   It consumes an existing Linux amd64 `oaw-agent` dist artifact and writes only
   `.deb`, SHA256, and package manifest output under ignored `dist/` paths.
+- Local Linux Debian package validation exists through
+  [scripts/release/validate_agent_deb.py](../scripts/release/validate_agent_deb.py).
+  It inspects an existing `.deb` under ignored `dist/` paths without
+  installing it or invoking host package tooling.
 - Local release artifact validation exists through
   [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
   It verifies existing dist/package artifacts and emits JSON only.
@@ -118,6 +122,44 @@ commands, or service-manager commands. It does not install the package, enable
 services, start services, write to host `/usr`, `/etc`, `/var`, `/lib`, `/opt`,
 or store real config values, real identity values, logs, status state, tokens,
 credentials, API keys, or secrets.
+
+Validate the generated `.deb` artifact without installing it:
+
+```powershell
+python .\scripts\release\validate_agent_deb.py `
+  --version 0.1.0-local
+```
+
+The validator checks package existence, checksum, manifest, Debian archive
+members, expected install paths, service unit safety, example config and
+identity placeholders, release manifest, unexpected maintainer files, forbidden
+content, and path containment. It does not install the package and does not run
+host package-manager or service-manager commands.
+
+## Disposable Linux Install Test Guidance
+
+Real install testing for `.deb` packages must happen only inside a disposable
+Linux VM or container. Do not run install commands on the Windows build host or
+on a developer workstation that is not intended to be disposable.
+
+Manual commands for a disposable Debian or Ubuntu test environment only:
+
+```bash
+sudo apt install ./openassetwatch-agent_<version>_amd64.deb
+test -x /usr/bin/oaw-agent
+test -f /etc/openassetwatch/agent/config.example.json
+test -f /etc/openassetwatch/agent/identity.example.json
+test -f /lib/systemd/system/oaw-agent.service
+/usr/bin/oaw-agent paths
+systemctl status oaw-agent.service
+sudo apt remove openassetwatch-agent
+```
+
+These commands are documentation-only guidance for an isolated Linux test
+environment. They are not executed by the release scripts. Package install
+tests should verify that the package lays down the expected files, does not
+start the service automatically, leaves real config and identity creation under
+administrator control, and cleans up according to the package lifecycle policy.
 
 ## Local TAR.GZ Package Artifacts
 
