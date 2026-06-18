@@ -63,6 +63,9 @@ the backend or create files.
 For the full manual agent lifecycle and service-readiness checklist, see
 `docs/AGENT_LIFECYCLE.md`.
 
+For future install, uninstall, upgrade, rollback, and package validation
+planning, see `docs/AGENT_INSTALLATION.md`.
+
 ## Run The Helper
 
 From the repository root:

@@ -1,0 +1,225 @@
+# Agent Installation Lifecycle
+
+This document defines the future OpenAssetWatch agent installation,
+uninstallation, upgrade, rollback, package validation, and deployment
+lifecycle before any installer, service install, service uninstall, daemon,
+scheduler, or self-update code exists.
+
+Current state: `oaw-agent` is an explicit command-line tool. It can inspect
+paths, create non-secret config and identity files, run local diagnostics,
+preview future service plans/templates, check in, collect passive local
+inventory, and submit that inventory. It does not install itself, modify
+service managers, execute package managers, schedule itself, or run as a
+background service.
+
+## Supported Future Deployment Models
+
+OpenAssetWatch should support several deployment models without changing the
+agent's safe-by-default runtime posture:
+
+- manual binary install for lab, self-hosted, or break-glass environments
+- Windows signed installer or MSI
+- Linux `.deb` package for Debian and Ubuntu families
+- Linux `.rpm` package for RHEL, Rocky Linux, AlmaLinux, CentOS, Fedora, SUSE,
+  and openSUSE families
+- Linux `.tar.gz` fallback for unsupported distributions or manual install
+- macOS signed and notarized package
+- enterprise deployment through Intune, SCCM, Jamf, Ansible, Puppet, Chef, and
+  shell-based deployment systems
+
+Enterprise deployment tools should run under explicit administrator control.
+The running agent must not become a package-manager wrapper, deployment tool,
+or self-installing process.
+
+## Expected Installed Paths
+
+These paths are planning targets. Future packages may refine them per operating
+system, but any change should preserve clear separation between binary,
+configuration, identity, logs, and service metadata.
+
+### Windows
+
+- binary path: `C:\Program Files\OpenAssetWatch\oaw-agent.exe`
+- config path: `%ProgramData%\OpenAssetWatch\agent\config.json`
+- identity path: `%ProgramData%\OpenAssetWatch\agent\identity.json`
+- log directory: `%ProgramData%\OpenAssetWatch\agent\logs\`
+- status file path: `%ProgramData%\OpenAssetWatch\agent\logs\status.json`
+- service name: `OpenAssetWatchAgent`
+- service definition path: Windows Service Control Manager metadata, managed by
+  a future signed installer or administrator action rather than a direct file
+- package metadata path: Windows Installer product database, plus any future
+  non-secret installer manifest under `%ProgramData%\OpenAssetWatch\agent\`
+
+### Linux Systemd
+
+- binary path: `/usr/bin/oaw-agent`
+- config path: `/etc/openassetwatch/agent/config.json`
+- identity path: `/etc/openassetwatch/agent/identity.json`
+- log directory: `/var/log/openassetwatch/agent/`
+- status file path: `/var/log/openassetwatch/agent/status.json`
+- service name: `openassetwatch-agent`
+- service definition path:
+  `/etc/systemd/system/openassetwatch-agent.service`
+- `.deb` package metadata: dpkg database under `/var/lib/dpkg/status` and
+  package file records under `/var/lib/dpkg/info/openassetwatch-agent.*`
+- `.rpm` package metadata: rpm database under `/var/lib/rpm/` or
+  `/usr/lib/sysimage/rpm/`, depending on the distribution
+- `.tar.gz` fallback metadata: no package-manager metadata by default; a future
+  non-secret manifest may be written only by explicit installer/admin action
+
+### macOS Launchd
+
+- binary path: `/usr/local/bin/oaw-agent`
+- config path: `/etc/openassetwatch/agent/config.json`
+- identity path: `/etc/openassetwatch/agent/identity.json`
+- log directory: `/var/log/openassetwatch/agent/`
+- status file path: `/var/log/openassetwatch/agent/status.json`
+- service name: `com.openassetwatch.agent`
+- service definition path:
+  `/Library/LaunchDaemons/com.openassetwatch.agent.plist`
+- package metadata path:
+  `/var/db/receipts/com.openassetwatch.agent.*`
+
+## Linux Package Selection
+
+Linux package selection should use read-only distribution detection before
+choosing an artifact or instructions. Start with `/etc/os-release` and inspect:
+
+- `ID`
+- `ID_LIKE`
+- `VERSION_ID`
+
+Conservative package mapping:
+
+- Debian and Ubuntu map to `.deb`.
+- RHEL, Rocky Linux, AlmaLinux, CentOS, and Fedora map to `.rpm`.
+- SUSE and openSUSE map to `.rpm`.
+- Unknown or unsupported Linux distributions map to `.tar.gz` or manual
+  install instructions.
+
+Package-manager commands require explicit administrator action. The running
+agent must not execute `apt`, `dnf`, `yum`, `zypper`, `rpm`, `dpkg`, or any
+other package-manager command on its own.
+
+## Install Lifecycle
+
+Future installer or administrator flow:
+
+1. Verify artifact signature and checksum before execution or extraction.
+2. Install the signed binary or package using an administrator-controlled
+   process.
+3. Create non-secret config with `server_url` and `site_id`.
+4. Create local identity with `site_id`, optional `tenant_id`, optional
+   deployment-provided `deployment_id`, and generated `agent_id`.
+5. Run `oaw-agent doctor`.
+6. Run `oaw-agent check-in`.
+7. Run `oaw-agent status`.
+8. Review `oaw-agent service plan`.
+9. Review `oaw-agent service template`.
+10. Only after the above checks pass, proceed to future service installation
+    through a signed installer or explicit administrator action.
+
+Installers must not store enrollment tokens, API keys, passwords, signing
+keys, license keys, or other secrets in config, identity, logs, or examples.
+
+## Uninstall Lifecycle
+
+Future uninstaller or administrator flow:
+
+1. Stop the service if service mode exists in the future.
+2. Remove the service definition if service mode exists in the future.
+3. Remove the binary or package.
+4. Preserve config, identity, and logs by default.
+5. Optionally remove config, identity, and logs only when an administrator
+   explicitly requests data removal.
+6. Record the uninstall result in an administrator-visible audit or package log
+   where available.
+
+Identity and config files must never be deleted by default without explicit
+administrator action. Logs may contain operational metadata and should follow
+the organization's retention and privacy policy.
+
+## Upgrade Lifecycle
+
+Future upgrade flow:
+
+1. Verify the new artifact signature and checksum.
+2. Stop the service if service mode exists in the future.
+3. Replace the binary or package through an administrator-controlled process.
+4. Preserve config and identity.
+5. Preserve logs unless an administrator explicitly chooses a retention change.
+6. Run `oaw-agent doctor`.
+7. Run `oaw-agent check-in`.
+8. Run `oaw-agent status`.
+9. Start the service if service mode exists in the future.
+10. Record the upgrade result and installed version.
+
+Upgrade must not silently rotate identity, overwrite config, or erase logs.
+
+## Rollback Lifecycle
+
+Future rollback flow:
+
+1. Retain the previous known-good signed package or binary.
+2. Stop the service if service mode exists in the future.
+3. Restore the previous binary or package through an administrator-controlled
+   process.
+4. Preserve config and identity.
+5. Preserve logs unless an administrator explicitly chooses a retention change.
+6. Run `oaw-agent doctor`.
+7. Run `oaw-agent status`.
+8. Run `oaw-agent check-in`.
+9. Start the service if service mode exists in the future.
+10. Document the rollback result, version, reason, and operator.
+
+Rollback should restore executable behavior without changing tenant, site,
+deployment, or agent identity.
+
+## Package Validation
+
+Before install, upgrade, or rollback:
+
+- verify the artifact signature using the release channel's trusted signing
+  identity
+- verify the checksum against a trusted release manifest
+- confirm the artifact name, version, operating system, and architecture match
+  the intended deployment
+- confirm the artifact came from an approved release pipeline
+- confirm no signing keys, enrollment tokens, license keys, API keys, or
+  passwords are present in repository examples or generated config
+
+Signing keys must remain in CI/CD secret stores or signing infrastructure. They
+must not be committed to the repository or copied into installer examples.
+
+## Safety Boundaries
+
+The future installation lifecycle must preserve OpenAssetWatch's defensive
+agent posture:
+
+- no silent self-install
+- no silent self-upgrade
+- no package-manager execution by the running agent
+- no deletion of identity, config, or logs without explicit administrator
+  action
+- no secrets in logs
+- no raw config or identity dumps in logs
+- no active scanning by default
+- no offensive tooling
+- no arbitrary shell command execution
+- no service-manager modification by `doctor`, `status`, `service plan`, or
+  `service template`
+- no scheduler behavior until separately designed and reviewed
+
+The agent may report local state and produce read-only plans/templates. Future
+installers, enterprise deployment systems, or administrators must perform any
+host-modifying package or service actions explicitly.
+
+## Related Docs
+
+- [Agent Lifecycle](AGENT_LIFECYCLE.md)
+- [Agent Check-In](AGENT_CHECKIN.md)
+- [Agent Collection](AGENT_COLLECTION.md)
+- [Local E2E Validation](LOCAL_E2E.md)
+- [Installers](INSTALLERS.md)
+- [Signed Releases](SIGNED_RELEASES.md)
+- [Release Pipeline](RELEASE_PIPELINE.md)

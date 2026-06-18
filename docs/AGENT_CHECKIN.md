@@ -257,6 +257,9 @@ check-in, collection, and submit against a local backend, see
 For the full manual agent lifecycle and service-readiness checklist, see
 `docs/AGENT_LIFECYCLE.md`.
 
+For future install, uninstall, upgrade, rollback, and package validation
+planning, see `docs/AGENT_INSTALLATION.md`.
+
 ## Deployment Models
 
 The check-in identity model should support:
