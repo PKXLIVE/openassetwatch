@@ -62,6 +62,30 @@ uninstall, upgrade, roll back, or publish anything.
       generated secrets
 - [ ] generated `dist/` artifacts remain ignored and are not committed
 
+## Local Install Staging
+
+- [ ] `scripts/release/stage_agent_install.py` passes against the selected
+      TAR.GZ package
+- [ ] staging output is JSON only
+- [ ] package file exists under `dist/agent/<version>/packages/`
+- [ ] package SHA256 checksum matches the package manifest and checksum file
+- [ ] package manifest contains required fields
+- [ ] archive paths are safe and contain no forbidden entries
+- [ ] staging output is written under ignored
+      `dist/staging/agent/<version>/<os>-<arch>/`
+- [ ] staged layout contains `binary/`, `config/`, `identity/`, `logs/`,
+      `status/`, `service/`, and `package-metadata/`
+- [ ] staged config and identity directories contain only placeholder README
+      files, not real values
+- [ ] staged logs and status directories contain only placeholder README files,
+      not runtime state
+- [ ] staged service directory contains only placeholder README files, not
+      installed service definitions
+- [ ] no files are written to Program Files, ProgramData, `/usr`, `/etc`,
+      `/var`, `/Library`, service-manager paths, or package-manager metadata
+      paths
+- [ ] generated staging artifacts remain ignored and are not committed
+
 ## Local Release Orchestration
 
 - [ ] `scripts/release/release_agent_local.ps1` passes for the selected
