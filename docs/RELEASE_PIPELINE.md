@@ -36,6 +36,10 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/install_agent_local.py](../scripts/release/install_agent_local.py).
   It consumes a staged layout or TAR.GZ package and writes only under ignored
   `dist/local-install/` paths by default.
+- Local sandbox uninstall proof exists through
+  [scripts/release/uninstall_agent_local.py](../scripts/release/uninstall_agent_local.py).
+  It removes only repo-local sandbox install roots under ignored
+  `dist/local-install/` paths.
 - No native signed packages are produced yet.
 - No package build, installer execution, service installation, or
   package-manager execution is implemented by the scaffold.
@@ -215,6 +219,27 @@ does not register services, start services, stop services, execute
 package-manager commands, execute service-manager commands, contact network
 services, write real config or identity values, write logs, write runtime
 status, or store secrets.
+
+## Local Sandbox Uninstall Proof
+
+Use the local sandbox uninstall helper to remove only a repo-local sandbox
+install proof:
+
+```powershell
+python .\scripts\release\uninstall_agent_local.py `
+  --version 0.1.0-local
+```
+
+The helper emits JSON only with `ok`, `install_root`, `removed`, `checks`,
+`warnings`, and `errors`. It refuses uninstall roots outside the repository,
+refuses paths that look like system paths, and by default requires expected
+package metadata from `install_agent_local.py`.
+
+This is not a real system uninstall. It does not remove generated release
+packages, unregister services, start services, stop services, execute
+package-manager commands, execute service-manager commands, contact network
+services, remove config, identity, logs, or status outside the local sandbox
+install root, or modify the host operating system.
 
 ## Agent Installation Foundation Status
 

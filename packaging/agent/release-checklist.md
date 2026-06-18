@@ -111,6 +111,28 @@ uninstall, upgrade, roll back, or publish anything.
       paths
 - [ ] generated local install artifacts remain ignored and are not committed
 
+## Local Sandbox Uninstall Proof
+
+- [ ] `scripts/release/uninstall_agent_local.py` passes against the selected
+      local sandbox install root
+- [ ] uninstall output is JSON only
+- [ ] uninstall output includes `ok`, `install_root`, `removed`, `checks`,
+      `warnings`, and `errors`
+- [ ] uninstall removes only roots under
+      `dist/local-install/agent/<version>/<os>-<arch>/`
+- [ ] uninstall roots outside the repository are refused
+- [ ] paths that look like Program Files, ProgramData, `/usr`, `/etc`, `/var`,
+      or `/Library` are refused
+- [ ] expected package metadata is required by default
+- [ ] `--force` allows removal of an incomplete repo-local sandbox install
+      root only
+- [ ] generated release packages under `dist/agent/<version>/packages/` remain
+      in place
+- [ ] config, identity, logs, and status outside the sandbox install root are
+      not removed
+- [ ] no services are unregistered, started, stopped, installed, or modified
+- [ ] no package-manager or service-manager commands are executed
+
 ## Agent Installation Foundation Status
 
 The current phase proves that OpenAssetWatch can build, package, validate, and
