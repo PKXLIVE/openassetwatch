@@ -17,6 +17,7 @@ import (
 
 	agentconfig "github.com/openassetwatch/openassetwatch/internal/agent/config"
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
+	agentinstallplan "github.com/openassetwatch/openassetwatch/internal/agent/installplan"
 	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
 	agentserviceplan "github.com/openassetwatch/openassetwatch/internal/agent/serviceplan"
 	"github.com/openassetwatch/openassetwatch/internal/collector"
@@ -67,6 +68,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "service" {
 		return runService(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "install" {
+		return runInstall(args[1:], stdout, stderr)
 	}
 
 	var configPath string
@@ -313,6 +317,43 @@ func buildCurrentServicePlan() agentserviceplan.Plan {
 		}
 	}
 	return agentserviceplan.Build(runtime.GOOS, defaultAgentPaths(), osRelease)
+}
+
+func runInstall(args []string, stdout io.Writer, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "plan" {
+		fmt.Fprintln(stderr, "oaw-agent install requires plan")
+		return 2
+	}
+	return runInstallPlan(args[1:], stdout, stderr)
+}
+
+func runInstallPlan(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("oaw-agent install plan", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "oaw-agent install plan does not accept positional arguments")
+		return 2
+	}
+
+	plan := buildCurrentInstallPlan()
+	if err := output.WriteJSON(stdout, plan); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func buildCurrentInstallPlan() agentinstallplan.Plan {
+	var osRelease []byte
+	if runtime.GOOS == "linux" {
+		if data, err := readOSRelease("/etc/os-release"); err == nil {
+			osRelease = data
+		}
+	}
+	return agentinstallplan.Build(runtime.GOOS, runtime.GOARCH, defaultAgentPaths(), osRelease)
 }
 
 func runConfigInit(args []string, stdout io.Writer, stderr io.Writer) int {

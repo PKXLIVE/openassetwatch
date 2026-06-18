@@ -101,6 +101,29 @@ Package-manager commands require explicit administrator action. The running
 agent must not execute `apt`, `dnf`, `yum`, `zypper`, `rpm`, `dpkg`, or any
 other package-manager command on its own.
 
+## Read-Only Install Plan
+
+Use the local install plan command to inspect the recommended package and
+deployment approach before selecting an installer or package:
+
+```powershell
+go run ./cmd/oaw-agent install plan
+```
+
+`install plan` writes JSON only. It reports the current operating system,
+architecture, recommended package type, install model, expected binary path,
+config path, identity path, log directory, status file path, service definition
+path where known, package validation expectations, and warnings.
+
+On Linux, the command may read `/etc/os-release` and use `ID`, `ID_LIKE`, and
+`VERSION_ID` to recommend `deb`, `rpm`, or `tar.gz/manual`. On Windows, it
+recommends a signed MSI or enterprise deployment. On macOS, it recommends a
+signed and notarized package.
+
+This command is read-only. It does not create files or directories, install
+packages, execute package-manager commands, execute service-manager commands,
+modify services, contact a backend, or print secrets.
+
 ## Install Lifecycle
 
 Future installer or administrator flow:
@@ -114,9 +137,10 @@ Future installer or administrator flow:
 5. Run `oaw-agent doctor`.
 6. Run `oaw-agent check-in`.
 7. Run `oaw-agent status`.
-8. Review `oaw-agent service plan`.
-9. Review `oaw-agent service template`.
-10. Only after the above checks pass, proceed to future service installation
+8. Review `oaw-agent install plan`.
+9. Review `oaw-agent service plan`.
+10. Review `oaw-agent service template`.
+11. Only after the above checks pass, proceed to future service installation
     through a signed installer or explicit administrator action.
 
 Installers must not store enrollment tokens, API keys, passwords, signing
