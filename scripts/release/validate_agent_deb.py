@@ -20,15 +20,40 @@ PACKAGE_NAME = "openassetwatch-agent"
 TARGET_OS = "linux"
 TARGET_ARCH = "amd64"
 DEBIAN_ARCH = "amd64"
+SERVICE_USER = "openassetwatch"
+SERVICE_GROUP = "openassetwatch"
+OPT_BINARY = "/opt/openassetwatch/agent/bin/oaw-agent"
+OPT_BINARY_PACKAGE_PATH = "./opt/openassetwatch/agent/bin/oaw-agent"
+USR_BIN_PACKAGE_PATH = "./usr/bin/oaw-agent"
+USR_BIN_LINK_TARGET = OPT_BINARY
+SERVICE_COMMAND = (
+    f"{OPT_BINARY} doctor --config /etc/openassetwatch/agent/config.json "
+    "--identity-file /etc/openassetwatch/agent/identity.json"
+)
+PACKAGE_DEPENDENCIES = {"systemd", "passwd"}
+SERVICE_OWNED_DIRS = {
+    "./opt/openassetwatch/agent",
+    "./opt/openassetwatch/agent/bin",
+    "./var/lib/openassetwatch/agent",
+    "./var/log/openassetwatch/agent",
+}
 EXPECTED_DATA_FILES = {
-    "./usr/bin/oaw-agent",
+    OPT_BINARY_PACKAGE_PATH,
     "./etc/openassetwatch/agent/config.example.json",
     "./etc/openassetwatch/agent/identity.example.json",
     "./lib/systemd/system/oaw-agent.service",
     "./usr/share/doc/openassetwatch-agent/README.md",
     "./usr/share/doc/openassetwatch-agent/release-manifest.json",
 }
+EXPECTED_DATA_SYMLINKS = {
+    USR_BIN_PACKAGE_PATH: USR_BIN_LINK_TARGET,
+}
+EXPECTED_DATA_PATHS = EXPECTED_DATA_FILES | set(EXPECTED_DATA_SYMLINKS)
 ALLOWED_DATA_DIRS = {
+    "./opt",
+    "./opt/openassetwatch",
+    "./opt/openassetwatch/agent",
+    "./opt/openassetwatch/agent/bin",
     "./usr",
     "./usr/bin",
     "./usr/share",
@@ -210,17 +235,20 @@ def validate_package_metadata(repo_root: Path, package_path: Path, version: str)
     if resolve_repo_path(repo_root, str(manifest["package_path"])) != package_path.resolve():
         raise ValueError("DEB package manifest path does not match selected package.")
     contents = set(manifest.get("contents", []))
-    if contents != EXPECTED_DATA_FILES:
+    if contents != EXPECTED_DATA_PATHS:
         raise ValueError("DEB package manifest contents do not match expected package paths.")
     directories = set(manifest.get("directories", []))
     if directories != ALLOWED_DATA_DIRS:
         raise ValueError("DEB package manifest directories do not match expected package directories.")
+    symlinks = manifest.get("symlinks", {})
+    if symlinks != EXPECTED_DATA_SYMLINKS:
+        raise ValueError("DEB package manifest symlinks do not match expected compatibility links.")
     control_members = set(manifest.get("control_members", []))
     if control_members != EXPECTED_CONTROL_FILES:
         raise ValueError("DEB package manifest control_members do not match expected maintainer files.")
     dependencies = set(manifest.get("dependencies", []))
-    if "systemd" not in dependencies:
-        raise ValueError("DEB package manifest dependencies must include systemd.")
+    if not PACKAGE_DEPENDENCIES.issubset(dependencies):
+        raise ValueError("DEB package manifest dependencies must include systemd and passwd.")
     return manifest_path, manifest
 
 
@@ -249,9 +277,11 @@ def parse_ar(path: Path) -> dict[str, bytes]:
     return members
 
 
-def tar_members_from_gzip(data: bytes) -> tuple[dict[str, bytes], set[str]]:
+def tar_members_from_gzip(data: bytes) -> tuple[dict[str, bytes], set[str], dict[str, str], dict[str, tuple[str, str]]]:
     files: dict[str, bytes] = {}
     directories: set[str] = set()
+    symlinks: dict[str, str] = {}
+    ownership: dict[str, tuple[str, str]] = {}
     with gzip.GzipFile(fileobj=io.BytesIO(data), mode="rb") as gz:
         tar_bytes = gz.read()
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as tar:
@@ -259,14 +289,17 @@ def tar_members_from_gzip(data: bytes) -> tuple[dict[str, bytes], set[str]]:
             pure = PurePosixPath(member.name)
             if member.name.startswith("/") or "\\" in member.name or ".." in pure.parts:
                 raise ValueError(f"Package archive contains unsafe path: {member.name}")
-            if not (member.isdir() or member.isfile()):
+            if not (member.isdir() or member.isfile() or member.issym()):
                 raise ValueError(f"Package archive contains unsupported entry type: {member.name}")
+            ownership[member.name] = (member.uname or "root", member.gname or "root")
             if member.isfile():
                 source = tar.extractfile(member)
                 files[member.name] = source.read() if source else b""
-            else:
+            elif member.isdir():
                 directories.add(member.name)
-    return files, directories
+            else:
+                symlinks[member.name] = member.linkname
+    return files, directories, symlinks, ownership
 
 
 def validate_control_archive(control_files: dict[str, bytes]) -> None:
@@ -279,7 +312,7 @@ def validate_control_archive(control_files: dict[str, bytes]) -> None:
     required_lines = (
         f"Package: {PACKAGE_NAME}",
         "Architecture: amd64",
-        "Depends: systemd",
+        "Depends: systemd, passwd",
     )
     for line in required_lines:
         if line not in control_text:
@@ -290,7 +323,31 @@ def validate_control_archive(control_files: dict[str, bytes]) -> None:
 
 def validate_maintainer_script(name: str, data: bytes) -> None:
     text = data.decode("utf-8")
-    expected = "\n".join(
+    postinst_expected = "\n".join(
+        [
+            "#!/bin/sh",
+            "set -e",
+            f"if ! getent group {SERVICE_GROUP} >/dev/null 2>&1; then",
+            f"    groupadd --system {SERVICE_GROUP}",
+            "fi",
+            f"if ! id -u {SERVICE_USER} >/dev/null 2>&1; then",
+            (
+                f"    useradd --system --gid {SERVICE_GROUP} "
+                "--home-dir /var/lib/openassetwatch/agent --no-create-home "
+                f"--shell /usr/sbin/nologin {SERVICE_USER}"
+            ),
+            "fi",
+            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /opt/openassetwatch/agent",
+            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
+            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
+            'if command -v systemctl >/dev/null 2>&1; then',
+            "    systemctl daemon-reload || true",
+            "fi",
+            "exit 0",
+            "",
+        ]
+    )
+    postrm_expected = "\n".join(
         [
             "#!/bin/sh",
             "set -e",
@@ -301,8 +358,9 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
             "",
         ]
     )
+    expected = postinst_expected if name == "postinst" else postrm_expected
     if text != expected:
-        raise ValueError(f"{name} maintainer script must match the approved daemon-reload-only template.")
+        raise ValueError(f"{name} maintainer script must match the approved service-account template.")
     forbidden = (
         " enable ",
         " start ",
@@ -312,17 +370,29 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
         " dpkg",
         " curl",
         " wget",
-        " useradd",
-        " adduser",
-        "groupadd",
-        "chown",
         "chmod",
         "cat >",
         "tee ",
+        "sudo",
+        "sudoers",
     )
     found = [item for item in forbidden if item in text]
     if found:
         raise ValueError(f"{name} maintainer script contains unsafe command text: {', '.join(found)}.")
+    if name == "postinst":
+        required = (
+            f"groupadd --system {SERVICE_GROUP}",
+            f"useradd --system --gid {SERVICE_GROUP}",
+            "--shell /usr/sbin/nologin",
+            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /opt/openassetwatch/agent",
+            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
+            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
+        )
+        for item in required:
+            if item not in text:
+                raise ValueError(f"postinst missing expected service account command text: {item}")
+    elif any(item in text for item in ("useradd", "groupadd", "chown")):
+        raise ValueError("postrm must not create users, groups, or change ownership.")
 
 
 def validate_example_config(data: bytes) -> None:
@@ -355,13 +425,13 @@ def validate_service_unit(data: bytes) -> None:
     found = [item for item in forbidden if item in text]
     if found:
         raise ValueError(f"Service unit contains unsafe directives or shell usage: {', '.join(found)}.")
-    if "User=" in text or "Group=" in text:
-        raise ValueError("Service unit must not reference an unprovisioned fixed service user or group.")
     required_lines = {
         "Type=oneshot",
+        f"User={SERVICE_USER}",
+        f"Group={SERVICE_GROUP}",
         "ConditionPathExists=/etc/openassetwatch/agent/config.json",
         "ConditionPathExists=/etc/openassetwatch/agent/identity.json",
-        "ExecStart=/usr/bin/oaw-agent doctor --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json",
+        f"ExecStart={SERVICE_COMMAND}",
         "NoNewPrivileges=true",
         "ProtectSystem=strict",
         "ProtectHome=true",
@@ -380,26 +450,31 @@ def validate_release_manifest(data: bytes, version: str) -> None:
     if value.get("os") != TARGET_OS or value.get("arch") != TARGET_ARCH:
         raise ValueError("Release manifest must be for linux/amd64.")
     installed_paths = set(value.get("installed_paths", []))
-    if installed_paths != EXPECTED_DATA_FILES:
+    if installed_paths != EXPECTED_DATA_PATHS:
         raise ValueError("Release manifest installed_paths do not match expected package paths.")
     service = value.get("service", {})
     if service.get("enabled_by_package_build") is not False or service.get("started_by_package_build") is not False:
         raise ValueError("Release manifest must show service is not enabled or started by package build.")
     if service.get("model") != "oneshot-readiness-check":
         raise ValueError("Release manifest service model must be oneshot-readiness-check.")
-    if service.get("command") != "/usr/bin/oaw-agent doctor --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json":
+    if service.get("command") != SERVICE_COMMAND:
         raise ValueError("Release manifest service command must reference the supported oaw-agent doctor command.")
+    if service.get("user") != SERVICE_USER or service.get("group") != SERVICE_GROUP:
+        raise ValueError("Release manifest service identity must be openassetwatch:openassetwatch.")
     if set(value.get("directories", [])) != ALLOWED_DATA_DIRS:
         raise ValueError("Release manifest directories do not match expected package directories.")
-    if "systemd" not in set(value.get("dependencies", [])):
-        raise ValueError("Release manifest dependencies must include systemd.")
+    if not PACKAGE_DEPENDENCIES.issubset(set(value.get("dependencies", []))):
+        raise ValueError("Release manifest dependencies must include systemd and passwd.")
     if set(value.get("maintainer_scripts", [])) != {"postinst", "postrm"}:
         raise ValueError("Release manifest maintainer_scripts must be postinst and postrm.")
+    ownership = value.get("ownership", {})
+    if set(ownership.get("openassetwatch:openassetwatch", [])) != SERVICE_OWNED_DIRS:
+        raise ValueError("Release manifest service-owned directories do not match expected layout.")
 
 
 def validate_forbidden_content(data_files: dict[str, bytes]) -> None:
     for name, data in data_files.items():
-        if name == "./usr/bin/oaw-agent":
+        if name == OPT_BINARY_PACKAGE_PATH:
             continue
         if name in {
             "./etc/openassetwatch/agent/config.example.json",
@@ -415,7 +490,13 @@ def validate_forbidden_content(data_files: dict[str, bytes]) -> None:
             raise ValueError(f"DEB data archive contains forbidden content: {name}")
 
 
-def validate_data_archive(data_files: dict[str, bytes], data_dirs: set[str], version: str) -> None:
+def validate_data_archive(
+    data_files: dict[str, bytes],
+    data_dirs: set[str],
+    data_symlinks: dict[str, str],
+    ownership: dict[str, tuple[str, str]],
+    version: str,
+) -> None:
     if set(data_files) != EXPECTED_DATA_FILES:
         missing = EXPECTED_DATA_FILES - set(data_files)
         unexpected = set(data_files) - EXPECTED_DATA_FILES
@@ -428,6 +509,15 @@ def validate_data_archive(data_files: dict[str, bytes], data_dirs: set[str], ver
     unexpected_dirs = data_dirs - ALLOWED_DATA_DIRS
     if unexpected_dirs:
         raise ValueError(f"DEB data archive contains unexpected directories: {', '.join(sorted(unexpected_dirs))}.")
+    if data_symlinks != EXPECTED_DATA_SYMLINKS:
+        raise ValueError("DEB data archive compatibility symlink does not match expected /usr/bin/oaw-agent target.")
+    for path in SERVICE_OWNED_DIRS:
+        if ownership.get(path) != (SERVICE_USER, SERVICE_GROUP):
+            raise ValueError(f"DEB data archive ownership for {path} must be {SERVICE_USER}:{SERVICE_GROUP}.")
+    if ownership.get(OPT_BINARY_PACKAGE_PATH) != (SERVICE_USER, SERVICE_GROUP):
+        raise ValueError("Packaged /opt agent binary must be owned by openassetwatch:openassetwatch.")
+    if ownership.get("./etc/openassetwatch/agent") != ("root", "root"):
+        raise ValueError("Config directory must remain root-controlled.")
     validate_example_config(data_files["./etc/openassetwatch/agent/config.example.json"])
     validate_example_identity(data_files["./etc/openassetwatch/agent/identity.example.json"])
     validate_service_unit(data_files["./lib/systemd/system/oaw-agent.service"])
@@ -442,12 +532,14 @@ def validate_deb(package_path: Path, version: str) -> None:
         raise ValueError("DEB archive must contain debian-binary, control.tar.gz, and data.tar.gz.")
     if ar_members["debian-binary"] != b"2.0\n":
         raise ValueError("DEB debian-binary member must be 2.0.")
-    control_files, control_dirs = tar_members_from_gzip(ar_members["control.tar.gz"])
+    control_files, control_dirs, control_symlinks, _control_ownership = tar_members_from_gzip(ar_members["control.tar.gz"])
     if control_dirs:
         raise ValueError("DEB control archive contains unexpected directories.")
+    if control_symlinks:
+        raise ValueError("DEB control archive contains unexpected symlinks.")
     validate_control_archive(control_files)
-    data_files, data_dirs = tar_members_from_gzip(ar_members["data.tar.gz"])
-    validate_data_archive(data_files, data_dirs, version)
+    data_files, data_dirs, data_symlinks, ownership = tar_members_from_gzip(ar_members["data.tar.gz"])
+    validate_data_archive(data_files, data_dirs, data_symlinks, ownership, version)
 
 
 def parse_args() -> argparse.Namespace:
