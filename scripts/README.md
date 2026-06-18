@@ -11,6 +11,7 @@ should not be added here.
   artifacts, validate generated release artifacts, orchestrate the local
   release flow, stage a local proof-of-layout install tree under ignored
   `dist/` paths, create a local sandbox install proof under ignored `dist/`
-  paths, remove only that local sandbox install proof, and generate metadata,
-  but must not install software, build native installers, modify services, or
-  execute package managers.
+  paths, remove only that local sandbox install proof, exercise local sandbox
+  upgrade and rollback proofs, and generate metadata, but must not install
+  software, build native installers, modify services, or execute package
+  managers.

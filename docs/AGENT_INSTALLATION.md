@@ -339,6 +339,41 @@ package-manager commands, execute service-manager commands, delete config,
 identity, logs, or status outside the sandbox install root, or modify the host
 operating system.
 
+## Local Sandbox Upgrade And Rollback Proof
+
+Use the local sandbox upgrade and rollback helper to prove version transitions
+inside ignored repo-local `dist/` paths:
+
+```powershell
+python .\scripts\release\upgrade_agent_local.py upgrade `
+  --from-version 0.1.0-local `
+  --to-version 0.1.1-local
+
+python .\scripts\release\upgrade_agent_local.py rollback `
+  --from-version 0.1.1-local `
+  --to-version 0.1.0-local
+```
+
+The helper operates only under:
+
+- `dist/local-install/agent/`
+- `dist/agent/`
+- `dist/staging/agent/`
+
+Upgrade validates the target local release package, writes backup metadata
+under ignored `dist/local-install/agent/_backups/`, and creates a new local
+sandbox install root for the target version. Rollback validates the previous
+local release package and restores the previous version into a local sandbox
+install root. Both modes preserve only sandbox placeholder directories for
+config and identity; they do not create real config values or identity values.
+
+This is not a real system upgrade or rollback. It does not remove generated
+release packages, write to Program Files, ProgramData, `/usr`, `/etc`, `/var`,
+or `/Library`, modify services, execute package-manager commands, execute
+service-manager commands, contact network services, remove config, identity,
+logs, or status outside the sandbox install root, or modify the host operating
+system.
+
 ## Agent Installation Foundation Status
 
 The current phase proves that OpenAssetWatch can build, package, validate, and
