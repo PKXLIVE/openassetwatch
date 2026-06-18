@@ -249,6 +249,8 @@ or installer behavior.
 - [ ] Signature and checksum validation behavior is defined.
 - [ ] Linux distribution detection behavior is defined.
 - [ ] Linux package format selection behavior is defined.
+- [ ] Future package scaffold templates are reviewed under
+  [packaging/agent](../packaging/agent/README.md).
 - [ ] Start, stop, restart, and status behavior is defined.
 - [ ] Retry and backoff behavior is conservative and bounded.
 - [ ] Local queue or spool behavior is defined for offline submissions.
@@ -270,6 +272,12 @@ introducing broad new capabilities.
 For future install, uninstall, upgrade, rollback, package validation, and
 enterprise deployment lifecycle planning, see
 [Agent Installation](AGENT_INSTALLATION.md).
+
+Use the [agent package scaffold](../packaging/agent/README.md) to review future
+Windows MSI, Linux `.deb`, Linux `.rpm`, Linux `.tar.gz`, and macOS package
+layout expectations before any package build automation exists. The scaffold is
+text/YAML only and does not execute package-manager commands, service-manager
+commands, installer actions, or host modifications.
 
 Use `oaw-agent service plan` to inspect the future service target for the
 current operating system before any service install, uninstall, daemon, or
@@ -429,3 +437,4 @@ The current service-planning foundation does not add:
 - [Agent Installation](AGENT_INSTALLATION.md)
 - [Local E2E Validation](LOCAL_E2E.md)
 - [Installers](INSTALLERS.md)
+- [Agent Package Scaffold](../packaging/agent/README.md)
