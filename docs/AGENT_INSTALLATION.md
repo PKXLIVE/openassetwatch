@@ -273,6 +273,50 @@ services, start services, write to host `/usr`, `/etc`, `/var`, `/lib`, `/opt`,
 or create real config values, real identity values, logs, runtime status,
 tokens, credentials, API keys, or secrets.
 
+Validate the generated `.deb` artifact without installing it:
+
+```powershell
+python .\scripts\release\validate_agent_deb.py `
+  --version 0.1.0-local
+```
+
+The validator inspects the existing package under `dist/agent/<version>/`,
+verifies the package checksum and manifest, checks expected Debian archive
+members and install paths, confirms example config and identity placeholders,
+checks the service unit, rejects unexpected maintainer files, and looks for
+forbidden package content. It does not install the package or run host
+package-manager or service-manager commands.
+
+## Disposable Linux Install Test Guidance
+
+Install testing for `.deb` packages should happen only inside a disposable
+Linux VM or container. Do not run install commands on the Windows build host or
+on a non-disposable developer workstation.
+
+Manual commands for a disposable Debian or Ubuntu test environment only:
+
+```bash
+sudo apt install ./openassetwatch-agent_<version>_amd64.deb
+test -x /usr/bin/oaw-agent
+test -f /etc/openassetwatch/agent/config.example.json
+test -f /etc/openassetwatch/agent/identity.example.json
+test -f /lib/systemd/system/oaw-agent.service
+/usr/bin/oaw-agent paths
+systemctl status oaw-agent.service
+sudo apt remove openassetwatch-agent
+```
+
+Expected checks inside the disposable Linux environment:
+
+- package files exist at the documented paths
+- the service is not automatically enabled or started by package artifact
+  creation
+- real config and identity files are not created without administrator action
+- no tokens, credentials, API keys, logs, runtime status, or secrets are
+  present in package examples
+- cleanup removes package-managed files while preserving administrator-owned
+  data according to future package lifecycle policy
+
 ## Local Install Staging
 
 Use the local install-staging helper to validate an existing local TAR.GZ

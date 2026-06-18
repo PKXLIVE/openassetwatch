@@ -95,6 +95,37 @@ uninstall, upgrade, roll back, or publish anything.
       status state, tokens, credentials, API keys, or secrets
 - [ ] generated `dist/` artifacts remain ignored and are not committed
 
+## Debian Package Validation
+
+- [ ] `scripts/release/validate_agent_deb.py` passes against the selected
+      `.deb` package
+- [ ] validator output is JSON only
+- [ ] validator output includes `ok`, `package`, `checks`, `warnings`, and
+      `errors`
+- [ ] `.deb` package exists under `dist/agent/<version>/packages/`
+- [ ] `.deb.sha256` exists next to the package
+- [ ] `.deb.manifest.json` exists next to the package
+- [ ] package checksum matches `.deb.sha256`
+- [ ] package manifest SHA256 matches the package
+- [ ] expected Debian archive members exist
+- [ ] expected data archive paths exist
+- [ ] service unit exists and runs only `/usr/bin/oaw-agent`
+- [ ] example config and identity files contain placeholders only
+- [ ] release manifest exists and matches expected package paths
+- [ ] unexpected maintainer files are refused
+- [ ] package content outside intended Linux install paths is refused
+- [ ] validator does not install the package or run package-manager or
+      service-manager commands
+
+## Disposable Linux Install Test Guidance
+
+- [ ] install tests run only inside a disposable Debian or Ubuntu VM/container
+- [ ] install commands are not run on the Windows build host
+- [ ] expected files are present after install in the disposable environment
+- [ ] service is not enabled or started as part of package artifact creation
+- [ ] real config and identity files remain administrator-controlled
+- [ ] cleanup commands are run only inside the disposable environment
+
 ## Local Install Staging
 
 - [ ] `scripts/release/stage_agent_install.py` passes against the selected
