@@ -245,6 +245,9 @@ For a scripted local validation path, including the config-backed
 For the full manual agent lifecycle and service-readiness checklist, see
 `docs/AGENT_LIFECYCLE.md`.
 
+For future install, uninstall, upgrade, rollback, and package validation
+planning, see `docs/AGENT_INSTALLATION.md`.
+
 ## Data Collected
 
 The output uses the Go inventory models and includes:

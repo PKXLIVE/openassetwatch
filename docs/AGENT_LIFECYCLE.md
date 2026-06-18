@@ -244,6 +244,10 @@ or installer behavior.
 Future service mode should wrap the existing safe command behavior instead of
 introducing broad new capabilities.
 
+For future install, uninstall, upgrade, rollback, package validation, and
+enterprise deployment lifecycle planning, see
+[Agent Installation](AGENT_INSTALLATION.md).
+
 Use `oaw-agent service plan` to inspect the future service target for the
 current operating system before any service install, uninstall, daemon, or
 scheduler implementation exists. The command is intentionally read-only.
@@ -399,5 +403,6 @@ The current service-planning foundation does not add:
 
 - [Agent Collection](AGENT_COLLECTION.md)
 - [Agent Check-In](AGENT_CHECKIN.md)
+- [Agent Installation](AGENT_INSTALLATION.md)
 - [Local E2E Validation](LOCAL_E2E.md)
 - [Installers](INSTALLERS.md)
