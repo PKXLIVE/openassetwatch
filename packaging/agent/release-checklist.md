@@ -77,6 +77,10 @@ uninstall, upgrade, roll back, or publish anything.
       package contents
 - [ ] package control metadata includes `Depends: systemd, passwd`
 - [ ] package contents include `/opt/openassetwatch/agent/bin/oaw-agent`
+- [ ] package contents include
+      `/usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show`
+- [ ] package contents include
+      `/usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show`
 - [ ] package contents include `/usr/bin/oaw-agent` as a symlink to
       `/opt/openassetwatch/agent/bin/oaw-agent`
 - [ ] package contents include
@@ -96,8 +100,13 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] `postinst` creates or reuses only the `openassetwatch` system group and
       non-interactive `openassetwatch` system user
 - [ ] `postinst` uses `/usr/sbin/nologin` for the service account shell
-- [ ] `postinst` sets ownership on `/opt/openassetwatch/agent/`,
-      `/var/lib/openassetwatch/agent/`, and `/var/log/openassetwatch/agent/`
+- [ ] `postinst` sets service ownership only on
+      `/var/lib/openassetwatch/agent/` and `/var/log/openassetwatch/agent/`
+- [ ] `/opt/openassetwatch/` and package-managed paths below it are owned by
+      `openassetwatch:openassetwatch`
+- [ ] `/usr/lib/openassetwatch/agent/libexec/` remains root-controlled
+- [ ] helper scripts are owned by `root:root` and are not writable by
+      `openassetwatch`
 - [ ] `postinst` may run `systemctl daemon-reload` and
       `systemctl enable oaw-agent.service` on the target Linux machine
 - [ ] `postinst` starts or restarts `oaw-agent.service` only when both
@@ -113,8 +122,12 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] sudoers file is owned by root in package metadata
 - [ ] sudoers file mode is `0440`
 - [ ] sudoers file applies only to the `openassetwatch` service user
-- [ ] sudoers file allows only exact read-only local discovery commands:
-      `/usr/sbin/ip neigh show` and `/usr/sbin/ip addr show`
+- [ ] sudoers file allows only exact no-argument OpenAssetWatch helper
+      scripts:
+      `/usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show` and
+      `/usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show`
+- [ ] sudoers file does not directly allow `/usr/sbin/ip neigh show` or
+      `/usr/sbin/ip addr show`
 - [ ] sudoers file does not include `NOPASSWD: ALL`, broad `ALL=(ALL) ALL`
       grants, shell/interpreter access, downloaders, package managers,
       service managers, file mutation commands, offensive tooling, wildcards,
@@ -160,16 +173,28 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] release manifest exists and matches expected package paths
 - [ ] package control metadata includes `Depends: systemd, passwd`
 - [ ] `/opt/openassetwatch/agent/bin/oaw-agent` exists in the package
+- [ ] `/usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show` exists in the
+      package
+- [ ] `/usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show` exists in the
+      package
+- [ ] helper script contents match the approved exact read-only commands
 - [ ] `/usr/bin/oaw-agent` exists as a symlink to the `/opt` binary
 - [ ] `/etc/sudoers.d/openassetwatch-agent` exists in the package
 - [ ] sudoers file uses mode `0440` and root ownership in package metadata
-- [ ] sudoers file contains only the approved `openassetwatch` command
+- [ ] sudoers file contains only the approved `openassetwatch` helper
       allowlist
+- [ ] sudoers file no longer grants direct access to raw `/usr/sbin/ip`
+      commands
 - [ ] sudoers file refuses broad grants such as `NOPASSWD: ALL` and
       `ALL=(ALL) ALL`
-- [ ] `/opt/openassetwatch/agent/`, `/var/lib/openassetwatch/agent/`, and
-      `/var/log/openassetwatch/agent/` are owned by
+- [ ] `/opt/openassetwatch/`, `/opt/openassetwatch/agent/`,
+      `/opt/openassetwatch/agent/bin/`, and
+      `/opt/openassetwatch/agent/bin/oaw-agent` are owned by
       `openassetwatch:openassetwatch`
+- [ ] `/usr/lib/openassetwatch/agent/libexec/` and helper scripts are owned
+      by `root:root`
+- [ ] `/var/lib/openassetwatch/agent/` and `/var/log/openassetwatch/agent/`
+      are owned by `openassetwatch:openassetwatch`
 - [ ] `/etc/openassetwatch/agent/` remains root-controlled
 - [ ] expected maintainer scripts are present
 - [ ] unexpected maintainer files are refused

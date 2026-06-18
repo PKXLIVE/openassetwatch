@@ -262,6 +262,8 @@ The helper writes only under ignored `dist/` output:
 The package archive is intended to contain:
 
 - `/opt/openassetwatch/agent/bin/oaw-agent`
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show`
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show`
 - `/usr/bin/oaw-agent`, as a symlink to
   `/opt/openassetwatch/agent/bin/oaw-agent`
 - `/etc/openassetwatch/agent/config.example.json`
@@ -288,8 +290,8 @@ command is invented in this package phase.
 The package may include conservative `postinst` and `postrm` maintainer
 scripts. The `postinst` script may create the `openassetwatch` system group and
 non-interactive `openassetwatch` system user with `/usr/sbin/nologin`, set
-ownership on `/opt/openassetwatch/agent/`, `/var/lib/openassetwatch/agent/`,
-and `/var/log/openassetwatch/agent/`, run `systemctl daemon-reload`, and enable
+ownership on `/var/lib/openassetwatch/agent/` and
+`/var/log/openassetwatch/agent/`, run `systemctl daemon-reload`, and enable
 `oaw-agent.service` on the target Linux machine. It may restart the service
 only when both `/etc/openassetwatch/agent/config.json` and
 `/etc/openassetwatch/agent/identity.json` already exist. If either file is
@@ -302,27 +304,30 @@ sudo permissions beyond the packaged allowlist.
 
 The package includes a root-owned sudoers file at
 `/etc/sudoers.d/openassetwatch-agent` with mode `0440`. The file applies only
-to the `openassetwatch` service user and grants `NOPASSWD` only for these exact
-read-only local discovery commands:
+to the `openassetwatch` service user and grants `NOPASSWD` only for two
+OpenAssetWatch-owned helper scripts with no arguments:
 
-- `/usr/sbin/ip neigh show`: reads the local kernel neighbor cache. This is
-  aligned with the legacy collector's passive `ip neigh` discovery path and
-  does not scan networks.
-- `/usr/sbin/ip addr show`: reads local interface and address metadata. This
-  is aligned with documented collector sudoers guidance and does not scan
-  networks.
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show`: runs exactly
+  `/usr/sbin/ip neigh show` to read the local kernel neighbor cache. It does
+  not accept arguments and does not scan networks.
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show`: runs exactly
+  `/usr/sbin/ip addr show` to read local interface and address metadata. It
+  does not accept arguments and does not scan networks.
 
 The sudoers file must not include `NOPASSWD: ALL`, broad `ALL=(ALL) ALL`
 grants, shells, interpreters, downloaders, package managers, service managers,
 file modification commands, offensive tooling, command wildcards, or arbitrary
-arguments. Commands such as `hostname`, `cat`, `readlink`, and `stat` are not
+arguments. It must not grant direct sudo access to raw `/usr/sbin/ip`
+commands. Commands such as `hostname`, `cat`, `readlink`, and `stat` are not
 included in the initial agent package allowlist because the Go agent currently
 uses Go APIs and local cache files for host identity and Linux inventory.
 
 Package ownership expectations:
 
-- `/opt/openassetwatch/agent/` is owned by
+- `/opt/openassetwatch/` and package-managed paths below it are owned by
   `openassetwatch:openassetwatch`.
+- `/usr/lib/openassetwatch/agent/libexec/` and the privileged helper scripts
+  are owned by `root:root` and are not writable by `openassetwatch`.
 - `/var/lib/openassetwatch/agent/` is owned by
   `openassetwatch:openassetwatch`.
 - `/var/log/openassetwatch/agent/` is owned by
@@ -392,8 +397,9 @@ Expected checks inside the disposable Linux environment:
   config and identity files already exist
 - real config and identity files are not created without administrator action
 - the service account is non-interactive
-- the sudoers file contains only the documented read-only local discovery
-  commands and no broad sudo grants
+- the sudoers file contains only the documented OpenAssetWatch helper scripts
+  with no arguments and no broad sudo grants
+- sudoers does not grant direct access to raw `/usr/sbin/ip` commands
 - no tokens, credentials, API keys, logs, runtime status, or secrets are
   present in package examples
 - cleanup removes package-managed files while preserving administrator-owned
