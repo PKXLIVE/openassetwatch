@@ -1,0 +1,57 @@
+# Agent Release Artifact Checklist
+
+This checklist defines the future release artifact gates for OpenAssetWatch
+agent packages. It is not an implementation and does not build, sign, install,
+uninstall, upgrade, roll back, or publish anything.
+
+## Build Inputs
+
+- [ ] version is selected from an approved release channel
+- [ ] source commit is reviewed and tagged according to release policy
+- [ ] Go agent binary build is reproducible for each supported OS/architecture
+- [ ] package manifest template is selected for the target OS
+- [ ] no secrets are present in manifests, docs, config examples, or artifacts
+
+## Package Build
+
+- [ ] package build planned for each target package type
+- [ ] Windows MSI future package layout reviewed
+- [ ] Linux `.deb` future package layout reviewed
+- [ ] Linux `.rpm` future package layout reviewed
+- [ ] Linux `.tar.gz` fallback layout reviewed
+- [ ] macOS signed/notarized package layout reviewed
+- [ ] package includes only approved binary and non-secret metadata
+- [ ] package preserves config and identity during upgrade
+- [ ] package does not delete config, identity, or logs by default
+
+## Artifact Validation
+
+- [ ] checksum generated for each artifact
+- [ ] signature placeholder or signing workflow reference documented
+- [ ] macOS notarization placeholder documented where applicable
+- [ ] SBOM placeholder documented
+- [ ] provenance attestation placeholder documented
+- [ ] package metadata paths reviewed
+- [ ] artifact names include OS, architecture, version, and package type
+
+## Lifecycle Validation
+
+- [ ] install validation planned
+- [ ] uninstall validation planned
+- [ ] upgrade validation planned
+- [ ] rollback validation planned
+- [ ] service definition review planned before service installation exists
+- [ ] `oaw-agent doctor` validation planned after install or upgrade
+- [ ] `oaw-agent status` validation planned after install or upgrade
+- [ ] `oaw-agent check-in` validation planned where backend access is available
+
+## Safety Gates
+
+- [ ] no package-manager commands are executed by the running agent
+- [ ] no service-manager commands are executed by planning commands
+- [ ] no silent self-install behavior exists
+- [ ] no silent self-upgrade behavior exists
+- [ ] no scheduler or daemon behavior is introduced by package scaffolding
+- [ ] no secrets are written to logs, config examples, identity examples, or
+      package manifests
+- [ ] no active scanning or offensive tooling is packaged

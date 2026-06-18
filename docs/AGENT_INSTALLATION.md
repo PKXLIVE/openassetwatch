@@ -101,6 +101,24 @@ Package-manager commands require explicit administrator action. The running
 agent must not execute `apt`, `dnf`, `yum`, `zypper`, `rpm`, `dpkg`, or any
 other package-manager command on its own.
 
+## Package Scaffold
+
+The future package layout scaffold lives under
+[packaging/agent](../packaging/agent/README.md). It contains documentation,
+release checklists, OS package mapping, and non-executable manifest templates
+for Windows MSI, Linux `.deb`, Linux `.rpm`, Linux `.tar.gz`, and macOS package
+planning.
+
+The scaffold is text and YAML only. It does not build packages, install
+software, uninstall software, start services, stop services, modify service
+managers, execute package managers, or create files outside the repository.
+
+Package planning references:
+
+- [Agent package scaffold](../packaging/agent/README.md)
+- [Release artifact checklist](../packaging/agent/release-checklist.md)
+- [OS package mapping](../packaging/agent/os-package-mapping.md)
+
 ## Read-Only Install Plan
 
 Use the local install plan command to inspect the recommended package and
@@ -211,6 +229,9 @@ Before install, upgrade, or rollback:
 - confirm the artifact came from an approved release pipeline
 - confirm no signing keys, enrollment tokens, license keys, API keys, or
   passwords are present in repository examples or generated config
+- review the future release checklist in
+  [packaging/agent/release-checklist.md](../packaging/agent/release-checklist.md)
+  before adding package build automation
 
 Signing keys must remain in CI/CD secret stores or signing infrastructure. They
 must not be committed to the repository or copied into installer examples.
@@ -247,3 +268,4 @@ host-modifying package or service actions explicitly.
 - [Installers](INSTALLERS.md)
 - [Signed Releases](SIGNED_RELEASES.md)
 - [Release Pipeline](RELEASE_PIPELINE.md)
+- [Agent Package Scaffold](../packaging/agent/README.md)

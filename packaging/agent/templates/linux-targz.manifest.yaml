@@ -1,0 +1,30 @@
+package:
+  name: openassetwatch-agent
+  target_os: linux
+  package_type: tar.gz
+  status: scaffold_only
+  install_model: signed_archive_or_manual_install
+  distro_family:
+    - unknown
+    - unsupported
+  binary_path: /usr/bin/oaw-agent
+  config_path: /etc/openassetwatch/agent/config.json
+  identity_path: /etc/openassetwatch/agent/identity.json
+  log_directory: /var/log/openassetwatch/agent/
+  status_file_path: /var/log/openassetwatch/agent/status.json
+  service_name: openassetwatch-agent
+  service_definition_path: /etc/systemd/system/openassetwatch-agent.service
+  package_metadata_path: explicit_admin_manifest_only
+validation:
+  checksum: required
+  signature: required_ci_secret_reference_only
+  sbom: planned
+  provenance: planned
+safety:
+  executable_installer_commands: none
+  service_manager_commands: none
+  package_manager_commands: none
+  secrets: none
+  notes:
+    - Template only. This repository file does not extract or install an archive.
+    - Manual install actions require explicit administrator control.

@@ -7,7 +7,12 @@ OpenAssetWatch. It is not fully implemented yet.
 
 - Go commands and package layout exist as a foundation.
 - Installer scripts exist for Linux, macOS, Windows, and Docker shape review.
+- Agent package scaffolding exists under
+  [packaging/agent](../packaging/agent/README.md) for future Windows MSI,
+  Linux `.deb`, Linux `.rpm`, Linux `.tar.gz`, and macOS package planning.
 - No native signed packages are produced yet.
+- No package build, installer execution, service installation, or
+  package-manager execution is implemented by the scaffold.
 - No signing keys or credentials are stored in the repository.
 
 ## Target Pipeline

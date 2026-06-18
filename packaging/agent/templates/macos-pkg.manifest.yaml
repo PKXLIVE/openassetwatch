@@ -1,0 +1,28 @@
+package:
+  name: openassetwatch-agent
+  target_os: darwin
+  package_type: pkg
+  status: scaffold_only
+  install_model: signed_and_notarized_package
+  binary_path: /usr/local/bin/oaw-agent
+  config_path: /etc/openassetwatch/agent/config.json
+  identity_path: /etc/openassetwatch/agent/identity.json
+  log_directory: /var/log/openassetwatch/agent/
+  status_file_path: /var/log/openassetwatch/agent/status.json
+  service_name: com.openassetwatch.agent
+  service_definition_path: /Library/LaunchDaemons/com.openassetwatch.agent.plist
+  package_metadata_path: /var/db/receipts/com.openassetwatch.agent.*
+validation:
+  checksum: required
+  signature: required_ci_secret_reference_only
+  notarization: required_ci_secret_reference_only
+  sbom: planned
+  provenance: planned
+safety:
+  executable_installer_commands: none
+  service_manager_commands: none
+  package_manager_commands: none
+  secrets: none
+  notes:
+    - Template only. This repository file does not build or run a macOS package.
+    - Signing and notarization credentials must remain outside the repository.

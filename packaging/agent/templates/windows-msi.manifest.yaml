@@ -1,0 +1,27 @@
+package:
+  name: openassetwatch-agent
+  target_os: windows
+  package_type: msi
+  status: scaffold_only
+  install_model: signed_msi_or_enterprise_deployment
+  binary_path: "C:\\Program Files\\OpenAssetWatch\\oaw-agent.exe"
+  config_path: "%ProgramData%\\OpenAssetWatch\\agent\\config.json"
+  identity_path: "%ProgramData%\\OpenAssetWatch\\agent\\identity.json"
+  log_directory: "%ProgramData%\\OpenAssetWatch\\agent\\logs\\"
+  status_file_path: "%ProgramData%\\OpenAssetWatch\\agent\\logs\\status.json"
+  service_name: OpenAssetWatchAgent
+  service_definition_path: Windows Service Control Manager metadata
+  package_metadata_path: Windows Installer product database
+validation:
+  checksum: required
+  signature: required_ci_secret_reference_only
+  sbom: planned
+  provenance: planned
+safety:
+  executable_installer_commands: none
+  service_manager_commands: none
+  package_manager_commands: none
+  secrets: none
+  notes:
+    - Template only. This repository file does not build or run an MSI.
+    - Signing keys and enrollment material must remain outside the repository.
