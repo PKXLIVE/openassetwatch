@@ -57,6 +57,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "paths" {
 		return runPaths(args[1:], stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == "doctor" {
+		return runDoctor(args[1:], stdout, stderr)
+	}
 
 	var configPath string
 	var siteID string
@@ -319,6 +322,234 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 
 	fmt.Fprintf(stdout, "submitted local inventory collection: HTTP %d\n", statusCode)
 	return 0
+}
+
+type doctorReport struct {
+	OK       bool          `json:"ok"`
+	Checks   []doctorCheck `json:"checks"`
+	Warnings []string      `json:"warnings"`
+	Errors   []string      `json:"errors"`
+}
+
+type doctorCheck struct {
+	Name    string `json:"name"`
+	OK      bool   `json:"ok"`
+	Path    string `json:"path,omitempty"`
+	Source  string `json:"source,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+func runDoctor(args []string, stdout io.Writer, stderr io.Writer) int {
+	var configPath string
+	var identityPath string
+
+	flags := flag.NewFlagSet("oaw-agent doctor", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&configPath, "config", "", "optional non-secret local agent config JSON file")
+	flags.StringVar(&identityPath, "identity-file", "", "optional non-secret local agent identity JSON file")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "oaw-agent doctor does not accept positional arguments")
+		return 2
+	}
+
+	report := buildDoctorReport(configPath, identityPath)
+	if err := output.WriteJSON(stdout, report); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if !report.OK {
+		return 1
+	}
+	return 0
+}
+
+func buildDoctorReport(configPath string, identityPath string) doctorReport {
+	report := doctorReport{
+		Checks:   []doctorCheck{},
+		Warnings: []string{},
+		Errors:   []string{},
+	}
+
+	defaults := defaultAgentPaths()
+	resolvedConfigPath, configSource := resolveDoctorPath(configPath, defaults.ConfigPath)
+	resolvedIdentityPath, identitySource := resolveDoctorPath(identityPath, defaults.IdentityPath)
+
+	configPathOK := strings.TrimSpace(resolvedConfigPath) != ""
+	report.addCheck("config_path_resolved", configPathOK, resolvedConfigPath, configSource, boolMessage(configPathOK, "config path resolved", "config path is unavailable"))
+	if !configPathOK {
+		report.addError("config path is unavailable")
+	}
+
+	identityPathOK := strings.TrimSpace(resolvedIdentityPath) != ""
+	report.addCheck("identity_path_resolved", identityPathOK, resolvedIdentityPath, identitySource, boolMessage(identityPathOK, "identity path resolved", "identity path is unavailable"))
+	if !identityPathOK {
+		report.addError("identity path is unavailable")
+	}
+
+	if configPathOK {
+		report.inspectConfig(resolvedConfigPath)
+	}
+	if identityPathOK {
+		report.inspectIdentity(resolvedIdentityPath)
+	}
+
+	report.OK = len(report.Errors) == 0
+	return report
+}
+
+func resolveDoctorPath(explicitPath string, defaultPath string) (string, string) {
+	if strings.TrimSpace(explicitPath) != "" {
+		return strings.TrimSpace(explicitPath), "explicit"
+	}
+	return strings.TrimSpace(defaultPath), "default"
+}
+
+func (report *doctorReport) inspectConfig(path string) {
+	if config.IsQuarantinedPath(path) {
+		report.addCheck("config_file_exists", false, path, "", "config path is not allowed")
+		report.addError("config path is not allowed")
+		return
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			report.addCheck("config_file_exists", false, path, "", "config file is missing")
+			report.addError("config file is missing")
+			return
+		}
+		report.addCheck("config_file_exists", false, path, "", "config file could not be inspected")
+		report.addError("config file could not be inspected")
+		return
+	}
+	if info.IsDir() {
+		report.addCheck("config_file_exists", false, path, "", "config path is a directory")
+		report.addError("config path is a directory")
+		return
+	}
+	report.addCheck("config_file_exists", true, path, "", "config file exists")
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		report.addCheck("config_file_parses", false, path, "", "config file could not be read")
+		report.addError("config file could not be read")
+		return
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		report.addCheck("config_file_parses", false, path, "", "config file is malformed JSON")
+		report.addError("config file is malformed JSON")
+		return
+	}
+	report.addCheck("config_file_parses", true, path, "", "config file parses")
+
+	serverURL, hasServerURL := jsonStringField(raw, "server_url")
+	report.addCheck("config_has_server_url", hasServerURL, path, "", boolMessage(hasServerURL, "config contains server_url", "config server_url is missing"))
+	if !hasServerURL {
+		report.addError("config server_url is missing")
+	} else if err := agentconfig.ValidateServerURL(serverURL); err != nil {
+		report.addCheck("config_server_url_valid", false, path, "", "config server_url is invalid")
+		report.addError("config server_url is invalid")
+	} else {
+		report.addCheck("config_server_url_valid", true, path, "", "config server_url is valid")
+	}
+
+	_, hasSiteID := jsonStringField(raw, "site_id")
+	report.addCheck("config_has_site_id", hasSiteID, path, "", boolMessage(hasSiteID, "config contains site_id", "config site_id is missing"))
+	if !hasSiteID {
+		report.addError("config site_id is missing")
+	}
+}
+
+func (report *doctorReport) inspectIdentity(path string) {
+	if config.IsQuarantinedPath(path) {
+		report.addCheck("identity_file_exists", false, path, "", "identity path is not allowed")
+		report.addError("identity path is not allowed")
+		return
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			report.addCheck("identity_file_exists", false, path, "", "identity file is missing")
+			report.addError("identity file is missing")
+			return
+		}
+		report.addCheck("identity_file_exists", false, path, "", "identity file could not be inspected")
+		report.addError("identity file could not be inspected")
+		return
+	}
+	if info.IsDir() {
+		report.addCheck("identity_file_exists", false, path, "", "identity path is a directory")
+		report.addError("identity path is a directory")
+		return
+	}
+	report.addCheck("identity_file_exists", true, path, "", "identity file exists")
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		report.addCheck("identity_file_parses", false, path, "", "identity file could not be read")
+		report.addError("identity file could not be read")
+		return
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		report.addCheck("identity_file_parses", false, path, "", "identity file is malformed JSON")
+		report.addError("identity file is malformed JSON")
+		return
+	}
+	report.addCheck("identity_file_parses", true, path, "", "identity file parses")
+
+	_, hasSiteID := jsonStringField(raw, "site_id")
+	report.addCheck("identity_has_site_id", hasSiteID, path, "", boolMessage(hasSiteID, "identity contains site_id", "identity site_id is missing"))
+	if !hasSiteID {
+		report.addError("identity site_id is missing")
+	}
+
+	_, hasAgentID := jsonStringField(raw, "agent_id")
+	report.addCheck("identity_has_agent_id", hasAgentID, path, "", boolMessage(hasAgentID, "identity contains agent_id", "identity agent_id is missing"))
+	if !hasAgentID {
+		report.addError("identity agent_id is missing")
+	}
+}
+
+func (report *doctorReport) addCheck(name string, ok bool, path string, source string, message string) {
+	report.Checks = append(report.Checks, doctorCheck{
+		Name:    name,
+		OK:      ok,
+		Path:    path,
+		Source:  source,
+		Message: message,
+	})
+}
+
+func (report *doctorReport) addError(message string) {
+	report.Errors = append(report.Errors, message)
+}
+
+func jsonStringField(raw map[string]json.RawMessage, name string) (string, bool) {
+	value, ok := raw[name]
+	if !ok {
+		return "", false
+	}
+	var decoded string
+	if err := json.Unmarshal(value, &decoded); err != nil {
+		return "", false
+	}
+	decoded = strings.TrimSpace(decoded)
+	return decoded, decoded != ""
+}
+
+func boolMessage(ok bool, yes string, no string) string {
+	if ok {
+		return yes
+	}
+	return no
 }
 
 func loadCollectConfig(configPath string, siteID string, identityPath string) (config.Config, *agentidentity.Identity, error) {

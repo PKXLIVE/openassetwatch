@@ -153,6 +153,26 @@ tries the default identity path first. If that file is missing and a default
 config file exists, collection uses config `site_id`. It does not create
 privileged directories or config files during collection.
 
+## Local Setup Doctor
+
+Use `doctor` to validate local config and identity files before collection,
+check-in, submit, or future service-style workflows:
+
+```powershell
+go run ./cmd/oaw-agent doctor
+```
+
+With explicit temporary files:
+
+```powershell
+go run ./cmd/oaw-agent doctor --config config.json --identity-file identity.json
+```
+
+`doctor` emits JSON only. It checks local file paths, existence, parsing, and
+required non-secret fields such as `server_url`, `site_id`, and `agent_id`. It
+does not create files, modify files, contact the backend, collect inventory, or
+perform active network activity.
+
 ## Submit To Backend
 
 Once the backend is running, saved local collection JSON can be submitted to

@@ -208,6 +208,27 @@ The `check-in` command:
 - does not default to an external service URL
 - does not retry aggressively or run as a daemon
 
+## Local Setup Doctor
+
+Before running manual check-in or future service-style workflows, validate the
+local non-secret setup with:
+
+```powershell
+go run ./cmd/oaw-agent doctor
+```
+
+Use explicit files when testing temporary or installer-provided paths:
+
+```powershell
+go run ./cmd/oaw-agent doctor --config config.json --identity-file identity.json
+```
+
+`doctor` writes a JSON summary with `ok`, `checks`, `warnings`, and `errors`.
+It checks only local setup: resolved config and identity paths, file existence,
+JSON parsing, `server_url`, `site_id`, and `agent_id` presence. It does not
+contact the backend, create files, modify files, print request or response
+bodies, or read enrollment tokens.
+
 For a local validation helper that can run identity init, config init,
 check-in, collection, and submit against a local backend, see
 `docs/LOCAL_E2E.md`.
