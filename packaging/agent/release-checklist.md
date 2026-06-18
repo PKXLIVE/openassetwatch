@@ -45,6 +45,23 @@ uninstall, upgrade, roll back, or publish anything.
       credentials, logs, status files, service definitions, or generated
       secrets
 
+## Release Validation
+
+- [ ] `scripts/release/validate_agent_release.ps1` passes for the selected
+      version
+- [ ] validation output is JSON only
+- [ ] binary artifact directories exist
+- [ ] binary SHA256 checksum files match binaries and manifests
+- [ ] binary manifests contain required fields
+- [ ] package validation runs with `-IncludePackages` when TAR.GZ output is
+      expected
+- [ ] TAR.GZ package checksums match packages and manifests
+- [ ] TAR.GZ package manifests contain required fields
+- [ ] TAR.GZ archives do not contain config files, identity files, enrollment
+      tokens, credentials, logs, status files, service definitions, or
+      generated secrets
+- [ ] generated `dist/` artifacts remain ignored and are not committed
+
 ## Package Build
 
 - [ ] package build planned for each target package type

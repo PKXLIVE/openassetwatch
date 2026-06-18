@@ -18,6 +18,9 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/package_agent_targz.ps1](../scripts/release/package_agent_targz.ps1).
   It consumes an existing `oaw-agent` dist artifact directory and writes only
   `.tar.gz`, SHA256, and package manifest output under ignored `dist/` paths.
+- Local release artifact validation exists through
+  [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
+  It verifies existing dist/package artifacts and emits JSON only.
 - No native signed packages are produced yet.
 - No package build, installer execution, service installation, or
   package-manager execution is implemented by the scaffold.
@@ -76,6 +79,34 @@ build MSI, DEB, RPM, or PKG packages. It does not install software, modify the
 OS, write service definitions to system paths, run package-manager commands,
 run service-manager commands, contact external services, include generated
 config or identity files, include logs, or store secrets.
+
+## Local Release Artifact Validation
+
+Use the local release validator to check existing dist output:
+
+```powershell
+.\scripts\release\validate_agent_release.ps1 `
+  -Version 0.1.0-local `
+  -IncludePackages
+```
+
+The validator reads `dist/agent/<version>/` and writes JSON only:
+
+- `ok`
+- `checks`
+- `warnings`
+- `errors`
+
+It verifies binary artifact directories, agent binary files, binary checksum
+files, binary manifests, package archives when `-IncludePackages` is supplied,
+package checksums, package manifests, and TAR.GZ archive contents. It checks
+that archives do not contain config files, identity files, logs, status files,
+service definitions, tokens, secrets, or credentials.
+
+The validator does not build installers, build native packages, install
+software, modify the OS, write service definitions, execute package-manager
+commands, execute service-manager commands, contact network services, or store
+secrets.
 
 ## Target Pipeline
 
