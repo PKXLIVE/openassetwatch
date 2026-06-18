@@ -236,6 +236,36 @@ Before install, upgrade, or rollback:
 Signing keys must remain in CI/CD secret stores or signing infrastructure. They
 must not be committed to the repository or copied into installer examples.
 
+## Local Install Staging
+
+Use the local install-staging helper to validate an existing local TAR.GZ
+package and expand it into a repo-local proof layout:
+
+```powershell
+python .\scripts\release\stage_agent_install.py `
+  --version 0.1.0-local
+```
+
+The default staging root is:
+
+`dist/staging/agent/<version>/<os>-<arch>/`
+
+The staged layout contains:
+
+- `binary/`
+- `config/`
+- `identity/`
+- `logs/`
+- `status/`
+- `service/`
+- `package-metadata/`
+
+This is not a real system install. It proves the future installed layout
+without writing to Program Files, ProgramData, `/usr`, `/etc`, `/var`,
+`/Library`, service-manager paths, or package-manager metadata paths. The
+helper does not create real config values, identity values, logs, runtime
+status files, service definitions, tokens, credentials, or secrets.
+
 ## Safety Boundaries
 
 The future installation lifecycle must preserve OpenAssetWatch's defensive

@@ -9,5 +9,6 @@ should not be added here.
 - `release/`: local release artifact helpers. These may build local binaries
   into ignored `dist/` paths, create local TAR.GZ archives from existing dist
   artifacts, validate generated release artifacts, orchestrate the local
-  release flow, and generate metadata, but must not install software, build
+  release flow, stage a local proof-of-layout install tree under ignored
+  `dist/` paths, and generate metadata, but must not install software, build
   native installers, modify services, or execute package managers.

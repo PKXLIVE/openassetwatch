@@ -28,6 +28,10 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/release_agent_local.ps1](../scripts/release/release_agent_local.ps1).
   It runs the local binary build, TAR.GZ wrapping, and release validation
   helpers together and emits JSON only.
+- Local install staging exists through
+  [scripts/release/stage_agent_install.py](../scripts/release/stage_agent_install.py).
+  It validates an existing local TAR.GZ package and expands it only under
+  ignored `dist/staging/` paths to prove the future installed layout.
 - No native signed packages are produced yet.
 - No package build, installer execution, service installation, or
   package-manager execution is implemented by the scaffold.
@@ -144,6 +148,38 @@ Generated artifacts remain under ignored `dist/` paths. The orchestrator does
 not build MSI, DEB, RPM, or PKG packages. It does not install software, modify
 the OS, write service definitions, execute package-manager commands, execute
 service-manager commands, contact network services, or store secrets.
+
+## Local Install Staging
+
+Use the local install-staging helper to validate an existing TAR.GZ package and
+expand it into a repo-local proof layout:
+
+```powershell
+python .\scripts\release\stage_agent_install.py `
+  --version 0.1.0-local
+```
+
+By default the helper writes under:
+
+- `dist/staging/agent/<version>/<os>-<arch>/binary/`
+- `dist/staging/agent/<version>/<os>-<arch>/config/`
+- `dist/staging/agent/<version>/<os>-<arch>/identity/`
+- `dist/staging/agent/<version>/<os>-<arch>/logs/`
+- `dist/staging/agent/<version>/<os>-<arch>/status/`
+- `dist/staging/agent/<version>/<os>-<arch>/service/`
+- `dist/staging/agent/<version>/<os>-<arch>/package-metadata/`
+
+The helper emits JSON only with `ok`, `package`, `staging_dir`, `files`,
+`checks`, `warnings`, and `errors`. It validates the package checksum,
+manifest fields, archive paths, and forbidden archive entries before writing
+the staging tree.
+
+This is not a real system install. It does not write to Program Files,
+ProgramData, `/usr`, `/etc`, `/var`, `/Library`, or other system paths. It
+does not register services, start services, stop services, execute
+package-manager commands, execute service-manager commands, contact network
+services, write real config or identity values, write logs, write runtime
+status, or store secrets.
 
 ## Target Pipeline
 
