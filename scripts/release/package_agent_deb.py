@@ -295,6 +295,13 @@ def postinst_script() -> bytes:
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
             'if command -v systemctl >/dev/null 2>&1; then',
             "    systemctl daemon-reload || true",
+            "    systemctl enable oaw-agent.service || true",
+            (
+                "    if [ -f /etc/openassetwatch/agent/config.json ] "
+                "&& [ -f /etc/openassetwatch/agent/identity.json ]; then"
+            ),
+            "        systemctl restart oaw-agent.service || true",
+            "    fi",
             "fi",
             "exit 0",
             "",
@@ -433,6 +440,10 @@ def release_manifest(
             "group": SERVICE_GROUP,
             "enabled_by_package_build": False,
             "started_by_package_build": False,
+            "enabled_by_package_install": True,
+            "started_by_package_install": "only_when_config_and_identity_exist",
+            "config_required_for_start": "/etc/openassetwatch/agent/config.json",
+            "identity_required_for_start": "/etc/openassetwatch/agent/identity.json",
         },
         "directories": list(EXPECTED_DATA_DIRS),
         "ownership": {
@@ -673,9 +684,6 @@ def validate_maintainer_script(name: str, contents: bytes) -> None:
     if text != expected:
         raise ValueError(f"{name} maintainer script must match the approved service-account template.")
     forbidden = (
-        " enable ",
-        " start ",
-        " restart ",
         " reload-or-restart ",
         " apt",
         " dpkg",
@@ -691,6 +699,12 @@ def validate_maintainer_script(name: str, contents: bytes) -> None:
     if found:
         raise ValueError(f"{name} maintainer script contains unsafe command text: {', '.join(found)}.")
     if name == "postinst":
+        guarded_restart = (
+            "    if [ -f /etc/openassetwatch/agent/config.json ] "
+            "&& [ -f /etc/openassetwatch/agent/identity.json ]; then\n"
+            "        systemctl restart oaw-agent.service || true\n"
+            "    fi"
+        )
         required = (
             f"groupadd --system {SERVICE_GROUP}",
             f"useradd --system --gid {SERVICE_GROUP}",
@@ -698,12 +712,22 @@ def validate_maintainer_script(name: str, contents: bytes) -> None:
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /opt/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
+            "systemctl daemon-reload || true",
+            "systemctl enable oaw-agent.service || true",
+            guarded_restart,
         )
         for item in required:
             if item not in text:
                 raise ValueError(f"postinst missing expected service account command text: {item}")
-    elif any(item in text for item in ("useradd", "groupadd", "chown")):
-        raise ValueError("postrm must not create users, groups, or change ownership.")
+        if "systemctl start oaw-agent.service" in text:
+            raise ValueError("postinst must not start the service unconditionally.")
+        if text.count("systemctl restart oaw-agent.service || true") != 1:
+            raise ValueError("postinst must contain exactly one guarded service restart.")
+    elif name == "postrm":
+        if any(item in text for item in ("useradd", "groupadd", "chown")):
+            raise ValueError("postrm must not create users, groups, or change ownership.")
+        if any(item in text for item in ("enable", "start", "restart", "stop")):
+            raise ValueError("postrm must not enable, start, restart, or stop services.")
 
 
 def validate_sudoers_file(contents: bytes) -> None:
@@ -843,6 +867,19 @@ def write_package_metadata(
         "contents": list(EXPECTED_DATA_PATHS),
         "directories": list(EXPECTED_DATA_DIRS),
         "symlinks": dict(EXPECTED_DATA_SYMLINKS),
+        "service": {
+            "path": "/lib/systemd/system/oaw-agent.service",
+            "model": "oneshot-readiness-check",
+            "command": SERVICE_COMMAND,
+            "user": SERVICE_USER,
+            "group": SERVICE_GROUP,
+            "enabled_by_package_build": False,
+            "started_by_package_build": False,
+            "enabled_by_package_install": True,
+            "started_by_package_install": "only_when_config_and_identity_exist",
+            "config_required_for_start": "/etc/openassetwatch/agent/config.json",
+            "identity_required_for_start": "/etc/openassetwatch/agent/identity.json",
+        },
         "sudoers": {
             "path": SUDOERS_INSTALL_PATH,
             "mode": "0440",

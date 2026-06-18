@@ -251,6 +251,23 @@ def validate_package_metadata(repo_root: Path, package_path: Path, version: str)
     symlinks = manifest.get("symlinks", {})
     if symlinks != EXPECTED_DATA_SYMLINKS:
         raise ValueError("DEB package manifest symlinks do not match expected compatibility links.")
+    service = manifest.get("service", {})
+    if service.get("model") != "oneshot-readiness-check":
+        raise ValueError("DEB package manifest service model must be oneshot-readiness-check.")
+    if service.get("command") != SERVICE_COMMAND:
+        raise ValueError("DEB package manifest service command must reference the supported oaw-agent doctor command.")
+    if service.get("user") != SERVICE_USER or service.get("group") != SERVICE_GROUP:
+        raise ValueError("DEB package manifest service identity must be openassetwatch:openassetwatch.")
+    if service.get("enabled_by_package_build") is not False or service.get("started_by_package_build") is not False:
+        raise ValueError("DEB package manifest must show service is not enabled or started by package build.")
+    if service.get("enabled_by_package_install") is not True:
+        raise ValueError("DEB package manifest must show service is enabled by package install.")
+    if service.get("started_by_package_install") != "only_when_config_and_identity_exist":
+        raise ValueError("DEB package manifest must show service start is guarded by config and identity files.")
+    if service.get("config_required_for_start") != "/etc/openassetwatch/agent/config.json":
+        raise ValueError("DEB package manifest config_required_for_start mismatch.")
+    if service.get("identity_required_for_start") != "/etc/openassetwatch/agent/identity.json":
+        raise ValueError("DEB package manifest identity_required_for_start mismatch.")
     sudoers = manifest.get("sudoers", {})
     if sudoers.get("path") != SUDOERS_INSTALL_PATH:
         raise ValueError("DEB package manifest sudoers path mismatch.")
@@ -363,6 +380,13 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
             'if command -v systemctl >/dev/null 2>&1; then',
             "    systemctl daemon-reload || true",
+            "    systemctl enable oaw-agent.service || true",
+            (
+                "    if [ -f /etc/openassetwatch/agent/config.json ] "
+                "&& [ -f /etc/openassetwatch/agent/identity.json ]; then"
+            ),
+            "        systemctl restart oaw-agent.service || true",
+            "    fi",
             "fi",
             "exit 0",
             "",
@@ -383,9 +407,6 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
     if text != expected:
         raise ValueError(f"{name} maintainer script must match the approved service-account template.")
     forbidden = (
-        " enable ",
-        " start ",
-        " restart ",
         " reload-or-restart ",
         " apt",
         " dpkg",
@@ -401,6 +422,12 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
     if found:
         raise ValueError(f"{name} maintainer script contains unsafe command text: {', '.join(found)}.")
     if name == "postinst":
+        guarded_restart = (
+            "    if [ -f /etc/openassetwatch/agent/config.json ] "
+            "&& [ -f /etc/openassetwatch/agent/identity.json ]; then\n"
+            "        systemctl restart oaw-agent.service || true\n"
+            "    fi"
+        )
         required = (
             f"groupadd --system {SERVICE_GROUP}",
             f"useradd --system --gid {SERVICE_GROUP}",
@@ -408,12 +435,22 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /opt/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
+            "systemctl daemon-reload || true",
+            "systemctl enable oaw-agent.service || true",
+            guarded_restart,
         )
         for item in required:
             if item not in text:
                 raise ValueError(f"postinst missing expected service account command text: {item}")
-    elif any(item in text for item in ("useradd", "groupadd", "chown")):
-        raise ValueError("postrm must not create users, groups, or change ownership.")
+        if "systemctl start oaw-agent.service" in text:
+            raise ValueError("postinst must not start the service unconditionally.")
+        if text.count("systemctl restart oaw-agent.service || true") != 1:
+            raise ValueError("postinst must contain exactly one guarded service restart.")
+    elif name == "postrm":
+        if any(item in text for item in ("useradd", "groupadd", "chown")):
+            raise ValueError("postrm must not create users, groups, or change ownership.")
+        if any(item in text for item in ("enable", "start", "restart", "stop")):
+            raise ValueError("postrm must not enable, start, restart, or stop services.")
 
 
 def validate_sudoers_file(data: bytes) -> None:
@@ -517,6 +554,14 @@ def validate_release_manifest(data: bytes, version: str) -> None:
     service = value.get("service", {})
     if service.get("enabled_by_package_build") is not False or service.get("started_by_package_build") is not False:
         raise ValueError("Release manifest must show service is not enabled or started by package build.")
+    if service.get("enabled_by_package_install") is not True:
+        raise ValueError("Release manifest must show service is enabled by package install.")
+    if service.get("started_by_package_install") != "only_when_config_and_identity_exist":
+        raise ValueError("Release manifest must show service start is guarded by config and identity files.")
+    if service.get("config_required_for_start") != "/etc/openassetwatch/agent/config.json":
+        raise ValueError("Release manifest config_required_for_start mismatch.")
+    if service.get("identity_required_for_start") != "/etc/openassetwatch/agent/identity.json":
+        raise ValueError("Release manifest identity_required_for_start mismatch.")
     if service.get("model") != "oneshot-readiness-check":
         raise ValueError("Release manifest service model must be oneshot-readiness-check.")
     if service.get("command") != SERVICE_COMMAND:
