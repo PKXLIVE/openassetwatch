@@ -181,6 +181,41 @@ package-manager commands, execute service-manager commands, contact network
 services, write real config or identity values, write logs, write runtime
 status, or store secrets.
 
+## Agent Installation Foundation Status
+
+The current phase proves that OpenAssetWatch can build, package, validate, and
+stage an agent release safely without modifying the host operating system.
+
+Complete for this phase:
+
+- [x] agent dist artifact generation
+- [x] SHA256 checksum generation
+- [x] binary manifest generation
+- [x] TAR.GZ package creation
+- [x] TAR.GZ checksum generation
+- [x] package manifest generation
+- [x] local release orchestration helper
+- [x] release validation helper
+- [x] local install-staging helper
+- [x] proof install layout under ignored `dist/staging/`
+
+Future work:
+
+- [ ] real OS installation
+- [ ] writing to Program Files, ProgramData, `/usr`, `/etc`, `/var`, or
+  `/Library`
+- [ ] service installation
+- [ ] daemon or service runtime
+- [ ] scheduling
+- [ ] `.deb` package build
+- [ ] `.rpm` package build
+- [ ] Windows MSI
+- [ ] macOS signed/notarized package
+- [ ] package-manager execution
+- [ ] service-manager execution
+- [ ] self-update
+- [ ] licensing enforcement
+
 ## Target Pipeline
 
 1. Run repository safety checks.
