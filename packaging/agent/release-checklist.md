@@ -26,6 +26,25 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] generated `dist/` artifacts are not committed
 - [ ] local binary generation does not build installers or native packages
 
+## TAR.GZ Package Metadata
+
+- [ ] source artifact directory exists under
+      `dist/agent/<version>/<os>-<arch>/`
+- [ ] source artifact directory contains exactly one binary manifest
+- [ ] source artifact checksum matches the binary manifest
+- [ ] TAR.GZ package is written under ignored
+      `dist/agent/<version>/packages/`
+- [ ] package SHA256 checksum file is generated
+- [ ] package manifest is generated
+- [ ] package manifest includes package name, version, OS, architecture,
+      package type, source artifact path, package path, SHA256, build
+      timestamp, and git commit when available
+- [ ] archive contains only the agent binary, binary checksum, binary manifest,
+      and safe README notes
+- [ ] archive does not include config files, identity files, enrollment tokens,
+      credentials, logs, status files, service definitions, or generated
+      secrets
+
 ## Package Build
 
 - [ ] package build planned for each target package type

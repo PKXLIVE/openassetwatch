@@ -66,6 +66,27 @@ TAR.GZ packages, install software, write service definitions, execute
 package-manager commands, execute service-manager commands, or contact network
 services.
 
+## Local TAR.GZ Package Wrapper
+
+The local TAR.GZ helper
+[`scripts/release/package_agent_targz.ps1`](../../scripts/release/package_agent_targz.ps1)
+can wrap an existing local dist artifact directory into a reviewable archive:
+
+```powershell
+.\scripts\release\package_agent_targz.ps1 `
+  -ArtifactDir dist\agent\0.1.0-local\linux-amd64
+```
+
+The helper writes the `.tar.gz`, package checksum, and package manifest under
+`dist/agent/<version>/packages/`. Archive contents are limited to the agent
+binary, binary checksum, binary manifest, and safe README notes. It does not
+include generated config files, identity files, enrollment tokens, credentials,
+logs, local status files, or service definitions.
+
+This helper does not build MSI, DEB, RPM, or PKG packages. It does not install
+software, modify the OS, run package-manager commands, run service-manager
+commands, or contact network services.
+
 ## Related Docs
 
 - [Agent Installation Lifecycle](../../docs/AGENT_INSTALLATION.md)
