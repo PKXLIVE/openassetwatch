@@ -102,7 +102,28 @@ last known status file exist. It is a read-only local setup snapshot. It does
 not create files or directories, write logs, contact the backend, or run a
 backend health check.
 
-### 6. Check In
+### 6. Review Future Service Plan
+
+```powershell
+go run ./cmd/oaw-agent service plan
+```
+
+`service plan` writes JSON only. It reports the current operating system's
+future service target, service name, expected binary path, config path,
+identity path, log directory, status file path, and service definition path
+where known.
+
+On Linux, it may read `/etc/os-release` and infer the future package family:
+
+- Debian and Ubuntu: `deb`
+- RHEL, Rocky Linux, AlmaLinux, CentOS, Fedora, SUSE, and openSUSE: `rpm`
+- unknown or unsupported Linux: `tar.gz/manual`
+
+It does not create files or directories, install packages, run service-manager
+commands, run package-manager commands, start services, stop services, schedule
+work, contact the backend, or run a backend health check.
+
+### 7. Check In
 
 ```powershell
 go run ./cmd/oaw-agent check-in --identity-file identity.json --config config.json
@@ -112,7 +133,7 @@ Check-in sends identity and health metadata to
 `/api/v1/agents/check-in`. It does not perform collection, active probing, or
 remote command execution.
 
-### 7. Collect Inventory
+### 8. Collect Inventory
 
 ```powershell
 go run ./cmd/oaw-agent collect --once --identity-file identity.json --config config.json --output inventory.json
@@ -123,7 +144,7 @@ interface, gateway, and local neighbor-cache observations where available.
 It does not perform CIDR discovery, port checks, packet injection, credential
 collection, or external service calls.
 
-### 8. Submit Inventory
+### 9. Submit Inventory
 
 ```powershell
 go run ./cmd/oaw-agent submit --file inventory.json --config config.json
@@ -134,7 +155,7 @@ Submit posts the local inventory JSON to
 and does not add enrollment tokens, arbitrary headers, retries, scheduling, or
 daemon behavior.
 
-### 9. Run Local E2E Helper
+### 10. Run Local E2E Helper
 
 Default local collect and submit flow:
 
@@ -163,6 +184,8 @@ or installer behavior.
 - [ ] `oaw-agent doctor` passes before service registration or first run.
 - [ ] `oaw-agent status` reports the expected local config, identity, log, and
   status-file locations.
+- [ ] `oaw-agent service plan` reports the expected future service target and
+  planned paths without modifying the host.
 - [ ] Backend URL is configured through non-secret config.
 - [ ] Check-in succeeds against the intended backend.
 - [ ] Local collection succeeds without elevated privileges where possible.
@@ -195,6 +218,10 @@ or installer behavior.
 
 Future service mode should wrap the existing safe command behavior instead of
 introducing broad new capabilities.
+
+Use `oaw-agent service plan` to inspect the future service target for the
+current operating system before any service install, uninstall, daemon, or
+scheduler implementation exists. The command is intentionally read-only.
 
 ### Windows Service
 
@@ -322,13 +349,16 @@ Future service mode must preserve OpenAssetWatch's current agent safety model:
 
 ## Non-Goals In This Branch
 
-This branch documents readiness only. It does not add:
+The current service-planning foundation does not add:
 
 - daemon code
 - scheduler code
 - installer code
 - service wrappers
 - background execution
+- service install or uninstall code
+- service start or stop behavior
+- package-manager execution
 - licensing enforcement
 - UI work
 - credential storage
