@@ -14,6 +14,10 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/build_agent_dist.ps1](../scripts/release/build_agent_dist.ps1).
   It builds only the `oaw-agent` binary into ignored `dist/` paths and writes
   SHA256 plus manifest metadata.
+- Local `.tar.gz` wrapping exists through
+  [scripts/release/package_agent_targz.ps1](../scripts/release/package_agent_targz.ps1).
+  It consumes an existing `oaw-agent` dist artifact directory and writes only
+  `.tar.gz`, SHA256, and package manifest output under ignored `dist/` paths.
 - No native signed packages are produced yet.
 - No package build, installer execution, service installation, or
   package-manager execution is implemented by the scaffold.
@@ -44,6 +48,34 @@ commands, contact external services, or store secrets.
 
 Generated `dist/` artifacts are local validation output and must not be
 committed.
+
+## Local TAR.GZ Package Artifacts
+
+After building a local agent binary artifact, use the local TAR.GZ helper to
+wrap that existing artifact directory:
+
+```powershell
+.\scripts\release\package_agent_targz.ps1 `
+  -ArtifactDir dist\agent\0.1.0-local\windows-amd64
+```
+
+The helper writes:
+
+- `dist/agent/<version>/packages/openassetwatch-agent-<version>-<os>-<arch>.tar.gz`
+- `<package>.sha256`
+- `<package>.manifest.json`
+
+The package manifest records package name, version, OS, architecture,
+package type, source artifact path, package path, SHA256, build timestamp, and
+git commit when available. The archive contains only the agent binary, binary
+checksum, binary manifest, and safe README notes copied from the existing local
+dist artifact.
+
+The helper refuses input and output paths outside the repository. It does not
+build MSI, DEB, RPM, or PKG packages. It does not install software, modify the
+OS, write service definitions to system paths, run package-manager commands,
+run service-manager commands, contact external services, include generated
+config or identity files, include logs, or store secrets.
 
 ## Target Pipeline
 

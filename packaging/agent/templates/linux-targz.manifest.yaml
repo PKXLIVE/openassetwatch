@@ -4,6 +4,7 @@ package:
   package_type: tar.gz
   status: scaffold_only
   install_model: signed_archive_or_manual_install
+  local_helper: scripts/release/package_agent_targz.ps1
   distro_family:
     - unknown
     - unsupported
@@ -15,6 +16,11 @@ package:
   service_name: openassetwatch-agent
   service_definition_path: /etc/systemd/system/openassetwatch-agent.service
   package_metadata_path: explicit_admin_manifest_only
+  archive_contents:
+    - agent binary
+    - binary checksum
+    - binary manifest
+    - safe README notes
 validation:
   checksum: required
   signature: required_ci_secret_reference_only
