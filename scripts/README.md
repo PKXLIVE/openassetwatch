@@ -12,8 +12,8 @@ should not be added here.
   artifacts, validate generated Debian package artifacts, `/opt` layout,
   compatibility symlink, root-owned libexec helper metadata, service-account
   metadata, scoped sudoers helper allowlist content, systemd metadata,
-  target-install service enablement, and config/identity-guarded service
-  startup metadata without installing them, validate generated release
+  target-install timer enablement, and config/identity-guarded timer startup
+  metadata without installing them, validate generated release
   artifacts, orchestrate the local release flow, stage a local
   proof-of-layout install tree under ignored `dist/` paths, create a local
   sandbox install proof under ignored `dist/` paths, remove only that local
