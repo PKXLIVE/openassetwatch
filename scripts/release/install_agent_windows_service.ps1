@@ -22,6 +22,7 @@ $ExpectedServiceName = "OpenAssetWatchAgent"
 $ExpectedDisplayName = "OpenAssetWatch Agent"
 $ExpectedExecutablePath = "C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe"
 $ExpectedArguments = "run-once --config C:\ProgramData\OpenAssetWatch\Agent\config\config.json --identity-file C:\ProgramData\OpenAssetWatch\Agent\identity\identity.json --output-dir C:\ProgramData\OpenAssetWatch\Agent\state"
+$ServiceAccount = "NT AUTHORITY\LocalService"
 $SensitivePattern = "(?i)(credential|password|token|api[_-]?key|private[_-]?key|secret)"
 
 $Report = [ordered]@{
@@ -32,6 +33,16 @@ $Report = [ordered]@{
     service_metadata = ""
     admin = $false
     actions = @()
+    sc_create = [ordered]@{
+        exit_code = $null
+        stdout = ""
+        stderr = ""
+        command = "sc.exe"
+        arguments = @()
+        service_name = ""
+        account = ""
+        binary_path = ""
+    }
     checks = @()
     warnings = @()
     errors = @()
@@ -61,6 +72,56 @@ function Add-Action {
 function Add-Warning {
     param([string]$Message)
     $script:Report.warnings += $Message
+}
+
+function Sanitize-Text {
+    param([AllowNull()][object]$Value)
+    if ($null -eq $Value) {
+        return ""
+    }
+    return ([string]$Value) -replace $SensitivePattern, "[redacted]"
+}
+
+function Set-ScCreateDiagnostics {
+    param(
+        [AllowNull()][object]$ExitCode,
+        [AllowNull()][string]$Stdout,
+        [AllowNull()][string]$Stderr,
+        [string[]]$Arguments,
+        [string]$ServiceName,
+        [string]$Account,
+        [string]$BinaryPath
+    )
+    if ($null -eq $ExitCode) {
+        $script:Report.sc_create.exit_code = $null
+    } else {
+        $script:Report.sc_create.exit_code = [int]$ExitCode
+    }
+    $script:Report.sc_create.stdout = Sanitize-Text -Value $Stdout
+    $script:Report.sc_create.stderr = Sanitize-Text -Value $Stderr
+    $script:Report.sc_create.arguments = @($Arguments | ForEach-Object { Sanitize-Text -Value $_ })
+    $script:Report.sc_create.service_name = Sanitize-Text -Value $ServiceName
+    $script:Report.sc_create.account = Sanitize-Text -Value $Account
+    $script:Report.sc_create.binary_path = Sanitize-Text -Value $BinaryPath
+}
+
+function Invoke-ScExe {
+    param([string[]]$Arguments)
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+    try {
+        & sc.exe @Arguments > $stdoutPath 2> $stderrPath
+        $exitCode = $LASTEXITCODE
+        $stdout = Get-Content -Raw -LiteralPath $stdoutPath -ErrorAction SilentlyContinue
+        $stderr = Get-Content -Raw -LiteralPath $stderrPath -ErrorAction SilentlyContinue
+        return [ordered]@{
+            exit_code = $exitCode
+            stdout = $stdout
+            stderr = $stderr
+        }
+    } finally {
+        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Test-IsAdministrator {
@@ -171,7 +232,17 @@ try {
         Add-Warning "Dry-run validates staged layout and metadata only; it does not require the production executable path to exist."
     }
 
-    $binaryPath = '"' + $metadata.executable_path + '" ' + $metadata.arguments
+    $binaryPath = '"{0}" {1}' -f $metadata.executable_path, $metadata.arguments
+    $createArgs = @(
+        "create",
+        $metadata.service_name,
+        "binPath= $binaryPath",
+        "start= auto",
+        "DisplayName= $($metadata.display_name)",
+        "obj= $ServiceAccount"
+    )
+    Set-ScCreateDiagnostics -ExitCode $null -Stdout "" -Stderr "" -Arguments $createArgs -ServiceName $metadata.service_name -Account $ServiceAccount -BinaryPath $binaryPath
+
     Add-Action "Create service $($metadata.service_name) with automatic startup and LocalService account."
     if ($Start) {
         Add-Action "Start service $($metadata.service_name) after creation because -Start was supplied."
@@ -184,9 +255,10 @@ try {
         if ($null -ne $existing) {
             throw "Service $($metadata.service_name) already exists."
         }
-        & sc.exe create $metadata.service_name "binPath= $binaryPath" "start= auto" "DisplayName= $($metadata.display_name)" "obj= NT AUTHORITY\LocalService" | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "sc.exe create failed for $($metadata.service_name)."
+        $createResult = Invoke-ScExe -Arguments $createArgs
+        Set-ScCreateDiagnostics -ExitCode $createResult.exit_code -Stdout $createResult.stdout -Stderr $createResult.stderr -Arguments $createArgs -ServiceName $metadata.service_name -Account $ServiceAccount -BinaryPath $binaryPath
+        if ($createResult.exit_code -ne 0) {
+            throw "sc.exe create failed for $($metadata.service_name). See sc_create diagnostics."
         }
         if ($Start) {
             Start-Service -Name $metadata.service_name -ErrorAction Stop
