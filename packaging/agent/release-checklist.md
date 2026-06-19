@@ -153,6 +153,43 @@ uninstall, upgrade, roll back, or publish anything.
       installer commands, or build an MSI
 - [ ] generated `dist/` artifacts remain ignored and are not committed
 
+## Windows Service Helper Validation
+
+- [ ] `scripts/release/install_agent_windows_service.ps1` parses cleanly
+- [ ] `scripts/release/uninstall_agent_windows_service.ps1` parses cleanly
+- [ ] install helper requires explicit `-InstallRoot`
+- [ ] install helper requires explicit `-ServiceMetadata`
+- [ ] install helper validates staged `oaw-agent.exe`
+- [ ] install helper validates staged config and identity directories
+- [ ] install helper reads `service/oaw-agent-service.json`
+- [ ] install helper validates service name `OpenAssetWatchAgent`
+- [ ] install helper validates display name `OpenAssetWatch Agent`
+- [ ] install helper validates the approved `run-once` command arguments
+- [ ] install helper uses automatic startup metadata
+- [ ] install helper uses the `LocalService` account recommendation
+- [ ] install helper does not accept credentials or passwords
+- [ ] install helper supports `-DryRun`
+- [ ] install helper requires administrator rights for real service creation
+- [ ] install helper does not start the service unless `-Start` is explicitly
+      supplied
+- [ ] uninstall helper requires explicit `-ServiceName` or `-ServiceMetadata`
+- [ ] uninstall helper supports `-DryRun`
+- [ ] uninstall helper requires administrator rights for real service removal
+- [ ] uninstall helper stops the service only when `-Stop` is explicitly
+      supplied
+- [ ] uninstall helper removes only the service entry
+- [ ] uninstall helper preserves config and identity by default
+- [ ] optional `-RemoveState` is limited to staged or test cleanup
+- [ ] helper dry-runs return JSON only and do not create, start, stop, or
+      remove services
+- [ ] helpers do not run `msiexec`
+- [ ] helpers do not modify the registry directly
+- [ ] helpers do not embed credentials, passwords, tokens, API keys, or
+      secrets
+- [ ] Windows install validator confirms helper presence, dry-run support,
+      admin checks, no default auto-start, config/identity preservation, and
+      absence of unsafe registry or secret patterns
+
 ## Debian Package Metadata
 
 - [ ] `scripts/release/package_agent_deb.py` passes against an existing

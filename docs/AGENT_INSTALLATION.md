@@ -268,6 +268,15 @@ python .\scripts\release\stage_agent_windows_install.py `
 
 python .\scripts\release\validate_agent_windows_install.py `
   --version 0.1.0-local
+
+.\scripts\release\install_agent_windows_service.ps1 `
+  -InstallRoot .\dist\agent\0.1.0-local\windows-install `
+  -ServiceMetadata .\dist\agent\0.1.0-local\windows-install\service\oaw-agent-service.json `
+  -DryRun
+
+.\scripts\release\uninstall_agent_windows_service.ps1 `
+  -ServiceMetadata .\dist\agent\0.1.0-local\windows-install\service\oaw-agent-service.json `
+  -DryRun
 ```
 
 The helper writes only under ignored `dist/` output:
@@ -303,6 +312,18 @@ installer-command, credential, password, token, API-key, or secret markers. It
 emits JSON only and does not install services, create scheduled tasks, modify
 the registry, write to real Program Files or ProgramData paths, run installer
 commands, or build an MSI.
+
+The Windows service install and uninstall helpers are explicit administrator
+operations, not automatic installer behavior. Both helpers emit JSON only and
+support `-DryRun` for validation without changing the host. Real install mode
+requires administrator rights, reads the staged service metadata, validates the
+staged executable plus config and identity directories, creates only the
+`OpenAssetWatchAgent` service with automatic startup and the `LocalService`
+account recommendation, and does not start the service unless `-Start` is
+explicitly supplied. Real uninstall mode requires administrator rights, removes
+only the named service, stops it only when `-Stop` is explicitly supplied, and
+preserves ProgramData config and identity by default. `-RemoveState` is limited
+to staged or test cleanup and does not remove config or identity.
 
 ## Local Debian Package Artifact
 

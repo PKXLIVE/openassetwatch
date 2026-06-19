@@ -48,6 +48,12 @@ OpenAssetWatch. It is not fully implemented yet.
   It inspects an existing staged Windows install layout, service metadata, and
   manifest under ignored `dist/` paths without installing services, scheduled
   tasks, registry entries, or MSI packages.
+- Explicit Windows service install and uninstall helpers exist through
+  [scripts/release/install_agent_windows_service.ps1](../scripts/release/install_agent_windows_service.ps1)
+  and
+  [scripts/release/uninstall_agent_windows_service.ps1](../scripts/release/uninstall_agent_windows_service.ps1).
+  They support dry-run validation and require explicit administrator execution
+  for real service changes. They do not build an MSI.
 - Local release artifact validation exists through
   [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
   It verifies existing dist/package artifacts and emits JSON only.
@@ -119,6 +125,15 @@ python .\scripts\release\stage_agent_windows_install.py `
 
 python .\scripts\release\validate_agent_windows_install.py `
   --version 0.1.0-local
+
+.\scripts\release\install_agent_windows_service.ps1 `
+  -InstallRoot .\dist\agent\0.1.0-local\windows-install `
+  -ServiceMetadata .\dist\agent\0.1.0-local\windows-install\service\oaw-agent-service.json `
+  -DryRun
+
+.\scripts\release\uninstall_agent_windows_service.ps1 `
+  -ServiceMetadata .\dist\agent\0.1.0-local\windows-install\service\oaw-agent-service.json `
+  -DryRun
 ```
 
 The helper writes:
@@ -147,6 +162,16 @@ password, token, API-key, and secret markers. It emits JSON only and does not
 create a service, install a scheduled task, write registry keys, write to real
 Program Files or ProgramData paths, run service-manager commands, or build an
 MSI.
+
+The service helper scripts are not run by the staging helper. Install requires
+explicit `-InstallRoot` and `-ServiceMetadata`, validates the staged layout and
+metadata, requires administrator rights for real service creation, defaults to
+the `LocalService` recommendation, and does not start the service unless
+`-Start` is supplied. Uninstall requires an explicit service name or service
+metadata, requires administrator rights for real service removal, stops the
+service only when `-Stop` is supplied, and preserves config and identity by
+default. Dry-run mode returns intended actions without creating, starting,
+stopping, or removing services.
 
 ## Local Debian Package Artifacts
 
