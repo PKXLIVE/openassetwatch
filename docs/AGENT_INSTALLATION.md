@@ -265,6 +265,9 @@ Windows layout from an existing Windows amd64 agent dist artifact:
 
 python .\scripts\release\stage_agent_windows_install.py `
   --version 0.1.0-local
+
+python .\scripts\release\validate_agent_windows_install.py `
+  --version 0.1.0-local
 ```
 
 The helper writes only under ignored `dist/` output:
@@ -291,6 +294,15 @@ This helper does not run `sc.exe create`, `New-Service`, `Start-Service`,
 manager commands. It does not create a service, install a scheduled task,
 write to real Program Files or ProgramData paths, embed account secrets, or
 build an MSI.
+
+The validator inspects the staged layout only. It confirms the mirrored
+Program Files and ProgramData paths, example config and identity placeholders,
+service metadata, manifest fields, source artifact checksum metadata, safety
+notes, and absence of service-install, scheduled-task, registry,
+installer-command, credential, password, token, API-key, or secret markers. It
+emits JSON only and does not install services, create scheduled tasks, modify
+the registry, write to real Program Files or ProgramData paths, run installer
+commands, or build an MSI.
 
 ## Local Debian Package Artifact
 

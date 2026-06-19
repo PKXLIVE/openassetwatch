@@ -105,6 +105,54 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] helper does not build an MSI
 - [ ] generated `dist/` artifacts remain ignored and are not committed
 
+## Windows Install Layout Validation
+
+- [ ] `scripts/release/validate_agent_windows_install.py` passes against the
+      selected staged Windows install layout
+- [ ] validator supports `--version`
+- [ ] validator supports optional `--windows-install-root`
+- [ ] validator output is JSON only
+- [ ] validator output includes `ok`, `version`, `windows_install_root`,
+      `checks`, `warnings`, and `errors`
+- [ ] validator inspects `dist/agent/<version>/windows-install/`
+- [ ] validator confirms staged
+      `ProgramFiles/OpenAssetWatch/Agent/bin/oaw-agent.exe` exists
+- [ ] validator confirms staged
+      `ProgramData/OpenAssetWatch/Agent/config/config.example.json` exists
+- [ ] validator confirms staged
+      `ProgramData/OpenAssetWatch/Agent/identity/identity.example.json` exists
+- [ ] validator confirms staged
+      `ProgramData/OpenAssetWatch/Agent/state/` exists
+- [ ] validator confirms staged
+      `ProgramData/OpenAssetWatch/Agent/logs/` exists
+- [ ] validator confirms `service/oaw-agent-service.json` exists
+- [ ] validator confirms `windows-install-manifest.json` exists
+- [ ] validator confirms service metadata uses service name
+      `OpenAssetWatchAgent`
+- [ ] validator confirms service metadata uses display name
+      `OpenAssetWatch Agent`
+- [ ] validator confirms service metadata executable path is
+      `C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`
+- [ ] validator confirms service metadata arguments use `run-once` with
+      explicit ProgramData config, identity, and state paths
+- [ ] validator confirms startup type is `automatic`
+- [ ] validator confirms service account recommendation is `LocalService`
+- [ ] validator confirms service and scheduled-task recommendations are
+      metadata only and install nothing
+- [ ] validator confirms the manifest includes version, architecture, staged
+      paths, source artifact checksum, service metadata, safety notes, and
+      generation timestamp
+- [ ] validator rejects missing service metadata
+- [ ] validator rejects an unexpected executable path
+- [ ] validator rejects credential, password, token, API-key, and secret
+      markers
+- [ ] validator rejects service-install, scheduled-task, registry,
+      service-manager, and installer-command markers
+- [ ] validator does not create a service, install a scheduled task, modify
+      the registry, write to real Program Files or ProgramData paths, run
+      installer commands, or build an MSI
+- [ ] generated `dist/` artifacts remain ignored and are not committed
+
 ## Debian Package Metadata
 
 - [ ] `scripts/release/package_agent_deb.py` passes against an existing
