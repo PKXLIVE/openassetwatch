@@ -236,10 +236,14 @@ try {
     $createArgs = @(
         "create",
         $metadata.service_name,
-        "binPath= $binaryPath",
-        "start= auto",
-        "DisplayName= $($metadata.display_name)",
-        "obj= $ServiceAccount"
+        "binPath=",
+        $binaryPath,
+        "start=",
+        "auto",
+        "DisplayName=",
+        $metadata.display_name,
+        "obj=",
+        $ServiceAccount
     )
     Set-ScCreateDiagnostics -ExitCode $null -Stdout "" -Stderr "" -Arguments $createArgs -ServiceName $metadata.service_name -Account $ServiceAccount -BinaryPath $binaryPath
 
