@@ -38,6 +38,11 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/validate_agent_rpm.py](../scripts/release/validate_agent_rpm.py).
   It inspects an existing RPM staging tree, spec file, staged payload, and
   manifest under ignored `dist/` paths without building or installing an RPM.
+- Local Windows install layout staging exists through
+  [scripts/release/stage_agent_windows_install.py](../scripts/release/stage_agent_windows_install.py).
+  It consumes an existing Windows amd64 `oaw-agent.exe` dist artifact and
+  writes only a Program Files/ProgramData proof layout, service metadata, and
+  manifest under ignored `dist/` paths.
 - Local release artifact validation exists through
   [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
   It verifies existing dist/package artifacts and emits JSON only.
@@ -92,6 +97,39 @@ commands, contact external services, or store secrets.
 
 Generated `dist/` artifacts are local validation output and must not be
 committed.
+
+## Local Windows Install Layout Staging
+
+After building a Windows amd64 agent binary artifact, use the Windows staging
+helper to prove the production install layout under ignored `dist/` output:
+
+```powershell
+.\scripts\release\build_agent_dist.ps1 `
+  -Version 0.1.0-local `
+  -TargetOS windows `
+  -TargetArch amd64
+
+python .\scripts\release\stage_agent_windows_install.py `
+  --version 0.1.0-local
+```
+
+The helper writes:
+
+- `dist/agent/<version>/windows-install/ProgramFiles/OpenAssetWatch/Agent/bin/oaw-agent.exe`
+- `dist/agent/<version>/windows-install/ProgramData/OpenAssetWatch/Agent/config/config.example.json`
+- `dist/agent/<version>/windows-install/ProgramData/OpenAssetWatch/Agent/identity/identity.example.json`
+- `dist/agent/<version>/windows-install/ProgramData/OpenAssetWatch/Agent/state/`
+- `dist/agent/<version>/windows-install/ProgramData/OpenAssetWatch/Agent/logs/`
+- `dist/agent/<version>/windows-install/service/oaw-agent-service.json`
+- `dist/agent/<version>/windows-install/windows-install-manifest.json`
+
+The service metadata is staging-only. It records the future service name,
+display name, executable path, `run-once` arguments, automatic startup type,
+and `LocalService` account recommendation. It also records that Windows
+does not use systemd timers and that a future implementation should use
+Windows Task Scheduler or a Windows service runtime model. The helper does not
+create a service, install a scheduled task, write registry keys, write to real
+Program Files or ProgramData paths, or build an MSI.
 
 ## Local Debian Package Artifacts
 

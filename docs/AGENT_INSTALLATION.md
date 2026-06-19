@@ -39,16 +39,24 @@ configuration, identity, logs, and service metadata.
 
 ### Windows
 
-- binary path: `C:\Program Files\OpenAssetWatch\oaw-agent.exe`
-- config path: `%ProgramData%\OpenAssetWatch\agent\config.json`
-- identity path: `%ProgramData%\OpenAssetWatch\agent\identity.json`
-- log directory: `%ProgramData%\OpenAssetWatch\agent\logs\`
-- status file path: `%ProgramData%\OpenAssetWatch\agent\logs\status.json`
+- binary path:
+  `C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`
+- config path:
+  `C:\ProgramData\OpenAssetWatch\Agent\config\config.json`
+- identity path:
+  `C:\ProgramData\OpenAssetWatch\Agent\identity\identity.json`
+- state directory:
+  `C:\ProgramData\OpenAssetWatch\Agent\state\`
+- log directory:
+  `C:\ProgramData\OpenAssetWatch\Agent\logs\`
+- status file path:
+  `C:\ProgramData\OpenAssetWatch\Agent\state\status.json`
 - service name: `OpenAssetWatchAgent`
 - service definition path: Windows Service Control Manager metadata, managed by
   a future signed installer or administrator action rather than a direct file
 - package metadata path: Windows Installer product database, plus any future
-  non-secret installer manifest under `%ProgramData%\OpenAssetWatch\agent\`
+  non-secret installer manifest under
+  `C:\ProgramData\OpenAssetWatch\Agent\`
 
 ### Linux Systemd
 
@@ -243,6 +251,46 @@ Before install, upgrade, or rollback:
 
 Signing keys must remain in CI/CD secret stores or signing infrastructure. They
 must not be committed to the repository or copied into installer examples.
+
+## Local Windows Install Staging
+
+Use the local Windows install-staging helper to prove the future production
+Windows layout from an existing Windows amd64 agent dist artifact:
+
+```powershell
+.\scripts\release\build_agent_dist.ps1 `
+  -Version 0.1.0-local `
+  -TargetOS windows `
+  -TargetArch amd64
+
+python .\scripts\release\stage_agent_windows_install.py `
+  --version 0.1.0-local
+```
+
+The helper writes only under ignored `dist/` output:
+
+- `dist/agent/<version>/windows-install/ProgramFiles/OpenAssetWatch/Agent/bin/oaw-agent.exe`
+- `dist/agent/<version>/windows-install/ProgramData/OpenAssetWatch/Agent/config/config.example.json`
+- `dist/agent/<version>/windows-install/ProgramData/OpenAssetWatch/Agent/identity/identity.example.json`
+- `dist/agent/<version>/windows-install/ProgramData/OpenAssetWatch/Agent/state/`
+- `dist/agent/<version>/windows-install/ProgramData/OpenAssetWatch/Agent/logs/`
+- `dist/agent/<version>/windows-install/service/oaw-agent-service.json`
+- `dist/agent/<version>/windows-install/windows-install-manifest.json`
+
+The staged service metadata models the future Windows Service shape without
+creating it. It records service name `OpenAssetWatchAgent`, display name
+`OpenAssetWatch Agent`, executable path
+`C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`, the `run-once`
+arguments with explicit ProgramData config, identity, and state paths,
+automatic startup type, and the `LocalService` account recommendation. It also
+notes that Windows does not have systemd timers and that future scheduling
+should use Windows Task Scheduler or a future Windows service runtime model.
+
+This helper does not run `sc.exe create`, `New-Service`, `Start-Service`,
+`Stop-Service`, `msiexec`, installer commands, registry writes, or service
+manager commands. It does not create a service, install a scheduled task,
+write to real Program Files or ProgramData paths, embed account secrets, or
+build an MSI.
 
 ## Local Debian Package Artifact
 
