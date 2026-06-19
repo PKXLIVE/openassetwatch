@@ -15,7 +15,9 @@ should not be added here.
   layout, compatibility command paths, root-owned libexec helper metadata,
   service-account metadata, scoped sudoers helper allowlist content, systemd
   metadata, target-install timer enablement, and config/identity-guarded timer
-  startup metadata without installing them, validate generated release
+  startup metadata without installing them, stage Windows Program
+  Files/ProgramData install layout proofs from existing Windows dist
+  artifacts without creating services or MSI packages, validate generated release
   artifacts, orchestrate the local release flow, stage a local
   proof-of-layout install tree under ignored `dist/` paths, create a local
   sandbox install proof under ignored `dist/` paths, remove only that local

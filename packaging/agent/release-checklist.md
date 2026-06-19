@@ -62,6 +62,49 @@ uninstall, upgrade, roll back, or publish anything.
       generated secrets
 - [ ] generated `dist/` artifacts remain ignored and are not committed
 
+## Windows Install Layout Staging
+
+- [ ] `scripts/release/stage_agent_windows_install.py` passes against an
+      existing Windows amd64 dist artifact
+- [ ] helper output is JSON only
+- [ ] helper output includes `ok`, `version`, `windows_install_root`,
+      `manifest`, `checks`, `warnings`, and `errors`
+- [ ] Windows staging output is written only under ignored
+      `dist/agent/<version>/windows-install/`
+- [ ] staged Program Files layout includes
+      `ProgramFiles/OpenAssetWatch/Agent/bin/oaw-agent.exe`
+- [ ] staged ProgramData layout includes
+      `ProgramData/OpenAssetWatch/Agent/config/config.example.json`
+- [ ] staged ProgramData layout includes
+      `ProgramData/OpenAssetWatch/Agent/identity/identity.example.json`
+- [ ] staged ProgramData layout includes
+      `ProgramData/OpenAssetWatch/Agent/state/`
+- [ ] staged ProgramData layout includes
+      `ProgramData/OpenAssetWatch/Agent/logs/`
+- [ ] staged service metadata exists at
+      `service/oaw-agent-service.json`
+- [ ] service metadata uses service name `OpenAssetWatchAgent`
+- [ ] service metadata uses display name `OpenAssetWatch Agent`
+- [ ] service metadata executable path is
+      `C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`
+- [ ] service metadata arguments use `run-once` with explicit ProgramData
+      config, identity, and state paths
+- [ ] service metadata startup type is `automatic`
+- [ ] service account recommendation is `LocalService`
+- [ ] service metadata records that no service or scheduled task is installed
+      by the helper
+- [ ] service metadata contains no embedded account secrets, tokens, or
+      passwords
+- [ ] manifest exists at `windows-install-manifest.json`
+- [ ] manifest records version, architecture, staged paths, source artifact
+      checksum, service metadata, safety notes, and generation timestamp
+- [ ] helper does not run `sc.exe create`, `New-Service`, `Start-Service`,
+      `Stop-Service`, `msiexec`, installer commands, service manager commands,
+      or registry writes
+- [ ] helper does not write to real Program Files or ProgramData paths
+- [ ] helper does not build an MSI
+- [ ] generated `dist/` artifacts remain ignored and are not committed
+
 ## Debian Package Metadata
 
 - [ ] `scripts/release/package_agent_deb.py` passes against an existing
