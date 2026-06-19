@@ -296,8 +296,14 @@ def validate_install_helper(repo_root: Path) -> None:
         '$ServiceAccount = "NT AUTHORITY\\LocalService"',
         "$createArgs = @(",
         '"create"',
-        "binPath= $binaryPath",
-        "obj= $ServiceAccount",
+        '"binPath="',
+        "$binaryPath",
+        '"start="',
+        '"auto"',
+        '"DisplayName="',
+        "$metadata.display_name",
+        '"obj="',
+        "$ServiceAccount",
         "Invoke-ScExe",
         "& sc.exe @Arguments",
         "Set-ScCreateDiagnostics",
@@ -309,7 +315,6 @@ def validate_install_helper(repo_root: Path) -> None:
         "account",
         "binary_path",
         "Sanitize-Text",
-        "start= auto",
         "Read-ServiceMetadata",
         "Staged oaw-agent.exe is missing",
         "Config directory is missing",
@@ -320,6 +325,15 @@ def validate_install_helper(repo_root: Path) -> None:
         raise ValueError(f"Windows service install helper missing expected text: {', '.join(missing)}.")
     if "Start-Service" in text and "if ($Start)" not in text:
         raise ValueError("Windows service install helper must start service only when -Start is supplied.")
+    forbidden_joined_args = (
+        '"binPath= $binaryPath"',
+        '"start= auto"',
+        '"DisplayName= $($metadata.display_name)"',
+        '"obj= $ServiceAccount"',
+    )
+    joined_present = [item for item in forbidden_joined_args if item in text]
+    if joined_present:
+        raise ValueError(f"Windows service install helper must separate sc.exe option names and values: {', '.join(joined_present)}.")
     if "service_installed_by_this_helper -ne $false" not in text:
         raise ValueError("Windows service install helper must reject metadata that claims staging installed the service.")
 
