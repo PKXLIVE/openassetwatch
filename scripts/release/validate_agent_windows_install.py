@@ -61,6 +61,18 @@ INSTALL_INTENT_KEYS = (
     "installed_by_this_helper",
     "registry_modified_by_this_helper",
 )
+INSTALL_HELPER_RELATIVE = Path("scripts") / "release" / "install_agent_windows_service.ps1"
+UNINSTALL_HELPER_RELATIVE = Path("scripts") / "release" / "uninstall_agent_windows_service.ps1"
+HELPER_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(credential|password|token|api[_-]?key|private[_-]?key|secret)\s*=",
+    re.IGNORECASE,
+)
+HELPER_FORBIDDEN_RE = re.compile(
+    r"(msiexec|reg(?:\.exe)?\s+(?:add|delete|import)|Set-ItemProperty|"
+    r"New-ItemProperty|Remove-ItemProperty|Get-Credential|PSCredential|"
+    r"ConvertTo-SecureString|Write-Host)",
+    re.IGNORECASE,
+)
 
 
 class Reporter:
@@ -243,6 +255,79 @@ def validate_safety(root: Path) -> None:
         assert_no_forbidden_actions(paths[name], f"Windows {name}")
 
 
+def validate_helper_script(path: Path, helper_name: str) -> str:
+    if not path.is_file():
+        raise ValueError(f"{helper_name} is missing.")
+    text = path.read_text(encoding="utf-8-sig")
+    if HELPER_SECRET_ASSIGNMENT_RE.search(text):
+        raise ValueError(f"{helper_name} appears to contain hardcoded secret assignment text.")
+    forbidden = sorted({match.group(0) for match in HELPER_FORBIDDEN_RE.finditer(text)})
+    if forbidden:
+        raise ValueError(f"{helper_name} contains unsafe helper text: {', '.join(forbidden)}.")
+    if "[switch]$DryRun" not in text:
+        raise ValueError(f"{helper_name} must support -DryRun.")
+    if "Test-IsAdministrator" not in text or "WindowsBuiltInRole]::Administrator" not in text:
+        raise ValueError(f"{helper_name} must include an administrator check.")
+    if "Administrator rights are required" not in text:
+        raise ValueError(f"{helper_name} must fail closed for real non-admin execution.")
+    if "ConvertTo-Json" not in text:
+        raise ValueError(f"{helper_name} must output JSON.")
+    if "Write-Output" in text or "Write-Error" in text or "Write-Information" in text:
+        raise ValueError(f"{helper_name} must not write non-JSON output streams explicitly.")
+    return text
+
+
+def validate_install_helper(repo_root: Path) -> None:
+    text = validate_helper_script(repo_root / INSTALL_HELPER_RELATIVE, "Windows service install helper")
+    required = (
+        "[string]$InstallRoot",
+        "[string]$ServiceMetadata",
+        "[switch]$Start",
+        "sc.exe create",
+        "obj= NT AUTHORITY\\LocalService",
+        "start= auto",
+        "Read-ServiceMetadata",
+        "Staged oaw-agent.exe is missing",
+        "Config directory is missing",
+        "Identity directory is missing",
+    )
+    missing = [item for item in required if item not in text]
+    if missing:
+        raise ValueError(f"Windows service install helper missing expected text: {', '.join(missing)}.")
+    if "Start-Service" in text and "if ($Start)" not in text:
+        raise ValueError("Windows service install helper must start service only when -Start is supplied.")
+    if "service_installed_by_this_helper -ne $false" not in text:
+        raise ValueError("Windows service install helper must reject metadata that claims staging installed the service.")
+
+
+def validate_uninstall_helper(repo_root: Path) -> None:
+    text = validate_helper_script(repo_root / UNINSTALL_HELPER_RELATIVE, "Windows service uninstall helper")
+    required = (
+        "[string]$ServiceName",
+        "[string]$ServiceMetadata",
+        "[switch]$Stop",
+        "[switch]$RemoveState",
+        "sc.exe delete",
+        "Preserve config, identity, logs, and state",
+        "InstallRoot is required with -RemoveState",
+    )
+    missing = [item for item in required if item not in text]
+    if missing:
+        raise ValueError(f"Windows service uninstall helper missing expected text: {', '.join(missing)}.")
+    if "Start-Service" in text:
+        raise ValueError("Windows service uninstall helper must not start services.")
+    if "Stop-Service" in text and "if ($Stop" not in text:
+        raise ValueError("Windows service uninstall helper must stop service only when -Stop is supplied.")
+    for line in text.splitlines():
+        if "Remove-Item" in line and ("config" in line.lower() or "identity" in line.lower()):
+            raise ValueError("Windows service uninstall helper must not remove config or identity paths.")
+
+
+def validate_helpers(repo_root: Path) -> None:
+    validate_install_helper(repo_root)
+    validate_uninstall_helper(repo_root)
+
+
 def validate_windows_install(repo_root: Path, version: str, root: Path, reporter: Reporter) -> None:
     if not root.is_dir():
         raise ValueError(f"Windows install root does not exist: {to_repo_relative(repo_root, root)}")
@@ -260,6 +345,8 @@ def validate_windows_install(repo_root: Path, version: str, root: Path, reporter
     reporter.check("windows install manifest", True, "Windows install manifest fields and staged paths are valid.")
     validate_safety(root)
     reporter.check("windows install safety", True, "Windows metadata contains no install, service, registry, or secret markers.")
+    validate_helpers(repo_root)
+    reporter.check("windows service helpers", True, "Windows service install and uninstall helpers match the approved dry-run model.")
 
 
 def parse_args() -> argparse.Namespace:
