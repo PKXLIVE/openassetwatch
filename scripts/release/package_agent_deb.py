@@ -33,9 +33,12 @@ IP_ADDR_HELPER = f"{LIBEXEC_DIR}/oaw-ip-addr-show"
 IP_NEIGH_HELPER_PACKAGE_PATH = "./usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show"
 IP_ADDR_HELPER_PACKAGE_PATH = "./usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show"
 SERVICE_COMMAND = (
-    f"{OPT_BINARY} doctor --config /etc/openassetwatch/agent/config.json "
-    "--identity-file /etc/openassetwatch/agent/identity.json"
+    f"{OPT_BINARY} run-once --config /etc/openassetwatch/agent/config.json "
+    "--identity-file /etc/openassetwatch/agent/identity.json "
+    "--output-dir /var/lib/openassetwatch/agent"
 )
+TIMER_PACKAGE_PATH = "./lib/systemd/system/oaw-agent.timer"
+TIMER_INSTALL_PATH = "/lib/systemd/system/oaw-agent.timer"
 PACKAGE_DEPENDENCIES = ("systemd", "passwd")
 SUDOERS_PACKAGE_PATH = "./etc/sudoers.d/openassetwatch-agent"
 SUDOERS_INSTALL_PATH = "/etc/sudoers.d/openassetwatch-agent"
@@ -63,6 +66,7 @@ EXPECTED_DATA_FILES = (
     "./etc/openassetwatch/agent/identity.example.json",
     SUDOERS_PACKAGE_PATH,
     "./lib/systemd/system/oaw-agent.service",
+    TIMER_PACKAGE_PATH,
     "./usr/share/doc/openassetwatch-agent/README.md",
     "./usr/share/doc/openassetwatch-agent/release-manifest.json",
 )
@@ -311,12 +315,12 @@ def postinst_script() -> bytes:
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
             'if command -v systemctl >/dev/null 2>&1; then',
             "    systemctl daemon-reload || true",
-            "    systemctl enable oaw-agent.service || true",
+            "    systemctl enable oaw-agent.timer || true",
             (
                 "    if [ -f /etc/openassetwatch/agent/config.json ] "
                 "&& [ -f /etc/openassetwatch/agent/identity.json ]; then"
             ),
-            "        systemctl restart oaw-agent.service || true",
+            "        systemctl restart oaw-agent.timer || true",
             "    fi",
             "fi",
             "exit 0",
@@ -424,9 +428,28 @@ def service_unit() -> bytes:
             "PrivateTmp=true",
             "ProtectSystem=strict",
             "ProtectHome=true",
+            "ReadWritePaths=/var/lib/openassetwatch/agent",
+            "",
+        ]
+    ).encode("utf-8")
+
+
+def timer_unit() -> bytes:
+    return "\n".join(
+        [
+            "[Unit]",
+            "Description=OpenAssetWatch Agent timer",
+            "Documentation=https://openassetwatch.example.invalid/docs",
+            "",
+            "[Timer]",
+            "OnBootSec=5min",
+            "OnUnitActiveSec=1h",
+            "RandomizedDelaySec=10min",
+            "Persistent=true",
+            "Unit=oaw-agent.service",
             "",
             "[Install]",
-            "WantedBy=multi-user.target",
+            "WantedBy=timers.target",
             "",
         ]
     ).encode("utf-8")
@@ -442,7 +465,8 @@ def package_readme(version: str) -> bytes:
             "",
             "This package contains the OpenAssetWatch agent binary, example",
             "configuration placeholders, an example identity placeholder, a",
-            "conservative systemd unit template, and release metadata.",
+            "conservative systemd oneshot service, a systemd timer, and",
+            "release metadata.",
             "",
             "The package artifact is built locally under the repository `dist/`",
             "directory. Building the artifact does not install, enable, or start",
@@ -473,10 +497,24 @@ def release_manifest(
         "installed_paths": list(EXPECTED_DATA_PATHS),
         "service": {
             "path": "/lib/systemd/system/oaw-agent.service",
-            "model": "oneshot-readiness-check",
+            "model": "oneshot-run-once",
             "command": SERVICE_COMMAND,
             "user": SERVICE_USER,
             "group": SERVICE_GROUP,
+            "enabled_by_package_build": False,
+            "started_by_package_build": False,
+            "enabled_by_package_install": False,
+            "started_by_package_install": False,
+            "config_required_for_start": "/etc/openassetwatch/agent/config.json",
+            "identity_required_for_start": "/etc/openassetwatch/agent/identity.json",
+        },
+        "timer": {
+            "path": TIMER_INSTALL_PATH,
+            "unit": "oaw-agent.service",
+            "on_boot": "5min",
+            "period": "1h",
+            "randomized_delay": "10min",
+            "persistent": True,
             "enabled_by_package_build": False,
             "started_by_package_build": False,
             "enabled_by_package_install": True,
@@ -497,6 +535,7 @@ def release_manifest(
                 "./usr/bin/oaw-agent",
                 SUDOERS_PACKAGE_PATH,
                 "./lib/systemd/system/oaw-agent.service",
+                TIMER_PACKAGE_PATH,
             ],
         },
         "privileged_helpers": [
@@ -597,6 +636,7 @@ def build_data_tar(
         "./etc/openassetwatch/agent/identity.example.json": (identity_example(), 0o644),
         SUDOERS_PACKAGE_PATH: (sudoers_file(), 0o440),
         "./lib/systemd/system/oaw-agent.service": (service_unit(), 0o644),
+        TIMER_PACKAGE_PATH: (timer_unit(), 0o644),
         "./usr/share/doc/openassetwatch-agent/README.md": (package_readme(version), 0o644),
         "./usr/share/doc/openassetwatch-agent/release-manifest.json": (release_manifest_data, 0o644),
     }
@@ -719,7 +759,7 @@ def validate_service_unit(contents: bytes) -> None:
         raise ValueError(f"Service unit contains unsafe directives or shell usage: {', '.join(found)}.")
     exec_lines = [line for line in text.splitlines() if line.startswith("ExecStart=")]
     if exec_lines != [f"ExecStart={SERVICE_COMMAND}"]:
-        raise ValueError("Service unit ExecStart must run only the packaged oaw-agent binary.")
+        raise ValueError("Service unit ExecStart must run only the packaged oaw-agent run-once command.")
     required_lines = (
         "Type=oneshot",
         f"User={SERVICE_USER}",
@@ -729,10 +769,30 @@ def validate_service_unit(contents: bytes) -> None:
         "NoNewPrivileges=true",
         "ProtectSystem=strict",
         "ProtectHome=true",
+        "ReadWritePaths=/var/lib/openassetwatch/agent",
     )
     for line in required_lines:
         if line not in text:
             raise ValueError(f"Service unit missing expected safe line: {line}")
+
+
+def validate_timer_unit(contents: bytes) -> None:
+    text = contents.decode("utf-8")
+    forbidden = ("sh -c", "/bin/sh", "bash", "ExecStart", "ExecStop", "ExecReload")
+    found = [item for item in forbidden if item in text]
+    if found:
+        raise ValueError(f"Timer unit contains unsafe directives or shell usage: {', '.join(found)}.")
+    required_lines = (
+        "OnBootSec=5min",
+        "OnUnitActiveSec=1h",
+        "RandomizedDelaySec=10min",
+        "Persistent=true",
+        "Unit=oaw-agent.service",
+        "WantedBy=timers.target",
+    )
+    for line in required_lines:
+        if line not in text:
+            raise ValueError(f"Timer unit missing expected safe line: {line}")
 
 
 def validate_maintainer_script(name: str, contents: bytes) -> None:
@@ -759,7 +819,7 @@ def validate_maintainer_script(name: str, contents: bytes) -> None:
         guarded_restart = (
             "    if [ -f /etc/openassetwatch/agent/config.json ] "
             "&& [ -f /etc/openassetwatch/agent/identity.json ]; then\n"
-            "        systemctl restart oaw-agent.service || true\n"
+            "        systemctl restart oaw-agent.timer || true\n"
             "    fi"
         )
         required = (
@@ -769,7 +829,7 @@ def validate_maintainer_script(name: str, contents: bytes) -> None:
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
             "systemctl daemon-reload || true",
-            "systemctl enable oaw-agent.service || true",
+            "systemctl enable oaw-agent.timer || true",
             guarded_restart,
         )
         for item in required:
@@ -777,8 +837,12 @@ def validate_maintainer_script(name: str, contents: bytes) -> None:
                 raise ValueError(f"postinst missing expected service account command text: {item}")
         if "systemctl start oaw-agent.service" in text:
             raise ValueError("postinst must not start the service unconditionally.")
-        if text.count("systemctl restart oaw-agent.service || true") != 1:
-            raise ValueError("postinst must contain exactly one guarded service restart.")
+        if "systemctl restart oaw-agent.service" in text:
+            raise ValueError("postinst must not restart the service directly.")
+        if "systemctl enable oaw-agent.service" in text:
+            raise ValueError("postinst must enable the timer instead of the service.")
+        if text.count("systemctl restart oaw-agent.timer || true") != 1:
+            raise ValueError("postinst must contain exactly one guarded timer restart.")
     elif name == "postrm":
         if any(item in text for item in ("useradd", "groupadd", "chown")):
             raise ValueError("postrm must not create users, groups, or change ownership.")
@@ -891,6 +955,9 @@ def validate_deb_contents(package_path: Path, reporter: Reporter) -> None:
         if name == "./lib/systemd/system/oaw-agent.service":
             validate_service_unit(contents or b"")
             continue
+        if name == TIMER_PACKAGE_PATH:
+            validate_timer_unit(contents or b"")
+            continue
         if FORBIDDEN_CONTENT_RE.search(PurePosixPath(name).name):
             raise ValueError(f"DEB data archive contains forbidden path: {name}")
         if contents and FORBIDDEN_CONTENT_RE.search(contents.decode("utf-8", errors="ignore")):
@@ -904,6 +971,7 @@ def validate_deb_contents(package_path: Path, reporter: Reporter) -> None:
         "./usr/lib/openassetwatch/agent/libexec",
         IP_NEIGH_HELPER_PACKAGE_PATH,
         IP_ADDR_HELPER_PACKAGE_PATH,
+        TIMER_PACKAGE_PATH,
     )
     for path in root_owned_paths:
         if ownership.get(path) != ("root", "root"):
@@ -953,10 +1021,24 @@ def write_package_metadata(
         "symlinks": dict(EXPECTED_DATA_SYMLINKS),
         "service": {
             "path": "/lib/systemd/system/oaw-agent.service",
-            "model": "oneshot-readiness-check",
+            "model": "oneshot-run-once",
             "command": SERVICE_COMMAND,
             "user": SERVICE_USER,
             "group": SERVICE_GROUP,
+            "enabled_by_package_build": False,
+            "started_by_package_build": False,
+            "enabled_by_package_install": False,
+            "started_by_package_install": False,
+            "config_required_for_start": "/etc/openassetwatch/agent/config.json",
+            "identity_required_for_start": "/etc/openassetwatch/agent/identity.json",
+        },
+        "timer": {
+            "path": TIMER_INSTALL_PATH,
+            "unit": "oaw-agent.service",
+            "on_boot": "5min",
+            "period": "1h",
+            "randomized_delay": "10min",
+            "persistent": True,
             "enabled_by_package_build": False,
             "started_by_package_build": False,
             "enabled_by_package_install": True,

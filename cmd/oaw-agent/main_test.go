@@ -1228,6 +1228,166 @@ func TestRunCheckInRejectsURLCredentials(t *testing.T) {
 	}
 }
 
+func TestRunOncePerformsCheckInCollectAndSubmit(t *testing.T) {
+	restore := stubCollector(t)
+	defer restore()
+
+	outputDir := t.TempDir()
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:      "22222222-2222-4222-8222-222222222222",
+		DeploymentID: "11111111-1111-4111-8111-111111111111",
+		SiteID:       "site-local",
+		TenantID:     "tenant-example",
+		CreatedAt:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+
+	var checkInBody map[string]any
+	var inventoryBody models.Inventory
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("content-type = %q, want application/json", r.Header.Get("Content-Type"))
+		}
+		switch r.URL.Path {
+		case agentCheckInPath:
+			if err := json.NewDecoder(r.Body).Decode(&checkInBody); err != nil {
+				t.Errorf("decode check-in: %v", err)
+			}
+			w.WriteHeader(http.StatusAccepted)
+		case localInventorySubmitPath:
+			if err := json.NewDecoder(r.Body).Decode(&inventoryBody); err != nil {
+				t.Errorf("decode inventory: %v", err)
+			}
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: server.URL,
+		SiteID:    "site-local",
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"run-once", "--config", configPath, "--identity-file", identityPath, "--output-dir", outputDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run-once code = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON-only output", stderr.String())
+	}
+
+	report := decodeRunOnceReport(t, stdout.Bytes())
+	if !report.OK || !report.CheckIn.OK || !report.Collect.OK || !report.Submit.OK {
+		t.Fatalf("run-once report = %+v, want all steps ok", report)
+	}
+	if report.CheckIn.HTTPStatus != http.StatusAccepted || report.Submit.HTTPStatus != http.StatusAccepted {
+		t.Fatalf("http statuses = check-in %d submit %d", report.CheckIn.HTTPStatus, report.Submit.HTTPStatus)
+	}
+	if report.InventoryPath != filepath.Join(outputDir, runOnceInventoryFile) {
+		t.Fatalf("inventory_path = %q", report.InventoryPath)
+	}
+	if _, err := os.Stat(report.InventoryPath); err != nil {
+		t.Fatalf("inventory file missing: %v", err)
+	}
+	if len(paths) != 2 || paths[0] != agentCheckInPath || paths[1] != localInventorySubmitPath {
+		t.Fatalf("paths = %v, want check-in then inventory submit", paths)
+	}
+	if checkInBody["site_id"] != "site-local" || checkInBody["agent_id"] != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("check-in body = %+v", checkInBody)
+	}
+	if inventoryBody.SiteID != "site-local" || inventoryBody.AgentID != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("inventory identity fields = %+v", inventoryBody)
+	}
+}
+
+func TestRunOnceFailsClosedWhenPreflightFails(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "missing-config.json")
+	identityPath := filepath.Join(tempDir, "missing-identity.json")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"run-once", "--config", configPath, "--identity-file", identityPath, "--output-dir", tempDir}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run-once returned success with missing config and identity")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON-only failure", stderr.String())
+	}
+
+	report := decodeRunOnceReport(t, stdout.Bytes())
+	if report.OK {
+		t.Fatalf("run-once report ok = true: %+v", report)
+	}
+	if !containsString(report.Errors, "preflight checks failed") {
+		t.Fatalf("errors = %v, want preflight failure", report.Errors)
+	}
+	if report.CheckIn.OK || report.Collect.OK || report.Submit.OK {
+		t.Fatalf("steps should not run after preflight failure: %+v", report)
+	}
+}
+
+func TestRunOnceFailsClosedWhenSubmitFailsWithoutLeakingBody(t *testing.T) {
+	restore := stubCollector(t)
+	defer restore()
+
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	secret := "submit-response-secret-value"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case agentCheckInPath:
+			w.WriteHeader(http.StatusAccepted)
+		case localInventorySubmitPath:
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(secret))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: server.URL,
+		SiteID:    "site-local",
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"run-once", "--config", configPath, "--identity-file", identityPath, "--output-dir", t.TempDir()}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("run-once returned success when submit failed")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON-only failure", stderr.String())
+	}
+	combined := stdout.String() + stderr.String()
+	if strings.Contains(combined, secret) {
+		t.Fatalf("run-once output leaked response body: %q", combined)
+	}
+	report := decodeRunOnceReport(t, stdout.Bytes())
+	if report.OK || !report.CheckIn.OK || !report.Collect.OK || report.Submit.OK {
+		t.Fatalf("run-once report = %+v, want submit failure after check-in and collect", report)
+	}
+	if report.Submit.HTTPStatus != http.StatusInternalServerError {
+		t.Fatalf("submit status = %d, want 500", report.Submit.HTTPStatus)
+	}
+}
+
 func TestRunPathsPrintsDefaultPathsOnly(t *testing.T) {
 	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
 		IdentityPath: filepath.Join("C:\\ProgramData", "OpenAssetWatch", "agent", "identity.json"),
@@ -1870,6 +2030,15 @@ func decodeStatusReport(t *testing.T, data []byte) statusReport {
 	var report statusReport
 	if err := json.Unmarshal(data, &report); err != nil {
 		t.Fatalf("status output is not JSON: %v\n%s", err, string(data))
+	}
+	return report
+}
+
+func decodeRunOnceReport(t *testing.T, data []byte) runOnceReport {
+	t.Helper()
+	var report runOnceReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatalf("run-once output is not JSON: %v\n%s", err, string(data))
 	}
 	return report
 }

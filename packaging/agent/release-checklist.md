@@ -89,6 +89,7 @@ uninstall, upgrade, roll back, or publish anything.
       `/etc/openassetwatch/agent/identity.example.json`
 - [ ] package contents include `/etc/sudoers.d/openassetwatch-agent`
 - [ ] package contents include `/lib/systemd/system/oaw-agent.service`
+- [ ] package contents include `/lib/systemd/system/oaw-agent.timer`
 - [ ] package contains `/var/lib/openassetwatch/agent/`
 - [ ] package contains `/var/log/openassetwatch/agent/`
 - [ ] package contents include
@@ -108,11 +109,12 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] helper scripts are owned by `root:root` and are not writable by
       `openassetwatch`
 - [ ] `postinst` may run `systemctl daemon-reload` and
-      `systemctl enable oaw-agent.service` on the target Linux machine
-- [ ] `postinst` starts or restarts `oaw-agent.service` only when both
+      `systemctl enable oaw-agent.timer` on the target Linux machine
+- [ ] `postinst` starts or restarts `oaw-agent.timer` only when both
       `/etc/openassetwatch/agent/config.json` and
       `/etc/openassetwatch/agent/identity.json` exist
-- [ ] `postinst` does not start the service unconditionally
+- [ ] `postinst` does not start `oaw-agent.service` directly or
+      unconditionally
 - [ ] `postrm` is limited to `systemctl daemon-reload` for service-manager
       cleanup
 - [ ] maintainer scripts do not overwrite config, overwrite identity, create
@@ -132,13 +134,17 @@ uninstall, upgrade, roll back, or publish anything.
       grants, shell/interpreter access, downloaders, package managers,
       service managers, file mutation commands, offensive tooling, wildcards,
       or arbitrary arguments
-- [ ] service unit uses a one-shot readiness check because no long-running
+- [ ] service unit uses a one-shot `run-once` runtime because no long-running
       daemon command exists yet
 - [ ] service unit includes `ConditionPathExists=` checks for config and
       identity
 - [ ] service unit does not contain shell execution
 - [ ] service unit runs only
-      `/opt/openassetwatch/agent/bin/oaw-agent doctor`
+      `/opt/openassetwatch/agent/bin/oaw-agent run-once`
+- [ ] service unit uses `ReadWritePaths=/var/lib/openassetwatch/agent` for
+      runtime output under `ProtectSystem=strict`
+- [ ] timer unit runs shortly after boot and periodically with conservative
+      hourly cadence and randomized delay
 - [ ] service unit includes `User=openassetwatch`
 - [ ] service unit includes `Group=openassetwatch`
 - [ ] package build does not run `dpkg`, `apt`, `systemctl`, `service`,
@@ -165,10 +171,13 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] expected data archive paths exist
 - [ ] expected package directories exist
 - [ ] service unit exists and runs only
-      `/opt/openassetwatch/agent/bin/oaw-agent doctor`
+      `/opt/openassetwatch/agent/bin/oaw-agent run-once`
+- [ ] timer unit exists and targets `oaw-agent.service`
 - [ ] service unit includes `User=openassetwatch`
 - [ ] service unit includes `Group=openassetwatch`
 - [ ] service unit includes config and identity preconditions
+- [ ] service unit includes the `/var/lib/openassetwatch/agent` writable path
+      for run-once output
 - [ ] example config and identity files contain placeholders only
 - [ ] release manifest exists and matches expected package paths
 - [ ] package control metadata includes `Depends: systemd, passwd`
@@ -199,10 +208,11 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] expected maintainer scripts are present
 - [ ] unexpected maintainer files are refused
 - [ ] maintainer scripts create the non-interactive service account safely
-- [ ] `postinst` enables `oaw-agent.service`
-- [ ] `postinst` starts or restarts `oaw-agent.service` only when both real
+- [ ] `postinst` enables `oaw-agent.timer`
+- [ ] `postinst` starts or restarts `oaw-agent.timer` only when both real
       config and identity files exist
-- [ ] `postinst` does not start services unconditionally
+- [ ] `postinst` does not start `oaw-agent.service` directly or
+      unconditionally
 - [ ] `postinst` does not change sudoers
 - [ ] `postrm` is limited to approved daemon-reload cleanup
 - [ ] maintainer scripts do not overwrite config or identity
@@ -219,10 +229,11 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] expected files are present after install in the disposable environment
 - [ ] package artifact creation does not enable or start services on the build
       host
-- [ ] package installation enables `oaw-agent.service` inside the disposable
+- [ ] package installation enables `oaw-agent.timer` inside the disposable
       Linux environment
-- [ ] package installation starts or restarts the service only when both real
+- [ ] package installation starts or restarts the timer only when both real
       config and identity files already exist
+- [ ] timer execution triggers the one-shot `oaw-agent run-once` service
 - [ ] real config and identity files remain administrator-controlled
 - [ ] cleanup commands are run only inside the disposable environment
 
@@ -338,6 +349,9 @@ Complete for this phase:
 - [x] Debian package artifact creation
 - [x] Debian package checksum generation
 - [x] Debian package manifest generation
+- [x] Debian one-shot `oaw-agent run-once` service packaging
+- [x] Debian systemd timer packaging
+- [x] guarded Debian timer enablement metadata
 - [x] package manifest generation
 - [x] local release orchestration helper
 - [x] release validation helper
@@ -352,8 +366,8 @@ Future work:
 - [ ] writing to Program Files, ProgramData, `/usr`, `/etc`, `/var`, or
       `/Library`
 - [ ] service installation
-- [ ] daemon or service runtime
-- [ ] scheduling
+- [ ] long-running daemon or service runtime
+- [ ] cross-platform service scheduling beyond the packaged Linux timer
 - [ ] signed `.deb` release publication and install validation
 - [ ] `.rpm` package build
 - [ ] Windows MSI

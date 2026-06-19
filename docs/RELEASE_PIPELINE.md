@@ -116,33 +116,38 @@ The package contains only intended Linux package archive paths:
 - `/etc/openassetwatch/agent/identity.example.json`
 - `/etc/sudoers.d/openassetwatch-agent`
 - `/lib/systemd/system/oaw-agent.service`
+- `/lib/systemd/system/oaw-agent.timer`
 - `/var/lib/openassetwatch/agent/`
 - `/var/log/openassetwatch/agent/`
 - `/usr/share/doc/openassetwatch-agent/README.md`
 - `/usr/share/doc/openassetwatch-agent/release-manifest.json`
 
 The package control metadata declares `Depends: systemd, passwd`. Because the
-agent does not yet provide a long-running daemon command, the systemd unit is a
-one-shot readiness check that runs the supported `oaw-agent doctor` command
-from `/opt/openassetwatch/agent/bin/oaw-agent` with explicit
-`/etc/openassetwatch/agent/` config and identity paths. The unit uses
+agent does not yet provide a long-running daemon command, the systemd runtime
+uses a one-shot service triggered by a timer. The service runs the supported
+`oaw-agent run-once` command from `/opt/openassetwatch/agent/bin/oaw-agent`
+with explicit `/etc/openassetwatch/agent/` config and identity paths plus
+`--output-dir /var/lib/openassetwatch/agent`. The unit uses
 `ConditionPathExists=` checks, runs as `User=openassetwatch` and
-`Group=openassetwatch`, and does not use shell execution.
+`Group=openassetwatch`, and does not use shell execution. With
+`ProtectSystem=strict`, the service allows writes only to
+`/var/lib/openassetwatch/agent/` for the `run-once` inventory output. The timer
+runs shortly after boot, then hourly with a randomized delay.
 
 The package may include `postinst` and `postrm` maintainer scripts. `postinst`
 may create the `openassetwatch` system group and non-interactive system user
 with `/usr/sbin/nologin`, set ownership on `/var/lib/openassetwatch/agent/`
 and `/var/log/openassetwatch/agent/`, run `systemctl daemon-reload`, and
-enable `oaw-agent.service` on the target Linux
-machine. `postinst` may restart the service only when both
+enable `oaw-agent.timer` on the target Linux machine. `postinst` may restart
+the timer only when both
 `/etc/openassetwatch/agent/config.json` and
 `/etc/openassetwatch/agent/identity.json` already exist. If either file is
-missing, `postinst` does not start or restart the service. `postrm` is limited
-to `systemctl daemon-reload`; it does not delete admin-created config or
-identity files, remove the `openassetwatch` user or group, or call network
-services. Maintainer scripts do not overwrite config or identity, create
-secrets, execute arbitrary user-controlled commands, or grant sudo permissions
-beyond the packaged allowlist.
+missing, `postinst` does not start or restart the timer or service. `postrm`
+is limited to `systemctl daemon-reload`; it does not delete admin-created
+config or identity files, remove the `openassetwatch` user or group, or call
+network services. Maintainer scripts do not overwrite config or identity,
+create secrets, execute arbitrary user-controlled commands, or grant sudo
+permissions beyond the packaged allowlist.
 
 The Debian package includes `/etc/sudoers.d/openassetwatch-agent` as a
 root-owned file with mode `0440`. The file applies only to the
@@ -185,12 +190,12 @@ identity placeholders, release manifest, required package directories, the
 scripts, unexpected maintainer files, `/opt` binary layout, `/usr/bin`
 compatibility symlink, root-owned libexec helpers, sudoers
 owner/mode/content, forbidden content, and path containment. It also checks
-that `postinst` enables `oaw-agent.service`, starts or restarts only when both
-config and identity files exist, does not change sudoers, and does not start
-the service unconditionally. It verifies that sudoers allows only the helper
-scripts and no longer allows direct raw `/usr/sbin/ip` commands. It does not
-install the package and does not run host package-manager or service-manager
-commands.
+that `postinst` enables `oaw-agent.timer`, starts or restarts the timer only
+when both config and identity files exist, does not change sudoers, and does
+not start the service directly or unconditionally. It verifies that sudoers
+allows only the helper scripts and no longer allows direct raw `/usr/sbin/ip`
+commands. It does not install the package and does not run host
+package-manager or service-manager commands.
 
 ## Disposable Linux Install Test Guidance
 
@@ -208,19 +213,22 @@ test -f /etc/openassetwatch/agent/config.example.json
 test -f /etc/openassetwatch/agent/identity.example.json
 test -f /etc/sudoers.d/openassetwatch-agent
 test -f /lib/systemd/system/oaw-agent.service
+test -f /lib/systemd/system/oaw-agent.timer
 /opt/openassetwatch/agent/bin/oaw-agent paths
 systemctl status oaw-agent.service
+systemctl status oaw-agent.timer
 sudo apt remove openassetwatch-agent
 ```
 
 These commands are documentation-only guidance for an isolated Linux test
 environment. They are not executed by the release scripts. Package install
 tests should verify that the package lays down the expected files, enables
-`oaw-agent.service`, starts or restarts it only when both real config and
+`oaw-agent.timer`, starts or restarts the timer only when both real config and
 identity files exist, leaves real config and identity creation under
-administrator control, creates only the non-interactive `openassetwatch`
-service identity, creates only the narrow documented sudoers allowlist, and
-cleans up according to the package lifecycle policy. They should also verify
+administrator control, runs the one-shot `oaw-agent run-once` service through
+the timer, creates only the non-interactive `openassetwatch` service identity,
+creates only the narrow documented sudoers allowlist, and cleans up according
+to the package lifecycle policy. They should also verify
 that `/usr/lib/openassetwatch/agent/libexec/` and the helper scripts are
 root-owned and not writable by `openassetwatch`, while
 `/opt/openassetwatch/**` is owned by `openassetwatch:openassetwatch`.
@@ -437,6 +445,9 @@ Complete for this phase:
 - [x] Debian package artifact creation
 - [x] Debian package checksum generation
 - [x] Debian package manifest generation
+- [x] Debian one-shot `oaw-agent run-once` service packaging
+- [x] Debian systemd timer packaging
+- [x] guarded Debian timer enablement metadata
 - [x] package manifest generation
 - [x] local release orchestration helper
 - [x] release validation helper
@@ -451,8 +462,8 @@ Future work:
 - [ ] writing to Program Files, ProgramData, `/usr`, `/etc`, `/var`, or
   `/Library`
 - [ ] service installation
-- [ ] daemon or service runtime
-- [ ] scheduling
+- [ ] long-running daemon or service runtime
+- [ ] cross-platform service scheduling beyond the packaged Linux timer
 - [ ] signed `.deb` release publication and install validation
 - [ ] `.rpm` package build
 - [ ] Windows MSI

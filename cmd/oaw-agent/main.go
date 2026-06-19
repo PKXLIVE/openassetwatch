@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -36,6 +37,7 @@ var readOSRelease = os.ReadFile
 
 const localInventorySubmitPath = "/api/v1/collections/local-inventory"
 const agentCheckInPath = "/api/v1/agents/check-in"
+const runOnceInventoryFile = "last-inventory.json"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -47,6 +49,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "submit" {
 		return runSubmit(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "run-once" {
+		return runRunOnce(args[1:], stdout, stderr)
 	}
 	if len(args) > 0 && args[0] == "check-in" {
 		return runCheckIn(args[1:], stdout, stderr)
@@ -476,6 +481,55 @@ type statusExists struct {
 	LastStatus bool `json:"last_status"`
 }
 
+type runOnceReport struct {
+	OK            bool         `json:"ok"`
+	ConfigPath    string       `json:"config_path"`
+	IdentityPath  string       `json:"identity_path"`
+	OutputDir     string       `json:"output_dir"`
+	InventoryPath string       `json:"inventory_path,omitempty"`
+	Preflight     doctorReport `json:"preflight"`
+	CheckIn       runOnceStep  `json:"check_in"`
+	Collect       runOnceStep  `json:"collect"`
+	Submit        runOnceStep  `json:"submit"`
+	Warnings      []string     `json:"warnings"`
+	Errors        []string     `json:"errors"`
+}
+
+type runOnceStep struct {
+	OK         bool   `json:"ok"`
+	HTTPStatus int    `json:"http_status,omitempty"`
+	Message    string `json:"message,omitempty"`
+}
+
+func runRunOnce(args []string, stdout io.Writer, stderr io.Writer) int {
+	var configPath string
+	var identityPath string
+	var outputDir string
+
+	flags := flag.NewFlagSet("oaw-agent run-once", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&configPath, "config", "", "non-secret local agent config JSON file")
+	flags.StringVar(&identityPath, "identity-file", "", "non-secret local agent identity JSON file")
+	flags.StringVar(&outputDir, "output-dir", "", "local runtime output directory")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "oaw-agent run-once does not accept positional arguments")
+		return 2
+	}
+
+	report := executeRunOnce(configPath, identityPath, outputDir)
+	if err := output.WriteJSON(stdout, report); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if !report.OK {
+		return 1
+	}
+	return 0
+}
+
 func runDoctor(args []string, stdout io.Writer, stderr io.Writer) int {
 	var configPath string
 	var identityPath string
@@ -562,6 +616,117 @@ func buildDoctorReport(configPath string, identityPath string) doctorReport {
 
 	report.OK = len(report.Errors) == 0
 	return report
+}
+
+func executeRunOnce(configPath string, identityPath string, outputDir string) runOnceReport {
+	defaults := defaultAgentPaths()
+	resolvedConfigPath, _ := resolveDoctorPath(configPath, defaults.ConfigPath)
+	resolvedIdentityPath, _ := resolveDoctorPath(identityPath, defaults.IdentityPath)
+	outputDir = strings.TrimSpace(outputDir)
+	if outputDir == "" {
+		outputDir = defaultRunOnceOutputDir()
+	}
+
+	report := runOnceReport{
+		ConfigPath:   resolvedConfigPath,
+		IdentityPath: resolvedIdentityPath,
+		OutputDir:    outputDir,
+		Preflight:    buildDoctorReport(configPath, identityPath),
+		Warnings:     []string{},
+		Errors:       []string{},
+	}
+	if !report.Preflight.OK {
+		report.Errors = append(report.Errors, "preflight checks failed")
+		return report
+	}
+
+	agentCfg, loaded, err := loadAgentFileConfig(configPath, true)
+	if err != nil {
+		report.Errors = append(report.Errors, "load config failed: "+err.Error())
+		return report
+	}
+	if !loaded {
+		report.Errors = append(report.Errors, "config file is required")
+		return report
+	}
+
+	identity, err := readAgentIdentityFile(resolvedIdentityPath, strings.TrimSpace(identityPath) != "")
+	if err != nil {
+		report.Errors = append(report.Errors, "load identity failed: "+err.Error())
+		return report
+	}
+	if strings.TrimSpace(identity.SiteID) != strings.TrimSpace(agentCfg.SiteID) {
+		report.Errors = append(report.Errors, "config site_id conflicts with identity file site_id")
+		return report
+	}
+
+	checkInBody, err := json.Marshal(buildAgentCheckInPayload(identity))
+	if err != nil {
+		report.Errors = append(report.Errors, "build check-in payload failed")
+		return report
+	}
+	statusCode, err := postJSON(context.Background(), submitHTTPClient(), agentCfg.ServerURL, agentCheckInPath, checkInBody)
+	if err != nil {
+		report.CheckIn = runOnceStep{OK: false, HTTPStatus: statusCode, Message: "check-in failed"}
+		report.Errors = append(report.Errors, "check-in failed: "+err.Error())
+		return report
+	}
+	report.CheckIn = runOnceStep{OK: true, HTTPStatus: statusCode, Message: "check-in accepted"}
+
+	inventory := collectLocalInventory(agentCfg.SiteID)
+	applyCollectionIdentity(&inventory, identity)
+	inventoryData, err := json.MarshalIndent(inventory, "", "  ")
+	if err != nil {
+		report.Collect = runOnceStep{OK: false, Message: "collection marshal failed"}
+		report.Errors = append(report.Errors, "collection marshal failed")
+		return report
+	}
+	inventoryData = append(inventoryData, '\n')
+
+	if strings.TrimSpace(outputDir) == "" {
+		report.Collect = runOnceStep{OK: false, Message: "output directory is required"}
+		report.Errors = append(report.Errors, "output directory is required")
+		return report
+	}
+	if config.IsQuarantinedPath(outputDir) {
+		report.Collect = runOnceStep{OK: false, Message: "output directory is not allowed"}
+		report.Errors = append(report.Errors, "output directory is not allowed")
+		return report
+	}
+	if err := os.MkdirAll(outputDir, 0o700); err != nil {
+		report.Collect = runOnceStep{OK: false, Message: "output directory could not be created"}
+		report.Errors = append(report.Errors, "output directory could not be created")
+		return report
+	}
+	inventoryPath := filepath.Join(outputDir, runOnceInventoryFile)
+	if err := os.WriteFile(inventoryPath, inventoryData, 0o600); err != nil {
+		report.Collect = runOnceStep{OK: false, Message: "inventory file could not be written"}
+		report.Errors = append(report.Errors, "inventory file could not be written")
+		return report
+	}
+	report.InventoryPath = inventoryPath
+	report.Collect = runOnceStep{OK: true, Message: "local inventory collected"}
+
+	statusCode, err = postJSON(context.Background(), submitHTTPClient(), agentCfg.ServerURL, localInventorySubmitPath, inventoryData)
+	if err != nil {
+		report.Submit = runOnceStep{OK: false, HTTPStatus: statusCode, Message: "inventory submit failed"}
+		report.Errors = append(report.Errors, "inventory submit failed: "+err.Error())
+		return report
+	}
+	report.Submit = runOnceStep{OK: true, HTTPStatus: statusCode, Message: "inventory submitted"}
+	report.OK = true
+	return report
+}
+
+func defaultRunOnceOutputDir() string {
+	if runtime.GOOS == "windows" {
+		programData := os.Getenv("ProgramData")
+		if programData == "" {
+			programData = `C:\ProgramData`
+		}
+		return filepath.Join(programData, "OpenAssetWatch", "agent", "data")
+	}
+	return filepath.Join(string(filepath.Separator), "var", "lib", "openassetwatch", "agent")
 }
 
 func buildStatusReport(configPath string, identityPath string) statusReport {

@@ -32,9 +32,12 @@ IP_ADDR_HELPER = f"{LIBEXEC_DIR}/oaw-ip-addr-show"
 IP_NEIGH_HELPER_PACKAGE_PATH = "./usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show"
 IP_ADDR_HELPER_PACKAGE_PATH = "./usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show"
 SERVICE_COMMAND = (
-    f"{OPT_BINARY} doctor --config /etc/openassetwatch/agent/config.json "
-    "--identity-file /etc/openassetwatch/agent/identity.json"
+    f"{OPT_BINARY} run-once --config /etc/openassetwatch/agent/config.json "
+    "--identity-file /etc/openassetwatch/agent/identity.json "
+    "--output-dir /var/lib/openassetwatch/agent"
 )
+TIMER_PACKAGE_PATH = "./lib/systemd/system/oaw-agent.timer"
+TIMER_INSTALL_PATH = "/lib/systemd/system/oaw-agent.timer"
 PACKAGE_DEPENDENCIES = {"systemd", "passwd"}
 SUDOERS_PACKAGE_PATH = "./etc/sudoers.d/openassetwatch-agent"
 SUDOERS_INSTALL_PATH = "/etc/sudoers.d/openassetwatch-agent"
@@ -62,6 +65,7 @@ EXPECTED_DATA_FILES = {
     "./etc/openassetwatch/agent/identity.example.json",
     SUDOERS_PACKAGE_PATH,
     "./lib/systemd/system/oaw-agent.service",
+    TIMER_PACKAGE_PATH,
     "./usr/share/doc/openassetwatch-agent/README.md",
     "./usr/share/doc/openassetwatch-agent/release-manifest.json",
 }
@@ -283,22 +287,24 @@ def validate_package_metadata(repo_root: Path, package_path: Path, version: str)
     if symlinks != EXPECTED_DATA_SYMLINKS:
         raise ValueError("DEB package manifest symlinks do not match expected compatibility links.")
     service = manifest.get("service", {})
-    if service.get("model") != "oneshot-readiness-check":
-        raise ValueError("DEB package manifest service model must be oneshot-readiness-check.")
+    if service.get("model") != "oneshot-run-once":
+        raise ValueError("DEB package manifest service model must be oneshot-run-once.")
     if service.get("command") != SERVICE_COMMAND:
-        raise ValueError("DEB package manifest service command must reference the supported oaw-agent doctor command.")
+        raise ValueError("DEB package manifest service command must reference the supported oaw-agent run-once command.")
     if service.get("user") != SERVICE_USER or service.get("group") != SERVICE_GROUP:
         raise ValueError("DEB package manifest service identity must be openassetwatch:openassetwatch.")
     if service.get("enabled_by_package_build") is not False or service.get("started_by_package_build") is not False:
         raise ValueError("DEB package manifest must show service is not enabled or started by package build.")
-    if service.get("enabled_by_package_install") is not True:
-        raise ValueError("DEB package manifest must show service is enabled by package install.")
-    if service.get("started_by_package_install") != "only_when_config_and_identity_exist":
-        raise ValueError("DEB package manifest must show service start is guarded by config and identity files.")
+    if service.get("enabled_by_package_install") is not False:
+        raise ValueError("DEB package manifest must show service is not directly enabled by package install.")
+    if service.get("started_by_package_install") is not False:
+        raise ValueError("DEB package manifest must show service is not directly started by package install.")
     if service.get("config_required_for_start") != "/etc/openassetwatch/agent/config.json":
         raise ValueError("DEB package manifest config_required_for_start mismatch.")
     if service.get("identity_required_for_start") != "/etc/openassetwatch/agent/identity.json":
         raise ValueError("DEB package manifest identity_required_for_start mismatch.")
+    timer = manifest.get("timer", {})
+    validate_timer_manifest(timer, "DEB package manifest")
     if manifest.get("privileged_helpers") != expected_helper_metadata():
         raise ValueError("DEB package manifest privileged helper metadata mismatch.")
     sudoers = manifest.get("sudoers", {})
@@ -405,19 +411,19 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
             (
                 f"    useradd --system --gid {SERVICE_GROUP} "
                 "--home-dir /var/lib/openassetwatch/agent --no-create-home "
-                f"--shell /usr/sbin/nologin {SERVICE_USER}"
+            f"--shell /usr/sbin/nologin {SERVICE_USER}"
             ),
             "fi",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
             'if command -v systemctl >/dev/null 2>&1; then',
             "    systemctl daemon-reload || true",
-            "    systemctl enable oaw-agent.service || true",
+            "    systemctl enable oaw-agent.timer || true",
             (
                 "    if [ -f /etc/openassetwatch/agent/config.json ] "
                 "&& [ -f /etc/openassetwatch/agent/identity.json ]; then"
             ),
-            "        systemctl restart oaw-agent.service || true",
+            "        systemctl restart oaw-agent.timer || true",
             "    fi",
             "fi",
             "exit 0",
@@ -457,7 +463,7 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
         guarded_restart = (
             "    if [ -f /etc/openassetwatch/agent/config.json ] "
             "&& [ -f /etc/openassetwatch/agent/identity.json ]; then\n"
-            "        systemctl restart oaw-agent.service || true\n"
+            "        systemctl restart oaw-agent.timer || true\n"
             "    fi"
         )
         required = (
@@ -467,7 +473,7 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
             "systemctl daemon-reload || true",
-            "systemctl enable oaw-agent.service || true",
+            "systemctl enable oaw-agent.timer || true",
             guarded_restart,
         )
         for item in required:
@@ -475,8 +481,12 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
                 raise ValueError(f"postinst missing expected service account command text: {item}")
         if "systemctl start oaw-agent.service" in text:
             raise ValueError("postinst must not start the service unconditionally.")
-        if text.count("systemctl restart oaw-agent.service || true") != 1:
-            raise ValueError("postinst must contain exactly one guarded service restart.")
+        if "systemctl restart oaw-agent.service" in text:
+            raise ValueError("postinst must not restart the service directly.")
+        if "systemctl enable oaw-agent.service" in text:
+            raise ValueError("postinst must enable the timer instead of the service.")
+        if text.count("systemctl restart oaw-agent.timer || true") != 1:
+            raise ValueError("postinst must contain exactly one guarded timer restart.")
     elif name == "postrm":
         if any(item in text for item in ("useradd", "groupadd", "chown")):
             raise ValueError("postrm must not create users, groups, or change ownership.")
@@ -593,10 +603,49 @@ def validate_service_unit(data: bytes) -> None:
         "NoNewPrivileges=true",
         "ProtectSystem=strict",
         "ProtectHome=true",
+        "ReadWritePaths=/var/lib/openassetwatch/agent",
     }
     missing = [line for line in sorted(required_lines) if line not in text]
     if missing:
         raise ValueError(f"Service unit missing expected safe lines: {', '.join(missing)}.")
+
+
+def validate_timer_unit(data: bytes) -> None:
+    text = data.decode("utf-8")
+    forbidden = ("sh -c", "/bin/sh", "bash", "ExecStart", "ExecStop", "ExecReload")
+    found = [item for item in forbidden if item in text]
+    if found:
+        raise ValueError(f"Timer unit contains unsafe directives or shell usage: {', '.join(found)}.")
+    required_lines = {
+        "OnBootSec=5min",
+        "OnUnitActiveSec=1h",
+        "RandomizedDelaySec=10min",
+        "Persistent=true",
+        "Unit=oaw-agent.service",
+        "WantedBy=timers.target",
+    }
+    missing = [line for line in sorted(required_lines) if line not in text]
+    if missing:
+        raise ValueError(f"Timer unit missing expected safe lines: {', '.join(missing)}.")
+
+
+def validate_timer_manifest(timer: dict[str, Any], source: str) -> None:
+    expected = {
+        "path": TIMER_INSTALL_PATH,
+        "unit": "oaw-agent.service",
+        "on_boot": "5min",
+        "period": "1h",
+        "randomized_delay": "10min",
+        "persistent": True,
+        "enabled_by_package_build": False,
+        "started_by_package_build": False,
+        "enabled_by_package_install": True,
+        "started_by_package_install": "only_when_config_and_identity_exist",
+        "config_required_for_start": "/etc/openassetwatch/agent/config.json",
+        "identity_required_for_start": "/etc/openassetwatch/agent/identity.json",
+    }
+    if timer != expected:
+        raise ValueError(f"{source} timer metadata mismatch.")
 
 
 def validate_release_manifest(data: bytes, version: str) -> None:
@@ -613,20 +662,21 @@ def validate_release_manifest(data: bytes, version: str) -> None:
     service = value.get("service", {})
     if service.get("enabled_by_package_build") is not False or service.get("started_by_package_build") is not False:
         raise ValueError("Release manifest must show service is not enabled or started by package build.")
-    if service.get("enabled_by_package_install") is not True:
-        raise ValueError("Release manifest must show service is enabled by package install.")
-    if service.get("started_by_package_install") != "only_when_config_and_identity_exist":
-        raise ValueError("Release manifest must show service start is guarded by config and identity files.")
+    if service.get("enabled_by_package_install") is not False:
+        raise ValueError("Release manifest must show service is not directly enabled by package install.")
+    if service.get("started_by_package_install") is not False:
+        raise ValueError("Release manifest must show service is not directly started by package install.")
     if service.get("config_required_for_start") != "/etc/openassetwatch/agent/config.json":
         raise ValueError("Release manifest config_required_for_start mismatch.")
     if service.get("identity_required_for_start") != "/etc/openassetwatch/agent/identity.json":
         raise ValueError("Release manifest identity_required_for_start mismatch.")
-    if service.get("model") != "oneshot-readiness-check":
-        raise ValueError("Release manifest service model must be oneshot-readiness-check.")
+    if service.get("model") != "oneshot-run-once":
+        raise ValueError("Release manifest service model must be oneshot-run-once.")
     if service.get("command") != SERVICE_COMMAND:
-        raise ValueError("Release manifest service command must reference the supported oaw-agent doctor command.")
+        raise ValueError("Release manifest service command must reference the supported oaw-agent run-once command.")
     if service.get("user") != SERVICE_USER or service.get("group") != SERVICE_GROUP:
         raise ValueError("Release manifest service identity must be openassetwatch:openassetwatch.")
+    validate_timer_manifest(value.get("timer", {}), "Release manifest")
     if set(value.get("directories", [])) != ALLOWED_DATA_DIRS:
         raise ValueError("Release manifest directories do not match expected package directories.")
     if not PACKAGE_DEPENDENCIES.issubset(set(value.get("dependencies", []))):
@@ -647,6 +697,7 @@ def validate_release_manifest(data: bytes, version: str) -> None:
         "./usr/bin/oaw-agent",
         SUDOERS_PACKAGE_PATH,
         "./lib/systemd/system/oaw-agent.service",
+        TIMER_PACKAGE_PATH,
     }
     if root_owned != expected_root_owned:
         raise ValueError("Release manifest root-owned paths do not match expected helper layout.")
@@ -673,6 +724,7 @@ def validate_forbidden_content(data_files: dict[str, bytes]) -> None:
             "./etc/openassetwatch/agent/config.example.json",
             "./etc/openassetwatch/agent/identity.example.json",
             "./lib/systemd/system/oaw-agent.service",
+            TIMER_PACKAGE_PATH,
             SUDOERS_PACKAGE_PATH,
         }:
             continue
@@ -733,6 +785,7 @@ def validate_data_archive(
     validate_example_identity(data_files["./etc/openassetwatch/agent/identity.example.json"])
     validate_sudoers_file(data_files[SUDOERS_PACKAGE_PATH])
     validate_service_unit(data_files["./lib/systemd/system/oaw-agent.service"])
+    validate_timer_unit(data_files[TIMER_PACKAGE_PATH])
     validate_release_manifest(data_files["./usr/share/doc/openassetwatch-agent/release-manifest.json"], version)
     validate_forbidden_content(data_files)
 
