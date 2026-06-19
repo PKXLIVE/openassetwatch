@@ -108,6 +108,8 @@ The helper writes:
 The package contains only intended Linux package archive paths:
 
 - `/opt/openassetwatch/agent/bin/oaw-agent`
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show`
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show`
 - `/usr/bin/oaw-agent`, as a symlink to
   `/opt/openassetwatch/agent/bin/oaw-agent`
 - `/etc/openassetwatch/agent/config.example.json`
@@ -129,9 +131,9 @@ from `/opt/openassetwatch/agent/bin/oaw-agent` with explicit
 
 The package may include `postinst` and `postrm` maintainer scripts. `postinst`
 may create the `openassetwatch` system group and non-interactive system user
-with `/usr/sbin/nologin`, set ownership on `/opt/openassetwatch/agent/`,
-`/var/lib/openassetwatch/agent/`, and `/var/log/openassetwatch/agent/`, run
-`systemctl daemon-reload`, and enable `oaw-agent.service` on the target Linux
+with `/usr/sbin/nologin`, set ownership on `/var/lib/openassetwatch/agent/`
+and `/var/log/openassetwatch/agent/`, run `systemctl daemon-reload`, and
+enable `oaw-agent.service` on the target Linux
 machine. `postinst` may restart the service only when both
 `/etc/openassetwatch/agent/config.json` and
 `/etc/openassetwatch/agent/identity.json` already exist. If either file is
@@ -144,16 +146,19 @@ beyond the packaged allowlist.
 
 The Debian package includes `/etc/sudoers.d/openassetwatch-agent` as a
 root-owned file with mode `0440`. The file applies only to the
-`openassetwatch` service user and grants `NOPASSWD` only for exact read-only
-local discovery commands:
+`openassetwatch` service user and grants `NOPASSWD` only for two
+OpenAssetWatch-owned helper scripts with no arguments:
 
-- `/usr/sbin/ip neigh show`, for local kernel neighbor-cache review.
-- `/usr/sbin/ip addr show`, for local interface and address review.
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show`, which runs exactly
+  `/usr/sbin/ip neigh show` for local kernel neighbor-cache review.
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show`, which runs exactly
+  `/usr/sbin/ip addr show` for local interface and address review.
 
 The sudoers file does not contain `NOPASSWD: ALL`, broad `ALL=(ALL) ALL`
 grants, shells, interpreters, downloaders, package managers, service managers,
 file mutation commands, offensive tooling, wildcards, or arbitrary arguments.
-The initial package intentionally excludes `hostname`, `cat`, `readlink`, and
+It does not grant direct sudo access to raw `/usr/sbin/ip` commands. The
+initial package intentionally excludes `hostname`, `cat`, `readlink`, and
 `stat` because the Go agent currently uses Go APIs and local cache files for
 host identity and Linux inventory.
 
@@ -178,10 +183,12 @@ members, expected install paths, service unit safety, example config and
 identity placeholders, release manifest, required package directories, the
 `systemd` and `passwd` dependencies, approved service-account maintainer
 scripts, unexpected maintainer files, `/opt` binary layout, `/usr/bin`
-compatibility symlink, sudoers owner/mode/content, forbidden content, and path
-containment. It also checks that `postinst` enables `oaw-agent.service`,
-starts or restarts only when both config and identity files exist, does not
-change sudoers, and does not start the service unconditionally. It does not
+compatibility symlink, root-owned libexec helpers, sudoers
+owner/mode/content, forbidden content, and path containment. It also checks
+that `postinst` enables `oaw-agent.service`, starts or restarts only when both
+config and identity files exist, does not change sudoers, and does not start
+the service unconditionally. It verifies that sudoers allows only the helper
+scripts and no longer allows direct raw `/usr/sbin/ip` commands. It does not
 install the package and does not run host package-manager or service-manager
 commands.
 
@@ -213,7 +220,10 @@ tests should verify that the package lays down the expected files, enables
 identity files exist, leaves real config and identity creation under
 administrator control, creates only the non-interactive `openassetwatch`
 service identity, creates only the narrow documented sudoers allowlist, and
-cleans up according to the package lifecycle policy.
+cleans up according to the package lifecycle policy. They should also verify
+that `/usr/lib/openassetwatch/agent/libexec/` and the helper scripts are
+root-owned and not writable by `openassetwatch`, while
+`/opt/openassetwatch/**` is owned by `openassetwatch:openassetwatch`.
 
 ## Local TAR.GZ Package Artifacts
 

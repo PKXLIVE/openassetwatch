@@ -26,6 +26,11 @@ OPT_BINARY = "/opt/openassetwatch/agent/bin/oaw-agent"
 OPT_BINARY_PACKAGE_PATH = "./opt/openassetwatch/agent/bin/oaw-agent"
 USR_BIN_PACKAGE_PATH = "./usr/bin/oaw-agent"
 USR_BIN_LINK_TARGET = OPT_BINARY
+LIBEXEC_DIR = "/usr/lib/openassetwatch/agent/libexec"
+IP_NEIGH_HELPER = f"{LIBEXEC_DIR}/oaw-ip-neigh-show"
+IP_ADDR_HELPER = f"{LIBEXEC_DIR}/oaw-ip-addr-show"
+IP_NEIGH_HELPER_PACKAGE_PATH = "./usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show"
+IP_ADDR_HELPER_PACKAGE_PATH = "./usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show"
 SERVICE_COMMAND = (
     f"{OPT_BINARY} doctor --config /etc/openassetwatch/agent/config.json "
     "--identity-file /etc/openassetwatch/agent/identity.json"
@@ -34,17 +39,25 @@ PACKAGE_DEPENDENCIES = {"systemd", "passwd"}
 SUDOERS_PACKAGE_PATH = "./etc/sudoers.d/openassetwatch-agent"
 SUDOERS_INSTALL_PATH = "/etc/sudoers.d/openassetwatch-agent"
 APPROVED_SUDOERS_COMMANDS = (
-    "/usr/sbin/ip neigh show",
-    "/usr/sbin/ip addr show",
+    IP_NEIGH_HELPER,
+    IP_ADDR_HELPER,
+)
+PRIVILEGED_HELPERS = (
+    (IP_NEIGH_HELPER_PACKAGE_PATH, IP_NEIGH_HELPER, "/usr/sbin/ip neigh show"),
+    (IP_ADDR_HELPER_PACKAGE_PATH, IP_ADDR_HELPER, "/usr/sbin/ip addr show"),
 )
 SERVICE_OWNED_DIRS = {
+    "./opt/openassetwatch",
     "./opt/openassetwatch/agent",
     "./opt/openassetwatch/agent/bin",
+    OPT_BINARY_PACKAGE_PATH,
     "./var/lib/openassetwatch/agent",
     "./var/log/openassetwatch/agent",
 }
 EXPECTED_DATA_FILES = {
     OPT_BINARY_PACKAGE_PATH,
+    IP_NEIGH_HELPER_PACKAGE_PATH,
+    IP_ADDR_HELPER_PACKAGE_PATH,
     "./etc/openassetwatch/agent/config.example.json",
     "./etc/openassetwatch/agent/identity.example.json",
     SUDOERS_PACKAGE_PATH,
@@ -63,6 +76,10 @@ ALLOWED_DATA_DIRS = {
     "./opt/openassetwatch/agent/bin",
     "./usr",
     "./usr/bin",
+    "./usr/lib",
+    "./usr/lib/openassetwatch",
+    "./usr/lib/openassetwatch/agent",
+    "./usr/lib/openassetwatch/agent/libexec",
     "./usr/share",
     "./usr/share/doc",
     "./usr/share/doc/openassetwatch-agent",
@@ -105,6 +122,20 @@ FORBIDDEN_TEXT_RE = re.compile(
 )
 VERSION_RE = re.compile(r"^[A-Za-z0-9.+~_-]+$")
 PACKAGE_RE = re.compile(r"^openassetwatch-agent_(?P<version>[A-Za-z0-9.+~_-]+)_amd64\.deb$")
+
+
+def expected_helper_metadata() -> list[dict[str, Any]]:
+    return [
+        {
+            "path": install_path,
+            "package_path": package_path,
+            "runs": command,
+            "owner": "root:root",
+            "mode": "0755",
+            "accepts_arguments": False,
+        }
+        for package_path, install_path, command in PRIVILEGED_HELPERS
+    ]
 
 
 class Reporter:
@@ -268,6 +299,8 @@ def validate_package_metadata(repo_root: Path, package_path: Path, version: str)
         raise ValueError("DEB package manifest config_required_for_start mismatch.")
     if service.get("identity_required_for_start") != "/etc/openassetwatch/agent/identity.json":
         raise ValueError("DEB package manifest identity_required_for_start mismatch.")
+    if manifest.get("privileged_helpers") != expected_helper_metadata():
+        raise ValueError("DEB package manifest privileged helper metadata mismatch.")
     sudoers = manifest.get("sudoers", {})
     if sudoers.get("path") != SUDOERS_INSTALL_PATH:
         raise ValueError("DEB package manifest sudoers path mismatch.")
@@ -375,7 +408,6 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
                 f"--shell /usr/sbin/nologin {SERVICE_USER}"
             ),
             "fi",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /opt/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
             'if command -v systemctl >/dev/null 2>&1; then',
@@ -432,7 +464,6 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
             f"groupadd --system {SERVICE_GROUP}",
             f"useradd --system --gid {SERVICE_GROUP}",
             "--shell /usr/sbin/nologin",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /opt/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
             f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
             "systemctl daemon-reload || true",
@@ -451,6 +482,32 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
             raise ValueError("postrm must not create users, groups, or change ownership.")
         if any(item in text for item in ("enable", "start", "restart", "stop")):
             raise ValueError("postrm must not enable, start, restart, or stop services.")
+
+
+def helper_script(helper_name: str, command: str) -> bytes:
+    return "\n".join(
+        [
+            "#!/bin/sh",
+            "set -eu",
+            'if [ "$#" -ne 0 ]; then',
+            f'    echo "{helper_name} does not accept arguments" >&2',
+            "    exit 64",
+            "fi",
+            f"exec {command}",
+            "",
+        ]
+    ).encode("utf-8")
+
+
+def validate_helper_script(path: str, data: bytes) -> None:
+    expected = {
+        IP_NEIGH_HELPER_PACKAGE_PATH: helper_script("oaw-ip-neigh-show", "/usr/sbin/ip neigh show"),
+        IP_ADDR_HELPER_PACKAGE_PATH: helper_script("oaw-ip-addr-show", "/usr/sbin/ip addr show"),
+    }.get(path)
+    if expected is None:
+        raise ValueError(f"Unknown privileged helper path: {path}")
+    if data != expected:
+        raise ValueError(f"Privileged helper {path} must match the approved no-argument wrapper.")
 
 
 def validate_sudoers_file(data: bytes) -> None:
@@ -486,7 +543,9 @@ def validate_sudoers_file(data: bytes) -> None:
     found = [item for item in forbidden if item in rule_text]
     if found:
         raise ValueError(f"sudoers file contains unsafe allowlist text: {', '.join(found)}.")
-    expected_lines = [f"{SERVICE_USER} ALL=(root) NOPASSWD: {command}" for command in APPROVED_SUDOERS_COMMANDS]
+    if "/usr/sbin/ip neigh show" in rule_text or "/usr/sbin/ip addr show" in rule_text:
+        raise ValueError("sudoers file must not directly allow raw /usr/sbin/ip commands.")
+    expected_lines = [f'{SERVICE_USER} ALL=(root) NOPASSWD: {command} ""' for command in APPROVED_SUDOERS_COMMANDS]
     if rule_lines != expected_lines:
         raise ValueError("sudoers file must contain only the approved openassetwatch command allowlist.")
     for line in rule_lines:
@@ -577,6 +636,22 @@ def validate_release_manifest(data: bytes, version: str) -> None:
     ownership = value.get("ownership", {})
     if set(ownership.get("openassetwatch:openassetwatch", [])) != SERVICE_OWNED_DIRS:
         raise ValueError("Release manifest service-owned directories do not match expected layout.")
+    root_owned = set(ownership.get("root:root", []))
+    expected_root_owned = {
+        "./usr/lib/openassetwatch",
+        "./usr/lib/openassetwatch/agent",
+        "./usr/lib/openassetwatch/agent/libexec",
+        IP_NEIGH_HELPER_PACKAGE_PATH,
+        IP_ADDR_HELPER_PACKAGE_PATH,
+        "./etc/openassetwatch/agent",
+        "./usr/bin/oaw-agent",
+        SUDOERS_PACKAGE_PATH,
+        "./lib/systemd/system/oaw-agent.service",
+    }
+    if root_owned != expected_root_owned:
+        raise ValueError("Release manifest root-owned paths do not match expected helper layout.")
+    if value.get("privileged_helpers") != expected_helper_metadata():
+        raise ValueError("Release manifest privileged helper metadata mismatch.")
     sudoers = value.get("sudoers", {})
     if sudoers.get("path") != SUDOERS_INSTALL_PATH:
         raise ValueError("Release manifest sudoers path mismatch.")
@@ -591,6 +666,8 @@ def validate_release_manifest(data: bytes, version: str) -> None:
 def validate_forbidden_content(data_files: dict[str, bytes]) -> None:
     for name, data in data_files.items():
         if name == OPT_BINARY_PACKAGE_PATH:
+            continue
+        if name in {IP_NEIGH_HELPER_PACKAGE_PATH, IP_ADDR_HELPER_PACKAGE_PATH}:
             continue
         if name in {
             "./etc/openassetwatch/agent/config.example.json",
@@ -632,8 +709,20 @@ def validate_data_archive(
     for path in SERVICE_OWNED_DIRS:
         if ownership.get(path) != (SERVICE_USER, SERVICE_GROUP):
             raise ValueError(f"DEB data archive ownership for {path} must be {SERVICE_USER}:{SERVICE_GROUP}.")
-    if ownership.get(OPT_BINARY_PACKAGE_PATH) != (SERVICE_USER, SERVICE_GROUP):
-        raise ValueError("Packaged /opt agent binary must be owned by openassetwatch:openassetwatch.")
+    root_owned_paths = {
+        "./usr/lib/openassetwatch",
+        "./usr/lib/openassetwatch/agent",
+        "./usr/lib/openassetwatch/agent/libexec",
+        IP_NEIGH_HELPER_PACKAGE_PATH,
+        IP_ADDR_HELPER_PACKAGE_PATH,
+    }
+    for path in root_owned_paths:
+        if ownership.get(path) != ("root", "root"):
+            raise ValueError(f"DEB data archive ownership for {path} must be root:root.")
+    for path in (IP_NEIGH_HELPER_PACKAGE_PATH, IP_ADDR_HELPER_PACKAGE_PATH):
+        if modes.get(path) & 0o022:
+            raise ValueError(f"Privileged helper {path} must not be writable by group or others.")
+        validate_helper_script(path, data_files[path])
     if ownership.get("./etc/openassetwatch/agent") != ("root", "root"):
         raise ValueError("Config directory must remain root-controlled.")
     if ownership.get(SUDOERS_PACKAGE_PATH) != ("root", "root"):
