@@ -34,6 +34,10 @@ OpenAssetWatch. It is not fully implemented yet.
   It consumes an existing Linux amd64 `oaw-agent` dist artifact and writes only
   an RPM build tree, spec file, staged payload, and manifest under ignored
   `dist/` paths. It does not build or install an RPM.
+- Local Linux RPM staging validation exists through
+  [scripts/release/validate_agent_rpm.py](../scripts/release/validate_agent_rpm.py).
+  It inspects an existing RPM staging tree, spec file, staged payload, and
+  manifest under ignored `dist/` paths without building or installing an RPM.
 - Local release artifact validation exists through
   [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
   It verifies existing dist/package artifacts and emits JSON only.
@@ -266,6 +270,24 @@ This helper does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`,
 `service`, `sudo`, package-manager commands, or service-manager commands. It
 does not build an RPM file, install software, enable services, start services,
 or write to host `/usr`, `/etc`, `/var`, `/lib`, or `/opt`.
+
+Validate the generated RPM staging tree without building or installing an RPM:
+
+```powershell
+python .\scripts\release\validate_agent_rpm.py `
+  --version 0.1.0-local
+```
+
+The validator checks the RPM build tree, spec file, staged `BUILDROOT`
+payload, package manifest, embedded release manifest, service unit, timer
+unit, helper scripts, sudoers helper-only allowlist, example config and
+identity placeholders, and forbidden content patterns. It verifies that the
+spec creates or reuses the `openassetwatch` service user and group, enables
+`oaw-agent.timer` as target-install scriptlet behavior, does not start
+`oaw-agent.service` directly or unconditionally, does not delete config or
+identity files, and does not grant broad sudo access. It does not run `rpm`,
+`rpmbuild`, `dnf`, `yum`, `systemctl`, `service`, `sudo`, package-manager
+commands, or service-manager commands.
 
 ## Disposable Linux Install Test Guidance
 

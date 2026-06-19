@@ -283,6 +283,56 @@ uninstall, upgrade, roll back, or publish anything.
       modify host OS state
 - [ ] generated `dist/` artifacts remain ignored and are not committed
 
+## RPM Staging Validation
+
+- [ ] `scripts/release/validate_agent_rpm.py` passes against the selected RPM
+      staging tree
+- [ ] validator supports `--version`
+- [ ] validator supports optional `--rpm-root`
+- [ ] validator output is JSON only
+- [ ] validator output includes `ok`, `version`, `rpm_root`, `checks`,
+      `warnings`, and `errors`
+- [ ] validator inspects `dist/agent/<version>/rpm/`
+- [ ] validator inspects `SPECS/openassetwatch-agent.spec`
+- [ ] validator inspects
+      `BUILDROOT/openassetwatch-agent-<version>-1.x86_64/`
+- [ ] validator inspects the staged package manifest JSON
+- [ ] validator confirms `BUILD/`, `BUILDROOT/`, `RPMS/`, `SOURCES/`,
+      `SPECS/`, and `SRPMS/` exist
+- [ ] validator confirms expected staged payload files and directories exist
+- [ ] validator confirms service uses `run-once`
+- [ ] validator confirms service uses `User=openassetwatch`
+- [ ] validator confirms service uses `Group=openassetwatch`
+- [ ] validator confirms service has config and identity `ConditionPathExists`
+- [ ] validator confirms service has
+      `ReadWritePaths=/var/lib/openassetwatch/agent`
+- [ ] validator confirms timer exists and has conservative cadence fields
+- [ ] validator confirms helpers live under
+      `/usr/lib/openassetwatch/agent/libexec/`
+- [ ] validator confirms helpers run only the approved exact `ip` commands
+- [ ] validator confirms helpers reject arguments
+- [ ] validator confirms sudoers allows only helper scripts
+- [ ] validator confirms sudoers does not directly allow raw `/usr/sbin/ip`
+      commands
+- [ ] validator rejects broad sudo grants, `NOPASSWD: ALL`, and wildcard
+      command access
+- [ ] validator confirms spec contains package name `openassetwatch-agent`
+- [ ] validator confirms spec contains expected systemd scriptlet text
+- [ ] validator confirms spec creates or reuses the `openassetwatch`
+      user/group
+- [ ] validator confirms spec enables `oaw-agent.timer`
+- [ ] validator rejects unconditional service start behavior
+- [ ] validator rejects config or identity deletion behavior
+- [ ] validator rejects broad sudo behavior
+- [ ] validator fails closed when the spec file is missing
+- [ ] validator fails closed when sudoers is missing
+- [ ] validator fails closed when sudoers directly allows raw `/usr/sbin/ip`
+      commands
+- [ ] validator does not build or install an RPM
+- [ ] validator does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`,
+      `service`, `sudo`, package-manager commands, or service-manager
+      commands
+
 ## Disposable Linux Install Test Guidance
 
 - [ ] install tests run only inside a disposable Debian or Ubuntu VM/container

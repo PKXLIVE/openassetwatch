@@ -438,6 +438,25 @@ services, write to host `/usr`, `/etc`, `/var`, `/lib`, `/opt`, or create real
 config values, real identity values, logs, runtime status, tokens,
 credentials, API keys, or secrets.
 
+Validate the generated RPM staging tree without building or installing an RPM:
+
+```powershell
+python .\scripts\release\validate_agent_rpm.py `
+  --version 0.1.0-local
+```
+
+The validator inspects the existing staging tree under
+`dist/agent/<version>/rpm/`, including `SPECS/openassetwatch-agent.spec`,
+`BUILDROOT/openassetwatch-agent-<version>-1.x86_64/`, the package manifest,
+and the embedded release manifest. It verifies the expected payload layout,
+the one-shot `run-once` service, the timer cadence, config and identity
+preconditions, helper scripts, the helper-only sudoers allowlist, example
+placeholders, and forbidden content patterns. It also verifies that the spec
+models only expected RPM target-install scriptlet behavior and does not start
+the service unconditionally, delete config or identity, or grant broad sudo.
+It does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`, `service`,
+`sudo`, package-manager commands, or service-manager commands.
+
 ## Disposable Linux Install Test Guidance
 
 Install testing for `.deb` packages should happen only inside a disposable
