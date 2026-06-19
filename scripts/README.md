@@ -11,11 +11,11 @@ should not be added here.
   artifacts, create local Debian package artifacts from existing Linux dist
   artifacts, validate generated Debian package artifacts, create RPM spec
   staging trees from existing Linux dist artifacts without building RPM files,
-  validate `/opt` layout, compatibility command paths, root-owned libexec
-  helper metadata, service-account metadata, scoped sudoers helper allowlist
-  content, systemd metadata, target-install timer enablement, and
-  config/identity-guarded timer startup metadata without installing them,
-  validate generated release
+  validate generated RPM staging trees, spec files, staged payloads, `/opt`
+  layout, compatibility command paths, root-owned libexec helper metadata,
+  service-account metadata, scoped sudoers helper allowlist content, systemd
+  metadata, target-install timer enablement, and config/identity-guarded timer
+  startup metadata without installing them, validate generated release
   artifacts, orchestrate the local release flow, stage a local
   proof-of-layout install tree under ignored `dist/` paths, create a local
   sandbox install proof under ignored `dist/` paths, remove only that local
