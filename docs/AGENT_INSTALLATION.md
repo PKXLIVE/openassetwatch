@@ -64,6 +64,10 @@ configuration, identity, logs, and service metadata.
   `/lib/systemd/system/oaw-agent.service` for the Debian package
 - timer definition path:
   `/lib/systemd/system/oaw-agent.timer` for the Debian package
+- RPM-family service definition path:
+  `/usr/lib/systemd/system/oaw-agent.service`
+- RPM-family timer definition path:
+  `/usr/lib/systemd/system/oaw-agent.timer`
 - `.deb` package metadata: dpkg database under `/var/lib/dpkg/status` and
   package file records under `/var/lib/dpkg/info/openassetwatch-agent.*`
 - `.rpm` package metadata: rpm database under `/var/lib/rpm/` or
@@ -372,6 +376,67 @@ both real config and identity files are present, and never starts the service
 directly. It also verifies that `postrm` is limited to daemon-reload cleanup
 and does not delete admin-managed identity or config files. It does not install
 the package or run host package-manager or service-manager commands.
+
+## Local RPM Spec Staging
+
+Use the local RPM staging helper to prepare an RPM build tree, spec file, and
+staged payload from an existing Linux amd64 agent dist artifact:
+
+```powershell
+.\scripts\release\build_agent_dist.ps1 `
+  -Version 0.1.0-local `
+  -TargetOS linux `
+  -TargetArch amd64
+
+python .\scripts\release\package_agent_rpm.py `
+  --version 0.1.0-local
+```
+
+The helper writes only under ignored `dist/` output:
+
+- `dist/agent/<version>/rpm/BUILD/`
+- `dist/agent/<version>/rpm/BUILDROOT/`
+- `dist/agent/<version>/rpm/RPMS/`
+- `dist/agent/<version>/rpm/SOURCES/`
+- `dist/agent/<version>/rpm/SPECS/openassetwatch-agent.spec`
+- `dist/agent/<version>/rpm/SRPMS/`
+- `dist/agent/<version>/rpm/openassetwatch-agent-<version>-1.x86_64.manifest.json`
+
+The staged payload root is:
+
+`dist/agent/<version>/rpm/BUILDROOT/openassetwatch-agent-<version>-1.x86_64/`
+
+The staged payload mirrors the Debian production package model:
+
+- `/opt/openassetwatch/agent/bin/oaw-agent`
+- `/usr/bin/oaw-agent`, as a safe compatibility wrapper to
+  `/opt/openassetwatch/agent/bin/oaw-agent`
+- `/etc/openassetwatch/agent/config.example.json`
+- `/etc/openassetwatch/agent/identity.example.json`
+- `/var/lib/openassetwatch/agent/`
+- `/var/log/openassetwatch/agent/`
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show`
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show`
+- `/etc/sudoers.d/openassetwatch-agent`
+- `/usr/lib/systemd/system/oaw-agent.service`
+- `/usr/lib/systemd/system/oaw-agent.timer`
+- `/usr/share/doc/openassetwatch-agent/README.md`
+- `/usr/share/doc/openassetwatch-agent/release-manifest.json`
+
+The generated spec models the same conservative service and timer behavior:
+`oaw-agent.service` is a one-shot `run-once` service, `oaw-agent.timer` uses
+the conservative boot and hourly cadence, and the timer starts only on a
+target system with real config and identity files present. The staged helper
+scripts remain root-owned under `/usr/lib/openassetwatch/agent/libexec/`, and
+the staged sudoers file allows only those helpers. No direct raw
+`/usr/sbin/ip` sudo rules are staged.
+
+This helper does not build an RPM file and does not run `rpm`, `rpmbuild`,
+`dnf`, `yum`, `systemctl`, `service`, `sudo`, package-manager commands, or
+service-manager commands. It does not install software, enable services, start
+services, write to host `/usr`, `/etc`, `/var`, `/lib`, `/opt`, or create real
+config values, real identity values, logs, runtime status, tokens,
+credentials, API keys, or secrets.
 
 ## Disposable Linux Install Test Guidance
 

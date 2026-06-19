@@ -29,6 +29,11 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/validate_agent_deb.py](../scripts/release/validate_agent_deb.py).
   It inspects an existing `.deb` under ignored `dist/` paths without
   installing it or invoking host package tooling.
+- Local Linux RPM spec staging exists through
+  [scripts/release/package_agent_rpm.py](../scripts/release/package_agent_rpm.py).
+  It consumes an existing Linux amd64 `oaw-agent` dist artifact and writes only
+  an RPM build tree, spec file, staged payload, and manifest under ignored
+  `dist/` paths. It does not build or install an RPM.
 - Local release artifact validation exists through
   [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
   It verifies existing dist/package artifacts and emits JSON only.
@@ -196,6 +201,71 @@ not start the service directly or unconditionally. It verifies that sudoers
 allows only the helper scripts and no longer allows direct raw `/usr/sbin/ip`
 commands. It does not install the package and does not run host
 package-manager or service-manager commands.
+
+## Local RPM Spec Staging
+
+After building a Linux amd64 agent binary artifact, use the RPM staging helper
+to generate the future RPM build tree, spec file, and staged payload under
+ignored `dist/` output:
+
+```powershell
+.\scripts\release\build_agent_dist.ps1 `
+  -Version 0.1.0-local `
+  -TargetOS linux `
+  -TargetArch amd64
+
+python .\scripts\release\package_agent_rpm.py `
+  --version 0.1.0-local
+```
+
+The helper writes:
+
+- `dist/agent/<version>/rpm/BUILD/`
+- `dist/agent/<version>/rpm/BUILDROOT/`
+- `dist/agent/<version>/rpm/RPMS/`
+- `dist/agent/<version>/rpm/SOURCES/`
+- `dist/agent/<version>/rpm/SPECS/openassetwatch-agent.spec`
+- `dist/agent/<version>/rpm/SRPMS/`
+- `dist/agent/<version>/rpm/openassetwatch-agent-<version>-1.x86_64.manifest.json`
+
+The staged payload lives under:
+
+`dist/agent/<version>/rpm/BUILDROOT/openassetwatch-agent-<version>-1.x86_64/`
+
+The staged RPM payload mirrors the Debian production package model while using
+RPM-family systemd paths:
+
+- `/opt/openassetwatch/agent/bin/oaw-agent`
+- `/usr/bin/oaw-agent`, as a safe compatibility wrapper to
+  `/opt/openassetwatch/agent/bin/oaw-agent`
+- `/etc/openassetwatch/agent/config.example.json`
+- `/etc/openassetwatch/agent/identity.example.json`
+- `/var/lib/openassetwatch/agent/`
+- `/var/log/openassetwatch/agent/`
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show`
+- `/usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show`
+- `/etc/sudoers.d/openassetwatch-agent`
+- `/usr/lib/systemd/system/oaw-agent.service`
+- `/usr/lib/systemd/system/oaw-agent.timer`
+- `/usr/share/doc/openassetwatch-agent/README.md`
+- `/usr/share/doc/openassetwatch-agent/release-manifest.json`
+
+The helper scripts remain root-owned package payload entries and execute only
+the approved read-only local commands with no arguments:
+
+- `/usr/sbin/ip neigh show`
+- `/usr/sbin/ip addr show`
+
+The staged sudoers file allows only those OpenAssetWatch-owned helper scripts.
+It does not grant direct sudo access to raw `/usr/sbin/ip` commands, broad
+sudo grants, shell access, interpreter access, downloaders, package managers,
+service managers, file mutation commands, offensive tooling, wildcards, or
+arbitrary arguments.
+
+This helper does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`,
+`service`, `sudo`, package-manager commands, or service-manager commands. It
+does not build an RPM file, install software, enable services, start services,
+or write to host `/usr`, `/etc`, `/var`, `/lib`, or `/opt`.
 
 ## Disposable Linux Install Test Guidance
 

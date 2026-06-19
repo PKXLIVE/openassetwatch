@@ -222,6 +222,67 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] validator does not install the package or run package-manager or
       service-manager commands
 
+## RPM Spec Staging
+
+- [ ] `scripts/release/package_agent_rpm.py` passes against an existing Linux
+      amd64 dist artifact
+- [ ] helper output is JSON only
+- [ ] helper output includes `ok`, `version`, `rpm_root`, `spec`,
+      `buildroot`, `manifest`, `checks`, `warnings`, and `errors`
+- [ ] RPM staging output is written only under ignored
+      `dist/agent/<version>/rpm/`
+- [ ] RPM build tree contains `BUILD/`, `BUILDROOT/`, `RPMS/`, `SOURCES/`,
+      `SPECS/`, and `SRPMS/`
+- [ ] spec file exists at
+      `dist/agent/<version>/rpm/SPECS/openassetwatch-agent.spec`
+- [ ] staged payload exists under
+      `dist/agent/<version>/rpm/BUILDROOT/openassetwatch-agent-<version>-1.x86_64/`
+- [ ] staged payload includes `/opt/openassetwatch/agent/bin/oaw-agent`
+- [ ] staged payload includes `/usr/bin/oaw-agent` as a safe compatibility
+      wrapper to `/opt/openassetwatch/agent/bin/oaw-agent`
+- [ ] staged payload includes
+      `/etc/openassetwatch/agent/config.example.json`
+- [ ] staged payload includes
+      `/etc/openassetwatch/agent/identity.example.json`
+- [ ] staged payload includes `/var/lib/openassetwatch/agent/`
+- [ ] staged payload includes `/var/log/openassetwatch/agent/`
+- [ ] staged payload includes
+      `/usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show`
+- [ ] staged payload includes
+      `/usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show`
+- [ ] staged payload includes `/etc/sudoers.d/openassetwatch-agent`
+- [ ] staged payload includes `/usr/lib/systemd/system/oaw-agent.service`
+- [ ] staged payload includes `/usr/lib/systemd/system/oaw-agent.timer`
+- [ ] staged payload includes
+      `/usr/share/doc/openassetwatch-agent/README.md`
+- [ ] staged payload includes
+      `/usr/share/doc/openassetwatch-agent/release-manifest.json`
+- [ ] staged release manifest records helper metadata, sudoers metadata,
+      service metadata, timer metadata, and ownership expectations
+- [ ] spec declares `Requires: systemd` and `Requires: shadow-utils`
+- [ ] spec models the one-shot `oaw-agent run-once` service and timer
+      behavior
+- [ ] spec enables `oaw-agent.timer` only for target install behavior
+- [ ] spec does not start `oaw-agent.service` directly or unconditionally
+- [ ] helper scripts run exactly `/usr/sbin/ip neigh show` and
+      `/usr/sbin/ip addr show`
+- [ ] helper scripts do not accept arguments
+- [ ] helper scripts are staged under
+      `/usr/lib/openassetwatch/agent/libexec/`
+- [ ] sudoers file allows only the OpenAssetWatch-owned helper scripts
+- [ ] sudoers file does not directly allow raw `/usr/sbin/ip` commands
+- [ ] sudoers file does not include `NOPASSWD: ALL`, broad `ALL=(ALL) ALL`
+      grants, wildcards, shell/interpreter access, downloaders, package
+      managers, service managers, file mutation commands, offensive tooling,
+      or arbitrary arguments
+- [ ] helper does not build an RPM file
+- [ ] helper does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`,
+      `service`, `sudo`, package-manager commands, or service-manager
+      commands
+- [ ] helper does not install software, enable services, start services, or
+      modify host OS state
+- [ ] generated `dist/` artifacts remain ignored and are not committed
+
 ## Disposable Linux Install Test Guidance
 
 - [ ] install tests run only inside a disposable Debian or Ubuntu VM/container
