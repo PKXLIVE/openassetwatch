@@ -17,8 +17,10 @@ should not be added here.
   metadata, target-install timer enablement, and config/identity-guarded timer
   startup metadata without installing them, stage Windows Program
   Files/ProgramData install layout proofs from existing Windows dist
-  artifacts without creating services or MSI packages, validate generated release
-  artifacts, orchestrate the local release flow, stage a local
+  artifacts without creating services or MSI packages, validate staged Windows
+  install layout proofs without creating services, scheduled tasks, registry
+  entries, or MSI packages, validate generated release artifacts, orchestrate
+  the local release flow, stage a local
   proof-of-layout install tree under ignored `dist/` paths, create a local
   sandbox install proof under ignored `dist/` paths, remove only that local
   sandbox install proof, exercise local sandbox upgrade and rollback proofs,

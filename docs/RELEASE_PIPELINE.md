@@ -43,6 +43,11 @@ OpenAssetWatch. It is not fully implemented yet.
   It consumes an existing Windows amd64 `oaw-agent.exe` dist artifact and
   writes only a Program Files/ProgramData proof layout, service metadata, and
   manifest under ignored `dist/` paths.
+- Local Windows install layout validation exists through
+  [scripts/release/validate_agent_windows_install.py](../scripts/release/validate_agent_windows_install.py).
+  It inspects an existing staged Windows install layout, service metadata, and
+  manifest under ignored `dist/` paths without installing services, scheduled
+  tasks, registry entries, or MSI packages.
 - Local release artifact validation exists through
   [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
   It verifies existing dist/package artifacts and emits JSON only.
@@ -111,6 +116,9 @@ helper to prove the production install layout under ignored `dist/` output:
 
 python .\scripts\release\stage_agent_windows_install.py `
   --version 0.1.0-local
+
+python .\scripts\release\validate_agent_windows_install.py `
+  --version 0.1.0-local
 ```
 
 The helper writes:
@@ -130,6 +138,15 @@ does not use systemd timers and that a future implementation should use
 Windows Task Scheduler or a Windows service runtime model. The helper does not
 create a service, install a scheduled task, write registry keys, write to real
 Program Files or ProgramData paths, or build an MSI.
+
+The validator checks the staged Program Files and ProgramData proof layout,
+example config and identity placeholders, service metadata, manifest fields,
+staged paths, source artifact checksum metadata, safety notes, and forbidden
+service-install, scheduled-task, registry, installer-command, credential,
+password, token, API-key, and secret markers. It emits JSON only and does not
+create a service, install a scheduled task, write registry keys, write to real
+Program Files or ProgramData paths, run service-manager commands, or build an
+MSI.
 
 ## Local Debian Package Artifacts
 
