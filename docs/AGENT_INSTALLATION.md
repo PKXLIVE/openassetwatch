@@ -269,6 +269,14 @@ python .\scripts\release\stage_agent_windows_install.py `
 python .\scripts\release\validate_agent_windows_install.py `
   --version 0.1.0-local
 
+.\scripts\release\install_agent_windows_files.ps1 `
+  -WindowsInstallRoot .\dist\agent\0.1.0-local\windows-install `
+  -DryRun
+
+.\scripts\release\uninstall_agent_windows_files.ps1 `
+  -ServiceMetadata .\dist\agent\0.1.0-local\windows-install\service\oaw-agent-service.json `
+  -DryRun
+
 .\scripts\release\install_agent_windows_service.ps1 `
   -InstallRoot .\dist\agent\0.1.0-local\windows-install `
   -ServiceMetadata .\dist\agent\0.1.0-local\windows-install\service\oaw-agent-service.json `
@@ -312,6 +320,24 @@ installer-command, credential, password, token, API-key, or secret markers. It
 emits JSON only and does not install services, create scheduled tasks, modify
 the registry, write to real Program Files or ProgramData paths, run installer
 commands, or build an MSI.
+
+The Windows file install and uninstall helpers are explicit administrator
+operations, not automatic installer behavior. Both helpers emit JSON only and
+support `-DryRun` for validation without changing the host. Real file install
+mode requires administrator rights, validates the staged layout, copies
+`oaw-agent.exe` into
+`C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`, creates the
+ProgramData config, identity, state, and logs directories, copies only
+`config.example.json` and `identity.example.json`, and does not create or
+overwrite real `config.json` or `identity.json`. The ACL model keeps Program
+Files not writable by `LocalService`, grants `LocalService` read/execute on the
+binary and read access to config and identity examples, grants `LocalService`
+write access only to state and logs, keeps Administrators and SYSTEM in full
+control, and does not grant broad `Everyone` or Users write access. Real file
+uninstall mode requires administrator rights, removes the Program Files agent
+binary and empty agent directories when safe, preserves ProgramData config,
+identity, state, and logs by default, and removes state or logs only when
+`-RemoveState` or `-RemoveLogs` is explicitly supplied.
 
 The Windows service install and uninstall helpers are explicit administrator
 operations, not automatic installer behavior. Both helpers emit JSON only and

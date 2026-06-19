@@ -190,6 +190,56 @@ uninstall, upgrade, roll back, or publish anything.
       admin checks, no default auto-start, config/identity preservation, and
       absence of unsafe registry or secret patterns
 
+## Windows File Helper Validation
+
+- [ ] `scripts/release/install_agent_windows_files.ps1` parses cleanly
+- [ ] `scripts/release/uninstall_agent_windows_files.ps1` parses cleanly
+- [ ] file install helper requires explicit `-WindowsInstallRoot`
+- [ ] file install helper validates the staged Windows install layout
+- [ ] file install helper validates staged `oaw-agent.exe`
+- [ ] file install helper validates `config.example.json`
+- [ ] file install helper validates `identity.example.json`
+- [ ] file install helper validates `service/oaw-agent-service.json`
+- [ ] file install helper supports `-DryRun`
+- [ ] file install helper requires administrator rights for real file install
+- [ ] file install helper copies the binary only to
+      `C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`
+- [ ] file install helper creates only approved ProgramData config, identity,
+      state, and log directories
+- [ ] file install helper copies only example config and identity files
+- [ ] file install helper does not create real `config.json`
+- [ ] file install helper does not create real `identity.json`
+- [ ] file install helper preserves real config and identity if present
+- [ ] file install helper defines ACL expectations:
+      Program Files not writable by `LocalService`, Program Files binary
+      read/execute for `LocalService`, config and identity
+      administrator-controlled with `LocalService` read access, state and logs
+      writable by `LocalService`, Administrators and SYSTEM full control, and
+      no broad `Everyone` or Users write access
+- [ ] file uninstall helper requires explicit paths or service metadata
+- [ ] file uninstall helper supports `-DryRun`
+- [ ] file uninstall helper requires administrator rights for real file cleanup
+- [ ] file uninstall helper removes the Program Files agent binary and empty
+      agent directories only when safe
+- [ ] file uninstall helper preserves ProgramData config and identity by
+      default
+- [ ] file uninstall helper preserves state and logs by default
+- [ ] file uninstall helper supports explicit `-RemoveState`
+- [ ] file uninstall helper supports explicit `-RemoveLogs`
+- [ ] file uninstall helper refuses destructive cleanup outside
+      OpenAssetWatch paths
+- [ ] file helper dry-runs return JSON only and do not copy files to real
+      Program Files or ProgramData
+- [ ] file helpers do not create, remove, start, or stop services
+- [ ] file helpers do not run `msiexec`
+- [ ] file helpers do not modify registry
+- [ ] file helpers do not accept credentials or passwords
+- [ ] file helpers do not embed credentials, passwords, tokens, API keys, or
+      secrets
+- [ ] Windows install validator confirms file helper presence, dry-run support,
+      admin checks, config/identity preservation, safe ACL expectations, and
+      absence of service, registry, MSI, network, and credential patterns
+
 ## Debian Package Metadata
 
 - [ ] `scripts/release/package_agent_deb.py` passes against an existing

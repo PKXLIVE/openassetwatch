@@ -21,8 +21,9 @@ should not be added here.
   install layout proofs without creating services, scheduled tasks, registry
   entries, or MSI packages, provide explicit Windows service install and
   uninstall helpers with dry-run validation for administrator-controlled use,
-  validate generated release artifacts, orchestrate the local release flow,
-  stage a local
+  provide explicit Windows file install and uninstall helpers with dry-run
+  validation for administrator-controlled file copy and cleanup, validate
+  generated release artifacts, orchestrate the local release flow, stage a local
   proof-of-layout install tree under ignored `dist/` paths, create a local
   sandbox install proof under ignored `dist/` paths, remove only that local
   sandbox install proof, exercise local sandbox upgrade and rollback proofs,

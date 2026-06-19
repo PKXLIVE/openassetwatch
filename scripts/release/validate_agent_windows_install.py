@@ -63,6 +63,8 @@ INSTALL_INTENT_KEYS = (
 )
 INSTALL_HELPER_RELATIVE = Path("scripts") / "release" / "install_agent_windows_service.ps1"
 UNINSTALL_HELPER_RELATIVE = Path("scripts") / "release" / "uninstall_agent_windows_service.ps1"
+FILE_INSTALL_HELPER_RELATIVE = Path("scripts") / "release" / "install_agent_windows_files.ps1"
+FILE_UNINSTALL_HELPER_RELATIVE = Path("scripts") / "release" / "uninstall_agent_windows_files.ps1"
 HELPER_SECRET_ASSIGNMENT_RE = re.compile(
     r"(credential|password|token|api[_-]?key|private[_-]?key|secret)\s*=",
     re.IGNORECASE,
@@ -70,6 +72,14 @@ HELPER_SECRET_ASSIGNMENT_RE = re.compile(
 HELPER_FORBIDDEN_RE = re.compile(
     r"(msiexec|reg(?:\.exe)?\s+(?:add|delete|import)|Set-ItemProperty|"
     r"New-ItemProperty|Remove-ItemProperty|Get-Credential|PSCredential|"
+    r"ConvertTo-SecureString|Write-Host)",
+    re.IGNORECASE,
+)
+FILE_HELPER_FORBIDDEN_RE = re.compile(
+    r"(sc(?:\.exe)?\s|New-Service|Start-Service|Stop-Service|Set-Service|"
+    r"Get-Service|msiexec|reg(?:\.exe)?\s+(?:add|delete|import)|"
+    r"Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|"
+    r"Invoke-WebRequest|Invoke-RestMethod|Get-Credential|PSCredential|"
     r"ConvertTo-SecureString|Write-Host)",
     re.IGNORECASE,
 )
@@ -326,6 +336,84 @@ def validate_uninstall_helper(repo_root: Path) -> None:
 def validate_helpers(repo_root: Path) -> None:
     validate_install_helper(repo_root)
     validate_uninstall_helper(repo_root)
+    validate_file_install_helper(repo_root)
+    validate_file_uninstall_helper(repo_root)
+
+
+def validate_file_helper_script(path: Path, helper_name: str) -> str:
+    if not path.is_file():
+        raise ValueError(f"{helper_name} is missing.")
+    text = path.read_text(encoding="utf-8-sig")
+    if HELPER_SECRET_ASSIGNMENT_RE.search(text):
+        raise ValueError(f"{helper_name} appears to contain hardcoded secret assignment text.")
+    forbidden = sorted({match.group(0) for match in FILE_HELPER_FORBIDDEN_RE.finditer(text)})
+    if forbidden:
+        raise ValueError(f"{helper_name} contains unsafe helper text: {', '.join(forbidden)}.")
+    if "[switch]$DryRun" not in text:
+        raise ValueError(f"{helper_name} must support -DryRun.")
+    if "Test-IsAdministrator" not in text or "WindowsBuiltInRole]::Administrator" not in text:
+        raise ValueError(f"{helper_name} must include an administrator check.")
+    if "Administrator rights are required" not in text:
+        raise ValueError(f"{helper_name} must fail closed for real non-admin execution.")
+    if "ConvertTo-Json" not in text:
+        raise ValueError(f"{helper_name} must output JSON.")
+    if "Write-Output" in text or "Write-Error" in text or "Write-Information" in text:
+        raise ValueError(f"{helper_name} must not write non-JSON output streams explicitly.")
+    return text
+
+
+def validate_file_install_helper(repo_root: Path) -> None:
+    text = validate_file_helper_script(repo_root / FILE_INSTALL_HELPER_RELATIVE, "Windows file install helper")
+    required = (
+        "[string]$WindowsInstallRoot",
+        "ProgramFiles\\OpenAssetWatch\\Agent\\bin\\oaw-agent.exe",
+        "ProgramData\\OpenAssetWatch\\Agent\\config",
+        "ProgramData\\OpenAssetWatch\\Agent\\identity",
+        "ProgramData\\OpenAssetWatch\\Agent\\state",
+        "ProgramData\\OpenAssetWatch\\Agent\\logs",
+        "config.example.json",
+        "identity.example.json",
+        "service\\oaw-agent-service.json",
+        "windows-install-manifest.json",
+        "Copy-Item",
+        "Set-DirectoryAcl",
+        "NT AUTHORITY\\LOCAL SERVICE",
+        "Administrators and SYSTEM retain full control",
+        "No broad Everyone or Users write access is granted",
+        "Preserve config.json and identity.json",
+    )
+    missing = [item for item in required if item not in text]
+    if missing:
+        raise ValueError(f"Windows file install helper missing expected text: {', '.join(missing)}.")
+    if "config.json" in text and "Copy-Item -LiteralPath $staged.config_example" not in text:
+        raise ValueError("Windows file install helper must copy only config.example.json, not real config.json.")
+    if "identity.json" in text and "Copy-Item -LiteralPath $staged.identity_example" not in text:
+        raise ValueError("Windows file install helper must copy only identity.example.json, not real identity.json.")
+
+
+def validate_file_uninstall_helper(repo_root: Path) -> None:
+    text = validate_file_helper_script(repo_root / FILE_UNINSTALL_HELPER_RELATIVE, "Windows file uninstall helper")
+    required = (
+        "[string]$ProgramFilesAgentRoot",
+        "[string]$ProgramDataAgentRoot",
+        "[string]$ServiceMetadata",
+        "[switch]$RemoveState",
+        "[switch]$RemoveLogs",
+        "ProgramFilesAgentRoot or ServiceMetadata is required",
+        "Assert-OpenAssetWatchRoot",
+        "Preserve ProgramData config and identity directories by default",
+        "Preserve ProgramData state unless -RemoveState is supplied",
+        "Preserve ProgramData logs unless -RemoveLogs is supplied",
+        "Remove-DirectoryIfEmpty",
+        "Remove-DirectoryTreeIfPresent",
+    )
+    missing = [item for item in required if item not in text]
+    if missing:
+        raise ValueError(f"Windows file uninstall helper missing expected text: {', '.join(missing)}.")
+    for line in text.splitlines():
+        lowered = line.lower()
+        if "remove-item" in lowered and ("config" in lowered or "identity" in lowered):
+            raise ValueError("Windows file uninstall helper must not remove config or identity paths.")
 
 
 def validate_windows_install(repo_root: Path, version: str, root: Path, reporter: Reporter) -> None:

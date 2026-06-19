@@ -54,6 +54,13 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/uninstall_agent_windows_service.ps1](../scripts/release/uninstall_agent_windows_service.ps1).
   They support dry-run validation and require explicit administrator execution
   for real service changes. They do not build an MSI.
+- Explicit Windows file install and uninstall helpers exist through
+  [scripts/release/install_agent_windows_files.ps1](../scripts/release/install_agent_windows_files.ps1)
+  and
+  [scripts/release/uninstall_agent_windows_files.ps1](../scripts/release/uninstall_agent_windows_files.ps1).
+  They support dry-run validation and require explicit administrator execution
+  for real file copy or cleanup. They preserve config and identity by default
+  and do not build an MSI.
 - Local release artifact validation exists through
   [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
   It verifies existing dist/package artifacts and emits JSON only.
@@ -126,6 +133,14 @@ python .\scripts\release\stage_agent_windows_install.py `
 python .\scripts\release\validate_agent_windows_install.py `
   --version 0.1.0-local
 
+.\scripts\release\install_agent_windows_files.ps1 `
+  -WindowsInstallRoot .\dist\agent\0.1.0-local\windows-install `
+  -DryRun
+
+.\scripts\release\uninstall_agent_windows_files.ps1 `
+  -ServiceMetadata .\dist\agent\0.1.0-local\windows-install\service\oaw-agent-service.json `
+  -DryRun
+
 .\scripts\release\install_agent_windows_service.ps1 `
   -InstallRoot .\dist\agent\0.1.0-local\windows-install `
   -ServiceMetadata .\dist\agent\0.1.0-local\windows-install\service\oaw-agent-service.json `
@@ -162,6 +177,20 @@ password, token, API-key, and secret markers. It emits JSON only and does not
 create a service, install a scheduled task, write registry keys, write to real
 Program Files or ProgramData paths, run service-manager commands, or build an
 MSI.
+
+The file helper scripts are not run by the staging helper. Install requires
+explicit `-WindowsInstallRoot`, validates the staged layout, requires
+administrator rights for real file installation, copies the agent binary to
+Program Files, creates ProgramData config, identity, state, and log
+directories, copies only example config and identity files, and preserves real
+config and identity. The ACL model keeps Program Files read/execute for
+`LocalService` but not writable, keeps config and identity administrator
+controlled with `LocalService` read access, grants `LocalService` write access
+only to state and logs, and avoids broad `Everyone` or Users write grants.
+Uninstall requires explicit paths or service metadata, requires administrator
+rights for real cleanup, removes only the Program Files agent binary and empty
+agent directories when safe, and preserves ProgramData config, identity, state,
+and logs unless `-RemoveState` or `-RemoveLogs` is supplied.
 
 The service helper scripts are not run by the staging helper. Install requires
 explicit `-InstallRoot` and `-ServiceMetadata`, validates the staged layout and
