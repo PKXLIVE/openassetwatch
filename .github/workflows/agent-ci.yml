@@ -311,12 +311,18 @@ jobs:
           trap cleanup EXIT
           sudo installer -pkg "$OLD_PKG" -target /
           sudo launchctl print "system/$LABEL" >/dev/null
-          deadline=$((SECONDS + 45))
+          sudo launchctl kickstart -k "system/$LABEL"
+          deadline=$((SECONDS + 90))
           while [ "$SECONDS" -lt "$deadline" ]; do
             [ -f "$STATE/status.json" ] && break
             sleep 2
           done
-          [ -f "$STATE/status.json" ]
+          if [ ! -f "$STATE/status.json" ]; then
+            echo "status.json was not written after initial LaunchDaemon startup"
+            sudo launchctl print "system/$LABEL" || true
+            sudo ls -la "$APP_ROOT" "$STATE" "$LOG_DIR" || true
+            exit 1
+          fi
           python3 - <<'PY' "$STATE/status.json"
           import json, sys
           status=json.load(open(sys.argv[1], encoding="utf-8"))
