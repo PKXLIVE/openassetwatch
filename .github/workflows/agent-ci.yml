@@ -64,16 +64,108 @@ jobs:
               exit 1
             }
           }
-          python3 -m py_compile scripts/release/stage_agent_windows_install.py scripts/release/validate_agent_windows_install.py scripts/release/validate_agent_windows_msi.py
-          python3 -m py_compile scripts/release/stage_agent_macos_install.py scripts/release/validate_agent_macos_install.py
+          $pythonScripts = git ls-files "scripts/release/*.py"
+          python3 -m py_compile @pythonScripts
+          python3 scripts/release/test_linux_packaging.py
           $bashScripts = @(
             "scripts/release/build_agent_macos_pkg.sh",
             "scripts/release/sign_notarize_agent_macos.sh",
             "scripts/release/uninstall_agent_macos.sh",
+            "packaging/agent/linux/common/libexec/oaw-ip-neigh-show",
+            "packaging/agent/linux/common/libexec/oaw-ip-addr-show",
+            "packaging/agent/linux/deb/postinst",
+            "packaging/agent/linux/deb/postrm",
             "packaging/agent/macos/scripts/preinstall",
             "packaging/agent/macos/scripts/postinstall"
           )
           bash -n @bashScripts
+
+  linux-deb-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install package inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sudo systemd
+      - name: Build Linux amd64 artifact
+        shell: pwsh
+        run: ./scripts/release/build_agent_dist.ps1 -Version 0.1.0-linuxpkg-ci -TargetOS linux -TargetArch amd64
+      - name: Build and validate DEB
+        run: |
+          python3 ./scripts/release/package_agent_deb.py --version 0.1.0-linuxpkg-ci
+          python3 ./scripts/release/validate_agent_deb.py --version 0.1.0-linuxpkg-ci
+      - name: Inspect DEB payload and metadata
+        run: |
+          set -euo pipefail
+          DEB="dist/agent/0.1.0-linuxpkg-ci/packages/openassetwatch-agent_0.1.0-linuxpkg-ci_amd64.deb"
+          EXTRACT="$RUNNER_TEMP/oaw-deb-extract"
+          dpkg-deb --info "$DEB"
+          dpkg-deb --contents "$DEB" | tee "$RUNNER_TEMP/oaw-deb-contents.txt"
+          dpkg-deb -x "$DEB" "$EXTRACT"
+          test -x "$EXTRACT/opt/openassetwatch/agent/bin/oaw-agent"
+          test -f "$EXTRACT/lib/systemd/system/oaw-agent.service"
+          test -f "$EXTRACT/lib/systemd/system/oaw-agent.timer"
+          systemd-analyze --root="$EXTRACT" verify oaw-agent.service oaw-agent.timer
+          sudo visudo -cf "$EXTRACT/etc/sudoers.d/openassetwatch-agent"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openassetwatch-agent-linux-deb-unsigned
+          path: |
+            dist/agent/0.1.0-linuxpkg-ci/packages/*.deb
+            dist/agent/0.1.0-linuxpkg-ci/packages/*.sha256
+            dist/agent/0.1.0-linuxpkg-ci/packages/*.json
+
+  linux-rpm-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install RPM inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm sudo systemd
+      - name: Build Linux amd64 artifact
+        shell: pwsh
+        run: ./scripts/release/build_agent_dist.ps1 -Version 0.1.0-rpmpkg-ci -TargetOS linux -TargetArch amd64
+      - name: Build and validate RPM
+        run: |
+          python3 ./scripts/release/package_agent_rpm.py --version 0.1.0-rpmpkg-ci
+          python3 ./scripts/release/validate_agent_rpm.py --version 0.1.0-rpmpkg-ci
+      - name: Inspect RPM payload and metadata
+        run: |
+          set -euo pipefail
+          RPM="dist/agent/0.1.0-rpmpkg-ci/packages/openassetwatch-agent-0.1.0_rpmpkg_ci-1.x86_64.rpm"
+          ROOT="dist/agent/0.1.0-rpmpkg-ci/rpm/BUILDROOT/openassetwatch-agent-0.1.0-rpmpkg-ci-1.x86_64"
+          rpm -qip "$RPM"
+          rpm -qpl "$RPM" | tee "$RUNNER_TEMP/oaw-rpm-payload.txt"
+          rpm -qp --scripts "$RPM"
+          rpm -qp --dump "$RPM"
+          test -x "$ROOT/opt/openassetwatch/agent/bin/oaw-agent"
+          test -f "$ROOT/usr/lib/systemd/system/oaw-agent.service"
+          test -f "$ROOT/usr/lib/systemd/system/oaw-agent.timer"
+          systemd-analyze --root="$ROOT" verify oaw-agent.service oaw-agent.timer
+          sudo visudo -cf "$ROOT/etc/sudoers.d/openassetwatch-agent"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openassetwatch-agent-linux-rpm-unsigned
+          path: |
+            dist/agent/0.1.0-rpmpkg-ci/packages/*.rpm
+            dist/agent/0.1.0-rpmpkg-ci/packages/*.sha256
+            dist/agent/0.1.0-rpmpkg-ci/packages/*.json
 
   windows-agent:
     runs-on: windows-latest
