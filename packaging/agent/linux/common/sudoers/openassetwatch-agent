@@ -1,0 +1,6 @@
+# OpenAssetWatch agent privileged helper allowlist.
+# This file is intentionally narrow and applies only to the openassetwatch service user.
+# oaw-ip-neigh-show runs exactly /usr/sbin/ip neigh show for local neighbor-cache review.
+openassetwatch ALL=(root) NOPASSWD: /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show ""
+# oaw-ip-addr-show runs exactly /usr/sbin/ip addr show for local interface review.
+openassetwatch ALL=(root) NOPASSWD: /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show ""

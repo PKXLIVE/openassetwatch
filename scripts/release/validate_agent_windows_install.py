@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from package_agent_deb import (
+from release_common import (
     get_repo_root,
     is_inside,
     read_json,

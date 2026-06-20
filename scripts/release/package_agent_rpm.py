@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Stage an RPM build tree for the OpenAssetWatch agent without building it."""
+"""Build an RPM package artifact for the OpenAssetWatch agent."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import re
 import shutil
 import stat
+import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from package_agent_deb import (
+from linux_packaging import (
     APPROVED_SUDOERS_COMMANDS,
     FORBIDDEN_CONTENT_RE,
     IP_ADDR_HELPER,
@@ -23,7 +23,11 @@ from package_agent_deb import (
     OPT_BINARY,
     OPT_BINARY_PACKAGE_PATH,
     PACKAGE_NAME,
+    PACKAGE_DEPENDENCIES_RPM,
     PRIVILEGED_HELPERS,
+    RPM_ARCH,
+    RPM_RELEASE,
+    ROOT_OWNED_DIRS,
     SERVICE_COMMAND,
     SERVICE_GROUP,
     SERVICE_OWNED_DIRS,
@@ -31,23 +35,25 @@ from package_agent_deb import (
     SUDOERS_INSTALL_PATH,
     TARGET_ARCH,
     TARGET_OS,
-    USR_BIN_LINK_TARGET,
     USR_BIN_PACKAGE_PATH,
     config_example,
-    get_repo_root,
     identity_example,
     ip_addr_helper_script,
     ip_neigh_helper_script,
-    is_inside,
     package_readme,
-    read_json,
-    service_unit,
-    sha256_file,
+    rpm_service_unit,
+    rpm_spec_file,
+    rpm_timer_unit,
     sudoers_file,
-    timer_unit,
+    validate_linux_binary_artifact,
+)
+from release_common import (
+    get_repo_root,
+    is_inside,
+    read_json,
+    sha256_file,
     to_repo_relative,
     utc_timestamp,
-    validate_binary_artifact,
     validate_version,
 )
 from validate_agent_deb import (
@@ -60,14 +66,12 @@ from validate_agent_deb import (
 )
 
 
-RPM_ARCH = "x86_64"
-RPM_RELEASE = "1"
 RPM_ROOT_DIRS = ("BUILD", "BUILDROOT", "RPMS", "SOURCES", "SPECS", "SRPMS")
 RPM_SYSTEMD_DIR = "/usr/lib/systemd/system"
 RPM_SERVICE_PACKAGE_PATH = "./usr/lib/systemd/system/oaw-agent.service"
 RPM_TIMER_PACKAGE_PATH = "./usr/lib/systemd/system/oaw-agent.timer"
 RPM_TIMER_INSTALL_PATH = "/usr/lib/systemd/system/oaw-agent.timer"
-PACKAGE_DEPENDENCIES = ("systemd", "shadow-utils")
+PACKAGE_DEPENDENCIES = PACKAGE_DEPENDENCIES_RPM
 SUDOERS_PACKAGE_PATH = "./etc/sudoers.d/openassetwatch-agent"
 
 RPM_EXPECTED_FILES = (
@@ -113,19 +117,7 @@ RPM_EXPECTED_DIRS = (
     "./var/log/openassetwatch/agent",
 )
 
-ROOT_OWNED_PATHS = (
-    "./usr/bin/oaw-agent",
-    "./usr/lib/openassetwatch",
-    "./usr/lib/openassetwatch/agent",
-    "./usr/lib/openassetwatch/agent/libexec",
-    IP_NEIGH_HELPER_PACKAGE_PATH,
-    IP_ADDR_HELPER_PACKAGE_PATH,
-    "./etc/openassetwatch",
-    "./etc/openassetwatch/agent",
-    SUDOERS_PACKAGE_PATH,
-    RPM_SERVICE_PACKAGE_PATH,
-    RPM_TIMER_PACKAGE_PATH,
-)
+ROOT_OWNED_PATHS = ROOT_OWNED_DIRS + (RPM_SERVICE_PACKAGE_PATH, RPM_TIMER_PACKAGE_PATH)
 
 RPM_REQUIRED_MANIFEST_FIELDS = (
     "package_name",
@@ -136,6 +128,19 @@ RPM_REQUIRED_MANIFEST_FIELDS = (
     "rpm_root",
     "spec_path",
     "buildroot",
+    "build_timestamp",
+    "git_commit",
+    "contents",
+)
+RPM_PACKAGE_REQUIRED_FIELDS = (
+    "package_name",
+    "version",
+    "os",
+    "arch",
+    "rpm_arch",
+    "package_type",
+    "package_path",
+    "sha256",
     "build_timestamp",
     "git_commit",
     "contents",
@@ -171,6 +176,17 @@ def rpm_paths(repo_root: Path, version: str) -> tuple[Path, Path, Path, Path]:
     spec_path = rpm_root / "SPECS" / f"{PACKAGE_NAME}.spec"
     manifest_path = rpm_root / f"{PACKAGE_NAME}-{version}-{RPM_RELEASE}.{RPM_ARCH}.manifest.json"
     return rpm_root, buildroot, spec_path, manifest_path
+
+
+def rpm_package_paths(repo_root: Path, version: str) -> tuple[Path, Path, Path]:
+    package_dir = repo_root / "dist" / "agent" / version / "packages"
+    if not is_inside(repo_root / "dist" / "agent", package_dir):
+        raise ValueError("RPM package output must stay under dist/agent/.")
+    package_dir.mkdir(parents=True, exist_ok=True)
+    package_path = package_dir / f"{PACKAGE_NAME}-{rpm_version(version)}-{RPM_RELEASE}.{RPM_ARCH}.rpm"
+    checksum_path = Path(str(package_path) + ".sha256")
+    manifest_path = Path(str(package_path) + ".manifest.json")
+    return package_path, checksum_path, manifest_path
 
 
 def clean_rpm_root(repo_root: Path, rpm_root: Path) -> None:
@@ -236,7 +252,7 @@ def release_manifest(
         "version": version,
         "os": TARGET_OS,
         "arch": TARGET_ARCH,
-        "package_type": "rpm-staging",
+        "package_type": "rpm",
         "binary": {
             "path": OPT_BINARY,
             "compatibility_wrapper": "/usr/bin/oaw-agent",
@@ -311,84 +327,7 @@ def release_manifest(
 
 
 def spec_file(version: str) -> bytes:
-    spec_version = rpm_version(version)
-    files = [
-        "%dir %attr(0755,openassetwatch,openassetwatch) /opt/openassetwatch",
-        "%dir %attr(0755,openassetwatch,openassetwatch) /opt/openassetwatch/agent",
-        "%dir %attr(0755,openassetwatch,openassetwatch) /opt/openassetwatch/agent/bin",
-        "%attr(0755,openassetwatch,openassetwatch) /opt/openassetwatch/agent/bin/oaw-agent",
-        "%attr(0755,root,root) /usr/bin/oaw-agent",
-        "%dir %attr(0755,root,root) /usr/lib/openassetwatch",
-        "%dir %attr(0755,root,root) /usr/lib/openassetwatch/agent",
-        "%dir %attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec",
-        "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show",
-        "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show",
-        "%dir %attr(0755,root,root) /etc/openassetwatch",
-        "%dir %attr(0755,root,root) /etc/openassetwatch/agent",
-        "%config(noreplace) %attr(0644,root,root) /etc/openassetwatch/agent/config.example.json",
-        "%config(noreplace) %attr(0644,root,root) /etc/openassetwatch/agent/identity.example.json",
-        "%attr(0440,root,root) /etc/sudoers.d/openassetwatch-agent",
-        "%attr(0644,root,root) /usr/lib/systemd/system/oaw-agent.service",
-        "%attr(0644,root,root) /usr/lib/systemd/system/oaw-agent.timer",
-        "%dir %attr(0755,openassetwatch,openassetwatch) /var/lib/openassetwatch/agent",
-        "%dir %attr(0755,openassetwatch,openassetwatch) /var/log/openassetwatch/agent",
-        "%doc /usr/share/doc/openassetwatch-agent/README.md",
-        "%attr(0644,root,root) /usr/share/doc/openassetwatch-agent/release-manifest.json",
-    ]
-    return "\n".join(
-        [
-            f"Name: {PACKAGE_NAME}",
-            f"Version: {spec_version}",
-            f"Release: {RPM_RELEASE}%{{?dist}}",
-            "Summary: OpenAssetWatch defensive local asset inventory agent",
-            "License: Proprietary",
-            "URL: https://openassetwatch.example.invalid",
-            f"# OpenAssetWatch-Source-Version: {version}",
-            "BuildArch: x86_64",
-            "Requires: systemd",
-            "Requires: shadow-utils",
-            "",
-            "%description",
-            "The OpenAssetWatch agent collects local, passive asset inventory",
-            "observations for administrator-approved OpenAssetWatch deployments.",
-            "",
-            "%pre",
-            f"if ! getent group {SERVICE_GROUP} >/dev/null 2>&1; then",
-            f"    groupadd --system {SERVICE_GROUP}",
-            "fi",
-            f"if ! id -u {SERVICE_USER} >/dev/null 2>&1; then",
-            (
-                f"    useradd --system --gid {SERVICE_GROUP} "
-                "--home-dir /var/lib/openassetwatch/agent --no-create-home "
-                f"--shell /usr/sbin/nologin {SERVICE_USER}"
-            ),
-            "fi",
-            "",
-            "%post",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /opt/openassetwatch/agent",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
-            "if command -v systemctl >/dev/null 2>&1; then",
-            "    systemctl daemon-reload || true",
-            "    systemctl enable oaw-agent.timer || true",
-            (
-                "    if [ -f /etc/openassetwatch/agent/config.json ] "
-                "&& [ -f /etc/openassetwatch/agent/identity.json ]; then"
-            ),
-            "        systemctl restart oaw-agent.timer || true",
-            "    fi",
-            "fi",
-            "",
-            "%postun",
-            "if command -v systemctl >/dev/null 2>&1; then",
-            "    systemctl daemon-reload || true",
-            "fi",
-            "",
-            "%files",
-            *files,
-            "",
-        ]
-    ).encode("utf-8")
+    return rpm_spec_file(version)
 
 
 def stage_payload(
@@ -417,8 +356,8 @@ def stage_payload(
         "./etc/openassetwatch/agent/config.example.json": (config_example(), 0o644),
         "./etc/openassetwatch/agent/identity.example.json": (identity_example(), 0o644),
         SUDOERS_PACKAGE_PATH: (sudoers_file(), 0o440),
-        RPM_SERVICE_PACKAGE_PATH: (service_unit(), 0o644),
-        RPM_TIMER_PACKAGE_PATH: (timer_unit(), 0o644),
+        RPM_SERVICE_PACKAGE_PATH: (rpm_service_unit(), 0o644),
+        RPM_TIMER_PACKAGE_PATH: (rpm_timer_unit(), 0o644),
         "./usr/share/doc/openassetwatch-agent/README.md": (package_readme(version), 0o644),
         "./usr/share/doc/openassetwatch-agent/release-manifest.json": (release_manifest_data, 0o644),
     }
@@ -544,7 +483,7 @@ def validate_spec(path: Path, version: str) -> None:
         "%attr(0440,root,root) /etc/sudoers.d/openassetwatch-agent",
         "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show",
         "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show",
-        "%attr(0755,openassetwatch,openassetwatch) /opt/openassetwatch/agent/bin/oaw-agent",
+        "%attr(0755,root,root) /opt/openassetwatch/agent/bin/oaw-agent",
     )
     missing = [item for item in required if item not in text]
     if missing:
@@ -612,8 +551,8 @@ def validate_staging(
     validate_manifest(manifest_path)
 
     release = read_json(payload_path(buildroot, "./usr/share/doc/openassetwatch-agent/release-manifest.json"))
-    if release.get("package_type") != "rpm-staging":
-        raise ValueError("Embedded release manifest must identify rpm-staging.")
+    if release.get("package_type") != "rpm":
+        raise ValueError("Embedded release manifest must identify rpm.")
     if release.get("privileged_helpers") != read_json(manifest_path).get("privileged_helpers"):
         raise ValueError("Embedded release manifest helper metadata mismatch.")
 
@@ -640,8 +579,111 @@ def validate_staging(
         raise ValueError("RPM sudoers must allow only the packaged helper scripts.")
 
 
+def build_rpm_with_rpmbuild(repo_root: Path, rpm_root: Path, buildroot: Path, spec_path: Path, version: str) -> Path:
+    rpmbuild = shutil.which("rpmbuild")
+    if not rpmbuild:
+        raise ValueError("rpmbuild is required to build a real RPM package.")
+    command = [
+        rpmbuild,
+        "-bb",
+        "--noclean",
+        "--buildroot",
+        str(buildroot),
+        "--define",
+        f"_topdir {rpm_root}",
+        "--define",
+        "_build_id_links none",
+        str(spec_path),
+    ]
+    result = subprocess.run(command, cwd=repo_root, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        details = "\n".join(
+            item
+            for item in (
+                f"rpmbuild exit code: {result.returncode}",
+                f"stdout: {result.stdout.strip()}",
+                f"stderr: {result.stderr.strip()}",
+            )
+            if item
+        )
+        raise ValueError(details)
+    candidates = sorted((rpm_root / "RPMS").glob(f"**/{PACKAGE_NAME}-{rpm_version(version)}-{RPM_RELEASE}*.rpm"))
+    if not candidates:
+        raise ValueError("rpmbuild completed but no RPM artifact was found under RPMS/.")
+    return candidates[0]
+
+
+def write_rpm_package_metadata(
+    repo_root: Path,
+    version: str,
+    built_rpm: Path,
+    package_path: Path,
+    checksum_path: Path,
+    manifest_path: Path,
+    staging_manifest_path: Path,
+    binary_manifest: dict[str, Any],
+) -> None:
+    shutil.copy2(built_rpm, package_path)
+    package_hash = sha256_file(package_path).lower()
+    checksum_path.write_text(f"{package_hash}  {package_path.name}\n", encoding="ascii")
+    manifest = {
+        "package_name": PACKAGE_NAME,
+        "version": version,
+        "os": TARGET_OS,
+        "arch": TARGET_ARCH,
+        "rpm_arch": RPM_ARCH,
+        "package_type": "rpm",
+        "package_path": to_repo_relative(repo_root, package_path),
+        "source_rpmbuild_path": to_repo_relative(repo_root, built_rpm),
+        "staging_manifest_path": to_repo_relative(repo_root, staging_manifest_path),
+        "sha256": package_hash,
+        "build_timestamp": utc_timestamp(),
+        "git_commit": binary_manifest["git_commit"],
+        "contents": [install_path(path) for path in RPM_EXPECTED_FILES],
+        "directories": [install_path(path) for path in RPM_EXPECTED_DIRS],
+        "dependencies": list(PACKAGE_DEPENDENCIES),
+        "service": {
+            "path": f"{RPM_SYSTEMD_DIR}/oaw-agent.service",
+            "model": "oneshot-run-once",
+            "command": SERVICE_COMMAND,
+            "user": SERVICE_USER,
+            "group": SERVICE_GROUP,
+        },
+        "timer": {
+            "path": RPM_TIMER_INSTALL_PATH,
+            "unit": "oaw-agent.service",
+            "on_boot": "5min",
+            "period": "1h",
+            "randomized_delay": "10min",
+            "persistent": True,
+        },
+        "privileged_helpers": [
+            {
+                "path": helper_install_path,
+                "package_path": install_path(helper_package_path),
+                "runs": command,
+                "owner": "root:root",
+                "mode": "0755",
+                "accepts_arguments": False,
+            }
+            for helper_package_path, helper_install_path, command in PRIVILEGED_HELPERS
+        ],
+        "sudoers": {
+            "path": SUDOERS_INSTALL_PATH,
+            "mode": "0440",
+            "user": SERVICE_USER,
+            "commands": list(APPROVED_SUDOERS_COMMANDS),
+        },
+        "package_builder": "scripts/release/package_agent_rpm.py",
+    }
+    missing = [field for field in RPM_PACKAGE_REQUIRED_FIELDS if not str(manifest.get(field, "")).strip()]
+    if missing:
+        raise ValueError(f"RPM package manifest missing fields: {', '.join(missing)}.")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Stage a local RPM build tree for oaw-agent without building an RPM.")
+    parser = argparse.ArgumentParser(description="Build a local RPM package artifact for oaw-agent.")
     parser.add_argument("--version", required=True, help="Linux agent release version under dist/agent/<version>/linux-amd64/.")
     return parser.parse_args()
 
@@ -654,6 +696,9 @@ def build_summary(
     spec_path: Path | None,
     buildroot: Path | None,
     manifest_path: Path | None,
+    package_path: Path | None = None,
+    checksum_path: Path | None = None,
+    package_manifest_path: Path | None = None,
 ) -> dict[str, Any]:
     return {
         "ok": not reporter.errors,
@@ -662,6 +707,9 @@ def build_summary(
         "spec": to_repo_relative(repo_root, spec_path) if spec_path else "",
         "buildroot": to_repo_relative(repo_root, buildroot) if buildroot else "",
         "manifest": to_repo_relative(repo_root, manifest_path) if manifest_path else "",
+        "package": to_repo_relative(repo_root, package_path) if package_path else "",
+        "checksum": to_repo_relative(repo_root, checksum_path) if checksum_path else "",
+        "package_manifest": to_repo_relative(repo_root, package_manifest_path) if package_manifest_path else "",
         "checks": reporter.checks,
         "warnings": reporter.warnings,
         "errors": reporter.errors,
@@ -677,10 +725,13 @@ def main() -> int:
     buildroot: Path | None = None
     spec_path: Path | None = None
     manifest_path: Path | None = None
+    package_path: Path | None = None
+    checksum_path: Path | None = None
+    package_manifest_path: Path | None = None
 
     try:
         version = validate_version(args.version)
-        artifact_path, source_checksum_path, source_manifest_path, binary_manifest = validate_binary_artifact(
+        artifact_path, source_checksum_path, source_manifest_path, binary_manifest = validate_linux_binary_artifact(
             repo_root, version
         )
         reporter.check("linux artifact validation", True, "Linux amd64 agent artifact validation passed.")
@@ -712,10 +763,37 @@ def main() -> int:
 
         validate_staging(repo_root, rpm_root, buildroot, spec_path, manifest_path, version)
         reporter.check("rpm staging validation", True, "RPM staging output contains the expected safe package layout.")
+
+        built_rpm = build_rpm_with_rpmbuild(repo_root, rpm_root, buildroot, spec_path, version)
+        reporter.check("rpm package build", True, "rpmbuild created a real RPM package under ignored dist output.")
+
+        package_path, checksum_path, package_manifest_path = rpm_package_paths(repo_root, version)
+        write_rpm_package_metadata(
+            repo_root,
+            version,
+            built_rpm,
+            package_path,
+            checksum_path,
+            package_manifest_path,
+            manifest_path,
+            binary_manifest,
+        )
+        reporter.check("rpm package metadata", True, "RPM checksum and package manifest were written.")
     except Exception as exc:
         reporter.check("rpm staging helper", False, str(exc))
 
-    summary = build_summary(reporter, repo_root, version, rpm_root, spec_path, buildroot, manifest_path)
+    summary = build_summary(
+        reporter,
+        repo_root,
+        version,
+        rpm_root,
+        spec_path,
+        buildroot,
+        manifest_path,
+        package_path,
+        checksum_path,
+        package_manifest_path,
+    )
     print(json.dumps(summary, indent=2))
     return 0 if summary["ok"] else 1
 

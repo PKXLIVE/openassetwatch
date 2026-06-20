@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+if ! getent group openassetwatch >/dev/null 2>&1; then
+    groupadd --system openassetwatch
+fi
+if ! id -u openassetwatch >/dev/null 2>&1; then
+    useradd --system --gid openassetwatch --home-dir /var/lib/openassetwatch/agent --no-create-home --shell /usr/sbin/nologin openassetwatch
+fi
+chown -R openassetwatch:openassetwatch /var/lib/openassetwatch/agent
+chown -R openassetwatch:openassetwatch /var/log/openassetwatch/agent
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+    systemctl enable oaw-agent.timer || true
+    if [ -f /etc/openassetwatch/agent/config.json ] && [ -f /etc/openassetwatch/agent/identity.json ]; then
+        systemctl restart oaw-agent.timer || true
+    fi
+fi
+exit 0

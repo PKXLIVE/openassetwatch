@@ -1,0 +1,61 @@
+Name: {{PACKAGE_NAME}}
+Version: {{RPM_VERSION}}
+Release: {{RPM_RELEASE}}%{?dist}
+Summary: OpenAssetWatch defensive local asset inventory agent
+License: Proprietary
+URL: https://openassetwatch.example.invalid
+# OpenAssetWatch-Source-Version: {{VERSION}}
+BuildArch: x86_64
+Requires: systemd
+Requires: shadow-utils
+
+%description
+The OpenAssetWatch agent collects local, passive asset inventory
+observations for administrator-approved OpenAssetWatch deployments.
+
+%pre
+if ! getent group {{SERVICE_GROUP}} >/dev/null 2>&1; then
+    groupadd --system {{SERVICE_GROUP}}
+fi
+if ! id -u {{SERVICE_USER}} >/dev/null 2>&1; then
+    useradd --system --gid {{SERVICE_GROUP}} --home-dir /var/lib/openassetwatch/agent --no-create-home --shell /usr/sbin/nologin {{SERVICE_USER}}
+fi
+
+%post
+chown -R {{SERVICE_USER}}:{{SERVICE_GROUP}} /var/lib/openassetwatch/agent
+chown -R {{SERVICE_USER}}:{{SERVICE_GROUP}} /var/log/openassetwatch/agent
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+    systemctl enable oaw-agent.timer || true
+    if [ -f /etc/openassetwatch/agent/config.json ] && [ -f /etc/openassetwatch/agent/identity.json ]; then
+        systemctl restart oaw-agent.timer || true
+    fi
+fi
+
+%postun
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+fi
+
+%files
+%dir %attr(0755,root,root) /opt/openassetwatch
+%dir %attr(0755,root,root) /opt/openassetwatch/agent
+%dir %attr(0755,root,root) /opt/openassetwatch/agent/bin
+%attr(0755,root,root) /opt/openassetwatch/agent/bin/oaw-agent
+%attr(0755,root,root) /usr/bin/oaw-agent
+%dir %attr(0755,root,root) /usr/lib/openassetwatch
+%dir %attr(0755,root,root) /usr/lib/openassetwatch/agent
+%dir %attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec
+%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show
+%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show
+%dir %attr(0755,root,root) /etc/openassetwatch
+%dir %attr(0755,root,root) /etc/openassetwatch/agent
+%config(noreplace) %attr(0644,root,root) /etc/openassetwatch/agent/config.example.json
+%config(noreplace) %attr(0644,root,root) /etc/openassetwatch/agent/identity.example.json
+%attr(0440,root,root) /etc/sudoers.d/openassetwatch-agent
+%attr(0644,root,root) /usr/lib/systemd/system/oaw-agent.service
+%attr(0644,root,root) /usr/lib/systemd/system/oaw-agent.timer
+%dir %attr(0755,openassetwatch,openassetwatch) /var/lib/openassetwatch/agent
+%dir %attr(0755,openassetwatch,openassetwatch) /var/log/openassetwatch/agent
+%doc /usr/share/doc/openassetwatch-agent/README.md
+%attr(0644,root,root) /usr/share/doc/openassetwatch-agent/release-manifest.json

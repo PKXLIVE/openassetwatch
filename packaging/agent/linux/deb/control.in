@@ -1,0 +1,13 @@
+Package: {{PACKAGE_NAME}}
+Version: {{VERSION}}
+Section: admin
+Priority: optional
+Architecture: amd64
+Maintainer: OpenAssetWatch <noreply@openassetwatch.example>
+Depends: systemd, passwd
+Installed-Size: 1
+Description: OpenAssetWatch defensive local asset inventory agent
+ The OpenAssetWatch agent collects local, passive asset inventory
+ observations for administrator-approved OpenAssetWatch deployments.
+ This package installs a conservative one-shot systemd service and timer
+ for the production Linux agent runtime.

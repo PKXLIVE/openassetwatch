@@ -1,0 +1,28 @@
+[Unit]
+Description=OpenAssetWatch Agent
+Documentation=https://openassetwatch.example.invalid/docs
+ConditionPathExists=/etc/openassetwatch/agent/config.json
+ConditionPathExists=/etc/openassetwatch/agent/identity.json
+
+[Service]
+Type=oneshot
+User=openassetwatch
+Group=openassetwatch
+ExecStart=/opt/openassetwatch/agent/bin/oaw-agent run-once --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json --output-dir /var/lib/openassetwatch/agent
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/openassetwatch/agent
+ReadWritePaths=/var/log/openassetwatch/agent
+UMask=0027
+TimeoutStartSec=5min

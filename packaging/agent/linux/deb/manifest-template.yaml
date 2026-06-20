@@ -1,0 +1,69 @@
+package:
+  name: openassetwatch-agent
+  target_os: linux
+  package_type: deb
+  status: production_local_unsigned
+  install_model: deb_package
+  distro_family:
+    - debian
+    - ubuntu
+  architecture:
+    source: amd64
+    debian: amd64
+  binary_path: /opt/openassetwatch/agent/bin/oaw-agent
+  compatibility_command: /usr/bin/oaw-agent
+  config_path: /etc/openassetwatch/agent/config.json
+  identity_path: /etc/openassetwatch/agent/identity.json
+  config_example_path: /etc/openassetwatch/agent/config.example.json
+  identity_example_path: /etc/openassetwatch/agent/identity.example.json
+  state_directory: /var/lib/openassetwatch/agent
+  inventory_path: /var/lib/openassetwatch/agent/last-inventory.json
+  log_directory: /var/log/openassetwatch/agent
+  service_name: oaw-agent.service
+  timer_name: oaw-agent.timer
+  service_definition_path: /lib/systemd/system/oaw-agent.service
+  timer_definition_path: /lib/systemd/system/oaw-agent.timer
+  package_metadata_path:
+    - /var/lib/dpkg/status
+    - /var/lib/dpkg/info/openassetwatch-agent.*
+runtime:
+  model: systemd_timer_to_oneshot_run_once
+  service_user: openassetwatch
+  service_group: openassetwatch
+  service_command: /opt/openassetwatch/agent/bin/oaw-agent run-once --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json --output-dir /var/lib/openassetwatch/agent
+  timer:
+    on_boot: 5min
+    on_unit_active: 1h
+    randomized_delay: 10min
+    persistent: true
+ownership:
+  root_owned:
+    - /opt/openassetwatch/agent/bin/oaw-agent
+    - /usr/bin/oaw-agent
+    - /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show
+    - /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show
+    - /etc/openassetwatch/agent
+    - /etc/sudoers.d/openassetwatch-agent
+    - /lib/systemd/system/oaw-agent.service
+    - /lib/systemd/system/oaw-agent.timer
+  service_owned:
+    - /var/lib/openassetwatch/agent
+    - /var/log/openassetwatch/agent
+privileged_helpers:
+  sudoers_path: /etc/sudoers.d/openassetwatch-agent
+  allowed_commands:
+    - /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show
+    - /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show
+validation:
+  checksum: required
+  package_manifest: required
+  signature: release_only
+  sbom: planned
+  provenance: planned
+safety:
+  package_build_installs_on_host: false
+  secrets: none
+  notes:
+    - Local CI artifacts are unsigned validation outputs.
+    - The package never generates real config.json or identity.json.
+    - Maintainer scripts preserve administrator-managed config, identity, state, and logs by default.
