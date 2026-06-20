@@ -164,11 +164,6 @@ function Assert-SafeMetadataText {
     }
 }
 
-function ConvertTo-ScTransportBinaryPath {
-    param([string]$BinaryPath)
-    return $BinaryPath -replace '"', '\"'
-}
-
 function ConvertFrom-ScTransportBinaryPath {
     param([string]$BinaryPath)
     return $BinaryPath -replace '\\"', '"'
@@ -271,7 +266,7 @@ try {
     }
 
     $binaryPath = '"{0}" {1}' -f $metadata.executable_path, $metadata.arguments
-    $transportBinaryPath = ConvertTo-ScTransportBinaryPath -BinaryPath $binaryPath
+    $transportBinaryPath = $binaryPath
     $logicalCreateArgs = @(
         "create",
         $metadata.service_name,

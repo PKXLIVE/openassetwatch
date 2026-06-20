@@ -316,7 +316,6 @@ def validate_install_helper(repo_root: Path) -> None:
         "$ServiceAccount",
         "Invoke-ScExe",
         "& sc.exe @Arguments",
-        "ConvertTo-ScTransportBinaryPath",
         "ConvertFrom-ScTransportBinaryPath",
         "Get-ServiceImagePath",
         "Set-ScCreateDiagnostics",
@@ -356,8 +355,10 @@ def validate_install_helper(repo_root: Path) -> None:
         raise ValueError("Windows service install helper must register the native service run command.")
     if "run-once --config" in text:
         raise ValueError("Windows service install helper must not register raw run-once.")
-    if '$transportBinaryPath = ConvertTo-ScTransportBinaryPath -BinaryPath $binaryPath' not in text:
-        raise ValueError("Windows service install helper must preserve executable quotes through native command transport.")
+    if "ConvertTo-ScTransportBinaryPath" in text:
+        raise ValueError("Windows service install helper must not backslash-escape quotes for sc.exe argument-array transport.")
+    if "$transportBinaryPath = $binaryPath" not in text:
+        raise ValueError("Windows service install helper must pass the actual quoted binPath value as the separate sc.exe argument.")
     if '$normalizedFinalImagePath = ConvertFrom-ScTransportBinaryPath -BinaryPath $finalImagePath' not in text:
         raise ValueError("Windows service install helper must normalize the registered ImagePath before comparing it.")
     if 'if ($normalizedFinalImagePath -ne $binaryPath)' not in text:
