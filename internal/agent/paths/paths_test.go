@@ -13,16 +13,23 @@ func TestDefaultIdentityPathResolvesForOS(t *testing.T) {
 		t.Fatal("default identity path is empty")
 	}
 
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		if !strings.HasSuffix(got, filepath.Join("OpenAssetWatch", "Agent", "identity", "identity.json")) {
 			t.Fatalf("windows identity path = %q", got)
 		}
 		return
-	}
-
-	want := filepath.Join(string(filepath.Separator), "etc", "openassetwatch", "agent", "identity.json")
-	if got != want {
-		t.Fatalf("identity path = %q, want %q", got, want)
+	case "darwin":
+		want := filepath.Join(string(filepath.Separator), "Library", "Application Support", "OpenAssetWatch", "Agent", "identity", "identity.json")
+		if got != want {
+			t.Fatalf("darwin identity path = %q, want %q", got, want)
+		}
+		return
+	default:
+		want := filepath.Join(string(filepath.Separator), "etc", "openassetwatch", "agent", "identity.json")
+		if got != want {
+			t.Fatalf("identity path = %q, want %q", got, want)
+		}
 	}
 }
 
@@ -40,7 +47,8 @@ func TestDefaultLogAndStatusPathsResolveForOS(t *testing.T) {
 		t.Fatal("default status path is empty")
 	}
 
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		if !strings.HasSuffix(logDir, filepath.Join("OpenAssetWatch", "Agent", "logs")) {
 			t.Fatalf("windows log path = %q", logDir)
 		}
@@ -51,15 +59,28 @@ func TestDefaultLogAndStatusPathsResolveForOS(t *testing.T) {
 			t.Fatalf("windows status path = %q", statusPath)
 		}
 		return
-	}
-
-	wantLogDir := filepath.Join(string(filepath.Separator), "var", "log", "openassetwatch", "agent")
-	if logDir != wantLogDir {
-		t.Fatalf("log path = %q, want %q", logDir, wantLogDir)
-	}
-	wantStatusPath := filepath.Join(wantLogDir, "status.json")
-	if statusPath != wantStatusPath {
-		t.Fatalf("status path = %q, want %q", statusPath, wantStatusPath)
+	case "darwin":
+		wantLogDir := filepath.Join(string(filepath.Separator), "Library", "Logs", "OpenAssetWatch", "Agent")
+		if logDir != wantLogDir {
+			t.Fatalf("darwin log path = %q, want %q", logDir, wantLogDir)
+		}
+		wantStateDir := filepath.Join(string(filepath.Separator), "Library", "Application Support", "OpenAssetWatch", "Agent", "state")
+		if stateDir != wantStateDir {
+			t.Fatalf("darwin state path = %q, want %q", stateDir, wantStateDir)
+		}
+		wantStatusPath := filepath.Join(wantStateDir, "status.json")
+		if statusPath != wantStatusPath {
+			t.Fatalf("darwin status path = %q, want %q", statusPath, wantStatusPath)
+		}
+	default:
+		wantLogDir := filepath.Join(string(filepath.Separator), "var", "log", "openassetwatch", "agent")
+		if logDir != wantLogDir {
+			t.Fatalf("log path = %q, want %q", logDir, wantLogDir)
+		}
+		wantStatusPath := filepath.Join(wantLogDir, "status.json")
+		if statusPath != wantStatusPath {
+			t.Fatalf("status path = %q, want %q", statusPath, wantStatusPath)
+		}
 	}
 }
 

@@ -203,7 +203,7 @@ func TestLaunchdTemplateContainsExpectedSafeFields(t *testing.T) {
 		"<string>027</string>",
 		"<string>/dev/null</string>",
 		"Status file: " + plan.StatusPath,
-		"No shell, StartInterval, StartCalendarInterval, or environment secrets are configured",
+		"No shell, StartInterval, StartCalendarInterval, or sensitive environment values are configured",
 	} {
 		if !strings.Contains(template.Template, want) {
 			t.Fatalf("launchd template missing %q:\n%s", want, template.Template)

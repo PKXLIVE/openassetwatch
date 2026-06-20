@@ -13,7 +13,7 @@ Options:
   --app-identity <identity>             Developer ID Application identity for the embedded oaw-agent binary.
   --installer-identity <identity>       Developer ID Installer identity for productbuild.
   --sign-identity <identity>            Alias for --installer-identity.
-  --min-macos <version>                 Tested minimum macOS metadata; not enforced by this unsigned build helper.
+  --min-macos <version>                 CI-tested minimum macOS metadata. Default: 15.0.
 USAGE
 }
 
@@ -24,7 +24,7 @@ ARM64_ARTIFACT_DIR=""
 AMD64_ARTIFACT_DIR=""
 APP_IDENTITY=""
 INSTALLER_IDENTITY=""
-MIN_MACOS="13.0"
+MIN_MACOS="15.0"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -78,6 +78,18 @@ import sys
 print(normalize_package_version(sys.argv[1]))
 PY
 )"
+
+python3 - "$MIN_MACOS" <<'PY'
+import re
+import sys
+
+version = sys.argv[1]
+if not re.fullmatch(r"\d+(?:\.\d+){0,2}", version):
+    raise SystemExit("--min-macos must be numeric with one to three dot-separated components")
+parts = [int(part) for part in version.split(".")]
+if parts[0] < 15:
+    raise SystemExit("--min-macos must not claim macOS versions older than the macOS 15 CI coverage")
+PY
 
 AGENT_ROOT="$OUTPUT_ROOT/agent/$VERSION"
 PACKAGES_DIR="$AGENT_ROOT/packages"
@@ -146,10 +158,10 @@ verify_binary_arch() {
   local binary="$1"
   local arch="$2"
   case "$arch" in
-    arm64) lipo -verify_arch arm64 "$binary" >/dev/null ;;
-    amd64) lipo -verify_arch x86_64 "$binary" >/dev/null ;;
+    arm64) lipo "$binary" -verify_arch arm64 >/dev/null ;;
+    amd64) lipo "$binary" -verify_arch x86_64 >/dev/null ;;
     universal)
-      lipo -verify_arch arm64 x86_64 "$binary" >/dev/null
+      lipo "$binary" -verify_arch arm64 x86_64 >/dev/null
       local arches
       arches="$(lipo -archs "$binary" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ' | sed 's/ $//')"
       [ "$arches" = "arm64 x86_64" ] || {

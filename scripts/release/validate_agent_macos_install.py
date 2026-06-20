@@ -241,6 +241,15 @@ def run_text(command: list[str]) -> str:
 def validate_pkg_payload(package_path: Path, require_signed_binary: bool) -> None:
     if not package_path.is_file():
         raise ValueError("macOS PKG to validate does not exist.")
+    manifest_path = Path(str(package_path) + ".manifest.json")
+    if not manifest_path.is_file():
+        raise ValueError("macOS PKG manifest is missing.")
+    manifest = read_json(manifest_path)
+    tested_minimum = str(manifest.get("tested_minimum_macos_version", ""))
+    if tested_minimum != "15.0":
+        raise ValueError("macOS PKG manifest tested minimum must match current macOS 15.0 CI coverage.")
+    if manifest.get("minimum_macos_version_enforced") is not False:
+        raise ValueError("macOS PKG manifest must not claim the tested minimum is enforced by the package.")
     payload = run_text(["pkgutil", "--payload-files", str(package_path)])
     for expected in (
         "Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent",

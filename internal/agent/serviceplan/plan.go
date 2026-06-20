@@ -299,7 +299,7 @@ func launchdTemplate(plan Plan) string {
 		`  <string>/dev/null</string>`,
 		`  <!-- Status file: ` + plan.StatusPath + ` -->`,
 		`  <!-- Logs are written by the agent with bounded rotation under ` + plan.LogDir + `. -->`,
-		`  <!-- No shell, StartInterval, StartCalendarInterval, or environment secrets are configured. -->`,
+		`  <!-- No shell, StartInterval, StartCalendarInterval, or sensitive environment values are configured. -->`,
 		`</dict>`,
 		`</plist>`,
 	}, "\n")

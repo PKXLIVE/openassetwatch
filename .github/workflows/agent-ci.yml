@@ -444,7 +444,7 @@ jobs:
           set -euo pipefail
           BIN="dist/agent/0.1.102/darwin-universal/oaw-agent"
           PKG="dist/agent/0.1.102/packages/OpenAssetWatchAgent-0.1.102-macos-universal.pkg"
-          lipo -verify_arch arm64 x86_64 "$BIN"
+          lipo "$BIN" -verify_arch arm64 x86_64
           pkgutil --payload-files "$PKG" | grep "Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent"
           pkgutil --payload-files "$PKG" | grep "Library/LaunchDaemons/com.openassetwatch.agent.plist"
       - name: Install and uninstall universal PKG
