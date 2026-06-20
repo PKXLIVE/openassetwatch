@@ -1,0 +1,126 @@
+#!/bin/sh
+set -eu
+
+LABEL="com.openassetwatch.agent"
+USER_NAME="_openassetwatch"
+GROUP_NAME="_openassetwatch"
+APP_ROOT="/Library/Application Support/OpenAssetWatch/Agent"
+BIN_DIR="$APP_ROOT/bin"
+CONFIG_DIR="$APP_ROOT/config"
+IDENTITY_DIR="$APP_ROOT/identity"
+STATE_DIR="$APP_ROOT/state"
+LOG_DIR="/Library/Logs/OpenAssetWatch/Agent"
+PLIST="/Library/LaunchDaemons/com.openassetwatch.agent.plist"
+BINARY="$BIN_DIR/oaw-agent"
+MANIFEST="$APP_ROOT/install-manifest.json"
+
+log() {
+  printf '%s\n' "openassetwatch-agent postinstall: $*"
+}
+
+fail() {
+  printf '%s\n' "openassetwatch-agent postinstall: ERROR: $*" >&2
+  exit 1
+}
+
+read_dscl_value() {
+  /usr/bin/dscl . -read "$1" "$2" 2>/dev/null | /usr/bin/awk '{print $2}'
+}
+
+next_available_id() {
+  kind="$1"
+  existing="$2"
+  id=401
+  while [ "$id" -le 499 ]; do
+    if ! printf '%s\n' "$existing" | /usr/bin/awk '{print $2}' | /usr/bin/grep -qx "$id"; then
+      printf '%s\n' "$id"
+      return 0
+    fi
+    id=$((id + 1))
+  done
+  fail "no available ${kind} id in 401-499"
+}
+
+ensure_group() {
+  if /usr/bin/dscl . -read "/Groups/$GROUP_NAME" >/dev/null 2>&1; then
+    gid="$(read_dscl_value "/Groups/$GROUP_NAME" PrimaryGroupID)"
+    [ -n "$gid" ] || fail "existing group $GROUP_NAME lacks PrimaryGroupID"
+    return 0
+  fi
+  existing="$(/usr/bin/dscl . -list /Groups PrimaryGroupID)"
+  gid="$(next_available_id group "$existing")"
+  /usr/bin/dscl . -create "/Groups/$GROUP_NAME"
+  /usr/bin/dscl . -create "/Groups/$GROUP_NAME" PrimaryGroupID "$gid"
+  /usr/bin/dscl . -create "/Groups/$GROUP_NAME" Password "*"
+}
+
+ensure_user() {
+  gid="$(read_dscl_value "/Groups/$GROUP_NAME" PrimaryGroupID)"
+  [ -n "$gid" ] || fail "group $GROUP_NAME missing"
+
+  if /usr/bin/dscl . -read "/Users/$USER_NAME" >/dev/null 2>&1; then
+    user_gid="$(read_dscl_value "/Users/$USER_NAME" PrimaryGroupID)"
+    home="$(read_dscl_value "/Users/$USER_NAME" NFSHomeDirectory)"
+    shell="$(read_dscl_value "/Users/$USER_NAME" UserShell)"
+    [ "$user_gid" = "$gid" ] || fail "existing user $USER_NAME has unexpected group"
+    [ "$home" = "/var/empty" ] || fail "existing user $USER_NAME has unexpected home"
+    [ "$shell" = "/usr/bin/false" ] || fail "existing user $USER_NAME has unexpected shell"
+    return 0
+  fi
+
+  existing="$(/usr/bin/dscl . -list /Users UniqueID)"
+  uid="$(next_available_id user "$existing")"
+  /usr/bin/dscl . -create "/Users/$USER_NAME"
+  /usr/bin/dscl . -create "/Users/$USER_NAME" UniqueID "$uid"
+  /usr/bin/dscl . -create "/Users/$USER_NAME" PrimaryGroupID "$gid"
+  /usr/bin/dscl . -create "/Users/$USER_NAME" NFSHomeDirectory /var/empty
+  /usr/bin/dscl . -create "/Users/$USER_NAME" UserShell /usr/bin/false
+  /usr/bin/dscl . -create "/Users/$USER_NAME" IsHidden 1
+  /usr/bin/dscl . -create "/Users/$USER_NAME" Password "*"
+}
+
+apply_permissions() {
+  /bin/mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$IDENTITY_DIR" "$STATE_DIR" "$LOG_DIR"
+  /usr/sbin/chown root:wheel "$APP_ROOT" "$BIN_DIR"
+  /bin/chmod 0755 "$APP_ROOT" "$BIN_DIR"
+  /usr/sbin/chown root:"$GROUP_NAME" "$CONFIG_DIR" "$IDENTITY_DIR"
+  /bin/chmod 0750 "$CONFIG_DIR" "$IDENTITY_DIR"
+  /bin/chmod 0750 "$STATE_DIR" "$LOG_DIR"
+  /usr/sbin/chown -R "$USER_NAME:$GROUP_NAME" "$STATE_DIR" "$LOG_DIR"
+  [ ! -f "$BINARY" ] || /usr/sbin/chown root:wheel "$BINARY"
+  [ ! -f "$BINARY" ] || /bin/chmod 0755 "$BINARY"
+  [ ! -f "$PLIST" ] || /usr/sbin/chown root:wheel "$PLIST"
+  [ ! -f "$PLIST" ] || /bin/chmod 0644 "$PLIST"
+  [ ! -f "$MANIFEST" ] || /usr/sbin/chown root:wheel "$MANIFEST"
+  [ ! -f "$MANIFEST" ] || /bin/chmod 0644 "$MANIFEST"
+  [ ! -f "$CONFIG_DIR/config.example.json" ] || /usr/sbin/chown root:"$GROUP_NAME" "$CONFIG_DIR/config.example.json"
+  [ ! -f "$CONFIG_DIR/config.example.json" ] || /bin/chmod 0640 "$CONFIG_DIR/config.example.json"
+  [ ! -f "$IDENTITY_DIR/identity.example.json" ] || /usr/sbin/chown root:"$GROUP_NAME" "$IDENTITY_DIR/identity.example.json"
+  [ ! -f "$IDENTITY_DIR/identity.example.json" ] || /bin/chmod 0640 "$IDENTITY_DIR/identity.example.json"
+  [ ! -f "$CONFIG_DIR/config.json" ] || /usr/sbin/chown root:"$GROUP_NAME" "$CONFIG_DIR/config.json"
+  [ ! -f "$CONFIG_DIR/config.json" ] || /bin/chmod 0640 "$CONFIG_DIR/config.json"
+  [ ! -f "$IDENTITY_DIR/identity.json" ] || /usr/sbin/chown root:"$GROUP_NAME" "$IDENTITY_DIR/identity.json"
+  [ ! -f "$IDENTITY_DIR/identity.json" ] || /bin/chmod 0640 "$IDENTITY_DIR/identity.json"
+}
+
+[ "$(id -u)" -eq 0 ] || fail "must run as root"
+
+ensure_group
+ensure_user
+apply_permissions
+
+[ -f "$BINARY" ] || fail "installed binary missing"
+[ -f "$PLIST" ] || fail "LaunchDaemon plist missing"
+
+/usr/bin/plutil -lint "$PLIST" >/dev/null
+/usr/bin/file "$BINARY" | /usr/bin/grep -Eq 'Mach-O|universal binary' || fail "installed binary is not Mach-O"
+
+trap '/bin/launchctl bootout system "$PLIST" >/dev/null 2>&1 || true' INT TERM HUP
+/bin/launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
+/bin/launchctl bootstrap system "$PLIST"
+/bin/launchctl enable "system/$LABEL"
+/bin/launchctl kickstart -k "system/$LABEL" || true
+/bin/launchctl print "system/$LABEL" >/dev/null
+
+log "installed LaunchDaemon $LABEL"
+exit 0

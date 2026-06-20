@@ -2,27 +2,32 @@ package:
   name: openassetwatch-agent
   target_os: darwin
   package_type: pkg
-  status: scaffold_only
-  install_model: signed_and_notarized_package
-  binary_path: /usr/local/bin/oaw-agent
-  config_path: /etc/openassetwatch/agent/config.json
-  identity_path: /etc/openassetwatch/agent/identity.json
-  log_directory: /var/log/openassetwatch/agent/
-  status_file_path: /var/log/openassetwatch/agent/status.json
+  status: local_unsigned_pkg_build_supported
+  install_model: launchdaemon_pkg
+  binary_path: /Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent
+  config_path: /Library/Application Support/OpenAssetWatch/Agent/config/config.json
+  identity_path: /Library/Application Support/OpenAssetWatch/Agent/identity/identity.json
+  state_directory: /Library/Application Support/OpenAssetWatch/Agent/state
+  log_directory: /Library/Logs/OpenAssetWatch/Agent/
+  status_file_path: /Library/Application Support/OpenAssetWatch/Agent/state/status.json
   service_name: com.openassetwatch.agent
   service_definition_path: /Library/LaunchDaemons/com.openassetwatch.agent.plist
+  service_user: _openassetwatch
+  service_group: _openassetwatch
   package_metadata_path: /var/db/receipts/com.openassetwatch.agent.*
 validation:
   checksum: required
-  signature: required_ci_secret_reference_only
-  notarization: required_ci_secret_reference_only
+  signature: required_for_release
+  notarization: required_for_release
   sbom: planned
   provenance: planned
 safety:
-  executable_installer_commands: none
-  service_manager_commands: none
+  executable_installer_commands: pkgbuild_productbuild_only
+  service_manager_commands: launchctl_in_pkg_scripts_only
   package_manager_commands: none
   secrets: none
   notes:
-    - Template only. This repository file does not build or run a macOS package.
+    - Local unsigned PKG artifacts are validation artifacts only.
+    - LaunchDaemon uses oaw-agent service run and the portable supervisor.
+    - No StartInterval or StartCalendarInterval scheduling is packaged.
     - Signing and notarization credentials must remain outside the repository.

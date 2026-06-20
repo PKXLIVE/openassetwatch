@@ -190,11 +190,11 @@ def future_path_notes(target_os: str) -> dict[str, str]:
         }
     if target_os == "darwin":
         return {
-            "binary": "/usr/local/bin/oaw-agent",
-            "config": "/etc/openassetwatch/agent/config.json",
-            "identity": "/etc/openassetwatch/agent/identity.json",
-            "logs": "/var/log/openassetwatch/agent/",
-            "status": "/var/log/openassetwatch/agent/status.json",
+            "binary": "/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent",
+            "config": "/Library/Application Support/OpenAssetWatch/Agent/config/config.json",
+            "identity": "/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json",
+            "logs": "/Library/Logs/OpenAssetWatch/Agent/",
+            "status": "/Library/Application Support/OpenAssetWatch/Agent/state/status.json",
             "service": "/Library/LaunchDaemons/com.openassetwatch.agent.plist",
             "package-metadata": "/var/db/receipts/com.openassetwatch.agent.*",
         }
