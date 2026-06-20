@@ -16,6 +16,7 @@ type Plan struct {
 	BinaryPathExpectation         string             `json:"binary_path_expectation"`
 	ConfigPath                    string             `json:"config_path"`
 	IdentityPath                  string             `json:"identity_path"`
+	StateDir                      string             `json:"state_dir"`
 	LogDir                        string             `json:"log_dir"`
 	StatusPath                    string             `json:"status_file_path"`
 	ServiceDefinitionPath         string             `json:"service_definition_path,omitempty"`
@@ -49,6 +50,7 @@ func Build(goos string, goarch string, paths agentpaths.AgentPaths, osReleaseDat
 		BinaryPathExpectation: service.BinaryPath,
 		ConfigPath:            service.ConfigPath,
 		IdentityPath:          service.IdentityPath,
+		StateDir:              service.StateDir,
 		LogDir:                service.LogDir,
 		StatusPath:            service.StatusPath,
 		ServiceDefinitionPath: service.ServiceDefinitionPath,

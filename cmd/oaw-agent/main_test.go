@@ -18,6 +18,7 @@ import (
 	agentinstallplan "github.com/openassetwatch/openassetwatch/internal/agent/installplan"
 	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
 	agentserviceplan "github.com/openassetwatch/openassetwatch/internal/agent/serviceplan"
+	agentsupervisor "github.com/openassetwatch/openassetwatch/internal/agent/supervisor"
 	"github.com/openassetwatch/openassetwatch/pkg/models"
 	"github.com/openassetwatch/openassetwatch/pkg/schema"
 )
@@ -1385,6 +1386,68 @@ func TestRunOnceFailsClosedWhenSubmitFailsWithoutLeakingBody(t *testing.T) {
 	}
 	if report.Submit.HTTPStatus != http.StatusInternalServerError {
 		t.Fatalf("submit status = %d, want 500", report.Submit.HTTPStatus)
+	}
+}
+
+func TestServiceRunBuildsSupervisorOptionsFromFlags(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config", "config.json")
+	identityPath := filepath.Join(tempDir, "identity", "identity.json")
+	stateDir := filepath.Join(tempDir, "state")
+	statusPath := filepath.Join(stateDir, "status.json")
+	restorePaths := stubDefaultAgentPaths(t, agentpaths.AgentPaths{
+		IdentityPath: identityPath,
+		ConfigPath:   configPath,
+		StateDir:     stateDir,
+		LogDir:       filepath.Join(tempDir, "logs"),
+		StatusPath:   statusPath,
+	})
+	defer restorePaths()
+
+	previousRuntime := runServiceRuntimeForCommand
+	defer func() {
+		runServiceRuntimeForCommand = previousRuntime
+	}()
+	var gotOptions agentsupervisor.Options
+	var invoked bool
+	runServiceRuntimeForCommand = func(options agentsupervisor.Options, cycle agentsupervisor.CycleFunc, stdout io.Writer, stderr io.Writer) int {
+		invoked = true
+		gotOptions = options
+		if cycle == nil {
+			t.Fatal("cycle function was nil")
+		}
+		return 0
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"service", "run", "--config", configPath, "--identity-file", identityPath, "--output-dir", stateDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("service run code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("service run wrote unexpected output: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if !invoked {
+		t.Fatal("service runtime was not invoked")
+	}
+	if gotOptions.ConfigPath != configPath {
+		t.Fatalf("config path = %q, want %q", gotOptions.ConfigPath, configPath)
+	}
+	if gotOptions.IdentityPath != identityPath {
+		t.Fatalf("identity path = %q, want %q", gotOptions.IdentityPath, identityPath)
+	}
+	if gotOptions.OutputDir != stateDir {
+		t.Fatalf("output dir = %q, want %q", gotOptions.OutputDir, stateDir)
+	}
+	if gotOptions.StatusPath != statusPath {
+		t.Fatalf("status path = %q, want %q", gotOptions.StatusPath, statusPath)
+	}
+	if gotOptions.SuccessInterval != time.Hour || gotOptions.RetryBase != 5*time.Minute || gotOptions.MaxRetryDelay != time.Hour {
+		t.Fatalf("unexpected supervisor intervals: %+v", gotOptions)
+	}
+	if gotOptions.ServiceName != "OpenAssetWatchAgent" {
+		t.Fatalf("service name = %q", gotOptions.ServiceName)
 	}
 }
 

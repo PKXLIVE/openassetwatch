@@ -14,7 +14,7 @@ func TestDefaultIdentityPathResolvesForOS(t *testing.T) {
 	}
 
 	if runtime.GOOS == "windows" {
-		if !strings.HasSuffix(got, filepath.Join("OpenAssetWatch", "agent", "identity.json")) {
+		if !strings.HasSuffix(got, filepath.Join("OpenAssetWatch", "Agent", "identity", "identity.json")) {
 			t.Fatalf("windows identity path = %q", got)
 		}
 		return
@@ -28,19 +28,26 @@ func TestDefaultIdentityPathResolvesForOS(t *testing.T) {
 
 func TestDefaultLogAndStatusPathsResolveForOS(t *testing.T) {
 	logDir := DefaultLogDir()
+	stateDir := DefaultStateDir()
 	statusPath := DefaultStatusPath()
 	if logDir == "" {
 		t.Fatal("default log path is empty")
+	}
+	if stateDir == "" {
+		t.Fatal("default state path is empty")
 	}
 	if statusPath == "" {
 		t.Fatal("default status path is empty")
 	}
 
 	if runtime.GOOS == "windows" {
-		if !strings.HasSuffix(logDir, filepath.Join("OpenAssetWatch", "agent", "logs")) {
+		if !strings.HasSuffix(logDir, filepath.Join("OpenAssetWatch", "Agent", "logs")) {
 			t.Fatalf("windows log path = %q", logDir)
 		}
-		if !strings.HasSuffix(statusPath, filepath.Join("OpenAssetWatch", "agent", "logs", "status.json")) {
+		if !strings.HasSuffix(stateDir, filepath.Join("OpenAssetWatch", "Agent", "state")) {
+			t.Fatalf("windows state path = %q", stateDir)
+		}
+		if !strings.HasSuffix(statusPath, filepath.Join("OpenAssetWatch", "Agent", "state", "status.json")) {
 			t.Fatalf("windows status path = %q", statusPath)
 		}
 		return
@@ -58,10 +65,10 @@ func TestDefaultLogAndStatusPathsResolveForOS(t *testing.T) {
 
 func TestDefaultAgentPathsIncludeOnlyPaths(t *testing.T) {
 	paths := DefaultAgentPaths()
-	if paths.IdentityPath == "" || paths.ConfigPath == "" || paths.LogDir == "" || paths.StatusPath == "" {
+	if paths.IdentityPath == "" || paths.ConfigPath == "" || paths.StateDir == "" || paths.LogDir == "" || paths.StatusPath == "" {
 		t.Fatalf("default paths must be populated: %+v", paths)
 	}
-	combined := strings.ToLower(paths.IdentityPath + paths.ConfigPath + paths.LogDir + paths.StatusPath)
+	combined := strings.ToLower(paths.IdentityPath + paths.ConfigPath + paths.StateDir + paths.LogDir + paths.StatusPath)
 	for _, forbidden := range []string{"token", "secret", "password", "enrollment"} {
 		if strings.Contains(combined, forbidden) {
 			t.Fatalf("default paths include forbidden term %q: %+v", forbidden, paths)

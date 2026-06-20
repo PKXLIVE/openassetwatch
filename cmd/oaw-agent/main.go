@@ -21,6 +21,7 @@ import (
 	agentinstallplan "github.com/openassetwatch/openassetwatch/internal/agent/installplan"
 	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
 	agentserviceplan "github.com/openassetwatch/openassetwatch/internal/agent/serviceplan"
+	agentsupervisor "github.com/openassetwatch/openassetwatch/internal/agent/supervisor"
 	"github.com/openassetwatch/openassetwatch/internal/collector"
 	"github.com/openassetwatch/openassetwatch/internal/config"
 	"github.com/openassetwatch/openassetwatch/internal/output"
@@ -262,7 +263,7 @@ func runConfig(args []string, stdout io.Writer, stderr io.Writer) int {
 
 func runService(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "oaw-agent service requires plan or template")
+		fmt.Fprintln(stderr, "oaw-agent service requires plan, template, or run")
 		return 2
 	}
 	switch args[0] {
@@ -270,8 +271,10 @@ func runService(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runServicePlan(args[1:], stdout, stderr)
 	case "template":
 		return runServiceTemplate(args[1:], stdout, stderr)
+	case "run":
+		return runServiceRun(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "oaw-agent service requires plan or template")
+		fmt.Fprintln(stderr, "oaw-agent service requires plan, template, or run")
 		return 2
 	}
 }
@@ -312,6 +315,61 @@ func runServiceTemplate(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func runServiceRun(args []string, stdout io.Writer, stderr io.Writer) int {
+	var configPath string
+	var identityPath string
+	var outputDir string
+
+	flags := flag.NewFlagSet("oaw-agent service run", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&configPath, "config", "", "non-secret local agent config JSON file")
+	flags.StringVar(&identityPath, "identity-file", "", "non-secret local agent identity JSON file")
+	flags.StringVar(&outputDir, "output-dir", "", "local runtime output directory")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "oaw-agent service run does not accept positional arguments")
+		return 2
+	}
+
+	defaults := defaultAgentPaths()
+	resolvedConfigPath, _ := resolveDoctorPath(configPath, defaults.ConfigPath)
+	resolvedIdentityPath, _ := resolveDoctorPath(identityPath, defaults.IdentityPath)
+	outputDir = strings.TrimSpace(outputDir)
+	if outputDir == "" {
+		outputDir = defaultRunOnceOutputDir()
+	}
+
+	options := agentsupervisor.Options{
+		ConfigPath:      resolvedConfigPath,
+		IdentityPath:    resolvedIdentityPath,
+		OutputDir:       outputDir,
+		StatusPath:      defaults.StatusPath,
+		InitialDelay:    0,
+		SuccessInterval: time.Hour,
+		RetryBase:       5 * time.Minute,
+		MaxRetryDelay:   time.Hour,
+		Jitter:          30 * time.Second,
+		ShutdownTimeout: 30 * time.Second,
+		ServiceName:     "OpenAssetWatchAgent",
+	}
+	cycle := func(ctx context.Context) agentsupervisor.CycleResult {
+		report := executeRunOnceContext(ctx, configPath, identityPath, outputDir)
+		if report.OK {
+			return agentsupervisor.CycleResult{OK: true, LastInventoryPath: report.InventoryPath}
+		}
+		return agentsupervisor.CycleResult{
+			OK:                false,
+			ErrorCategory:     categorizeRunOnceFailure(report),
+			ErrorMessage:      summarizeRunOnceFailure(report),
+			LastInventoryPath: report.InventoryPath,
+		}
+	}
+
+	return runServiceRuntimeForCommand(options, cycle, stdout, stderr)
 }
 
 func buildCurrentServicePlan() agentserviceplan.Plan {
@@ -619,6 +677,10 @@ func buildDoctorReport(configPath string, identityPath string) doctorReport {
 }
 
 func executeRunOnce(configPath string, identityPath string, outputDir string) runOnceReport {
+	return executeRunOnceContext(context.Background(), configPath, identityPath, outputDir)
+}
+
+func executeRunOnceContext(ctx context.Context, configPath string, identityPath string, outputDir string) runOnceReport {
 	defaults := defaultAgentPaths()
 	resolvedConfigPath, _ := resolveDoctorPath(configPath, defaults.ConfigPath)
 	resolvedIdentityPath, _ := resolveDoctorPath(identityPath, defaults.IdentityPath)
@@ -665,7 +727,7 @@ func executeRunOnce(configPath string, identityPath string, outputDir string) ru
 		report.Errors = append(report.Errors, "build check-in payload failed")
 		return report
 	}
-	statusCode, err := postJSON(context.Background(), submitHTTPClient(), agentCfg.ServerURL, agentCheckInPath, checkInBody)
+	statusCode, err := postJSON(ctx, submitHTTPClient(), agentCfg.ServerURL, agentCheckInPath, checkInBody)
 	if err != nil {
 		report.CheckIn = runOnceStep{OK: false, HTTPStatus: statusCode, Message: "check-in failed"}
 		report.Errors = append(report.Errors, "check-in failed: "+err.Error())
@@ -707,7 +769,7 @@ func executeRunOnce(configPath string, identityPath string, outputDir string) ru
 	report.InventoryPath = inventoryPath
 	report.Collect = runOnceStep{OK: true, Message: "local inventory collected"}
 
-	statusCode, err = postJSON(context.Background(), submitHTTPClient(), agentCfg.ServerURL, localInventorySubmitPath, inventoryData)
+	statusCode, err = postJSON(ctx, submitHTTPClient(), agentCfg.ServerURL, localInventorySubmitPath, inventoryData)
 	if err != nil {
 		report.Submit = runOnceStep{OK: false, HTTPStatus: statusCode, Message: "inventory submit failed"}
 		report.Errors = append(report.Errors, "inventory submit failed: "+err.Error())
@@ -719,14 +781,33 @@ func executeRunOnce(configPath string, identityPath string, outputDir string) ru
 }
 
 func defaultRunOnceOutputDir() string {
-	if runtime.GOOS == "windows" {
-		programData := os.Getenv("ProgramData")
-		if programData == "" {
-			programData = `C:\ProgramData`
-		}
-		return filepath.Join(programData, "OpenAssetWatch", "agent", "data")
+	defaults := defaultAgentPaths()
+	if strings.TrimSpace(defaults.StateDir) != "" {
+		return defaults.StateDir
 	}
 	return filepath.Join(string(filepath.Separator), "var", "lib", "openassetwatch", "agent")
+}
+
+func categorizeRunOnceFailure(report runOnceReport) string {
+	switch {
+	case !report.Preflight.OK:
+		return "preflight"
+	case !report.CheckIn.OK && report.CheckIn.Message != "":
+		return "check_in"
+	case !report.Collect.OK && report.Collect.Message != "":
+		return "collect"
+	case !report.Submit.OK && report.Submit.Message != "":
+		return "submit"
+	default:
+		return "runtime"
+	}
+}
+
+func summarizeRunOnceFailure(report runOnceReport) string {
+	if len(report.Errors) == 0 {
+		return "agent cycle failed"
+	}
+	return strings.Join(report.Errors, "; ")
 }
 
 func buildStatusReport(configPath string, identityPath string) statusReport {
