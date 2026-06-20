@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -1389,6 +1390,55 @@ func TestRunOnceFailsClosedWhenSubmitFailsWithoutLeakingBody(t *testing.T) {
 	}
 }
 
+func TestRunOnceCancelsInFlightHTTPWithContext(t *testing.T) {
+	restore := stubCollector(t)
+	defer restore()
+
+	identityPath := writeIdentityFile(t, agentidentity.Identity{
+		AgentID:   "22222222-2222-4222-8222-222222222222",
+		SiteID:    "site-local",
+		CreatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	})
+	requestStarted := make(chan struct{})
+	releaseRequest := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != agentCheckInPath {
+			t.Errorf("unexpected path after cancellation: %s", r.URL.Path)
+		}
+		close(requestStarted)
+		<-releaseRequest
+	}))
+	defer server.Close()
+
+	configPath := writeAgentConfigFile(t, agentconfig.Config{
+		ServerURL: server.URL,
+		SiteID:    "site-local",
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan runOnceReport, 1)
+	go func() {
+		done <- executeRunOnceContext(ctx, configPath, identityPath, t.TempDir())
+	}()
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("check-in request did not start")
+	}
+	cancel()
+	report := <-done
+	close(releaseRequest)
+	if report.OK || report.CheckIn.OK {
+		t.Fatalf("run-once report = %+v, want cancelled check-in failure", report)
+	}
+	if report.Collect.OK || report.Submit.OK {
+		t.Fatalf("run-once continued after cancellation: %+v", report)
+	}
+	if !containsStringWithPrefix(report.Errors, "check-in failed:") {
+		t.Fatalf("errors = %v, want check-in cancellation error", report.Errors)
+	}
+}
+
 func TestServiceRunBuildsSupervisorOptionsFromFlags(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config", "config.json")
@@ -2147,6 +2197,15 @@ func findDoctorCheck(t *testing.T, report doctorReport, name string) doctorCheck
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsStringWithPrefix(values []string, prefix string) bool {
+	for _, value := range values {
+		if strings.HasPrefix(value, prefix) {
 			return true
 		}
 	}
