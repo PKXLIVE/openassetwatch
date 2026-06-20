@@ -87,9 +87,12 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] service metadata uses display name `OpenAssetWatch Agent`
 - [ ] service metadata executable path is
       `C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`
-- [ ] service metadata arguments use `run-once` with explicit ProgramData
+- [ ] service metadata arguments use `service run` with explicit ProgramData
       config, identity, and state paths
 - [ ] service metadata startup type is `automatic`
+- [ ] service metadata records delayed automatic startup intent
+- [ ] service metadata records the internal supervisor model and no Task
+      Scheduler use
 - [ ] service account recommendation is `LocalService`
 - [ ] service metadata records that no service or scheduled task is installed
       by the helper
@@ -133,7 +136,7 @@ uninstall, upgrade, roll back, or publish anything.
       `OpenAssetWatch Agent`
 - [ ] validator confirms service metadata executable path is
       `C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`
-- [ ] validator confirms service metadata arguments use `run-once` with
+- [ ] validator confirms service metadata arguments use `service run` with
       explicit ProgramData config, identity, and state paths
 - [ ] validator confirms startup type is `automatic`
 - [ ] validator confirms service account recommendation is `LocalService`
@@ -164,7 +167,7 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] install helper reads `service/oaw-agent-service.json`
 - [ ] install helper validates service name `OpenAssetWatchAgent`
 - [ ] install helper validates display name `OpenAssetWatch Agent`
-- [ ] install helper validates the approved `run-once` command arguments
+- [ ] install helper validates the approved `service run` command arguments
 - [ ] install helper uses automatic startup metadata
 - [ ] install helper uses the `LocalService` account recommendation
 - [ ] install helper does not accept credentials or passwords
@@ -189,6 +192,34 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] Windows install validator confirms helper presence, dry-run support,
       admin checks, no default auto-start, config/identity preservation, and
       absence of unsafe registry or secret patterns
+
+## Windows MSI Validation
+
+- [ ] `scripts/release/build_agent_msi.ps1` parses cleanly
+- [ ] `.config/dotnet-tools.json` pins WiX Toolset
+- [ ] MSI helper builds only `windows/amd64`
+- [ ] MSI helper consumes an existing Windows amd64 agent artifact and staged
+      install layout
+- [ ] MSI helper writes only under ignored `dist/agent/<version>/packages/`
+- [ ] MSI artifact is generated
+- [ ] MSI SHA256 checksum is generated
+- [ ] MSI manifest JSON is generated
+- [ ] MSI manifest records version, MSI version, architecture, source
+      artifact, staged layout, package path, SHA256, git commit, WiX version,
+      and unsigned signing state
+- [ ] `scripts/release/validate_agent_windows_msi.py` passes
+- [ ] validator confirms MSI checksum and manifest SHA256 match
+- [ ] validator confirms WiX source uses `service run`
+- [ ] validator confirms WiX source uses `NT AUTHORITY\LocalService`
+- [ ] validator confirms WiX source includes service install/control metadata
+- [ ] validator confirms WiX source includes Event Log source metadata
+- [ ] validator confirms WiX source includes bounded recovery metadata
+- [ ] validator confirms WiX source includes delayed automatic startup metadata
+- [ ] validator rejects Task Scheduler and raw `run-once` service registration
+- [ ] unsigned local MSI artifacts are not release-ready
+- [ ] production release flow signs `oaw-agent.exe`
+- [ ] production release flow signs the MSI
+- [ ] production release flow verifies executable and MSI signatures
 
 ## Windows File Helper Validation
 

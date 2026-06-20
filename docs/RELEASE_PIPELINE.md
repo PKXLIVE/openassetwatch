@@ -48,6 +48,19 @@ OpenAssetWatch. It is not fully implemented yet.
   It inspects an existing staged Windows install layout, service metadata, and
   manifest under ignored `dist/` paths without installing services, scheduled
   tasks, registry entries, or MSI packages.
+- Local Windows MSI generation exists through
+  [scripts/release/build_agent_msi.ps1](../scripts/release/build_agent_msi.ps1).
+  It uses the repo-pinned WiX Toolset local tool, consumes the Windows amd64
+  agent artifact and staged layout, and writes only an unsigned MSI, SHA256,
+  and non-secret manifest under ignored `dist/` paths.
+- Local Windows MSI validation exists through
+  [scripts/release/validate_agent_windows_msi.py](../scripts/release/validate_agent_windows_msi.py).
+  It validates checksum/manifest metadata and the WiX source model without
+  installing the MSI.
+- Windows signing hooks exist through
+  [scripts/release/sign_agent_windows.ps1](../scripts/release/sign_agent_windows.ps1).
+  They require explicit certificate inputs and support executable/MSI signing
+  and verification. CI builds remain unsigned validation artifacts.
 - Explicit Windows service install and uninstall helpers exist through
   [scripts/release/install_agent_windows_service.ps1](../scripts/release/install_agent_windows_service.ps1)
   and
@@ -161,11 +174,11 @@ The helper writes:
 - `dist/agent/<version>/windows-install/service/oaw-agent-service.json`
 - `dist/agent/<version>/windows-install/windows-install-manifest.json`
 
-The service metadata is staging-only. It records the future service name,
-display name, executable path, `run-once` arguments, automatic startup type,
-and `LocalService` account recommendation. It also records that Windows
-does not use systemd timers and that a future implementation should use
-Windows Task Scheduler or a Windows service runtime model. The helper does not
+The service metadata is staging-only. It records the service name, display
+name, executable path, `service run` arguments, automatic startup type, delayed
+automatic startup metadata, internal supervisor model, and `LocalService`
+account recommendation. It also records that Windows Task Scheduler is not
+used. The helper does not
 create a service, install a scheduled task, write registry keys, write to real
 Program Files or ProgramData paths, or build an MSI.
 
@@ -201,6 +214,33 @@ metadata, requires administrator rights for real service removal, stops the
 service only when `-Stop` is supplied, and preserves config and identity by
 default. Dry-run mode returns intended actions without creating, starting,
 stopping, or removing services.
+
+## Local Windows MSI Artifacts
+
+After building a Windows amd64 agent binary artifact, build and validate an
+unsigned local MSI under ignored `dist/` output:
+
+```powershell
+.\scripts\release\build_agent_msi.ps1 `
+  -Version 0.1.0-local `
+  -TargetArch amd64
+
+python .\scripts\release\validate_agent_windows_msi.py `
+  --version 0.1.0-local
+```
+
+The MSI helper pins WiX Toolset through `.config/dotnet-tools.json` and uses
+the matching WiX Util extension during the build. It emits:
+
+- `dist/agent/<version>/packages/OpenAssetWatchAgent-<version>-windows-amd64.msi`
+- `.msi.sha256`
+- `.msi.manifest.json`
+
+The MSI installs `OpenAssetWatchAgent` as a native Windows service that runs
+`oaw-agent.exe service run`, uses the `LocalService` account, registers Event
+Log source metadata, configures bounded service recovery metadata, records
+delayed automatic startup metadata, and preserves administrator-managed config,
+identity, state, and logs. Unsigned local MSI output is not release-ready.
 
 ## Local Debian Package Artifacts
 
