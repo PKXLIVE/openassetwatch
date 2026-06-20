@@ -227,6 +227,10 @@ def validate_scripts(paths: dict[str, Path]) -> None:
         uninstall_text = uninstall.read_text(encoding="utf-8")
         if "has_symlink_component" not in uninstall_text:
             raise ValueError("macOS uninstaller must refuse symlink components during cleanup.")
+        if 'local target="$1"' not in uninstall_text:
+            raise ValueError("macOS uninstaller path helpers must keep removal paths local.")
+        if '${REMOVED[@]+"' not in uninstall_text:
+            raise ValueError("macOS uninstaller must render empty JSON arrays safely under set -u.")
         if "python3" in uninstall_text:
             raise ValueError("macOS uninstaller must not depend on system python3.")
         if 'emit_report false' not in uninstall_text:

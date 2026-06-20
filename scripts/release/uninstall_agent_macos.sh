@@ -73,46 +73,54 @@ emit_report() {
   printf '{\n'
   printf '  "ok": %s,\n' "$ok"
   printf '  "dry_run": %s,\n' "$DRY_RUN"
-  printf '  "actions": %s,\n' "$(json_array "${ACTIONS[@]}")"
-  printf '  "removed": %s,\n' "$(json_array "${REMOVED[@]}")"
-  printf '  "warnings": %s,\n' "$(json_array "${WARNINGS[@]}")"
-  printf '  "errors": %s\n' "$(json_array "${ERRORS[@]}")"
+  printf '  "actions": '
+  json_array "${ACTIONS[@]+"${ACTIONS[@]}"}"
+  printf ',\n'
+  printf '  "removed": '
+  json_array "${REMOVED[@]+"${REMOVED[@]}"}"
+  printf ',\n'
+  printf '  "warnings": '
+  json_array "${WARNINGS[@]+"${WARNINGS[@]}"}"
+  printf ',\n'
+  printf '  "errors": '
+  json_array "${ERRORS[@]+"${ERRORS[@]}"}"
+  printf '\n'
   printf '}\n'
 }
 
 safe_path() {
-  path="$1"
-  case "$path" in
+  local target="$1"
+  case "$target" in
     "$APP_ROOT"|"$APP_ROOT"/*|"$LOG_DIR"|"$LOG_DIR"/*|"$PLIST") return 0 ;;
     *) return 1 ;;
   esac
 }
 
 has_symlink_component() {
-  path="$1"
-  while [ "$path" != "/" ] && [ -n "$path" ]; do
-    if [ -L "$path" ]; then
+  local target="$1"
+  while [ "$target" != "/" ] && [ -n "$target" ]; do
+    if [ -L "$target" ]; then
       return 0
     fi
-    path="$(dirname "$path")"
+    target="$(dirname "$target")"
   done
   return 1
 }
 
 remove_path() {
-  path="$1"
-  [ -n "$path" ] || { add_error "refusing empty removal path"; return; }
-  safe_path "$path" || { add_error "refusing removal outside OpenAssetWatch roots: $path"; return; }
-  if has_symlink_component "$path"; then
-    add_error "refusing symlink removal path: $path"
+  local target="$1"
+  [ -n "$target" ] || { add_error "refusing empty removal path"; return; }
+  safe_path "$target" || { add_error "refusing removal outside OpenAssetWatch roots: $target"; return; }
+  if has_symlink_component "$target"; then
+    add_error "refusing symlink removal path: $target"
     return
   fi
-  add_action "Remove $path"
-  if [ "$DRY_RUN" = false ] && [ -e "$path" ]; then
-    if rm -rf "$path"; then
-      add_removed "$path"
+  add_action "Remove $target"
+  if [ "$DRY_RUN" = false ] && [ -e "$target" ]; then
+    if rm -rf "$target"; then
+      add_removed "$target"
     else
-      add_error "failed to remove $path"
+      add_error "failed to remove $target"
     fi
   fi
 }
