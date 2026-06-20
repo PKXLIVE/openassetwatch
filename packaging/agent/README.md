@@ -1,21 +1,21 @@
 # OpenAssetWatch Agent Package Scaffold
 
-This directory contains release and package planning scaffolds for future
-OpenAssetWatch agent packages. It is documentation and manifest-template
-material only.
+This directory contains release and package planning scaffolds plus the Windows
+WiX MSI authoring source for OpenAssetWatch agent packages.
 
 Current state:
 
-- no installers are built from this directory
+- Windows MSI artifacts can be built from the WiX source through
+  `scripts/release/build_agent_msi.ps1`
 - no package-manager commands are executed from this directory
 - no service-manager commands are executed from this directory
 - no files are installed, removed, upgraded, or rolled back by this scaffold
 - no signing keys, enrollment tokens, license keys, API keys, passwords, or
   other secrets are stored here
 
-Future package targets:
+Package targets:
 
-- Windows signed MSI or enterprise deployment package
+- Windows MSI or enterprise deployment package
 - Linux `.deb` package for Debian and Ubuntu
 - Linux `.rpm` package for RHEL, Rocky Linux, AlmaLinux, CentOS, Fedora, SUSE,
   and openSUSE
@@ -26,6 +26,7 @@ Future package targets:
 
 - [Release Checklist](release-checklist.md)
 - [OS Package Mapping](os-package-mapping.md)
+- [Windows WiX MSI source](windows/OpenAssetWatchAgent.wxs)
 - [Windows MSI manifest template](templates/windows-msi.manifest.yaml)
 - [Linux DEB manifest template](templates/linux-deb.manifest.yaml)
 - [Linux RPM manifest template](templates/linux-rpm.manifest.yaml)
@@ -87,9 +88,28 @@ This helper does not build MSI, DEB, RPM, or PKG packages. It does not install
 software, modify the OS, run package-manager commands, run service-manager
 commands, or contact network services.
 
+## Local Windows MSI Artifact Generation
+
+The Windows MSI helper
+[`scripts/release/build_agent_msi.ps1`](../../scripts/release/build_agent_msi.ps1)
+uses the repo-pinned WiX Toolset local tool and the WiX source in
+`packaging/agent/windows/` to build an unsigned local MSI under ignored
+`dist/` output:
+
+```powershell
+.\scripts\release\build_agent_dist.ps1 -Version 0.1.0-local -TargetOS windows -TargetArch amd64
+.\scripts\release\build_agent_msi.ps1 -Version 0.1.0-local -TargetArch amd64
+python .\scripts\release\validate_agent_windows_msi.py --version 0.1.0-local
+```
+
+The MSI installs the native Windows service model using `oaw-agent.exe service
+run`. Local MSI output is unsigned and is not production release-ready until
+the executable and MSI are signed and verified.
+
 ## Related Docs
 
 - [Agent Installation Lifecycle](../../docs/AGENT_INSTALLATION.md)
+- [Agent Windows Deployment](../../docs/AGENT_WINDOWS_DEPLOYMENT.md)
 - [Agent Lifecycle And Service Readiness](../../docs/AGENT_LIFECYCLE.md)
 - [Release Pipeline](../../docs/RELEASE_PIPELINE.md)
 - [Signed Releases](../../docs/SIGNED_RELEASES.md)
@@ -98,12 +118,13 @@ commands, or contact network services.
 
 This scaffold must not introduce:
 
-- installer execution
+- implicit installer execution
 - package-manager execution
 - service-manager execution
-- service install or uninstall code
-- daemon mode
-- scheduling
+- broad service install or uninstall helpers outside the reviewed MSI and
+  explicit administrator tools
+- unbounded daemon mode
+- Task Scheduler usage for the Windows agent
 - self-update behavior
 - credential storage
 - active scanning

@@ -165,6 +165,9 @@ venv.bak/
 oaw-go-cache/
 oaw-go-modcache/
 
+# Local WiX extension/cache output
+.wix/
+
 # Spyder project settings
 .spyderproject
 .spyproject

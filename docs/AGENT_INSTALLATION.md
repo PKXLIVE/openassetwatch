@@ -252,10 +252,15 @@ Before install, upgrade, or rollback:
 Signing keys must remain in CI/CD secret stores or signing infrastructure. They
 must not be committed to the repository or copied into installer examples.
 
-## Local Windows Install Staging
+## Windows Native Service And MSI
 
-Use the local Windows install-staging helper to prove the future production
-Windows layout from an existing Windows amd64 agent dist artifact:
+Windows production deployment now centers on the native SCM service command
+`oaw-agent.exe service run`, distributed through a WiX Toolset MSI. See the
+focused deployment guide:
+[Agent Windows Deployment](AGENT_WINDOWS_DEPLOYMENT.md).
+
+Use the local Windows install-staging helper to prove the production Windows
+layout from an existing Windows amd64 agent dist artifact:
 
 ```powershell
 .\scripts\release\build_agent_dist.ps1 `
@@ -285,6 +290,13 @@ python .\scripts\release\validate_agent_windows_install.py `
 .\scripts\release\uninstall_agent_windows_service.ps1 `
   -ServiceMetadata .\dist\agent\0.1.0-local\windows-install\service\oaw-agent-service.json `
   -DryRun
+
+.\scripts\release\build_agent_msi.ps1 `
+  -Version 0.1.0-local `
+  -TargetArch amd64
+
+python .\scripts\release\validate_agent_windows_msi.py `
+  --version 0.1.0-local
 ```
 
 The helper writes only under ignored `dist/` output:
@@ -297,14 +309,14 @@ The helper writes only under ignored `dist/` output:
 - `dist/agent/<version>/windows-install/service/oaw-agent-service.json`
 - `dist/agent/<version>/windows-install/windows-install-manifest.json`
 
-The staged service metadata models the future Windows Service shape without
-creating it. It records service name `OpenAssetWatchAgent`, display name
+The staged service metadata models the Windows Service shape without creating
+it. It records service name `OpenAssetWatchAgent`, display name
 `OpenAssetWatch Agent`, executable path
-`C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`, the `run-once`
+`C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`, the `service run`
 arguments with explicit ProgramData config, identity, and state paths,
 automatic startup type, and the `LocalService` account recommendation. It also
-notes that Windows does not have systemd timers and that future scheduling
-should use Windows Task Scheduler or a future Windows service runtime model.
+records that Task Scheduler is not used; the service runtime owns the bounded
+supervisor loop.
 
 This helper does not run `sc.exe create`, `New-Service`, `Start-Service`,
 `Stop-Service`, `msiexec`, installer commands, registry writes, or service
@@ -346,10 +358,28 @@ requires administrator rights, reads the staged service metadata, validates the
 staged executable plus config and identity directories, creates only the
 `OpenAssetWatchAgent` service with automatic startup and the `LocalService`
 account recommendation, and does not start the service unless `-Start` is
-explicitly supplied. Real uninstall mode requires administrator rights, removes
-only the named service, stops it only when `-Stop` is explicitly supplied, and
-preserves ProgramData config and identity by default. `-RemoveState` is limited
-to staged or test cleanup and does not remove config or identity.
+explicitly supplied. It builds `sc.exe create` arguments as separate
+option/value elements and reports logical arguments, transport-safe arguments,
+exit code, stdout, stderr, account, binary path, and final registered ImagePath
+diagnostics. Real uninstall mode requires administrator rights, removes only
+the named service, stops it only when `-Stop` is explicitly supplied, waits with
+a bounded timeout, confirms deletion, and preserves ProgramData config and
+identity by default. `-RemoveState` is limited to staged or test cleanup and
+does not remove config or identity.
+
+The MSI build helper uses the repo-pinned WiX Toolset local tool and writes
+only ignored local release output:
+
+- `dist/agent/<version>/packages/OpenAssetWatchAgent-<version>-windows-amd64.msi`
+- `.msi.sha256`
+- `.msi.manifest.json`
+
+The MSI installs the agent binary, example config and identity files, canonical
+ProgramData directories, `OpenAssetWatchAgent` as a LocalService native Windows
+service with `NT SERVICE\OpenAssetWatchAgent` service-SID ACLs, Event Log
+source metadata, bounded service recovery metadata, and delayed automatic start
+metadata. It preserves real config, identity, state, and logs on repair,
+upgrade, and uninstall.
 
 ## Local Debian Package Artifact
 
@@ -769,18 +799,23 @@ Complete for this phase:
 - [x] proof install layout under ignored `dist/staging/`
 - [x] local sandbox install helper
 - [x] proof local install layout under ignored `dist/local-install/`
+- [x] Windows native `oaw-agent service run` runtime
+- [x] Windows install layout staging and validation
+- [x] Windows service/file helper dry-run validation
+- [x] WiX Toolset MSI build helper
+- [x] MSI checksum and manifest generation
 
 Future work:
 
-- [ ] real OS installation
-- [ ] writing to Program Files, ProgramData, `/usr`, `/etc`, `/var`, or
-  `/Library`
-- [ ] service installation
-- [ ] long-running daemon or service runtime
+- [x] Windows real OS installation path through MSI
+- [x] Windows service installation path through MSI
+- [x] Windows service runtime
+- [ ] production signed Windows release publication
+- [ ] writing to `/usr`, `/etc`, `/var`, or `/Library`
 - [ ] cross-platform service scheduling beyond the packaged Linux timer
 - [ ] signed `.deb` release publication and install validation
 - [ ] `.rpm` package build
-- [ ] Windows MSI
+- [x] Windows MSI
 - [ ] macOS signed/notarized package
 - [ ] package-manager execution by local release helpers
 - [ ] service-manager execution by local release helpers beyond packaged,

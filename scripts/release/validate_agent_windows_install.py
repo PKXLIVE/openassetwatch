@@ -22,7 +22,9 @@ from stage_agent_windows_install import (
     MANIFEST_NAME,
     PROGRAMDATA_CONFIG,
     PROGRAMDATA_IDENTITY,
+    PROGRAMDATA_INVENTORY,
     PROGRAMDATA_STATE,
+    PROGRAMDATA_STATUS,
     PROGRAM_FILES_BINARY,
     SERVICE_DISPLAY_NAME,
     SERVICE_METADATA_RELATIVE,
@@ -102,7 +104,7 @@ def resolve_windows_install_root(repo_root: Path, version: str, root_arg: str | 
     if root_arg:
         root = resolve_repo_path(repo_root, root_arg)
     else:
-        root = windows_install_root(repo_root, version)
+        root = windows_install_root(repo_root, repo_root / "dist", version)
     if not is_inside(repo_root / "dist" / "agent", root):
         raise ValueError("Windows install root must resolve under dist/agent/.")
     return root
@@ -194,18 +196,22 @@ def validate_service_metadata_file(path: Path) -> dict[str, Any]:
     arguments = str(value.get("arguments", ""))
     if arguments != service_arguments():
         raise ValueError("Windows service metadata arguments mismatch.")
-    if "run-once" not in arguments.split():
-        raise ValueError("Windows service metadata arguments must use run-once.")
+    if not arguments.startswith("service run "):
+        raise ValueError("Windows service metadata arguments must use service run.")
+    if "run-once" in arguments.split():
+        raise ValueError("Windows service metadata must not register raw run-once as the service command.")
     for expected_path in (PROGRAMDATA_CONFIG, PROGRAMDATA_IDENTITY, PROGRAMDATA_STATE):
         if expected_path not in arguments:
             raise ValueError(f"Windows service metadata arguments missing expected path: {expected_path}")
     if value.get("startup_type") != "automatic":
         raise ValueError("Windows service metadata startup_type must be automatic.")
+    if value.get("delayed_auto_start") is not True:
+        raise ValueError("Windows service metadata must request delayed automatic startup.")
     if value.get("service_account_recommendation") != "LocalService":
         raise ValueError("Windows service metadata service account recommendation must be LocalService.")
+    if value.get("scheduler_model") != "internal bounded supervisor loop; Task Scheduler is not used":
+        raise ValueError("Windows service metadata must use the internal supervisor and avoid Task Scheduler.")
     validate_no_install_intent(value, "Windows service metadata")
-    if value.get("timer_recommendation", {}).get("windows_has_systemd_timers") is not False:
-        raise ValueError("Windows service metadata must note that Windows does not have systemd timers.")
     assert_no_forbidden_metadata_text(path, "Windows service metadata")
     return value
 
@@ -249,6 +255,8 @@ def validate_manifest(repo_root: Path, root: Path, version: str, service_value: 
         "config": PROGRAMDATA_CONFIG,
         "identity": PROGRAMDATA_IDENTITY,
         "state": PROGRAMDATA_STATE,
+        "status": PROGRAMDATA_STATUS,
+        "last_inventory": PROGRAMDATA_INVENTORY,
         "logs": r"C:\ProgramData\OpenAssetWatch\Agent\logs",
     }
     if manifest["production_paths"] != expected_production_paths:
@@ -294,10 +302,12 @@ def validate_install_helper(repo_root: Path) -> None:
         "[string]$ServiceMetadata",
         "[switch]$Start",
         '$ServiceAccount = "NT AUTHORITY\\LocalService"',
-        "$createArgs = @(",
+        "$logicalCreateArgs = @(",
+        "$transportCreateArgs = @(",
         '"create"',
         '"binPath="',
         "$binaryPath",
+        "$transportBinaryPath",
         '"start="',
         '"auto"',
         '"DisplayName="',
@@ -306,14 +316,21 @@ def validate_install_helper(repo_root: Path) -> None:
         "$ServiceAccount",
         "Invoke-ScExe",
         "& sc.exe @Arguments",
+        "ConvertFrom-ScTransportBinaryPath",
+        "Get-ServiceImagePath",
         "Set-ScCreateDiagnostics",
         "sc_create",
         "exit_code",
         "stdout",
         "stderr",
         "arguments",
+        "logical_arguments",
+        "transport_arguments",
         "account",
         "binary_path",
+        "transport_binary_path",
+        "final_image_path",
+        "final_image_path_normalized",
         "Sanitize-Text",
         "Read-ServiceMetadata",
         "Staged oaw-agent.exe is missing",
@@ -334,6 +351,18 @@ def validate_install_helper(repo_root: Path) -> None:
     joined_present = [item for item in forbidden_joined_args if item in text]
     if joined_present:
         raise ValueError(f"Windows service install helper must separate sc.exe option names and values: {', '.join(joined_present)}.")
+    if "service run --config" not in text:
+        raise ValueError("Windows service install helper must register the native service run command.")
+    if "run-once --config" in text:
+        raise ValueError("Windows service install helper must not register raw run-once.")
+    if "ConvertTo-ScTransportBinaryPath" in text:
+        raise ValueError("Windows service install helper must not backslash-escape quotes for sc.exe argument-array transport.")
+    if "$transportBinaryPath = $binaryPath" not in text:
+        raise ValueError("Windows service install helper must pass the actual quoted binPath value as the separate sc.exe argument.")
+    if '$normalizedFinalImagePath = ConvertFrom-ScTransportBinaryPath -BinaryPath $finalImagePath' not in text:
+        raise ValueError("Windows service install helper must normalize the registered ImagePath before comparing it.")
+    if 'if ($normalizedFinalImagePath -ne $binaryPath)' not in text:
+        raise ValueError("Windows service install helper must verify the normalized final registered ImagePath.")
     if "service_installed_by_this_helper -ne $false" not in text:
         raise ValueError("Windows service install helper must reject metadata that claims staging installed the service.")
 
@@ -345,7 +374,11 @@ def validate_uninstall_helper(repo_root: Path) -> None:
         "[string]$ServiceMetadata",
         "[switch]$Stop",
         "[switch]$RemoveState",
+        "[int]$StopTimeoutSeconds = 30",
         "sc.exe delete",
+        "Wait-ServiceState",
+        'WantedStatus "Stopped"',
+        'WantedStatus "Deleted"',
         "Preserve config, identity, logs, and state",
         "InstallRoot is required with -RemoveState",
     )
@@ -403,6 +436,7 @@ def validate_file_install_helper(repo_root: Path) -> None:
         "identity.example.json",
         "service\\oaw-agent-service.json",
         "windows-install-manifest.json",
+        "^service run ",
         "Copy-Item",
         "Set-DirectoryAcl",
         "NT AUTHORITY\\LOCAL SERVICE",

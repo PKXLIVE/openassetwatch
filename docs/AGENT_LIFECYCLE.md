@@ -1,12 +1,12 @@
 # Agent Lifecycle And Service Readiness
 
 This document captures the current manual `oaw-agent` lifecycle and the
-readiness checklist required before OpenAssetWatch adds any service, daemon, or
-scheduling behavior.
+readiness checklist for packaged service operation.
 
-Current state: the agent is an explicit command-line tool. It does not install
-or run as a background service, it does not schedule itself, and it does not
-perform active scanning.
+Current state: the agent supports explicit command-line operation and a native
+Windows service runtime through `oaw-agent service run`. Windows MSI deployment
+details live in [Agent Windows Deployment](AGENT_WINDOWS_DEPLOYMENT.md). The
+agent does not perform active scanning.
 
 ## Current Manual Lifecycle
 
@@ -23,10 +23,11 @@ paths. It does not create files or directories.
 
 Default paths are:
 
-- Windows identity: `%ProgramData%\OpenAssetWatch\agent\identity.json`
-- Windows config: `%ProgramData%\OpenAssetWatch\agent\config.json`
-- Windows logs: `%ProgramData%\OpenAssetWatch\agent\logs\`
-- Windows status file: `%ProgramData%\OpenAssetWatch\agent\logs\status.json`
+- Windows identity: `%ProgramData%\OpenAssetWatch\Agent\identity\identity.json`
+- Windows config: `%ProgramData%\OpenAssetWatch\Agent\config\config.json`
+- Windows state: `%ProgramData%\OpenAssetWatch\Agent\state\`
+- Windows logs: `%ProgramData%\OpenAssetWatch\Agent\logs\`
+- Windows status file: `%ProgramData%\OpenAssetWatch\Agent\state\status.json`
 - Linux/macOS identity: `/etc/openassetwatch/agent/identity.json`
 - Linux/macOS config: `/etc/openassetwatch/agent/config.json`
 - Linux/macOS logs: `/var/log/openassetwatch/agent/`

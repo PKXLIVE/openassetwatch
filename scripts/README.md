@@ -17,9 +17,12 @@ should not be added here.
   metadata, target-install timer enablement, and config/identity-guarded timer
   startup metadata without installing them, stage Windows Program
   Files/ProgramData install layout proofs from existing Windows dist
-  artifacts without creating services or MSI packages, validate staged Windows
+  artifacts without creating services, validate staged Windows
   install layout proofs without creating services, scheduled tasks, registry
-  entries, or MSI packages, provide explicit Windows service install and
+  entries, or MSI packages, build unsigned Windows MSI artifacts with the
+  repo-pinned WiX Toolset local tool, validate Windows MSI checksum/manifest
+  metadata, provide explicit Windows signing and verification hooks, provide
+  explicit Windows service install and
   uninstall helpers with dry-run validation for administrator-controlled use,
   provide explicit Windows file install and uninstall helpers with dry-run
   validation for administrator-controlled file copy and cleanup, validate
@@ -27,6 +30,7 @@ should not be added here.
   proof-of-layout install tree under ignored `dist/` paths, create a local
   sandbox install proof under ignored `dist/` paths, remove only that local
   sandbox install proof, exercise local sandbox upgrade and rollback proofs,
-  and generate metadata, but must not install software, build native
-  installers, modify host services, modify host sudoers state, or execute
-  package managers.
+  and generate metadata. Except for explicit administrator-controlled Windows
+  helper execution and ignored local MSI artifact generation, these scripts
+  must not install software, modify host services, modify host sudoers state,
+  or execute package managers.

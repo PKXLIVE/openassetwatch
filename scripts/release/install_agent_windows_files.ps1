@@ -129,8 +129,8 @@ function Assert-StagedLayout {
     if ($metadata.executable_path -ne $ExpectedServiceExecutable) {
         throw "Service metadata executable_path must be $ExpectedServiceExecutable."
     }
-    if ([string]$metadata.arguments -notmatch "^run-once ") {
-        throw "Service metadata arguments must use run-once."
+    if ([string]$metadata.arguments -notmatch "^service run ") {
+        throw "Service metadata arguments must use service run."
     }
     return $paths
 }

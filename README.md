@@ -182,6 +182,8 @@ Future collector packaging may include:
 * Python package install
 * Standalone executable builds
 * Windows service installer
+  * Agent native Windows service and MSI deployment details:
+    [docs/AGENT_WINDOWS_DEPLOYMENT.md](docs/AGENT_WINDOWS_DEPLOYMENT.md)
 * Linux systemd installer
 * macOS launchd installer
 * Raspberry Pi / ARM support

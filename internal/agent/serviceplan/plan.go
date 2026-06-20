@@ -20,6 +20,7 @@ type Plan struct {
 	BinaryPath            string           `json:"binary_path"`
 	ConfigPath            string           `json:"config_path"`
 	IdentityPath          string           `json:"identity_path"`
+	StateDir              string           `json:"state_dir"`
 	LogDir                string           `json:"log_dir"`
 	StatusPath            string           `json:"status_file_path"`
 	ServiceDefinitionPath string           `json:"service_definition_path,omitempty"`
@@ -61,6 +62,7 @@ func Build(goos string, paths agentpaths.AgentPaths, osReleaseData []byte) Plan 
 		ServiceName:  ServiceName,
 		ConfigPath:   strings.TrimSpace(paths.ConfigPath),
 		IdentityPath: strings.TrimSpace(paths.IdentityPath),
+		StateDir:     strings.TrimSpace(paths.StateDir),
 		LogDir:       strings.TrimSpace(paths.LogDir),
 		StatusPath:   strings.TrimSpace(paths.StatusPath),
 		Notes: []string{
@@ -72,7 +74,8 @@ func Build(goos string, paths agentpaths.AgentPaths, osReleaseData []byte) Plan 
 	case "windows":
 		plan.ServiceTarget = "Windows Service"
 		plan.ServiceName = "OpenAssetWatchAgent"
-		plan.BinaryPath = `C:\Program Files\OpenAssetWatch\oaw-agent.exe`
+		plan.BinaryPath = `C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe`
+		plan.ServiceDefinitionPath = "Windows Service Control Manager: OpenAssetWatchAgent"
 	case "linux":
 		plan.ServiceTarget = "systemd"
 		plan.BinaryPath = path.Join("/", "usr", "bin", "oaw-agent")
@@ -201,20 +204,21 @@ func containsAny(values []string, candidates ...string) bool {
 
 func windowsTemplate(plan Plan) string {
 	return strings.Join([]string{
-		"# OpenAssetWatch Agent future Windows Service template",
+		"# OpenAssetWatch Agent Windows Service metadata template",
 		"# Text only. This command does not run New-Service, sc.exe, or service control commands.",
 		"ServiceName: " + plan.ServiceName,
 		"DisplayName: OpenAssetWatch Agent",
 		"ServiceTarget: " + plan.ServiceTarget,
-		"BinaryPath: \"" + plan.BinaryPath + "\" service run --config \"" + plan.ConfigPath + "\" --identity-file \"" + plan.IdentityPath + "\"",
+		"BinaryPath: \"" + plan.BinaryPath + "\" service run --config \"" + plan.ConfigPath + "\" --identity-file \"" + plan.IdentityPath + "\" --output-dir \"" + plan.StateDir + "\"",
 		"ConfigPath: " + plan.ConfigPath,
 		"IdentityPath: " + plan.IdentityPath,
+		"StateDirectory: " + plan.StateDir,
 		"LogDirectory: " + plan.LogDir,
 		"StatusFile: " + plan.StatusPath,
-		"StartupType: Manual until service mode is explicitly implemented",
-		"RestartPolicy: Future conservative bounded backoff placeholder only",
-		"# Example future administrator action, not executed by oaw-agent service template:",
-		"# New-Service -Name \"" + plan.ServiceName + "\" -BinaryPathName \"<reviewed binary path>\" -StartupType Manual",
+		"StartupType: Automatic delayed start through MSI or administrator action",
+		"RestartPolicy: Bounded recovery for process failure; runtime failures degrade and retry internally",
+		"# Example administrator action, not executed by oaw-agent service template:",
+		"# New-Service -Name \"" + plan.ServiceName + "\" -BinaryPathName \"<reviewed binary path>\" -StartupType Automatic",
 	}, "\n")
 }
 
