@@ -33,6 +33,8 @@ PROGRAM_FILES_BINARY = r"C:\Program Files\OpenAssetWatch\Agent\bin\oaw-agent.exe
 PROGRAMDATA_CONFIG = r"C:\ProgramData\OpenAssetWatch\Agent\config\config.json"
 PROGRAMDATA_IDENTITY = r"C:\ProgramData\OpenAssetWatch\Agent\identity\identity.json"
 PROGRAMDATA_STATE = r"C:\ProgramData\OpenAssetWatch\Agent\state"
+PROGRAMDATA_STATUS = r"C:\ProgramData\OpenAssetWatch\Agent\state\status.json"
+PROGRAMDATA_INVENTORY = r"C:\ProgramData\OpenAssetWatch\Agent\state\last-inventory.json"
 PROGRAMDATA_LOGS = r"C:\ProgramData\OpenAssetWatch\Agent\logs"
 SERVICE_NAME = "OpenAssetWatchAgent"
 SERVICE_DISPLAY_NAME = "OpenAssetWatch Agent"
@@ -161,7 +163,7 @@ def identity_example() -> dict[str, str]:
 
 def service_arguments() -> str:
     return (
-        r"run-once --config C:\ProgramData\OpenAssetWatch\Agent\config\config.json "
+        r"service run --config C:\ProgramData\OpenAssetWatch\Agent\config\config.json "
         r"--identity-file C:\ProgramData\OpenAssetWatch\Agent\identity\identity.json "
         r"--output-dir C:\ProgramData\OpenAssetWatch\Agent\state"
     )
@@ -174,18 +176,13 @@ def service_metadata() -> dict[str, Any]:
         "executable_path": PROGRAM_FILES_BINARY,
         "arguments": service_arguments(),
         "startup_type": "automatic",
+        "delayed_auto_start": True,
+        "service_runtime_model": "native Windows SCM service using oaw-agent service run",
         "service_account_recommendation": "LocalService",
         "sensitive_values_embedded": False,
         "service_installed_by_this_helper": False,
         "scheduled_task_installed_by_this_helper": False,
-        "timer_recommendation": {
-            "windows_has_systemd_timers": False,
-            "recommended_models": [
-                "Windows Task Scheduler",
-                "future Windows service runtime model",
-            ],
-            "installed_by_this_helper": False,
-        },
+        "scheduler_model": "internal bounded supervisor loop; Task Scheduler is not used",
     }
 
 
@@ -232,6 +229,8 @@ def write_staging(
             "config": PROGRAMDATA_CONFIG,
             "identity": PROGRAMDATA_IDENTITY,
             "state": PROGRAMDATA_STATE,
+            "status": PROGRAMDATA_STATUS,
+            "last_inventory": PROGRAMDATA_INVENTORY,
             "logs": PROGRAMDATA_LOGS,
         },
         "service_metadata": service_metadata(),
@@ -240,6 +239,7 @@ def write_staging(
             "No Windows service, scheduled task, registry entry, or installer action is performed.",
             "Config and identity files are examples only; real values remain administrator-managed.",
             "State and log directories are empty placeholders in this staging layout.",
+            "Windows production service execution uses oaw-agent service run, not Task Scheduler or raw run-once registration.",
         ],
         "generated_at": utc_timestamp(),
     }
@@ -267,8 +267,14 @@ def validate_service_metadata(path: Path) -> None:
         raise ValueError("Service metadata executable_path mismatch.")
     if value["arguments"] != service_arguments():
         raise ValueError("Service metadata arguments mismatch.")
+    if not value["arguments"].startswith("service run "):
+        raise ValueError("Service metadata must use the native service run command.")
     if value["service_account_recommendation"] != "LocalService":
         raise ValueError("Service account recommendation must be LocalService.")
+    if value.get("delayed_auto_start") is not True:
+        raise ValueError("Service metadata must request delayed automatic service startup.")
+    if value.get("scheduler_model") != "internal bounded supervisor loop; Task Scheduler is not used":
+        raise ValueError("Service metadata must explicitly avoid Task Scheduler.")
     if value["service_installed_by_this_helper"] or value["scheduled_task_installed_by_this_helper"]:
         raise ValueError("Service metadata must show no service or scheduled task is installed.")
 

@@ -15,6 +15,8 @@ param(
 
     [switch]$RemoveState,
 
+    [int]$StopTimeoutSeconds = 30,
+
     [switch]$DryRun
 )
 
@@ -137,6 +139,27 @@ function Assert-NotSystemInstallRoot {
     }
 }
 
+function Wait-ServiceState {
+    param(
+        [string]$Name,
+        [string]$WantedStatus,
+        [int]$TimeoutSeconds
+    )
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
+        if ($WantedStatus -eq "Deleted") {
+            if ($null -eq $service) {
+                return $true
+            }
+        } elseif ($null -ne $service -and [string]$service.Status -eq $WantedStatus) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    return $false
+}
+
 try {
     $metadataPath = Resolve-OptionalPath -PathValue $ServiceMetadata -Label "ServiceMetadata"
     if (-not [string]::IsNullOrWhiteSpace($metadataPath)) {
@@ -180,10 +203,16 @@ try {
         if ($null -ne $existing) {
             if ($Stop -and $existing.Status -ne "Stopped") {
                 Stop-Service -Name $ServiceName -ErrorAction Stop
+                if (-not (Wait-ServiceState -Name $ServiceName -WantedStatus "Stopped" -TimeoutSeconds $StopTimeoutSeconds)) {
+                    throw "Timed out waiting for $ServiceName to stop."
+                }
             }
             & sc.exe delete $ServiceName | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 throw "sc.exe delete failed for $ServiceName."
+            }
+            if (-not (Wait-ServiceState -Name $ServiceName -WantedStatus "Deleted" -TimeoutSeconds $StopTimeoutSeconds)) {
+                throw "Timed out waiting for $ServiceName deletion to be observed."
             }
             Add-Removed "service:$ServiceName"
         } else {
