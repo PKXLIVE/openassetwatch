@@ -376,9 +376,10 @@ only ignored local release output:
 
 The MSI installs the agent binary, example config and identity files, canonical
 ProgramData directories, `OpenAssetWatchAgent` as a LocalService native Windows
-service, Event Log source metadata, bounded service recovery metadata, and
-delayed automatic start metadata. It preserves real config, identity, state,
-and logs on repair, upgrade, and uninstall.
+service with `NT SERVICE\OpenAssetWatchAgent` service-SID ACLs, Event Log
+source metadata, bounded service recovery metadata, and delayed automatic start
+metadata. It preserves real config, identity, state, and logs on repair,
+upgrade, and uninstall.
 
 ## Local Debian Package Artifact
 

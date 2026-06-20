@@ -212,7 +212,10 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] validator confirms WiX source uses `service run`
 - [ ] validator confirms WiX source uses `NT AUTHORITY\LocalService`
 - [ ] validator confirms WiX source includes service install/control metadata
-- [ ] validator confirms WiX source includes Event Log source metadata
+- [ ] validator confirms WiX source includes Event Log source metadata with a
+      valid Windows message file
+- [ ] validator confirms WiX source enables
+      `NT SERVICE\OpenAssetWatchAgent` service-SID ACLs
 - [ ] validator confirms WiX source includes bounded recovery metadata
 - [ ] validator confirms WiX source includes delayed automatic startup metadata
 - [ ] validator rejects Task Scheduler and raw `run-once` service registration

@@ -142,13 +142,21 @@ def validate_wix_source(repo_root: Path) -> None:
         'FirstFailureActionType="restart"',
         'SecondFailureActionType="restart"',
         'util:EventSource',
+        'EventMessageFile="[SystemFolder]EventCreate.exe"',
         'OpenAssetWatchAgent',
         'SYSTEM\\CurrentControlSet\\Services\\OpenAssetWatchAgent',
         'DelayedAutoStart',
+        'ServiceSidType',
+        'Domain="NT SERVICE"',
+        'User="OpenAssetWatchAgent"',
     )
     missing = [item for item in required if item not in text]
     if missing:
         raise ValueError(f"WiX source missing expected MSI/service metadata: {', '.join(missing)}.")
+    if 'User="LocalService" GenericWrite="yes"' in text:
+        raise ValueError("WiX source must not grant broad LocalService write ACLs.")
+    if text.count('Domain="NT SERVICE" User="OpenAssetWatchAgent"') < 4:
+        raise ValueError("WiX source must use service-specific SID ACLs for binary/config/identity/state/log paths.")
     forbidden = sorted({match.group(0) for match in FORBIDDEN_RE.finditer(text)})
     if forbidden:
         raise ValueError(f"WiX source contains forbidden text: {', '.join(forbidden)}.")

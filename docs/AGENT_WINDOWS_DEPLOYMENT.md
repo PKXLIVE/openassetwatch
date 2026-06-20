@@ -93,7 +93,10 @@ sc.exe qc OpenAssetWatchAgent
 
 The service runs as `NT AUTHORITY\LocalService`, reports SCM state, accepts Stop
 and Shutdown controls, writes status atomically, and uses bounded retry/backoff
-for transient backend or collection failures.
+for transient backend or collection failures. The MSI uses the service-specific
+SID `NT SERVICE\OpenAssetWatchAgent` for service ACLs where Windows Installer
+authoring supports it, so writable state/log access is not granted broadly to
+every LocalService-hosted service.
 
 ## Event Viewer
 
@@ -162,8 +165,8 @@ expecting successful inventory submission.
 
 - SCM startup: use `sc.exe qc OpenAssetWatchAgent` and Event Viewer Application
   logs.
-- permissions: confirm LocalService can read config and identity, execute the
-  binary, and write state/log output.
+- permissions: confirm the `OpenAssetWatchAgent` service SID can read config
+  and identity, execute the binary, and write state/log output.
 - backend connectivity: review `status.json` for sanitized degraded error
   category/message and verify the configured Control Tower URL.
 - service command: confirm the service ImagePath uses `service run`, not raw

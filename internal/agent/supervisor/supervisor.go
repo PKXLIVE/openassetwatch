@@ -169,6 +169,8 @@ func (supervisor *Supervisor) Run(ctx context.Context) error {
 	var lastAttempt time.Time
 	var lastSuccess time.Time
 	var lastInventoryPath string
+	var lastErrorCategory string
+	var lastErrorMessage string
 
 	_ = supervisor.writeStatus(Status{
 		ServiceState: StateRunning,
@@ -187,6 +189,8 @@ func (supervisor *Supervisor) Run(ctx context.Context) error {
 				LastSuccessfulAt:        formatTime(lastSuccess),
 				NextScheduledAttemptAt:  formatTime(next),
 				ConsecutiveFailureCount: consecutiveFailures,
+				ErrorCategory:           lastErrorCategory,
+				ErrorMessage:            lastErrorMessage,
 				LastInventoryPath:       lastInventoryPath,
 				UpdatedAt:               formatTime(supervisor.options.Now().UTC()),
 				StartedAt:               formatTime(supervisor.options.ServiceStartTime.UTC()),
@@ -206,6 +210,8 @@ func (supervisor *Supervisor) Run(ctx context.Context) error {
 		errorMessage := ""
 		if result.OK {
 			consecutiveFailures = 0
+			lastErrorCategory = ""
+			lastErrorMessage = ""
 			lastSuccess = supervisor.options.Now().UTC()
 			if strings.TrimSpace(result.LastInventoryPath) != "" {
 				lastInventoryPath = strings.TrimSpace(result.LastInventoryPath)
@@ -215,6 +221,8 @@ func (supervisor *Supervisor) Run(ctx context.Context) error {
 			consecutiveFailures++
 			errorCategory = sanitize(result.ErrorCategory)
 			errorMessage = sanitize(result.ErrorMessage)
+			lastErrorCategory = errorCategory
+			lastErrorMessage = errorMessage
 			supervisor.logWarn("agent cycle degraded: " + errorCategory)
 		}
 
@@ -379,7 +387,7 @@ func WriteStatusAtomic(path string, status Status) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tempPath, path); err != nil {
+	if err := replaceFile(tempPath, path); err != nil {
 		return err
 	}
 	cleanup = false

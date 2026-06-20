@@ -72,10 +72,14 @@ function Convert-ToMsiVersion {
         throw "Version must begin with a Windows Installer compatible major.minor.patch value."
     }
     $parts = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
-    foreach ($part in $parts) {
-        if ($part -lt 0 -or $part -gt 65535) {
-            throw "MSI version fields must be between 0 and 65535."
-        }
+    if ($parts[0] -lt 0 -or $parts[0] -gt 255) {
+        throw "MSI major version must be between 0 and 255."
+    }
+    if ($parts[1] -lt 0 -or $parts[1] -gt 255) {
+        throw "MSI minor version must be between 0 and 255."
+    }
+    if ($parts[2] -lt 0 -or $parts[2] -gt 65535) {
+        throw "MSI build version must be between 0 and 65535."
     }
     return "$($parts[0]).$($parts[1]).$($parts[2])"
 }
@@ -140,7 +144,11 @@ foreach ($path in @($artifactPath, $artifactChecksumPath, $artifactManifestPath)
 }
 
 $stageScript = Join-Path $PSScriptRoot "stage_agent_windows_install.py"
-$stageExitCode = Invoke-PythonScript -Arguments @($stageScript, "--version", $Version)
+$stageArguments = @($stageScript, "--version", $Version, "--output-dir", $outputRoot)
+if (-not [string]::IsNullOrWhiteSpace($AgentArtifactInput)) {
+    $stageArguments += @("--artifact-dir", $artifactDir)
+}
+$stageExitCode = Invoke-PythonScript -Arguments $stageArguments
 if ($stageExitCode -ne 0) {
     throw "Windows install staging failed."
 }

@@ -104,7 +104,7 @@ def resolve_windows_install_root(repo_root: Path, version: str, root_arg: str | 
     if root_arg:
         root = resolve_repo_path(repo_root, root_arg)
     else:
-        root = windows_install_root(repo_root, version)
+        root = windows_install_root(repo_root, repo_root / "dist", version)
     if not is_inside(repo_root / "dist" / "agent", root):
         raise ValueError("Windows install root must resolve under dist/agent/.")
     return root

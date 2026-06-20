@@ -76,26 +76,35 @@
         <util:EventSource
             Name="OpenAssetWatchAgent"
             Log="Application"
-            EventMessageFile="[AgentBinDir]oaw-agent.exe" />
+            EventMessageFile="[SystemFolder]EventCreate.exe" />
+        <CreateFolder>
+          <util:PermissionEx Domain="NT SERVICE" User="OpenAssetWatchAgent" GenericRead="yes" GenericExecute="yes" />
+        </CreateFolder>
       </Component>
     </DirectoryRef>
 
     <DirectoryRef Id="AgentConfigDir">
       <Component Id="AgentConfigExampleComponent" Guid="{5E99462F-6D79-49B1-843E-650B88F737D0}" Bitness="always64">
         <File Id="ConfigExample" Source="$(var.SourceDir)\ProgramData\OpenAssetWatch\Agent\config\config.example.json" KeyPath="yes" />
+        <CreateFolder>
+          <util:PermissionEx Domain="NT SERVICE" User="OpenAssetWatchAgent" GenericRead="yes" GenericExecute="yes" />
+        </CreateFolder>
       </Component>
     </DirectoryRef>
 
     <DirectoryRef Id="AgentIdentityDir">
       <Component Id="AgentIdentityExampleComponent" Guid="{C090C634-55BA-42B4-A222-C7F9C24F489E}" Bitness="always64">
         <File Id="IdentityExample" Source="$(var.SourceDir)\ProgramData\OpenAssetWatch\Agent\identity\identity.example.json" KeyPath="yes" />
+        <CreateFolder>
+          <util:PermissionEx Domain="NT SERVICE" User="OpenAssetWatchAgent" GenericRead="yes" GenericExecute="yes" />
+        </CreateFolder>
       </Component>
     </DirectoryRef>
 
     <DirectoryRef Id="AgentStateDir">
       <Component Id="AgentStateDirectoryComponent" Guid="{0D5DD40C-04B7-4A4F-85A0-A8C92993D913}" Bitness="always64">
         <CreateFolder>
-          <util:PermissionEx User="LocalService" GenericRead="yes" GenericWrite="yes" GenericExecute="yes" />
+          <util:PermissionEx Domain="NT SERVICE" User="OpenAssetWatchAgent" GenericRead="yes" GenericWrite="yes" GenericExecute="yes" />
         </CreateFolder>
         <RegistryValue Root="HKLM" Key="Software\OpenAssetWatch\Agent" Name="StateDir" Type="string" Value="[AgentStateDir]" KeyPath="yes" />
       </Component>
@@ -104,7 +113,7 @@
     <DirectoryRef Id="AgentLogsDir">
       <Component Id="AgentLogsDirectoryComponent" Guid="{82D673B1-B84B-48B2-A738-98DDFE94D528}" Bitness="always64">
         <CreateFolder>
-          <util:PermissionEx User="LocalService" GenericRead="yes" GenericWrite="yes" GenericExecute="yes" />
+          <util:PermissionEx Domain="NT SERVICE" User="OpenAssetWatchAgent" GenericRead="yes" GenericWrite="yes" GenericExecute="yes" />
         </CreateFolder>
         <RegistryValue Root="HKLM" Key="Software\OpenAssetWatch\Agent" Name="LogDir" Type="string" Value="[AgentLogsDir]" KeyPath="yes" />
       </Component>
@@ -114,6 +123,7 @@
       <Component Id="AgentServiceComponent" Guid="{84B3F42B-9DB7-44C3-8EA9-B07AC1A15C57}" Bitness="always64">
         <RegistryValue Root="HKLM" Key="Software\OpenAssetWatch\Agent" Name="InstalledVersion" Type="string" Value="$(var.ReleaseVersion)" KeyPath="yes" />
         <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\OpenAssetWatchAgent" Name="DelayedAutoStart" Type="integer" Value="1" />
+        <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\OpenAssetWatchAgent" Name="ServiceSidType" Type="integer" Value="1" />
       </Component>
     </DirectoryRef>
   </Package>

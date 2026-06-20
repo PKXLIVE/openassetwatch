@@ -71,10 +71,14 @@ class Reporter:
         self.warnings.append(message)
 
 
-def artifact_paths(repo_root: Path, version: str) -> tuple[Path, Path, Path, dict[str, Any]]:
-    artifact_dir = repo_root / "dist" / "agent" / version / f"{TARGET_OS}-{TARGET_ARCH}"
-    if not is_inside(repo_root / "dist" / "agent", artifact_dir):
-        raise ValueError("Artifact directory must stay under dist/agent/.")
+def artifact_paths(
+    repo_root: Path, output_root: Path, version: str, artifact_dir_arg: str | None
+) -> tuple[Path, Path, Path, dict[str, Any]]:
+    artifact_dir = output_root / "agent" / version / f"{TARGET_OS}-{TARGET_ARCH}"
+    if artifact_dir_arg:
+        artifact_dir = resolve_repo_path(repo_root, artifact_dir_arg)
+    if not is_inside(repo_root, artifact_dir):
+        raise ValueError("Artifact directory must stay inside the repository.")
     if not artifact_dir.is_dir():
         raise ValueError(f"Windows agent artifact directory does not exist: {to_repo_relative(repo_root, artifact_dir)}")
 
@@ -113,10 +117,10 @@ def artifact_paths(repo_root: Path, version: str) -> tuple[Path, Path, Path, dic
     return artifact_path, checksum_path, manifest_path, manifest
 
 
-def windows_install_root(repo_root: Path, version: str) -> Path:
-    root = repo_root / "dist" / "agent" / version / WINDOWS_INSTALL_DIR
-    if not is_inside(repo_root / "dist" / "agent", root):
-        raise ValueError("Windows install staging output must stay under dist/agent/.")
+def windows_install_root(repo_root: Path, output_root: Path, version: str) -> Path:
+    root = output_root / "agent" / version / WINDOWS_INSTALL_DIR
+    if not is_inside(repo_root, root):
+        raise ValueError("Windows install staging output must stay inside the repository.")
     return root
 
 
@@ -201,8 +205,8 @@ def write_staging(
     binary_manifest: dict[str, Any],
 ) -> Path:
     if root.exists():
-        if not is_inside(repo_root / "dist" / "agent", root):
-            raise ValueError("Refusing to replace Windows install staging outside dist/agent/.")
+        if not is_inside(repo_root, root):
+            raise ValueError("Refusing to replace Windows install staging outside the repository.")
         remove_tree(root)
 
     paths = stage_paths(root)
@@ -235,7 +239,7 @@ def write_staging(
         },
         "service_metadata": service_metadata(),
         "safety_notes": [
-            "Staging output is local proof material under ignored dist output.",
+        "Staging output is local proof material under the requested repository-local output root.",
             "No Windows service, scheduled task, registry entry, or installer action is performed.",
             "Config and identity files are examples only; real values remain administrator-managed.",
             "State and log directories are empty placeholders in this staging layout.",
@@ -298,8 +302,8 @@ def validate_examples(paths: dict[str, Path]) -> None:
 
 
 def validate_staging(repo_root: Path, root: Path, version: str, source_hash: str) -> None:
-    if not is_inside(repo_root / "dist" / "agent", root):
-        raise ValueError("Windows install staging root must stay under dist/agent/.")
+    if not is_inside(repo_root, root):
+        raise ValueError("Windows install staging root must stay inside the repository.")
     paths = stage_paths(root)
     missing = [name for name, path in paths.items() if not path.exists()]
     if missing:
@@ -334,6 +338,8 @@ def validate_staging(repo_root: Path, root: Path, version: str, source_hash: str
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Stage a Windows install layout for oaw-agent under ignored dist output.")
     parser.add_argument("--version", required=True, help="Windows agent release version under dist/agent/<version>/windows-amd64/.")
+    parser.add_argument("--output-dir", default="dist", help="Repository-local output root. Defaults to dist.")
+    parser.add_argument("--artifact-dir", help="Optional explicit repository-local windows-amd64 artifact directory.")
     return parser.parse_args()
 
 
@@ -359,10 +365,15 @@ def main() -> int:
 
     try:
         version = validate_version(args.version)
-        artifact_path, checksum_path, binary_manifest_path, binary_manifest = artifact_paths(repo_root, version)
+        output_root = resolve_repo_path(repo_root, args.output_dir)
+        if not is_inside(repo_root, output_root):
+            raise ValueError("Output directory must stay inside the repository.")
+        artifact_path, checksum_path, binary_manifest_path, binary_manifest = artifact_paths(
+            repo_root, output_root, version, args.artifact_dir
+        )
         reporter.check("windows artifact validation", True, "Windows amd64 agent artifact validation passed.")
 
-        root = windows_install_root(repo_root, version)
+        root = windows_install_root(repo_root, output_root, version)
         manifest_path = write_staging(
             repo_root,
             root,
@@ -372,7 +383,7 @@ def main() -> int:
             binary_manifest_path,
             binary_manifest,
         )
-        reporter.check("windows install staging", True, "Windows install layout was staged under ignored dist output.")
+        reporter.check("windows install staging", True, "Windows install layout was staged under the requested repository-local output root.")
 
         validate_staging(repo_root, root, version, str(binary_manifest["sha256"]))
         reporter.check("windows install validation", True, "Windows staged layout matches the approved production path model.")

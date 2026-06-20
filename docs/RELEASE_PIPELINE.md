@@ -238,9 +238,10 @@ the matching WiX Util extension during the build. It emits:
 
 The MSI installs `OpenAssetWatchAgent` as a native Windows service that runs
 `oaw-agent.exe service run`, uses the `LocalService` account, registers Event
-Log source metadata, configures bounded service recovery metadata, records
-delayed automatic startup metadata, and preserves administrator-managed config,
-identity, state, and logs. Unsigned local MSI output is not release-ready.
+Log source metadata, enables `NT SERVICE\OpenAssetWatchAgent` service-SID ACLs,
+configures bounded service recovery metadata, records delayed automatic startup
+metadata, and preserves administrator-managed config, identity, state, and
+logs. Unsigned local MSI output is not release-ready.
 
 ## Local Debian Package Artifacts
 
