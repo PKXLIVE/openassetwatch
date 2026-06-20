@@ -13,6 +13,7 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import linux_packaging as linuxsrc
 from linux_packaging import (
     APPROVED_SUDOERS_COMMANDS,
     FORBIDDEN_CONTENT_RE,
@@ -253,6 +254,8 @@ def release_manifest(
         "os": TARGET_OS,
         "arch": TARGET_ARCH,
         "package_type": "rpm",
+        "package_url": linuxsrc.PACKAGE_URL,
+        "package_license": linuxsrc.PACKAGE_LICENSE,
         "binary": {
             "path": OPT_BINARY,
             "compatibility_wrapper": "/usr/bin/oaw-agent",
@@ -314,6 +317,15 @@ def release_manifest(
             "commands": list(APPROVED_SUDOERS_COMMANDS),
         },
         "dependencies": list(PACKAGE_DEPENDENCIES),
+        "lifecycle": {
+            "install": "validate_or_create_service_principal_reload_enable_timer",
+            "upgrade": "stop_timer_and_active_oneshot_then_reenable_timer_after_replacement",
+            "repair": "replacepkgs_preserves_config_identity_state_logs",
+            "downgrade": "native_package_manager_downgrade_is_explicit_admin_action",
+            "remove": "stop_disable_timer_remove_enablement_link_preserve_customer_data",
+            "erase": "preserve_real_config_identity_state_logs_and_service_principal",
+            "systemd_operations": "run_only_when_systemd_is_active_fail_closed_on_active_systemd_errors",
+        },
         "spec": {
             "name": PACKAGE_NAME,
             "version": rpm_version(version),
@@ -386,6 +398,8 @@ def write_manifest(
         "arch": TARGET_ARCH,
         "rpm_arch": RPM_ARCH,
         "package_type": "rpm-staging",
+        "package_url": linuxsrc.PACKAGE_URL,
+        "package_license": linuxsrc.PACKAGE_LICENSE,
         "source_artifact_path": to_repo_relative(repo_root, artifact_path),
         "source_checksum_path": to_repo_relative(repo_root, checksum_source_path),
         "source_manifest_path": to_repo_relative(repo_root, manifest_source_path),
@@ -445,6 +459,15 @@ def write_manifest(
             "commands": list(APPROVED_SUDOERS_COMMANDS),
         },
         "dependencies": list(PACKAGE_DEPENDENCIES),
+        "lifecycle": {
+            "install": "validate_or_create_service_principal_reload_enable_timer",
+            "upgrade": "stop_timer_and_active_oneshot_then_reenable_timer_after_replacement",
+            "repair": "replacepkgs_preserves_config_identity_state_logs",
+            "downgrade": "native_package_manager_downgrade_is_explicit_admin_action",
+            "remove": "stop_disable_timer_remove_enablement_link_preserve_customer_data",
+            "erase": "preserve_real_config_identity_state_logs_and_service_principal",
+            "systemd_operations": "run_only_when_systemd_is_active_fail_closed_on_active_systemd_errors",
+        },
         "package_builder": "scripts/release/package_agent_rpm.py",
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -472,14 +495,19 @@ def validate_spec(path: Path, version: str) -> None:
         f"Name: {PACKAGE_NAME}",
         f"Version: {rpm_version(version)}",
         "BuildArch: x86_64",
+        f"License: {linuxsrc.PACKAGE_LICENSE}",
+        f"URL: {linuxsrc.PACKAGE_URL}",
         "Requires: systemd",
         "Requires: shadow-utils",
         "%pre",
         "%post",
+        "%preun",
         "%postun",
         "%files",
-        "systemctl enable oaw-agent.timer || true",
-        "systemctl restart oaw-agent.timer || true",
+        "systemctl enable oaw-agent.timer",
+        "systemctl restart oaw-agent.timer",
+        "systemctl disable oaw-agent.timer",
+        "rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer",
         "%attr(0440,root,root) /etc/sudoers.d/openassetwatch-agent",
         "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show",
         "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show",
@@ -492,6 +520,7 @@ def validate_spec(path: Path, version: str) -> None:
         "systemctl start oaw-agent.service",
         "systemctl restart oaw-agent.service",
         "systemctl enable oaw-agent.service",
+        "|| true",
         "NOPASSWD: ALL",
         "ALL=(ALL) ALL",
         "sudo ",
@@ -633,6 +662,8 @@ def write_rpm_package_metadata(
         "arch": TARGET_ARCH,
         "rpm_arch": RPM_ARCH,
         "package_type": "rpm",
+        "package_url": linuxsrc.PACKAGE_URL,
+        "package_license": linuxsrc.PACKAGE_LICENSE,
         "package_path": to_repo_relative(repo_root, package_path),
         "source_rpmbuild_path": to_repo_relative(repo_root, built_rpm),
         "staging_manifest_path": to_repo_relative(repo_root, staging_manifest_path),
@@ -642,6 +673,15 @@ def write_rpm_package_metadata(
         "contents": [install_path(path) for path in RPM_EXPECTED_FILES],
         "directories": [install_path(path) for path in RPM_EXPECTED_DIRS],
         "dependencies": list(PACKAGE_DEPENDENCIES),
+        "lifecycle": {
+            "install": "validate_or_create_service_principal_reload_enable_timer",
+            "upgrade": "stop_timer_and_active_oneshot_then_reenable_timer_after_replacement",
+            "repair": "replacepkgs_preserves_config_identity_state_logs",
+            "downgrade": "native_package_manager_downgrade_is_explicit_admin_action",
+            "remove": "stop_disable_timer_remove_enablement_link_preserve_customer_data",
+            "erase": "preserve_real_config_identity_state_logs_and_service_principal",
+            "systemd_operations": "run_only_when_systemd_is_active_fail_closed_on_active_systemd_errors",
+        },
         "service": {
             "path": f"{RPM_SYSTEMD_DIR}/oaw-agent.service",
             "model": "oneshot-run-once",

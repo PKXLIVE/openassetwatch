@@ -12,6 +12,7 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import linux_packaging as linuxsrc
 from linux_packaging import (
     APPROVED_SUDOERS_COMMANDS,
     FORBIDDEN_CONTENT_RE,
@@ -86,14 +87,21 @@ SPEC_REQUIRED_TEXT = (
     "Requires: shadow-utils",
     "%pre",
     "%post",
+    "%preun",
     "%postun",
     "%files",
     f"groupadd --system {SERVICE_GROUP}",
     f"useradd --system --gid {SERVICE_GROUP}",
     "--shell /usr/sbin/nologin",
-    "systemctl daemon-reload || true",
-    "systemctl enable oaw-agent.timer || true",
-    "systemctl restart oaw-agent.timer || true",
+    f"License: {linuxsrc.PACKAGE_LICENSE}",
+    f"URL: {linuxsrc.PACKAGE_URL}",
+    "systemctl daemon-reload",
+    "systemctl enable oaw-agent.timer",
+    "systemctl restart oaw-agent.timer",
+    "systemctl stop oaw-agent.timer",
+    "systemctl disable oaw-agent.timer",
+    "rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer",
+    "grep -Eq '^(sudo|admin|wheel)$'",
     "%attr(0440,root,root) /etc/sudoers.d/openassetwatch-agent",
     "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show",
     "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show",
@@ -104,6 +112,7 @@ SPEC_FORBIDDEN_TEXT = (
     "systemctl start oaw-agent.service",
     "systemctl restart oaw-agent.service",
     "systemctl enable oaw-agent.service",
+    "|| true",
     "rm -rf /etc/openassetwatch",
     "rm -rf /var/lib/openassetwatch",
     "rm -rf /var/log/openassetwatch",
@@ -282,6 +291,10 @@ def validate_manifest(repo_root: Path, rpm_root: Path, buildroot: Path, spec_pat
         raise ValueError("RPM staging manifest rpm_arch mismatch.")
     if manifest.get("package_type") != "rpm-staging":
         raise ValueError("RPM staging manifest package_type must be rpm-staging.")
+    if manifest.get("package_url") != linuxsrc.PACKAGE_URL:
+        raise ValueError("RPM staging manifest package_url must be the canonical repository URL.")
+    if manifest.get("package_license") != linuxsrc.PACKAGE_LICENSE:
+        raise ValueError("RPM staging manifest package_license must match the repository license decision.")
     if resolve_repo_path(repo_root, str(manifest["rpm_root"])) != rpm_root.resolve():
         raise ValueError("RPM staging manifest rpm_root mismatch.")
     if resolve_repo_path(repo_root, str(manifest["spec_path"])) != spec_path.resolve():
@@ -314,6 +327,11 @@ def validate_manifest(repo_root: Path, rpm_root: Path, buildroot: Path, spec_pat
         raise ValueError("RPM staging manifest service-owned paths mismatch.")
     if set(ownership.get("root:root", [])) != {install_path(path) for path in ROOT_OWNED_PATHS}:
         raise ValueError("RPM staging manifest root-owned paths mismatch.")
+    lifecycle = manifest.get("lifecycle", {})
+    if lifecycle.get("remove") != "stop_disable_timer_remove_enablement_link_preserve_customer_data":
+        raise ValueError("RPM staging manifest must describe timer stop/disable behavior on removal.")
+    if lifecycle.get("downgrade") != "native_package_manager_downgrade_is_explicit_admin_action":
+        raise ValueError("RPM staging manifest must describe explicit admin downgrade policy.")
 
 
 def validate_embedded_release_manifest(manifest_path: Path, buildroot: Path, version: str) -> None:
@@ -325,6 +343,10 @@ def validate_embedded_release_manifest(manifest_path: Path, buildroot: Path, ver
         raise ValueError("Embedded release manifest version mismatch.")
     if release_manifest.get("package_type") != "rpm":
         raise ValueError("Embedded release manifest package_type must be rpm.")
+    if release_manifest.get("package_url") != linuxsrc.PACKAGE_URL:
+        raise ValueError("Embedded release manifest package_url must use the canonical repository URL.")
+    if release_manifest.get("package_license") != linuxsrc.PACKAGE_LICENSE:
+        raise ValueError("Embedded release manifest package_license mismatch.")
     for field in ("service", "timer", "privileged_helpers", "sudoers"):
         if release_manifest.get(field) != package_manifest.get(field):
             raise ValueError(f"Embedded release manifest {field} metadata mismatch.")
@@ -355,17 +377,18 @@ def validate_spec_file(spec_path: Path, version: str) -> None:
     found = [item for item in SPEC_FORBIDDEN_TEXT if item in text]
     if found:
         raise ValueError(f"RPM spec contains unsafe text: {', '.join(found)}.")
-    if "systemctl restart oaw-agent.timer || true" in text:
+    if "systemctl restart oaw-agent.timer" in text:
         guard = (
             "if [ -f /etc/openassetwatch/agent/config.json ] "
             "&& [ -f /etc/openassetwatch/agent/identity.json ]; then\n"
-            "        systemctl restart oaw-agent.timer || true\n"
+            "        systemctl restart oaw-agent.timer\n"
             "    fi"
         )
         if guard not in text:
             raise ValueError("RPM spec must guard timer restart on config and identity existence.")
     if "rm " in text or "rm\t" in text:
-        raise ValueError("RPM spec must not delete files.")
+        if "rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer" not in text:
+            raise ValueError("RPM spec must not delete files except the timer enablement symlink.")
     if "sudoers" in text and "%attr(0440,root,root) /etc/sudoers.d/openassetwatch-agent" not in text:
         raise ValueError("RPM spec sudoers handling must be limited to file metadata.")
 
@@ -397,6 +420,10 @@ def validate_package_metadata(
         raise ValueError("RPM package manifest rpm_arch mismatch.")
     if manifest.get("package_type") != "rpm":
         raise ValueError("RPM package manifest package_type must be rpm.")
+    if manifest.get("package_url") != linuxsrc.PACKAGE_URL:
+        raise ValueError("RPM package manifest package_url must be the canonical repository URL.")
+    if manifest.get("package_license") != linuxsrc.PACKAGE_LICENSE:
+        raise ValueError("RPM package manifest package_license must match the repository license decision.")
     if resolve_repo_path(repo_root, str(manifest["package_path"])) != package_path.resolve():
         raise ValueError("RPM package manifest path mismatch.")
     actual_hash = sha256_file(package_path).lower()
@@ -414,6 +441,11 @@ def validate_package_metadata(
         raise ValueError("RPM package manifest dependencies mismatch.")
     if manifest.get("privileged_helpers") != read_json(resolve_repo_path(repo_root, str(manifest["staging_manifest_path"]))).get("privileged_helpers"):
         raise ValueError("RPM package manifest helper metadata must match the staging manifest.")
+    lifecycle = manifest.get("lifecycle", {})
+    if lifecycle.get("remove") != "stop_disable_timer_remove_enablement_link_preserve_customer_data":
+        raise ValueError("RPM package manifest must describe timer stop/disable behavior on removal.")
+    if lifecycle.get("downgrade") != "native_package_manager_downgrade_is_explicit_admin_action":
+        raise ValueError("RPM package manifest must describe explicit admin downgrade policy.")
     return manifest
 
 
@@ -431,6 +463,13 @@ def validate_rpm_query_metadata(package_path: Path, version: str) -> None:
         raise ValueError(f"RPM package release is {release}, expected prefix {RPM_RELEASE}.")
     if arch != RPM_ARCH:
         raise ValueError(f"RPM package architecture is {arch}, expected {RPM_ARCH}.")
+    license_value = run_rpm(["-qp", "--qf", "%{LICENSE}\n%{URL}\n", str(package_path)]).splitlines()
+    if len(license_value) < 2:
+        raise ValueError("RPM metadata query returned incomplete license/URL metadata.")
+    if license_value[0] != linuxsrc.PACKAGE_LICENSE:
+        raise ValueError("RPM package license metadata does not match the repository license decision.")
+    if license_value[1] != linuxsrc.PACKAGE_URL:
+        raise ValueError("RPM package URL metadata must be the canonical repository URL.")
 
 
 def validate_rpm_payload_listing(package_path: Path) -> None:
@@ -463,10 +502,20 @@ def validate_rpm_scriptlets(package_path: Path) -> None:
         "if [ -f /etc/openassetwatch/agent/config.json ] "
         "&& [ -f /etc/openassetwatch/agent/identity.json ]; then"
     )
-    if guard not in scripts or "systemctl restart oaw-agent.timer || true" not in scripts:
+    if guard not in scripts or "systemctl restart oaw-agent.timer" not in scripts:
         raise ValueError("RPM package scriptlets must guard timer restart on config and identity existence.")
     if "systemctl start oaw-agent.service" in scripts or "systemctl restart oaw-agent.service" in scripts:
         raise ValueError("RPM package scriptlets must not directly start or restart oaw-agent.service.")
+    if "|| true" in scripts:
+        raise ValueError("RPM package scriptlets must not hide systemd failures with unconditional || true.")
+    for required in (
+        "systemctl stop oaw-agent.timer",
+        "systemctl disable oaw-agent.timer",
+        "rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer",
+        "grep -Eq '^(sudo|admin|wheel)$'",
+    ):
+        if required not in scripts:
+            raise ValueError(f"RPM package scriptlets missing expected lifecycle text: {required}.")
 
 
 def parse_rpm_dump(package_path: Path) -> dict[str, dict[str, str]]:

@@ -94,6 +94,7 @@ EXPECTED_CONTROL_FILES = {
     "./control",
     "./conffiles",
     "./postinst",
+    "./prerm",
     "./postrm",
 }
 REQUIRED_MANIFEST_FIELDS = (
@@ -258,6 +259,10 @@ def validate_package_metadata(repo_root: Path, package_path: Path, version: str)
         raise ValueError("DEB package manifest must be for linux/amd64.")
     if manifest["package_type"] != "deb":
         raise ValueError("DEB package manifest package_type must be deb.")
+    if manifest.get("package_url") != linuxsrc.PACKAGE_URL:
+        raise ValueError("DEB package manifest package_url must be the canonical repository URL.")
+    if manifest.get("package_license") != linuxsrc.PACKAGE_LICENSE:
+        raise ValueError("DEB package manifest package_license must match the repository license decision.")
     if str(manifest["sha256"]).lower() != actual_hash:
         raise ValueError("DEB package manifest SHA256 does not match package.")
     if resolve_repo_path(repo_root, str(manifest["package_path"])) != package_path.resolve():
@@ -379,15 +384,25 @@ def validate_control_archive(control_files: dict[str, bytes]) -> None:
     for line in required_lines:
         if line not in control_text:
             raise ValueError(f"DEB control file missing expected line: {line}")
+    if f"Homepage: {linuxsrc.PACKAGE_URL}" not in control_text:
+        raise ValueError("DEB control file must use the canonical OpenAssetWatch repository Homepage.")
+    if ".example" in control_text:
+        raise ValueError("DEB control metadata must not contain placeholder example domains.")
     if control_files["./conffiles"] != linuxsrc.deb_conffiles():
         raise ValueError("DEB conffiles metadata must match the committed package source.")
     validate_maintainer_script("postinst", control_files["./postinst"])
+    validate_maintainer_script("prerm", control_files["./prerm"])
     validate_maintainer_script("postrm", control_files["./postrm"])
 
 
 def validate_maintainer_script(name: str, data: bytes) -> None:
     text = data.decode("utf-8")
-    expected = linuxsrc.deb_postinst_script() if name == "postinst" else linuxsrc.deb_postrm_script()
+    expected_scripts = {
+        "postinst": linuxsrc.deb_postinst_script(),
+        "prerm": linuxsrc.deb_prerm_script(),
+        "postrm": linuxsrc.deb_postrm_script(),
+    }
+    expected = expected_scripts[name]
     if data != expected:
         raise ValueError(f"{name} maintainer script must match the approved service-account template.")
     forbidden = (
@@ -396,47 +411,72 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
         " dpkg",
         " curl",
         " wget",
-        "chmod",
         "cat >",
         "tee ",
-        "sudo",
+        " sudo ",
+        "/sudo",
         "sudoers",
+        "|| true",
     )
     found = [item for item in forbidden if item in text]
     if found:
         raise ValueError(f"{name} maintainer script contains unsafe command text: {', '.join(found)}.")
     if name == "postinst":
-        guarded_restart = (
-            "    if [ -f /etc/openassetwatch/agent/config.json ] "
-            "&& [ -f /etc/openassetwatch/agent/identity.json ]; then\n"
-            "        systemctl restart oaw-agent.timer || true\n"
-            "    fi"
-        )
         required = (
-            f"groupadd --system {SERVICE_GROUP}",
-            f"useradd --system --gid {SERVICE_GROUP}",
+            'case "$1" in',
+            "configure)",
+            'groupadd --system "$SERVICE_GROUP"',
+            'useradd --system --gid "$SERVICE_GROUP"',
             "--shell /usr/sbin/nologin",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
-            "systemctl daemon-reload || true",
-            "systemctl enable oaw-agent.timer || true",
-            guarded_restart,
+            'primary_group="$(id -gn "$SERVICE_USER")',
+            "grep -Eq '^(sudo|admin|wheel)$'",
+            'chown -R "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR"',
+            'chown -R "$SERVICE_USER:$SERVICE_GROUP" "$LOG_DIR"',
+            "systemd_active",
+            "systemctl daemon-reload",
+            "systemctl enable oaw-agent.timer",
         )
         for item in required:
             if item not in text:
                 raise ValueError(f"postinst missing expected service account command text: {item}")
+        stripped_lines = [line.strip() for line in text.splitlines()]
+        guarded_restart = (
+            "if [ -f /etc/openassetwatch/agent/config.json ] && [ -f /etc/openassetwatch/agent/identity.json ]; then",
+            "systemctl restart oaw-agent.timer",
+            "fi",
+        )
+        if not any(tuple(stripped_lines[index : index + 3]) == guarded_restart for index in range(len(stripped_lines) - 2)):
+            raise ValueError("postinst must guard timer restart on both config and identity existence.")
         if "systemctl start oaw-agent.service" in text:
             raise ValueError("postinst must not start the service unconditionally.")
         if "systemctl restart oaw-agent.service" in text:
             raise ValueError("postinst must not restart the service directly.")
         if "systemctl enable oaw-agent.service" in text:
             raise ValueError("postinst must enable the timer instead of the service.")
-        if text.count("systemctl restart oaw-agent.timer || true") != 1:
+        if text.count("systemctl restart oaw-agent.timer") != 1:
             raise ValueError("postinst must contain exactly one guarded timer restart.")
+    elif name == "prerm":
+        required = (
+            'case "$1" in',
+            "remove)",
+            "upgrade|deconfigure)",
+            "failed-upgrade)",
+            "systemctl stop oaw-agent.timer",
+            "systemctl disable oaw-agent.timer",
+            "rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer",
+            "systemctl daemon-reload",
+        )
+        for item in required:
+            if item not in text:
+                raise ValueError(f"prerm missing expected lifecycle command text: {item}")
+        if "rm -rf" in text:
+            raise ValueError("prerm must not recursively delete files.")
+        if "userdel" in text or "groupdel" in text:
+            raise ValueError("prerm must not delete service principals.")
     elif name == "postrm":
         if any(item in text for item in ("useradd", "groupadd", "chown")):
             raise ValueError("postrm must not create users, groups, or change ownership.")
-        if any(item in text for item in ("enable", "start", "restart", "stop")):
+        if any(item in text for item in ("enable", "start", "restart", "stop", "disable", "rm -f")):
             raise ValueError("postrm must not enable, start, restart, or stop services.")
 
 
@@ -595,6 +635,10 @@ def validate_release_manifest(data: bytes, version: str) -> None:
         raise ValueError("Release manifest version mismatch.")
     if value.get("package_type") != "deb":
         raise ValueError("Release manifest package_type must be deb.")
+    if value.get("package_url") != linuxsrc.PACKAGE_URL:
+        raise ValueError("Release manifest package_url must use the canonical repository URL.")
+    if value.get("package_license") != linuxsrc.PACKAGE_LICENSE:
+        raise ValueError("Release manifest package_license mismatch.")
     if value.get("os") != TARGET_OS or value.get("arch") != TARGET_ARCH:
         raise ValueError("Release manifest must be for linux/amd64.")
     installed_paths = set(value.get("installed_paths", []))
@@ -622,8 +666,13 @@ def validate_release_manifest(data: bytes, version: str) -> None:
         raise ValueError("Release manifest directories do not match expected package directories.")
     if not PACKAGE_DEPENDENCIES.issubset(set(value.get("dependencies", []))):
         raise ValueError("Release manifest dependencies must include systemd and passwd.")
-    if set(value.get("maintainer_scripts", [])) != {"postinst", "postrm"}:
-        raise ValueError("Release manifest maintainer_scripts must be postinst and postrm.")
+    if set(value.get("maintainer_scripts", [])) != {"postinst", "prerm", "postrm"}:
+        raise ValueError("Release manifest maintainer_scripts must be postinst, prerm, and postrm.")
+    lifecycle = value.get("lifecycle", {})
+    if lifecycle.get("remove") != "stop_disable_timer_remove_enablement_link_preserve_customer_data":
+        raise ValueError("Release manifest must describe timer stop/disable behavior on removal.")
+    if lifecycle.get("downgrade") != "native_package_manager_downgrade_is_explicit_admin_action":
+        raise ValueError("Release manifest must describe explicit admin downgrade policy.")
     ownership = value.get("ownership", {})
     if set(ownership.get("openassetwatch:openassetwatch", [])) != SERVICE_OWNED_DIRS:
         raise ValueError("Release manifest service-owned directories do not match expected layout.")

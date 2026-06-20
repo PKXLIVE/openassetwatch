@@ -3,8 +3,9 @@ Version: {{VERSION}}
 Section: admin
 Priority: optional
 Architecture: amd64
-Maintainer: OpenAssetWatch <noreply@openassetwatch.example>
+Maintainer: OpenAssetWatch Maintainers <openassetwatch@users.noreply.github.com>
 Depends: systemd, passwd
+Homepage: {{PACKAGE_URL}}
 Installed-Size: 1
 Description: OpenAssetWatch defensive local asset inventory agent
  The OpenAssetWatch agent collects local, passive asset inventory

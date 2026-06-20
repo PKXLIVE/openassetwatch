@@ -102,6 +102,7 @@ EXPECTED_CONTROL_PATHS = (
     "./control",
     "./conffiles",
     "./postinst",
+    "./prerm",
     "./postrm",
 )
 REQUIRED_BINARY_FIELDS = (
@@ -174,6 +175,10 @@ def postinst_script() -> bytes:
     return linuxsrc.deb_postinst_script()
 
 
+def prerm_script() -> bytes:
+    return linuxsrc.deb_prerm_script()
+
+
 def postrm_script() -> bytes:
     return linuxsrc.deb_postrm_script()
 
@@ -226,6 +231,8 @@ def release_manifest(
         "os": TARGET_OS,
         "arch": TARGET_ARCH,
         "package_type": "deb",
+        "package_url": linuxsrc.PACKAGE_URL,
+        "package_license": linuxsrc.PACKAGE_LICENSE,
         "binary": {
             "path": OPT_BINARY,
             "compatibility_symlink": "/usr/bin/oaw-agent",
@@ -284,7 +291,16 @@ def release_manifest(
             "commands": list(APPROVED_SUDOERS_COMMANDS),
         },
         "dependencies": list(PACKAGE_DEPENDENCIES),
-        "maintainer_scripts": ["postinst", "postrm"],
+        "maintainer_scripts": ["postinst", "prerm", "postrm"],
+        "lifecycle": {
+            "install": "validate_or_create_service_principal_reload_enable_timer",
+            "upgrade": "stop_timer_and_active_oneshot_then_reenable_timer_after_replacement",
+            "repair": "reinstall_preserves_config_identity_state_logs",
+            "downgrade": "native_package_manager_downgrade_is_explicit_admin_action",
+            "remove": "stop_disable_timer_remove_enablement_link_preserve_customer_data",
+            "purge": "preserve_real_config_identity_state_logs_and_service_principal",
+            "systemd_operations": "run_only_when_systemd_is_active_fail_closed_on_active_systemd_errors",
+        },
         "build_timestamp": utc_timestamp(),
     }
     return (json.dumps(value, indent=2) + "\n").encode("utf-8")
@@ -343,6 +359,7 @@ def build_control_tar(version: str, mtime: int) -> bytes:
         add_file(tar, "./control", control_file(version), 0o644, mtime)
         add_file(tar, "./conffiles", conffiles_file(), 0o644, mtime)
         add_file(tar, "./postinst", postinst_script(), 0o755, mtime)
+        add_file(tar, "./prerm", prerm_script(), 0o755, mtime)
         add_file(tar, "./postrm", postrm_script(), 0o755, mtime)
     return output.getvalue()
 
@@ -525,7 +542,12 @@ def validate_timer_unit(contents: bytes) -> None:
 
 
 def validate_maintainer_script(name: str, contents: bytes) -> None:
-    expected = postinst_script().decode("utf-8") if name == "postinst" else postrm_script().decode("utf-8")
+    expected_scripts = {
+        "postinst": postinst_script(),
+        "prerm": prerm_script(),
+        "postrm": postrm_script(),
+    }
+    expected = expected_scripts[name].decode("utf-8")
     text = contents.decode("utf-8")
     if text != expected:
         raise ValueError(f"{name} maintainer script must match the approved service-account template.")
@@ -535,47 +557,73 @@ def validate_maintainer_script(name: str, contents: bytes) -> None:
         " dpkg",
         " curl",
         " wget",
-        "chmod",
         "cat >",
         "tee ",
-        "sudo",
+        " sudo ",
+        "/sudo",
         "sudoers",
+        "|| true",
     )
     found = [item for item in forbidden if item in text]
     if found:
         raise ValueError(f"{name} maintainer script contains unsafe command text: {', '.join(found)}.")
     if name == "postinst":
-        guarded_restart = (
-            "    if [ -f /etc/openassetwatch/agent/config.json ] "
-            "&& [ -f /etc/openassetwatch/agent/identity.json ]; then\n"
-            "        systemctl restart oaw-agent.timer || true\n"
-            "    fi"
-        )
         required = (
-            f"groupadd --system {SERVICE_GROUP}",
-            f"useradd --system --gid {SERVICE_GROUP}",
+            'case "$1" in',
+            "configure)",
+            f'groupadd --system "$SERVICE_GROUP"',
+            f'useradd --system --gid "$SERVICE_GROUP"',
             "--shell /usr/sbin/nologin",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
-            "systemctl daemon-reload || true",
-            "systemctl enable oaw-agent.timer || true",
-            guarded_restart,
+            'primary_group="$(id -gn "$SERVICE_USER")"',
+            'home_dir="$(printf',
+            "grep -Eq '^(sudo|admin|wheel)$'",
+            f'chown -R "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR"',
+            f'chown -R "$SERVICE_USER:$SERVICE_GROUP" "$LOG_DIR"',
+            "systemd_active",
+            "systemctl daemon-reload",
+            "systemctl enable oaw-agent.timer",
         )
         for item in required:
             if item not in text:
                 raise ValueError(f"postinst missing expected service account command text: {item}")
+        stripped_lines = [line.strip() for line in text.splitlines()]
+        guarded_restart = (
+            "if [ -f /etc/openassetwatch/agent/config.json ] && [ -f /etc/openassetwatch/agent/identity.json ]; then",
+            "systemctl restart oaw-agent.timer",
+            "fi",
+        )
+        if not any(tuple(stripped_lines[index : index + 3]) == guarded_restart for index in range(len(stripped_lines) - 2)):
+            raise ValueError("postinst must guard timer restart on both config and identity existence.")
         if "systemctl start oaw-agent.service" in text:
             raise ValueError("postinst must not start the service unconditionally.")
         if "systemctl restart oaw-agent.service" in text:
             raise ValueError("postinst must not restart the service directly.")
         if "systemctl enable oaw-agent.service" in text:
             raise ValueError("postinst must enable the timer instead of the service.")
-        if text.count("systemctl restart oaw-agent.timer || true") != 1:
+        if text.count("systemctl restart oaw-agent.timer") != 1:
             raise ValueError("postinst must contain exactly one guarded timer restart.")
+    elif name == "prerm":
+        required = (
+            'case "$1" in',
+            "remove)",
+            "upgrade|deconfigure)",
+            "failed-upgrade)",
+            "systemctl stop oaw-agent.timer",
+            "systemctl disable oaw-agent.timer",
+            "rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer",
+            "systemctl daemon-reload",
+        )
+        for item in required:
+            if item not in text:
+                raise ValueError(f"prerm missing expected lifecycle command text: {item}")
+        if "rm -rf" in text:
+            raise ValueError("prerm must not recursively delete files.")
+        if "userdel" in text or "groupdel" in text:
+            raise ValueError("prerm must not delete service principals.")
     elif name == "postrm":
         if any(item in text for item in ("useradd", "groupadd", "chown")):
             raise ValueError("postrm must not create users, groups, or change ownership.")
-        if any(item in text for item in ("enable", "start", "restart", "stop")):
+        if any(item in text for item in ("enable", "start", "restart", "stop", "disable", "rm -f")):
             raise ValueError("postrm must not enable, start, restart, or stop services.")
 
 
@@ -638,14 +686,22 @@ def validate_helper_script(path: str, contents: bytes) -> None:
 
 def validate_control_archive(control_members: dict[str, bytes | None]) -> None:
     if set(control_members) != set(EXPECTED_CONTROL_PATHS):
-        raise ValueError("DEB control archive must contain only control, conffiles, postinst, and postrm.")
+        raise ValueError("DEB control archive must contain only control, conffiles, postinst, prerm, and postrm.")
     control = (control_members["./control"] or b"").decode("utf-8")
-    for line in (f"Package: {PACKAGE_NAME}", "Architecture: amd64", f"Depends: {', '.join(PACKAGE_DEPENDENCIES)}"):
+    for line in (
+        f"Package: {PACKAGE_NAME}",
+        "Architecture: amd64",
+        f"Depends: {', '.join(PACKAGE_DEPENDENCIES)}",
+        f"Homepage: {linuxsrc.PACKAGE_URL}",
+    ):
         if line not in control:
             raise ValueError(f"DEB control file missing expected line: {line}")
+    if ".example" in control:
+        raise ValueError("DEB control metadata must not contain placeholder example domains.")
     if control_members["./conffiles"] != conffiles_file():
         raise ValueError("DEB conffiles metadata must match the committed package source.")
     validate_maintainer_script("postinst", control_members["./postinst"] or b"")
+    validate_maintainer_script("prerm", control_members["./prerm"] or b"")
     validate_maintainer_script("postrm", control_members["./postrm"] or b"")
 
 
@@ -732,6 +788,8 @@ def write_package_metadata(
         "os": TARGET_OS,
         "arch": TARGET_ARCH,
         "package_type": "deb",
+        "package_url": linuxsrc.PACKAGE_URL,
+        "package_license": linuxsrc.PACKAGE_LICENSE,
         "source_artifact_path": to_repo_relative(repo_root, artifact_path),
         "source_checksum_path": to_repo_relative(repo_root, checksum_source_path),
         "source_manifest_path": to_repo_relative(repo_root, manifest_source_path),
@@ -788,6 +846,15 @@ def write_package_metadata(
         },
         "control_members": list(EXPECTED_CONTROL_PATHS),
         "dependencies": list(PACKAGE_DEPENDENCIES),
+        "lifecycle": {
+            "install": "validate_or_create_service_principal_reload_enable_timer",
+            "upgrade": "stop_timer_and_active_oneshot_then_reenable_timer_after_replacement",
+            "repair": "reinstall_preserves_config_identity_state_logs",
+            "downgrade": "native_package_manager_downgrade_is_explicit_admin_action",
+            "remove": "stop_disable_timer_remove_enablement_link_preserve_customer_data",
+            "purge": "preserve_real_config_identity_state_logs_and_service_principal",
+            "systemd_operations": "run_only_when_systemd_is_active_fail_closed_on_active_systemd_errors",
+        },
         "package_builder": "scripts/release/package_agent_deb.py",
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

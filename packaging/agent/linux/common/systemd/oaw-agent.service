@@ -1,6 +1,6 @@
 [Unit]
 Description=OpenAssetWatch Agent
-Documentation=https://openassetwatch.example.invalid/docs
+Documentation=https://github.com/PKXLIVE/openassetwatch
 ConditionPathExists=/etc/openassetwatch/agent/config.json
 ConditionPathExists=/etc/openassetwatch/agent/identity.json
 

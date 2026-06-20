@@ -74,6 +74,7 @@ class LinuxPackagingSourceTests(unittest.TestCase):
         for unit in (linuxsrc.deb_service_unit(), linuxsrc.rpm_service_unit()):
             text = unit.decode("utf-8")
             with self.subTest(unit=text.splitlines()[0]):
+                self.assertIn("Documentation=https://github.com/PKXLIVE/openassetwatch", text)
                 self.assertIn("Type=oneshot", text)
                 self.assertIn(f"ExecStart={linuxsrc.SERVICE_COMMAND}", text)
                 self.assertIn("NoNewPrivileges=true", text)
@@ -89,6 +90,43 @@ class LinuxPackagingSourceTests(unittest.TestCase):
             self.assertIn("OnUnitActiveSec=1h", text)
             self.assertIn("RandomizedDelaySec=10min", text)
             self.assertIn("Persistent=true", text)
+
+    def test_debian_maintainer_scripts_manage_timer_lifecycle(self) -> None:
+        scripts = {
+            "postinst": linuxsrc.deb_postinst_script().decode("utf-8"),
+            "prerm": linuxsrc.deb_prerm_script().decode("utf-8"),
+            "postrm": linuxsrc.deb_postrm_script().decode("utf-8"),
+        }
+        for name, text in scripts.items():
+            with self.subTest(script=name):
+                self.assertIn("[ -d /run/systemd/system ]", text)
+                self.assertNotIn("|| true", text)
+                self.assertNotIn("curl", text)
+                self.assertNotIn("wget", text)
+        self.assertIn("primary_group=\"$(id -gn \"$SERVICE_USER\")\"", scripts["postinst"])
+        self.assertIn("grep -Eq '^(sudo|admin|wheel)$'", scripts["postinst"])
+        self.assertIn("systemctl enable oaw-agent.timer", scripts["postinst"])
+        self.assertIn("systemctl restart oaw-agent.timer", scripts["postinst"])
+        self.assertIn("systemctl stop oaw-agent.timer", scripts["prerm"])
+        self.assertIn("systemctl disable oaw-agent.timer", scripts["prerm"])
+        self.assertIn("rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer", scripts["prerm"])
+        self.assertNotIn("userdel", scripts["prerm"] + scripts["postrm"])
+        self.assertNotIn("groupdel", scripts["prerm"] + scripts["postrm"])
+
+    def test_rpm_spec_uses_correct_lifecycle_metadata(self) -> None:
+        spec = linuxsrc.rpm_spec_file("0.1.0-test").decode("utf-8")
+        self.assertIn("License: LicenseRef-OpenAssetWatch-UNSPECIFIED", spec)
+        self.assertIn("URL: https://github.com/PKXLIVE/openassetwatch", spec)
+        self.assertIn("%preun", spec)
+        self.assertIn("systemctl enable oaw-agent.timer", spec)
+        self.assertIn("systemctl restart oaw-agent.timer", spec)
+        self.assertIn("systemctl stop oaw-agent.timer", spec)
+        self.assertIn("systemctl disable oaw-agent.timer", spec)
+        self.assertIn("rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer", spec)
+        self.assertIn("grep -Eq '^(sudo|admin|wheel)$'", spec)
+        self.assertNotIn("|| true", spec)
+        self.assertNotIn("systemctl enable oaw-agent.service", spec)
+        self.assertNotIn("systemctl restart oaw-agent.service", spec)
 
     def test_package_templates_are_not_scaffold_only(self) -> None:
         root = linuxsrc.linux_source_root()

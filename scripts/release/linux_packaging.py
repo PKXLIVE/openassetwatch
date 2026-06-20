@@ -10,6 +10,8 @@ from release_common import is_inside, read_json, resolve_repo_path, sha256_file,
 
 
 PACKAGE_NAME = "openassetwatch-agent"
+PACKAGE_URL = "https://github.com/PKXLIVE/openassetwatch"
+PACKAGE_LICENSE = "LicenseRef-OpenAssetWatch-UNSPECIFIED"
 TARGET_OS = "linux"
 TARGET_ARCH = "amd64"
 DEBIAN_ARCH = "amd64"
@@ -107,6 +109,8 @@ def render_template(relative_path: str, values: dict[str, str]) -> bytes:
 def template_values(version: str) -> dict[str, str]:
     return {
         "PACKAGE_NAME": PACKAGE_NAME,
+        "PACKAGE_URL": PACKAGE_URL,
+        "PACKAGE_LICENSE": PACKAGE_LICENSE,
         "VERSION": version,
         "RPM_VERSION": version.replace("-", "_"),
         "RPM_RELEASE": RPM_RELEASE,
@@ -163,6 +167,10 @@ def deb_control_file(version: str) -> bytes:
 
 def deb_postinst_script() -> bytes:
     return read_source_bytes("deb/postinst")
+
+
+def deb_prerm_script() -> bytes:
+    return read_source_bytes("deb/prerm")
 
 
 def deb_postrm_script() -> bytes:

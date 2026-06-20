@@ -24,3 +24,13 @@ Package-managed executables under `/opt/openassetwatch/agent/bin/` and
 privileged helpers under `/usr/lib/openassetwatch/agent/libexec/` are
 root-owned. Only state and log directories under `/var/lib/openassetwatch` and
 `/var/log/openassetwatch` are service-owned by `openassetwatch`.
+
+Systemd lifecycle operations are package-manager lifecycle operations, not
+agent self-update behavior. They are guarded for active systemd hosts and must
+fail visibly on real systemd errors rather than hiding failures with
+unconditional `|| true`.
+
+No authoritative repository license file is currently present. Linux package
+metadata therefore uses `LicenseRef-OpenAssetWatch-UNSPECIFIED` where a package
+format requires a license field, and public release remains blocked until the
+project makes an explicit license decision.
