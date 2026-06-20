@@ -302,7 +302,7 @@ jobs:
           check_owner_mode() {
             path="$1"
             want="$2"
-            got="$(stat -f "%Su:%Sg %Lp" "$path")"
+            got="$(sudo stat -f "%Su:%Sg %Lp" "$path")"
             if [ "$got" != "$want" ]; then
               echo "$path owner/mode = $got, want $want"
               exit 1
@@ -314,16 +314,17 @@ jobs:
           sudo launchctl kickstart -k "system/$LABEL"
           deadline=$((SECONDS + 90))
           while [ "$SECONDS" -lt "$deadline" ]; do
-            [ -f "$STATE/status.json" ] && break
+            sudo test -f "$STATE/status.json" && break
             sleep 2
           done
-          if [ ! -f "$STATE/status.json" ]; then
+          if ! sudo test -f "$STATE/status.json"; then
             echo "status.json was not written after initial LaunchDaemon startup"
             sudo launchctl print "system/$LABEL" || true
             sudo ls -la "$APP_ROOT" "$STATE" "$LOG_DIR" || true
             exit 1
           fi
-          python3 - <<'PY' "$STATE/status.json"
+          sudo cat "$STATE/status.json" > "$RUNNER_TEMP/oaw-status-initial.json"
+          python3 - <<'PY' "$RUNNER_TEMP/oaw-status-initial.json"
           import json, sys
           status=json.load(open(sys.argv[1], encoding="utf-8"))
           assert status["health"] in ("degraded", "healthy"), status
@@ -365,29 +366,30 @@ jobs:
           sudo launchctl kickstart -k "system/$LABEL"
           deadline=$((SECONDS + 90))
           while [ "$SECONDS" -lt "$deadline" ]; do
-            if [ -f "$STATE/last-inventory.json" ] && [ -f "$MOCK_LOG" ] && grep -q "/api/v1/agents/check-in" "$MOCK_LOG" && grep -q "/api/v1/collections/local-inventory" "$MOCK_LOG"; then
+            if sudo test -f "$STATE/last-inventory.json" && [ -f "$MOCK_LOG" ] && grep -q "/api/v1/agents/check-in" "$MOCK_LOG" && grep -q "/api/v1/collections/local-inventory" "$MOCK_LOG"; then
               break
             fi
             sleep 2
           done
-          [ -f "$STATE/last-inventory.json" ]
+          sudo test -f "$STATE/last-inventory.json"
           grep -q "/api/v1/agents/check-in" "$MOCK_LOG"
           grep -q "/api/v1/collections/local-inventory" "$MOCK_LOG"
-          python3 - <<'PY' "$STATE/status.json"
+          sudo cat "$STATE/status.json" > "$RUNNER_TEMP/oaw-status-healthy.json"
+          python3 - <<'PY' "$RUNNER_TEMP/oaw-status-healthy.json"
           import json, sys
           status=json.load(open(sys.argv[1], encoding="utf-8"))
           assert status["health"] == "healthy", status
           PY
           ps -axo user,command | grep '[o]aw-agent service run' | grep '^_openassetwatch'
           sudo installer -pkg "$PKG" -target /
-          grep -q "ci-macos" "$CONFIG"
-          grep -q "55555555-5555-4555-8555-555555555555" "$IDENTITY"
+          sudo grep -q "ci-macos" "$CONFIG"
+          sudo grep -q "55555555-5555-4555-8555-555555555555" "$IDENTITY"
           if sudo installer -pkg "$OLD_PKG" -target /; then
             echo "Downgrade unexpectedly succeeded"
             exit 1
           fi
-          grep -q "ci-macos" "$CONFIG"
-          grep -q "55555555-5555-4555-8555-555555555555" "$IDENTITY"
+          sudo grep -q "ci-macos" "$CONFIG"
+          sudo grep -q "55555555-5555-4555-8555-555555555555" "$IDENTITY"
           sudo launchctl bootout system "/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           sudo launchctl bootstrap system "/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           sudo launchctl print "system/$LABEL" >/dev/null
@@ -396,8 +398,8 @@ jobs:
             echo "LaunchDaemon label still loaded"
             exit 1
           fi
-          [ -f "$CONFIG" ]
-          [ -f "$IDENTITY" ]
+          sudo test -f "$CONFIG"
+          sudo test -f "$IDENTITY"
 
   macos-intel-agent:
     runs-on: macos-15-intel
