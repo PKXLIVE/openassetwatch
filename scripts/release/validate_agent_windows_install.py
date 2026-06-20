@@ -317,6 +317,7 @@ def validate_install_helper(repo_root: Path) -> None:
         "Invoke-ScExe",
         "& sc.exe @Arguments",
         "ConvertTo-ScTransportBinaryPath",
+        "ConvertFrom-ScTransportBinaryPath",
         "Get-ServiceImagePath",
         "Set-ScCreateDiagnostics",
         "sc_create",
@@ -330,6 +331,7 @@ def validate_install_helper(repo_root: Path) -> None:
         "binary_path",
         "transport_binary_path",
         "final_image_path",
+        "final_image_path_normalized",
         "Sanitize-Text",
         "Read-ServiceMetadata",
         "Staged oaw-agent.exe is missing",
@@ -356,8 +358,10 @@ def validate_install_helper(repo_root: Path) -> None:
         raise ValueError("Windows service install helper must not register raw run-once.")
     if '$transportBinaryPath = ConvertTo-ScTransportBinaryPath -BinaryPath $binaryPath' not in text:
         raise ValueError("Windows service install helper must preserve executable quotes through native command transport.")
-    if 'if ($finalImagePath -ne $binaryPath)' not in text:
-        raise ValueError("Windows service install helper must verify the final registered ImagePath.")
+    if '$normalizedFinalImagePath = ConvertFrom-ScTransportBinaryPath -BinaryPath $finalImagePath' not in text:
+        raise ValueError("Windows service install helper must normalize the registered ImagePath before comparing it.")
+    if 'if ($normalizedFinalImagePath -ne $binaryPath)' not in text:
+        raise ValueError("Windows service install helper must verify the normalized final registered ImagePath.")
     if "service_installed_by_this_helper -ne $false" not in text:
         raise ValueError("Windows service install helper must reject metadata that claims staging installed the service.")
 

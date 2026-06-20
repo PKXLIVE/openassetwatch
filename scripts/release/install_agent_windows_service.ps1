@@ -46,6 +46,7 @@ $Report = [ordered]@{
         binary_path = ""
         transport_binary_path = ""
         final_image_path = ""
+        final_image_path_normalized = ""
     }
     checks = @()
     warnings = @()
@@ -97,7 +98,8 @@ function Set-ScCreateDiagnostics {
         [string]$Account,
         [string]$BinaryPath,
         [string]$TransportBinaryPath,
-        [string]$FinalImagePath
+        [string]$FinalImagePath,
+        [string]$FinalImagePathNormalized = ""
     )
     if ($null -eq $ExitCode) {
         $script:Report.sc_create.exit_code = $null
@@ -114,6 +116,7 @@ function Set-ScCreateDiagnostics {
     $script:Report.sc_create.binary_path = Sanitize-Text -Value $BinaryPath
     $script:Report.sc_create.transport_binary_path = Sanitize-Text -Value $TransportBinaryPath
     $script:Report.sc_create.final_image_path = Sanitize-Text -Value $FinalImagePath
+    $script:Report.sc_create.final_image_path_normalized = Sanitize-Text -Value $FinalImagePathNormalized
 }
 
 function Invoke-ScExe {
@@ -164,6 +167,11 @@ function Assert-SafeMetadataText {
 function ConvertTo-ScTransportBinaryPath {
     param([string]$BinaryPath)
     return $BinaryPath -replace '"', '\"'
+}
+
+function ConvertFrom-ScTransportBinaryPath {
+    param([string]$BinaryPath)
+    return $BinaryPath -replace '\\"', '"'
 }
 
 function Get-ServiceImagePath {
@@ -288,7 +296,7 @@ try {
         "obj=",
         $ServiceAccount
     )
-    Set-ScCreateDiagnostics -ExitCode $null -Stdout "" -Stderr "" -LogicalArguments $logicalCreateArgs -TransportArguments $transportCreateArgs -ServiceName $metadata.service_name -Account $ServiceAccount -BinaryPath $binaryPath -TransportBinaryPath $transportBinaryPath -FinalImagePath ""
+    Set-ScCreateDiagnostics -ExitCode $null -Stdout "" -Stderr "" -LogicalArguments $logicalCreateArgs -TransportArguments $transportCreateArgs -ServiceName $metadata.service_name -Account $ServiceAccount -BinaryPath $binaryPath -TransportBinaryPath $transportBinaryPath -FinalImagePath "" -FinalImagePathNormalized ""
 
     Add-Action "Create service $($metadata.service_name) with automatic startup and LocalService account."
     if ($Start) {
@@ -307,11 +315,12 @@ try {
         if ($createResult.exit_code -eq 0) {
             $finalImagePath = Get-ServiceImagePath -Name $metadata.service_name
         }
-        Set-ScCreateDiagnostics -ExitCode $createResult.exit_code -Stdout $createResult.stdout -Stderr $createResult.stderr -LogicalArguments $logicalCreateArgs -TransportArguments $transportCreateArgs -ServiceName $metadata.service_name -Account $ServiceAccount -BinaryPath $binaryPath -TransportBinaryPath $transportBinaryPath -FinalImagePath $finalImagePath
+        $normalizedFinalImagePath = ConvertFrom-ScTransportBinaryPath -BinaryPath $finalImagePath
+        Set-ScCreateDiagnostics -ExitCode $createResult.exit_code -Stdout $createResult.stdout -Stderr $createResult.stderr -LogicalArguments $logicalCreateArgs -TransportArguments $transportCreateArgs -ServiceName $metadata.service_name -Account $ServiceAccount -BinaryPath $binaryPath -TransportBinaryPath $transportBinaryPath -FinalImagePath $finalImagePath -FinalImagePathNormalized $normalizedFinalImagePath
         if ($createResult.exit_code -ne 0) {
             throw "sc.exe create failed for $($metadata.service_name). See sc_create diagnostics."
         }
-        if ($finalImagePath -ne $binaryPath) {
+        if ($normalizedFinalImagePath -ne $binaryPath) {
             throw "Registered service ImagePath does not match the approved command."
         }
         if ($Start) {
