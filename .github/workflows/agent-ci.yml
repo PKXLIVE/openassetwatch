@@ -167,6 +167,215 @@ jobs:
             dist/agent/0.1.0-rpmpkg-ci/packages/*.sha256
             dist/agent/0.1.0-rpmpkg-ci/packages/*.json
 
+  linux-deb-lifecycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install Debian lifecycle tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sudo systemd
+      - name: Build old and new DEB fixtures
+        shell: pwsh
+        run: |
+          ./scripts/release/build_agent_dist.ps1 -Version 0.1.90 -TargetOS linux -TargetArch amd64
+          ./scripts/release/build_agent_dist.ps1 -Version 0.1.91 -TargetOS linux -TargetArch amd64
+      - name: Package old and new DEB fixtures
+        run: |
+          python3 ./scripts/release/package_agent_deb.py --version 0.1.90
+          python3 ./scripts/release/package_agent_deb.py --version 0.1.91
+          python3 ./scripts/release/validate_agent_deb.py --version 0.1.90
+          python3 ./scripts/release/validate_agent_deb.py --version 0.1.91
+      - name: Install, repair, upgrade, downgrade, and uninstall DEB
+        run: |
+          set -euo pipefail
+          OLD_DEB="dist/agent/0.1.90/packages/openassetwatch-agent_0.1.90_amd64.deb"
+          NEW_DEB="dist/agent/0.1.91/packages/openassetwatch-agent_0.1.91_amd64.deb"
+          MOCK="$RUNNER_TEMP/oaw_mock_backend.py"
+          export OAW_MOCK_LOG="$RUNNER_TEMP/oaw_mock_backend.jsonl"
+          cat > "$MOCK" <<'PY'
+          import json
+          import os
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          from pathlib import Path
+          log = Path(os.environ["OAW_MOCK_LOG"])
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  self.send_response(200)
+                  self.end_headers()
+              def do_POST(self):
+                  body = self.rfile.read(int(self.headers.get("content-length", "0")))
+                  with log.open("a", encoding="utf-8") as handle:
+                      handle.write(json.dumps({"path": self.path, "body_len": len(body)}) + "\n")
+                  self.send_response(202)
+                  self.end_headers()
+              def log_message(self, fmt, *args):
+                  return
+          HTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
+          PY
+          python3 "$MOCK" &
+          BACKEND_PID=$!
+          cleanup() {
+            kill "$BACKEND_PID" 2>/dev/null || true
+            sudo dpkg -r openassetwatch-agent >/dev/null 2>&1 || true
+            sudo rm -rf /opt/openassetwatch /usr/lib/openassetwatch /etc/sudoers.d/openassetwatch-agent
+            sudo rm -f /usr/bin/oaw-agent /lib/systemd/system/oaw-agent.service /lib/systemd/system/oaw-agent.timer
+            sudo rm -rf /etc/openassetwatch /var/lib/openassetwatch /var/log/openassetwatch
+          }
+          trap cleanup EXIT
+
+          sudo dpkg -i "$OLD_DEB"
+          test -x /opt/openassetwatch/agent/bin/oaw-agent
+          id openassetwatch
+          getent group openassetwatch
+          test -f /lib/systemd/system/oaw-agent.service
+          test -f /lib/systemd/system/oaw-agent.timer
+
+          sudo install -d -m 0750 -o root -g openassetwatch /etc/openassetwatch/agent
+          printf '%s\n' '{"server_url":"http://127.0.0.1:18080","site_id":"ci-linux"}' | sudo tee /etc/openassetwatch/agent/config.json >/dev/null
+          printf '%s\n' '{"site_id":"ci-linux","agent_id":"11111111-1111-4111-8111-111111111111","deployment_id":"22222222-2222-4222-8222-222222222222","tenant_id":"ci","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}' | sudo tee /etc/openassetwatch/agent/identity.json >/dev/null
+          sudo chown root:openassetwatch /etc/openassetwatch/agent/config.json /etc/openassetwatch/agent/identity.json
+          sudo chmod 0640 /etc/openassetwatch/agent/config.json /etc/openassetwatch/agent/identity.json
+          CONFIG_HASH="$(sudo sha256sum /etc/openassetwatch/agent/config.json | awk '{print $1}')"
+          IDENTITY_HASH="$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
+
+          sudo -u openassetwatch /opt/openassetwatch/agent/bin/oaw-agent run-once --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json --output-dir /var/lib/openassetwatch/agent
+          test -f /var/lib/openassetwatch/agent/last-inventory.json
+          grep -q "/api/v1/agents/check-in" "$OAW_MOCK_LOG"
+          grep -q "/api/v1/collections/local-inventory" "$OAW_MOCK_LOG"
+
+          sudo dpkg -i "$OLD_DEB"
+          test "$CONFIG_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/config.json | awk '{print $1}')"
+          test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
+
+          sudo dpkg -i "$NEW_DEB"
+          test "$CONFIG_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/config.json | awk '{print $1}')"
+          test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
+
+          sudo dpkg -i "$OLD_DEB"
+          test "$CONFIG_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/config.json | awk '{print $1}')"
+          test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
+
+          sudo dpkg -r openassetwatch-agent
+          test ! -e /opt/openassetwatch/agent/bin/oaw-agent
+          test -f /etc/openassetwatch/agent/config.json
+          test -f /etc/openassetwatch/agent/identity.json
+
+  linux-rpm-lifecycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install RPM build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+      - name: Build old and new RPM fixtures
+        shell: pwsh
+        run: |
+          ./scripts/release/build_agent_dist.ps1 -Version 0.1.90 -TargetOS linux -TargetArch amd64
+          ./scripts/release/build_agent_dist.ps1 -Version 0.1.91 -TargetOS linux -TargetArch amd64
+      - name: Package old and new RPM fixtures
+        run: |
+          python3 ./scripts/release/package_agent_rpm.py --version 0.1.90
+          python3 ./scripts/release/package_agent_rpm.py --version 0.1.91
+          python3 ./scripts/release/validate_agent_rpm.py --version 0.1.90
+          python3 ./scripts/release/validate_agent_rpm.py --version 0.1.91
+      - name: Install, repair, upgrade, downgrade, and uninstall RPM in Rocky Linux
+        run: |
+          set -euo pipefail
+          MOCK="$RUNNER_TEMP/oaw_mock_backend.py"
+          cat > "$MOCK" <<'PY'
+          import json
+          import os
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          from pathlib import Path
+          log = Path(os.environ["OAW_MOCK_LOG"])
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  self.send_response(200)
+                  self.end_headers()
+              def do_POST(self):
+                  body = self.rfile.read(int(self.headers.get("content-length", "0")))
+                  with log.open("a", encoding="utf-8") as handle:
+                      handle.write(json.dumps({"path": self.path, "body_len": len(body)}) + "\n")
+                  self.send_response(202)
+                  self.end_headers()
+              def log_message(self, fmt, *args):
+                  return
+          HTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
+          PY
+          docker run --rm \
+            -v "$PWD:/work" \
+            -v "$RUNNER_TEMP:/tmp/oaw-runner-temp" \
+            -w /work \
+            rockylinux:9 \
+            /bin/bash -lc '
+              set -euo pipefail
+              dnf -y install python3 sudo systemd shadow-utils
+              OLD_RPM="dist/agent/0.1.90/packages/openassetwatch-agent-0.1.90-1.x86_64.rpm"
+              NEW_RPM="dist/agent/0.1.91/packages/openassetwatch-agent-0.1.91-1.x86_64.rpm"
+              MOCK="/tmp/oaw-runner-temp/oaw_mock_backend.py"
+              export OAW_MOCK_LOG="/tmp/oaw_mock_backend.jsonl"
+              python3 "$MOCK" &
+              BACKEND_PID=$!
+              cleanup() {
+                kill "$BACKEND_PID" 2>/dev/null || true
+                rpm -e openassetwatch-agent >/dev/null 2>&1 || true
+              }
+              trap cleanup EXIT
+
+              rpm -Uvh "$OLD_RPM"
+              test -x /opt/openassetwatch/agent/bin/oaw-agent
+              id openassetwatch
+              getent group openassetwatch
+              test -f /usr/lib/systemd/system/oaw-agent.service
+              test -f /usr/lib/systemd/system/oaw-agent.timer
+
+              install -d -m 0750 -o root -g openassetwatch /etc/openassetwatch/agent
+              printf "%s\n" "{\"server_url\":\"http://127.0.0.1:18080\",\"site_id\":\"ci-linux\"}" > /etc/openassetwatch/agent/config.json
+              printf "%s\n" "{\"site_id\":\"ci-linux\",\"agent_id\":\"11111111-1111-4111-8111-111111111111\",\"deployment_id\":\"22222222-2222-4222-8222-222222222222\",\"tenant_id\":\"ci\",\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\"}" > /etc/openassetwatch/agent/identity.json
+              chown root:openassetwatch /etc/openassetwatch/agent/config.json /etc/openassetwatch/agent/identity.json
+              chmod 0640 /etc/openassetwatch/agent/config.json /etc/openassetwatch/agent/identity.json
+              CONFIG_HASH="$(sha256sum /etc/openassetwatch/agent/config.json | awk '"'"'{print $1}'"'"')"
+              IDENTITY_HASH="$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
+
+              runuser -u openassetwatch -- /opt/openassetwatch/agent/bin/oaw-agent run-once --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json --output-dir /var/lib/openassetwatch/agent
+              test -f /var/lib/openassetwatch/agent/last-inventory.json
+              grep -q "/api/v1/agents/check-in" "$OAW_MOCK_LOG"
+              grep -q "/api/v1/collections/local-inventory" "$OAW_MOCK_LOG"
+
+              rpm -Uvh --replacepkgs "$OLD_RPM"
+              test "$CONFIG_HASH" = "$(sha256sum /etc/openassetwatch/agent/config.json | awk '"'"'{print $1}'"'"')"
+              test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
+
+              rpm -Uvh "$NEW_RPM"
+              test "$CONFIG_HASH" = "$(sha256sum /etc/openassetwatch/agent/config.json | awk '"'"'{print $1}'"'"')"
+              test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
+
+              rpm -Uvh --oldpackage "$OLD_RPM"
+              test "$CONFIG_HASH" = "$(sha256sum /etc/openassetwatch/agent/config.json | awk '"'"'{print $1}'"'"')"
+              test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
+
+              rpm -e openassetwatch-agent
+              test ! -e /opt/openassetwatch/agent/bin/oaw-agent
+              test -f /etc/openassetwatch/agent/config.json
+              test -f /etc/openassetwatch/agent/identity.json
+            '
+
   windows-agent:
     runs-on: windows-latest
     steps:
