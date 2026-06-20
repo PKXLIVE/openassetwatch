@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"regexp"
 	"syscall"
 
 	agentsupervisor "github.com/openassetwatch/openassetwatch/internal/agent/supervisor"
@@ -16,6 +17,8 @@ type stderrServiceLogger struct {
 }
 
 var runServiceRuntimeForCommand = runServiceRuntime
+
+var sensitiveLogPattern = regexp.MustCompile(`(?i)(authorization|credential|password|token|api[_-]?key|apikey|secret|private[_-]?key)(\s*[:=]\s*[^,\s;]+)?|request body|response body`)
 
 func (logger stderrServiceLogger) Info(message string) {
 	fmt.Fprintf(logger.writer, "info: %s\n", message)
@@ -30,7 +33,7 @@ func (logger stderrServiceLogger) Error(message string) {
 }
 
 func runForegroundServiceRuntime(options agentsupervisor.Options, cycle agentsupervisor.CycleFunc, stderr io.Writer) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signalContext()
 	defer stop()
 
 	logger := stderrServiceLogger{writer: stderr}
@@ -40,4 +43,8 @@ func runForegroundServiceRuntime(options agentsupervisor.Options, cycle agentsup
 		return 1
 	}
 	return 0
+}
+
+func signalContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }

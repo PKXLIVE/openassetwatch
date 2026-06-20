@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	ServiceName = "openassetwatch-agent"
+	ServiceName       = "openassetwatch-agent"
+	DarwinServiceName = "com.openassetwatch.agent"
+	DarwinBinaryPath  = "/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent"
 )
 
 type Plan struct {
@@ -92,8 +94,8 @@ func Build(goos string, paths agentpaths.AgentPaths, osReleaseData []byte) Plan 
 		}
 	case "darwin":
 		plan.ServiceTarget = "launchd"
-		plan.ServiceName = "com.openassetwatch.agent"
-		plan.BinaryPath = path.Join("/", "usr", "local", "bin", "oaw-agent")
+		plan.ServiceName = DarwinServiceName
+		plan.BinaryPath = DarwinBinaryPath
 		plan.ServiceDefinitionPath = path.Join("/", "Library", "LaunchDaemons", "com.openassetwatch.agent.plist")
 	default:
 		plan.ServiceTarget = "manual"
@@ -256,7 +258,7 @@ func launchdTemplate(plan Plan) string {
 	return strings.Join([]string{
 		`<?xml version="1.0" encoding="UTF-8"?>`,
 		`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">`,
-		`<!-- OpenAssetWatch Agent future launchd plist template. Text only; this command does not write plist files or run launchctl. -->`,
+		`<!-- OpenAssetWatch Agent LaunchDaemon plist template. Text only; this command does not write plist files or run launchctl. -->`,
 		`<plist version="1.0">`,
 		`<dict>`,
 		`  <key>Label</key>`,
@@ -270,17 +272,37 @@ func launchdTemplate(plan Plan) string {
 		`    <string>` + plan.ConfigPath + `</string>`,
 		`    <string>--identity-file</string>`,
 		`    <string>` + plan.IdentityPath + `</string>`,
+		`    <string>--output-dir</string>`,
+		`    <string>` + plan.StateDir + `</string>`,
 		`  </array>`,
+		`  <key>UserName</key>`,
+		`  <string>_openassetwatch</string>`,
+		`  <key>GroupName</key>`,
+		`  <string>_openassetwatch</string>`,
 		`  <key>RunAtLoad</key>`,
-		`  <false/>`,
+		`  <true/>`,
 		`  <key>KeepAlive</key>`,
-		`  <false/>`,
+		`  <dict>`,
+		`    <key>Crashed</key>`,
+		`    <true/>`,
+		`  </dict>`,
+		`  <key>ThrottleInterval</key>`,
+		`  <integer>60</integer>`,
+		`  <key>ProcessType</key>`,
+		`  <string>Background</string>`,
+		`  <key>ExitTimeOut</key>`,
+		`  <integer>30</integer>`,
+		`  <key>WorkingDirectory</key>`,
+		`  <string>` + plan.StateDir + `</string>`,
+		`  <key>Umask</key>`,
+		`  <integer>027</integer>`,
 		`  <key>StandardOutPath</key>`,
-		`  <string>` + path.Join(plan.LogDir, "agent.out.log") + `</string>`,
+		`  <string>/dev/null</string>`,
 		`  <key>StandardErrorPath</key>`,
-		`  <string>` + path.Join(plan.LogDir, "agent.err.log") + `</string>`,
+		`  <string>/dev/null</string>`,
 		`  <!-- Status file: ` + plan.StatusPath + ` -->`,
-		`  <!-- Scheduling is intentionally not configured in this template. -->`,
+		`  <!-- Logs are written by the agent with bounded rotation under ` + plan.LogDir + `. -->`,
+		`  <!-- No shell, StartInterval, StartCalendarInterval, or environment secrets are configured. -->`,
 		`</dict>`,
 		`</plist>`,
 	}, "\n")

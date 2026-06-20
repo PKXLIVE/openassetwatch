@@ -1496,8 +1496,8 @@ func TestServiceRunBuildsSupervisorOptionsFromFlags(t *testing.T) {
 	if gotOptions.SuccessInterval != time.Hour || gotOptions.RetryBase != 5*time.Minute || gotOptions.MaxRetryDelay != time.Hour {
 		t.Fatalf("unexpected supervisor intervals: %+v", gotOptions)
 	}
-	if gotOptions.ServiceName != "OpenAssetWatchAgent" {
-		t.Fatalf("service name = %q", gotOptions.ServiceName)
+	if gotOptions.ServiceName != defaultServiceName() {
+		t.Fatalf("service name = %q, want %q", gotOptions.ServiceName, defaultServiceName())
 	}
 }
 

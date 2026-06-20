@@ -75,3 +75,56 @@ func TestDefaultAgentPathsIncludeOnlyPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentPathsForOS(t *testing.T) {
+	tests := []struct {
+		name string
+		goos string
+		env  map[string]string
+		want AgentPaths
+	}{
+		{
+			name: "windows",
+			goos: "windows",
+			env:  map[string]string{"ProgramData": `D:\ProgramData`},
+			want: AgentPaths{
+				IdentityPath: `D:\ProgramData\OpenAssetWatch\Agent\identity\identity.json`,
+				ConfigPath:   `D:\ProgramData\OpenAssetWatch\Agent\config\config.json`,
+				StateDir:     `D:\ProgramData\OpenAssetWatch\Agent\state`,
+				LogDir:       `D:\ProgramData\OpenAssetWatch\Agent\logs`,
+				StatusPath:   `D:\ProgramData\OpenAssetWatch\Agent\state\status.json`,
+			},
+		},
+		{
+			name: "linux",
+			goos: "linux",
+			want: AgentPaths{
+				IdentityPath: "/etc/openassetwatch/agent/identity.json",
+				ConfigPath:   "/etc/openassetwatch/agent/config.json",
+				StateDir:     "/var/lib/openassetwatch/agent",
+				LogDir:       "/var/log/openassetwatch/agent",
+				StatusPath:   "/var/log/openassetwatch/agent/status.json",
+			},
+		},
+		{
+			name: "darwin",
+			goos: "darwin",
+			want: AgentPaths{
+				IdentityPath: "/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json",
+				ConfigPath:   "/Library/Application Support/OpenAssetWatch/Agent/config/config.json",
+				StateDir:     "/Library/Application Support/OpenAssetWatch/Agent/state",
+				LogDir:       "/Library/Logs/OpenAssetWatch/Agent",
+				StatusPath:   "/Library/Application Support/OpenAssetWatch/Agent/state/status.json",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := AgentPathsForOS(test.goos, func(key string) string { return test.env[key] })
+			if got != test.want {
+				t.Fatalf("AgentPathsForOS(%q) = %+v, want %+v", test.goos, got, test.want)
+			}
+		})
+	}
+}
