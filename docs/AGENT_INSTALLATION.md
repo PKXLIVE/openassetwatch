@@ -5,12 +5,14 @@ uninstallation, upgrade, rollback, package validation, and deployment
 lifecycle before any installer, service install, service uninstall, daemon,
 scheduler, or self-update code exists.
 
-Current state: `oaw-agent` is an explicit command-line tool. It can inspect
-paths, create non-secret config and identity files, run local diagnostics,
-preview future service plans/templates, check in, collect passive local
-inventory, and submit that inventory. It does not install itself, modify
-service managers, execute package managers, schedule itself, or run as a
-background service.
+Current state: `oaw-agent` remains an explicit command-line tool. It can
+inspect paths, create non-secret config and identity files, run local
+diagnostics, preview service plans/templates, check in, collect passive local
+inventory, submit that inventory, and run one conservative `run-once` cycle.
+The CLI does not install itself, execute package managers, or self-update.
+Native package artifacts and explicit administrator helpers may install
+service/timer metadata, but they must keep those operations auditable and
+package-manager controlled.
 
 ## Supported Future Deployment Models
 
@@ -20,8 +22,9 @@ agent's safe-by-default runtime posture:
 - manual binary install for lab, self-hosted, or break-glass environments
 - Windows signed installer or MSI
 - Linux `.deb` package for Debian and Ubuntu families
-- Linux `.rpm` package for RHEL, Rocky Linux, AlmaLinux, CentOS, Fedora, SUSE,
-  and openSUSE families
+- Linux `.rpm` package for RPM-family systems; install lifecycle CI currently
+  exercises Rocky Linux 9 only, so broader RPM-family deployment claims require
+  separate validation
 - Linux `.tar.gz` fallback for unsupported distributions or manual install
 - macOS LaunchDaemon PKG, signed and notarized for production release
 - enterprise deployment through Intune, SCCM, Jamf, Ansible, Puppet, Chef, and
@@ -115,8 +118,10 @@ choosing an artifact or instructions. Start with `/etc/os-release` and inspect:
 Conservative package mapping:
 
 - Debian and Ubuntu map to `.deb`.
-- RHEL, Rocky Linux, AlmaLinux, CentOS, and Fedora map to `.rpm`.
-- SUSE and openSUSE map to `.rpm`.
+- RHEL, Rocky Linux, AlmaLinux, CentOS, and Fedora map to `.rpm`; the current
+  automated install lifecycle test target is Rocky Linux 9.
+- SUSE and openSUSE map to `.rpm` as a package-selection target, but they are
+  not yet claimed as tested install lifecycle targets.
 - Unknown or unsupported Linux distributions map to `.tar.gz` or manual
   install instructions.
 
@@ -547,20 +552,35 @@ unit allows writes only to `/var/lib/openassetwatch/agent/` for the
 `run-once` inventory output. The timer runs shortly after boot, then
 periodically with conservative hourly cadence and randomized delay.
 
-The package may include conservative `postinst` and `postrm` maintainer
-scripts. The `postinst` script may create the `openassetwatch` system group and
-non-interactive `openassetwatch` system user with `/usr/sbin/nologin`, set
-ownership on `/var/lib/openassetwatch/agent/` and
-`/var/log/openassetwatch/agent/`, run `systemctl daemon-reload`, and enable
-`oaw-agent.timer` on the target Linux machine. It may restart the timer only
-when both `/etc/openassetwatch/agent/config.json` and
+The package includes conservative `postinst`, `prerm`, and `postrm`
+maintainer scripts. `postinst` may create the `openassetwatch` system group and
+non-interactive `openassetwatch` system user with `/usr/sbin/nologin`, or
+reuse them only after validating the primary group, shell, home/state path, and
+absence of unexpected administrative group membership. It sets ownership only
+on `/var/lib/openassetwatch/agent/` and `/var/log/openassetwatch/agent/`, runs
+`systemctl daemon-reload`, and enables `oaw-agent.timer` when systemd is
+active. It may restart the timer only when both
+`/etc/openassetwatch/agent/config.json` and
 `/etc/openassetwatch/agent/identity.json` already exist. If either file is
-missing, `postinst` must not start or restart the timer or service. The `postrm` script
-is limited to `systemctl daemon-reload`; it must not delete administrator-made
-config or identity files, remove the `openassetwatch` user or group, or call
-network services. Maintainer scripts must not overwrite config, overwrite
-identity, create secrets, execute administrator-provided commands, or grant
-sudo permissions beyond the packaged allowlist.
+missing, `postinst` must not start or restart the timer or service.
+
+`prerm` handles remove, upgrade, deconfigure, and failed-upgrade lifecycle
+arguments. On final removal it stops `oaw-agent.timer`, stops
+`oaw-agent.service` only if the oneshot unit is active, disables
+`oaw-agent.timer`, removes only the OpenAssetWatch timer enablement symlink at
+`/etc/systemd/system/timers.target.wants/oaw-agent.timer`, and reloads systemd.
+On upgrade/deconfigure it stops the existing timer and any active oneshot
+service before package replacement. `postrm` reloads systemd after removal or
+upgrade but does not delete administrator-managed config, identity, state,
+logs, or the `openassetwatch` user/group. Maintainer scripts skip runtime
+systemd operations cleanly when systemd is not active, but they do not hide
+real active-systemd failures with unconditional `|| true`.
+
+Maintainer scripts must not overwrite config, overwrite identity, create
+secrets, execute administrator-provided commands, call network services, or
+grant sudo permissions beyond the packaged allowlist. Ordinary `dpkg purge`
+must preserve real config, identity, state, logs, and the service principal
+until a separately reviewed explicit purge mechanism exists.
 
 The package includes a root-owned sudoers file at
 `/etc/sudoers.d/openassetwatch-agent` with mode `0440`. The file applies only
@@ -615,17 +635,20 @@ python .\scripts\release\validate_agent_deb.py `
 The validator inspects the existing package under `dist/agent/<version>/`,
 verifies the package checksum and manifest, checks expected Debian archive
 members and install paths, confirms example config and identity placeholders,
-checks the service unit, validates the `systemd` dependency, validates the
-`passwd` dependency, validates the service-account maintainer scripts, rejects
-unexpected maintainer files, confirms the `/opt` binary plus `/usr/bin`
-compatibility symlink, verifies service user/group settings, and looks for
-forbidden package content. It also validates the sudoers path, owner, mode,
-user scope, exact command allowlist, and absence of broad sudo grants. It
-checks that `postinst` enables `oaw-agent.timer`, only restarts the timer when
-both real config and identity files are present, and never starts the service
-directly. It also verifies that `postrm` is limited to daemon-reload cleanup
-and does not delete admin-managed identity or config files. It does not install
-the package or run host package-manager or service-manager commands.
+checks the service unit, validates the `systemd` and `passwd` dependencies,
+validates `postinst`, `prerm`, and `postrm`, rejects unexpected maintainer
+files, confirms the `/opt` binary plus `/usr/bin` compatibility symlink,
+verifies service user/group settings, and looks for forbidden package content.
+It also validates the sudoers path, owner, mode, user scope, exact command
+allowlist, and absence of broad sudo grants. It checks that `postinst` enables
+`oaw-agent.timer`, only restarts the timer when both real config and identity
+files are present, and never starts the service directly. It verifies that
+`prerm` stops and disables the timer on final removal, removes only the
+OpenAssetWatch timer enablement symlink, distinguishes upgrade/deconfigure
+from final removal, and does not delete config, identity, service principals,
+state, or logs. It verifies that `postrm` is limited to daemon-reload cleanup.
+It does not install the package or run host package-manager or service-manager
+commands.
 
 ## Local RPM Package Artifacts
 
@@ -710,14 +733,21 @@ payload paths, ownership/modes, `%config(noreplace)` example metadata, and
 scriptlets. It also verifies the one-shot `run-once` service, timer cadence,
 config and identity preconditions, helper scripts, helper-only sudoers
 allowlist, placeholders, forbidden content patterns, guarded timer enablement,
-no unconditional service start, no config/identity deletion, and no broad sudo.
-It does not install the RPM or run package-manager install commands.
+`%pre` service-principal validation, `%preun` stop/disable behavior, final
+erase versus upgrade handling, no unconditional service start, no
+config/identity deletion, no unconditional `|| true` around active-systemd
+operations, and no broad sudo. It does not install the RPM or run
+package-manager install commands.
 
 ## Disposable Linux Install Test Guidance
 
-Install testing for `.deb` packages should happen only inside a disposable
-Linux VM or container. Do not run install commands on the Windows build host or
-on a non-disposable developer workstation.
+Install testing for `.deb` and `.rpm` packages should happen only inside a
+disposable Linux VM or container with systemd genuinely running. Do not run
+install commands on the Windows build host or on a non-disposable developer
+workstation. Current CI exercises Debian package lifecycle on the GitHub-hosted
+Ubuntu runner with active systemd, and RPM lifecycle in a privileged Rocky
+Linux 9 container with systemd as PID 1. Other RPM-family targets remain
+package-selection targets until separately tested.
 
 Manual commands for a disposable Debian or Ubuntu test environment only:
 
@@ -754,6 +784,12 @@ Expected checks inside the disposable Linux environment:
   present in package examples
 - cleanup removes package-managed files while preserving administrator-owned
   data according to future package lifecycle policy
+- downgrade is treated as an explicit administrator rollback action, using
+  native package-manager downgrade flags rather than routine repair/upgrade
+- public Linux package release remains blocked until the repository has an
+  authoritative OpenAssetWatch license declaration; package metadata uses the
+  conservative `LicenseRef-OpenAssetWatch-UNSPECIFIED` placeholder only because
+  RPM metadata requires a license value
 
 ## Local Install Staging
 

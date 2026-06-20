@@ -382,19 +382,30 @@ with explicit `/etc/openassetwatch/agent/` config and identity paths plus
 `/var/lib/openassetwatch/agent/` for the `run-once` inventory output. The timer
 runs shortly after boot, then hourly with a randomized delay.
 
-The package may include `postinst` and `postrm` maintainer scripts. `postinst`
-may create the `openassetwatch` system group and non-interactive system user
-with `/usr/sbin/nologin`, set ownership on `/var/lib/openassetwatch/agent/`
-and `/var/log/openassetwatch/agent/`, run `systemctl daemon-reload`, and
-enable `oaw-agent.timer` on the target Linux machine. `postinst` may restart
-the timer only when both
+The package includes `postinst`, `prerm`, and `postrm` maintainer scripts.
+`postinst` may create the `openassetwatch` system group and non-interactive
+system user with `/usr/sbin/nologin`, or reuse them only after validating the
+primary group, shell, home/state path, and absence of unexpected administrative
+group membership. It sets ownership on `/var/lib/openassetwatch/agent/` and
+`/var/log/openassetwatch/agent/`, runs `systemctl daemon-reload`, and enables
+`oaw-agent.timer` on the target Linux machine when systemd is active.
+`postinst` may restart the timer only when both
 `/etc/openassetwatch/agent/config.json` and
 `/etc/openassetwatch/agent/identity.json` already exist. If either file is
-missing, `postinst` does not start or restart the timer or service. `postrm`
-is limited to `systemctl daemon-reload`; it does not delete admin-created
-config or identity files, remove the `openassetwatch` user or group, or call
-network services. Maintainer scripts do not overwrite config or identity,
-create secrets, execute arbitrary user-controlled commands, or grant sudo
+missing, `postinst` does not start or restart the timer or service.
+
+`prerm` stops the timer and any active oneshot service on upgrade/deconfigure,
+and on final removal it stops `oaw-agent.timer`, stops `oaw-agent.service` only
+if active, disables the timer, removes only the OpenAssetWatch enablement
+symlink under `/etc/systemd/system/timers.target.wants/`, and reloads systemd.
+`postrm` is limited to daemon-reload cleanup. The scripts preserve
+administrator-created config and identity, state, logs, and the
+`openassetwatch` service principal by default, including ordinary purge. They
+skip runtime service operations cleanly when systemd is not active, but they do
+not hide real active-systemd failures with unconditional `|| true`.
+
+Maintainer scripts do not overwrite config or identity, create secrets, execute
+arbitrary user-controlled commands, call network services, or grant sudo
 permissions beyond the packaged allowlist.
 
 The Debian package includes `/etc/sudoers.d/openassetwatch-agent` as a
@@ -436,13 +447,16 @@ members, expected install paths, service unit safety, example config and
 identity placeholders, release manifest, required package directories, the
 `systemd` and `passwd` dependencies, approved service-account maintainer
 scripts, unexpected maintainer files, `/opt` binary layout, `/usr/bin`
-compatibility symlink, root-owned libexec helpers, sudoers
-owner/mode/content, forbidden content, and path containment. It also checks
-that `postinst` enables `oaw-agent.timer`, starts or restarts the timer only
-when both config and identity files exist, does not change sudoers, and does
-not start the service directly or unconditionally. It verifies that sudoers
-allows only the helper scripts and no longer allows direct raw `/usr/sbin/ip`
-commands. It does not install the package and does not run host
+compatibility symlink, root-owned libexec helpers, sudoers owner/mode/content,
+forbidden content, and path containment. It also checks that `postinst` enables
+`oaw-agent.timer`, starts or restarts the timer only when both config and
+identity files exist, does not change sudoers, and does not start the service
+directly or unconditionally. It verifies that `prerm` stops and disables the
+timer on final removal, removes only the OpenAssetWatch timer enablement
+symlink, distinguishes upgrade/deconfigure from final removal, and does not
+delete config, identity, state, logs, or the service principal. It verifies
+that sudoers allows only the helper scripts and no longer allows direct raw
+`/usr/sbin/ip` commands. It does not install the package and does not run host
 package-manager or service-manager commands.
 
 ## Local RPM Package Artifacts
@@ -529,16 +543,23 @@ RPM requirements, RPM payload paths, RPM file ownership/modes, RPM
 manifest, service unit, timer unit, helper scripts, sudoers helper-only
 allowlist, example config and identity placeholders, and forbidden content
 patterns. It verifies that the package creates or reuses the `openassetwatch`
-service user and group, enables `oaw-agent.timer` as target-install scriptlet
-behavior, does not start `oaw-agent.service` directly or unconditionally, does
-not delete config or identity files, and does not grant broad sudo access. It
-uses `rpm -qp` inspection commands only and does not install the RPM.
+service user and group only after compatibility checks, enables
+`oaw-agent.timer` as target-install scriptlet behavior, includes `%preun`
+stop/disable behavior for final erase, distinguishes final erase from upgrade,
+does not start `oaw-agent.service` directly or unconditionally, does not delete
+config or identity files, avoids unconditional `|| true` around active-systemd
+operations, and does not grant broad sudo access. It uses `rpm -qp` inspection
+commands only and does not install the RPM.
 
 ## Disposable Linux Install Test Guidance
 
-Real install testing for `.deb` packages must happen only inside a disposable
-Linux VM or container. Do not run install commands on the Windows build host or
-on a developer workstation that is not intended to be disposable.
+Real install testing for `.deb` and `.rpm` packages must happen only inside a
+disposable Linux VM or container with systemd genuinely running. Do not run
+install commands on the Windows build host or on a developer workstation that
+is not intended to be disposable. Current CI exercises the Debian lifecycle on
+the GitHub-hosted Ubuntu runner with active systemd, and the RPM lifecycle in a
+privileged Rocky Linux 9 container with systemd as PID 1. Other RPM-family
+targets remain package-selection targets until separately tested.
 
 Manual commands for a disposable Debian or Ubuntu test environment only:
 
@@ -570,7 +591,12 @@ that `/opt/openassetwatch/agent/bin/oaw-agent`,
 `/usr/lib/openassetwatch/agent/libexec/`, and the helper scripts are
 root-owned and not writable by `openassetwatch`, while state and logs under
 `/var/lib/openassetwatch/agent` and `/var/log/openassetwatch/agent` are
-owned by `openassetwatch:openassetwatch`.
+owned by `openassetwatch:openassetwatch`. Downgrade is treated as an explicit
+administrator rollback action through native package-manager downgrade flags,
+not routine repair. Public Linux package release remains blocked until the
+repository has an authoritative OpenAssetWatch license declaration; RPM
+metadata uses `LicenseRef-OpenAssetWatch-UNSPECIFIED` only because a license
+field is required.
 
 ## Local TAR.GZ Package Artifacts
 

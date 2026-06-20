@@ -14,7 +14,8 @@ Current state:
   `scripts/release/validate_agent_deb.py`
 - Linux RPM artifacts can be built and validated when `rpmbuild`/`rpm`
   tooling is available through `scripts/release/package_agent_rpm.py` and
-  `scripts/release/validate_agent_rpm.py`
+  `scripts/release/validate_agent_rpm.py`; install lifecycle CI currently
+  exercises Rocky Linux 9 only
 - Linux TAR.GZ remains a manual fallback artifact and does not install users,
   services, or sudoers rules
 - no package-manager commands are executed from this directory
@@ -25,13 +26,17 @@ Current state:
   this scaffold
 - no signing keys, enrollment tokens, license keys, API keys, passwords, or
   other secrets are stored here
+- public Linux package release remains blocked until the repository has an
+  authoritative OpenAssetWatch license declaration; RPM metadata uses
+  `LicenseRef-OpenAssetWatch-UNSPECIFIED` only as a conservative required
+  metadata value
 
 Package targets:
 
 - Windows MSI or enterprise deployment package
 - Linux `.deb` package for Debian and Ubuntu
-- Linux `.rpm` package for RHEL, Rocky Linux, AlmaLinux, CentOS, Fedora, SUSE,
-  and openSUSE
+- Linux `.rpm` package for RPM-family systems, with Rocky Linux 9 as the
+  currently exercised install lifecycle target
 - Linux `.tar.gz` fallback for unsupported distributions or manual install
 - macOS LaunchDaemon PKG, signed and notarized for production release
 
@@ -113,7 +118,8 @@ Linux package source files live under `packaging/agent/linux/`:
 
 - `common/`: config and identity examples, privileged helper wrappers,
   sudoers allowlist, systemd service/timer units, and shared README content.
-- `deb/`: Debian control metadata, `conffiles`, maintainer scripts, and
+- `deb/`: Debian control metadata, `conffiles`, maintainer scripts including
+  `prerm`, and
   package-adjacent manifest template.
 - `rpm/`: RPM spec template and package-adjacent manifest template.
 - `targz/`: manual fallback notes and manifest template.
