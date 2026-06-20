@@ -74,6 +74,7 @@ jobs:
             "packaging/agent/linux/common/libexec/oaw-ip-neigh-show",
             "packaging/agent/linux/common/libexec/oaw-ip-addr-show",
             "packaging/agent/linux/deb/postinst",
+            "packaging/agent/linux/deb/prerm",
             "packaging/agent/linux/deb/postrm",
             "packaging/agent/macos/scripts/preinstall",
             "packaging/agent/macos/scripts/postinstall"
@@ -193,7 +194,7 @@ jobs:
           python3 ./scripts/release/package_agent_deb.py --version 0.1.91
           python3 ./scripts/release/validate_agent_deb.py --version 0.1.90
           python3 ./scripts/release/validate_agent_deb.py --version 0.1.91
-      - name: Install, repair, upgrade, downgrade, and uninstall DEB
+      - name: Install, repair, upgrade, downgrade, and uninstall DEB through systemd timer
         run: |
           set -euo pipefail
           OLD_DEB="dist/agent/0.1.90/packages/openassetwatch-agent_0.1.90_amd64.deb"
@@ -225,18 +226,69 @@ jobs:
           cleanup() {
             kill "$BACKEND_PID" 2>/dev/null || true
             sudo dpkg -r openassetwatch-agent >/dev/null 2>&1 || true
+            sudo systemctl daemon-reload >/dev/null 2>&1 || true
             sudo rm -rf /opt/openassetwatch /usr/lib/openassetwatch /etc/sudoers.d/openassetwatch-agent
             sudo rm -f /usr/bin/oaw-agent /lib/systemd/system/oaw-agent.service /lib/systemd/system/oaw-agent.timer
+            sudo rm -rf /etc/systemd/system/oaw-agent.timer.d
+            sudo rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer
             sudo rm -rf /etc/openassetwatch /var/lib/openassetwatch /var/log/openassetwatch
+            sudo userdel openassetwatch >/dev/null 2>&1 || true
+            sudo groupdel openassetwatch >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
+
+          wait_for_log() {
+            pattern="$1"
+            for _ in $(seq 1 90); do
+              if [ -f "$OAW_MOCK_LOG" ] && grep -q "$pattern" "$OAW_MOCK_LOG"; then
+                return 0
+              fi
+              sleep 1
+            done
+            sudo systemctl status oaw-agent.timer --no-pager || true
+            sudo systemctl status oaw-agent.service --no-pager || true
+            sudo journalctl -u oaw-agent.service --no-pager -n 200 || true
+            return 1
+          }
+
+          install_ci_timer_override() {
+            sudo mkdir -p /etc/systemd/system/oaw-agent.timer.d
+            sudo tee /etc/systemd/system/oaw-agent.timer.d/ci.conf >/dev/null <<'EOF'
+          [Timer]
+          OnBootSec=
+          OnUnitActiveSec=
+          RandomizedDelaySec=
+          AccuracySec=
+          OnBootSec=1s
+          OnUnitActiveSec=5s
+          RandomizedDelaySec=0
+          AccuracySec=1s
+          EOF
+            sudo systemctl daemon-reload
+          }
+
+          assert_timer_triggered_service() {
+            wait_for_log "/api/v1/agents/check-in"
+            wait_for_log "/api/v1/collections/local-inventory"
+            test -f /var/lib/openassetwatch/agent/last-inventory.json
+            test "$(systemctl show oaw-agent.service -p Result --value)" = "success"
+            sudo systemctl is-active --quiet oaw-agent.timer
+          }
 
           sudo dpkg -i "$OLD_DEB"
           test -x /opt/openassetwatch/agent/bin/oaw-agent
           id openassetwatch
           getent group openassetwatch
+          test "$(id -gn openassetwatch)" = "openassetwatch"
+          case "$(getent passwd openassetwatch | awk -F: '{print $7}')" in
+            /usr/sbin/nologin|/sbin/nologin|/bin/false) ;;
+            *) exit 1 ;;
+          esac
           test -f /lib/systemd/system/oaw-agent.service
           test -f /lib/systemd/system/oaw-agent.timer
+          sudo systemctl is-enabled --quiet oaw-agent.timer
+          sudo systemctl status oaw-agent.timer --no-pager || true
+          sudo systemctl status oaw-agent.service --no-pager || true
 
           sudo install -d -m 0750 -o root -g openassetwatch /etc/openassetwatch/agent
           printf '%s\n' '{"server_url":"http://127.0.0.1:18080","site_id":"ci-linux"}' | sudo tee /etc/openassetwatch/agent/config.json >/dev/null
@@ -245,28 +297,44 @@ jobs:
           sudo chmod 0640 /etc/openassetwatch/agent/config.json /etc/openassetwatch/agent/identity.json
           CONFIG_HASH="$(sudo sha256sum /etc/openassetwatch/agent/config.json | awk '{print $1}')"
           IDENTITY_HASH="$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
+          sudo install -o openassetwatch -g openassetwatch -m 0640 /dev/null /var/lib/openassetwatch/agent/state-survival.txt
+          sudo install -o openassetwatch -g openassetwatch -m 0640 /dev/null /var/log/openassetwatch/agent/log-survival.txt
+          install_ci_timer_override
 
-          sudo -u openassetwatch /opt/openassetwatch/agent/bin/oaw-agent run-once --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json --output-dir /var/lib/openassetwatch/agent
-          test -f /var/lib/openassetwatch/agent/last-inventory.json
-          grep -q "/api/v1/agents/check-in" "$OAW_MOCK_LOG"
-          grep -q "/api/v1/collections/local-inventory" "$OAW_MOCK_LOG"
+          sudo systemctl restart oaw-agent.timer
+          assert_timer_triggered_service
 
           sudo dpkg -i "$OLD_DEB"
           test "$CONFIG_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/config.json | awk '{print $1}')"
           test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
+          test -f /var/lib/openassetwatch/agent/state-survival.txt
+          test -f /var/log/openassetwatch/agent/log-survival.txt
+          sudo systemctl is-enabled --quiet oaw-agent.timer
 
           sudo dpkg -i "$NEW_DEB"
           test "$CONFIG_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/config.json | awk '{print $1}')"
           test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
+          test -f /var/lib/openassetwatch/agent/state-survival.txt
+          test -f /var/log/openassetwatch/agent/log-survival.txt
+          sudo systemctl is-enabled --quiet oaw-agent.timer
 
-          sudo dpkg -i "$OLD_DEB"
+          sudo dpkg -i --force-downgrade "$OLD_DEB"
           test "$CONFIG_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/config.json | awk '{print $1}')"
           test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
+          test -f /var/lib/openassetwatch/agent/state-survival.txt
+          test -f /var/log/openassetwatch/agent/log-survival.txt
 
           sudo dpkg -r openassetwatch-agent
           test ! -e /opt/openassetwatch/agent/bin/oaw-agent
+          test ! -e /lib/systemd/system/oaw-agent.service
+          test ! -e /lib/systemd/system/oaw-agent.timer
+          test ! -e /etc/systemd/system/timers.target.wants/oaw-agent.timer
+          ! sudo systemctl is-enabled --quiet oaw-agent.timer
+          ! sudo systemctl is-active --quiet oaw-agent.timer
           test -f /etc/openassetwatch/agent/config.json
           test -f /etc/openassetwatch/agent/identity.json
+          test -f /var/lib/openassetwatch/agent/state-survival.txt
+          test -f /var/log/openassetwatch/agent/log-survival.txt
 
   linux-rpm-lifecycle:
     runs-on: ubuntu-latest
@@ -294,7 +362,7 @@ jobs:
           python3 ./scripts/release/package_agent_rpm.py --version 0.1.91
           python3 ./scripts/release/validate_agent_rpm.py --version 0.1.90
           python3 ./scripts/release/validate_agent_rpm.py --version 0.1.91
-      - name: Install, repair, upgrade, downgrade, and uninstall RPM in Rocky Linux
+      - name: Install, repair, upgrade, downgrade, and uninstall RPM in Rocky Linux systemd
         run: |
           set -euo pipefail
           MOCK="$RUNNER_TEMP/oaw_mock_backend.py"
@@ -318,14 +386,32 @@ jobs:
                   return
           HTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
           PY
-          docker run --rm \
+          CONTAINER="oaw-rocky-systemd-${{ github.run_id }}-${{ github.run_attempt }}"
+          cleanup() {
+            docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run --detach --privileged --name "$CONTAINER" \
+            --tmpfs /run \
+            --tmpfs /run/lock \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
             -v "$PWD:/work" \
             -v "$RUNNER_TEMP:/tmp/oaw-runner-temp" \
             -w /work \
             rockylinux:9 \
-            /bin/bash -lc '
+            /usr/sbin/init
+          for _ in $(seq 1 60); do
+            if docker exec "$CONTAINER" systemctl is-system-running >/tmp/oaw-rocky-systemd-state.txt 2>&1; then
+              break
+            fi
+            if grep -Eq "running|degraded" /tmp/oaw-rocky-systemd-state.txt; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec "$CONTAINER" /bin/bash -lc "dnf -y install python3 sudo systemd shadow-utils iproute"
+          docker exec "$CONTAINER" /bin/bash -lc '
               set -euo pipefail
-              dnf -y install python3 sudo systemd shadow-utils
               OLD_RPM="dist/agent/0.1.90/packages/openassetwatch-agent-0.1.90-1.x86_64.rpm"
               NEW_RPM="dist/agent/0.1.91/packages/openassetwatch-agent-0.1.91-1.x86_64.rpm"
               MOCK="/tmp/oaw-runner-temp/oaw_mock_backend.py"
@@ -335,15 +421,60 @@ jobs:
               cleanup() {
                 kill "$BACKEND_PID" 2>/dev/null || true
                 rpm -e openassetwatch-agent >/dev/null 2>&1 || true
+                systemctl daemon-reload >/dev/null 2>&1 || true
               }
               trap cleanup EXIT
+
+              wait_for_log() {
+                pattern="$1"
+                for _ in $(seq 1 90); do
+                  if [ -f "$OAW_MOCK_LOG" ] && grep -q "$pattern" "$OAW_MOCK_LOG"; then
+                    return 0
+                  fi
+                  sleep 1
+                done
+                systemctl status oaw-agent.timer --no-pager || true
+                systemctl status oaw-agent.service --no-pager || true
+                journalctl -u oaw-agent.service --no-pager -n 200 || true
+                return 1
+              }
+
+              install_ci_timer_override() {
+                mkdir -p /etc/systemd/system/oaw-agent.timer.d
+                cat > /etc/systemd/system/oaw-agent.timer.d/ci.conf <<'"'"'EOF'"'"'
+          [Timer]
+          OnBootSec=
+          OnUnitActiveSec=
+          RandomizedDelaySec=
+          AccuracySec=
+          OnBootSec=1s
+          OnUnitActiveSec=5s
+          RandomizedDelaySec=0
+          AccuracySec=1s
+          EOF
+                systemctl daemon-reload
+              }
+
+              assert_timer_triggered_service() {
+                wait_for_log "/api/v1/agents/check-in"
+                wait_for_log "/api/v1/collections/local-inventory"
+                test -f /var/lib/openassetwatch/agent/last-inventory.json
+                test "$(systemctl show oaw-agent.service -p Result --value)" = "success"
+                systemctl is-active --quiet oaw-agent.timer
+              }
 
               rpm -Uvh "$OLD_RPM"
               test -x /opt/openassetwatch/agent/bin/oaw-agent
               id openassetwatch
               getent group openassetwatch
+              test "$(id -gn openassetwatch)" = "openassetwatch"
+              case "$(getent passwd openassetwatch | awk -F: '"'"'{print $7}'"'"')" in
+                /usr/sbin/nologin|/sbin/nologin|/bin/false) ;;
+                *) exit 1 ;;
+              esac
               test -f /usr/lib/systemd/system/oaw-agent.service
               test -f /usr/lib/systemd/system/oaw-agent.timer
+              systemctl is-enabled --quiet oaw-agent.timer
 
               install -d -m 0750 -o root -g openassetwatch /etc/openassetwatch/agent
               printf "%s\n" "{\"server_url\":\"http://127.0.0.1:18080\",\"site_id\":\"ci-linux\"}" > /etc/openassetwatch/agent/config.json
@@ -352,28 +483,44 @@ jobs:
               chmod 0640 /etc/openassetwatch/agent/config.json /etc/openassetwatch/agent/identity.json
               CONFIG_HASH="$(sha256sum /etc/openassetwatch/agent/config.json | awk '"'"'{print $1}'"'"')"
               IDENTITY_HASH="$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
+              install -o openassetwatch -g openassetwatch -m 0640 /dev/null /var/lib/openassetwatch/agent/state-survival.txt
+              install -o openassetwatch -g openassetwatch -m 0640 /dev/null /var/log/openassetwatch/agent/log-survival.txt
+              install_ci_timer_override
 
-              runuser -u openassetwatch -- /opt/openassetwatch/agent/bin/oaw-agent run-once --config /etc/openassetwatch/agent/config.json --identity-file /etc/openassetwatch/agent/identity.json --output-dir /var/lib/openassetwatch/agent
-              test -f /var/lib/openassetwatch/agent/last-inventory.json
-              grep -q "/api/v1/agents/check-in" "$OAW_MOCK_LOG"
-              grep -q "/api/v1/collections/local-inventory" "$OAW_MOCK_LOG"
+              systemctl restart oaw-agent.timer
+              assert_timer_triggered_service
 
               rpm -Uvh --replacepkgs "$OLD_RPM"
               test "$CONFIG_HASH" = "$(sha256sum /etc/openassetwatch/agent/config.json | awk '"'"'{print $1}'"'"')"
               test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
+              test -f /var/lib/openassetwatch/agent/state-survival.txt
+              test -f /var/log/openassetwatch/agent/log-survival.txt
+              systemctl is-enabled --quiet oaw-agent.timer
 
               rpm -Uvh "$NEW_RPM"
               test "$CONFIG_HASH" = "$(sha256sum /etc/openassetwatch/agent/config.json | awk '"'"'{print $1}'"'"')"
               test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
+              test -f /var/lib/openassetwatch/agent/state-survival.txt
+              test -f /var/log/openassetwatch/agent/log-survival.txt
+              systemctl is-enabled --quiet oaw-agent.timer
 
               rpm -Uvh --oldpackage "$OLD_RPM"
               test "$CONFIG_HASH" = "$(sha256sum /etc/openassetwatch/agent/config.json | awk '"'"'{print $1}'"'"')"
               test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
+              test -f /var/lib/openassetwatch/agent/state-survival.txt
+              test -f /var/log/openassetwatch/agent/log-survival.txt
 
               rpm -e openassetwatch-agent
               test ! -e /opt/openassetwatch/agent/bin/oaw-agent
+              test ! -e /usr/lib/systemd/system/oaw-agent.service
+              test ! -e /usr/lib/systemd/system/oaw-agent.timer
+              test ! -e /etc/systemd/system/timers.target.wants/oaw-agent.timer
+              ! systemctl is-enabled --quiet oaw-agent.timer
+              ! systemctl is-active --quiet oaw-agent.timer
               test -f /etc/openassetwatch/agent/config.json
               test -f /etc/openassetwatch/agent/identity.json
+              test -f /var/lib/openassetwatch/agent/state-survival.txt
+              test -f /var/log/openassetwatch/agent/log-survival.txt
             '
 
   windows-agent:
