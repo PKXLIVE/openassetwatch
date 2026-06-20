@@ -433,8 +433,10 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] `postinst` uses `/usr/sbin/nologin` for the service account shell
 - [ ] `postinst` sets service ownership only on
       `/var/lib/openassetwatch/agent/` and `/var/log/openassetwatch/agent/`
-- [ ] `/opt/openassetwatch/` and package-managed paths below it are owned by
-      `openassetwatch:openassetwatch`
+- [ ] `/opt/openassetwatch/` and package-managed executable paths below it are
+      owned by `root:root`
+- [ ] `openassetwatch` service user cannot modify
+      `/opt/openassetwatch/agent/bin/oaw-agent`
 - [ ] `/usr/lib/openassetwatch/agent/libexec/` remains root-controlled
 - [ ] helper scripts are owned by `root:root` and are not writable by
       `openassetwatch`
@@ -528,8 +530,9 @@ uninstall, upgrade, roll back, or publish anything.
       `ALL=(ALL) ALL`
 - [ ] `/opt/openassetwatch/`, `/opt/openassetwatch/agent/`,
       `/opt/openassetwatch/agent/bin/`, and
-      `/opt/openassetwatch/agent/bin/oaw-agent` are owned by
-      `openassetwatch:openassetwatch`
+      `/opt/openassetwatch/agent/bin/oaw-agent` are owned by `root:root`
+- [ ] `openassetwatch` service user cannot modify the packaged `/opt`
+      executable
 - [ ] `/usr/lib/openassetwatch/agent/libexec/` and helper scripts are owned
       by `root:root`
 - [ ] `/var/lib/openassetwatch/agent/` and `/var/log/openassetwatch/agent/`
@@ -552,13 +555,14 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] validator does not install the package or run package-manager or
       service-manager commands
 
-## RPM Spec Staging
+## RPM Package Build
 
 - [ ] `scripts/release/package_agent_rpm.py` passes against an existing Linux
       amd64 dist artifact
 - [ ] helper output is JSON only
 - [ ] helper output includes `ok`, `version`, `rpm_root`, `spec`,
-      `buildroot`, `manifest`, `checks`, `warnings`, and `errors`
+      `buildroot`, `manifest`, `package`, `checksum`, `package_manifest`,
+      `checks`, `warnings`, and `errors`
 - [ ] RPM staging output is written only under ignored
       `dist/agent/<version>/rpm/`
 - [ ] RPM build tree contains `BUILD/`, `BUILDROOT/`, `RPMS/`, `SOURCES/`,
@@ -589,6 +593,10 @@ uninstall, upgrade, roll back, or publish anything.
       `/usr/share/doc/openassetwatch-agent/release-manifest.json`
 - [ ] staged release manifest records helper metadata, sudoers metadata,
       service metadata, timer metadata, and ownership expectations
+- [ ] `.rpm` artifact is generated under ignored
+      `dist/agent/<version>/packages/`
+- [ ] `.rpm.sha256` checksum file is generated
+- [ ] `.rpm.manifest.json` package manifest is generated
 - [ ] spec declares `Requires: systemd` and `Requires: shadow-utils`
 - [ ] spec models the one-shot `oaw-agent run-once` service and timer
       behavior
@@ -605,20 +613,21 @@ uninstall, upgrade, roll back, or publish anything.
       grants, wildcards, shell/interpreter access, downloaders, package
       managers, service managers, file mutation commands, offensive tooling,
       or arbitrary arguments
-- [ ] helper does not build an RPM file
-- [ ] helper does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`,
-      `service`, `sudo`, package-manager commands, or service-manager
-      commands
+- [ ] helper invokes `rpmbuild` only to create the RPM artifact from the
+      reviewed staging tree
+- [ ] helper does not run `rpm -i`, `dnf`, `yum`, `systemctl`, `service`,
+      `sudo`, package-manager install commands, or service-manager commands
 - [ ] helper does not install software, enable services, start services, or
       modify host OS state
 - [ ] generated `dist/` artifacts remain ignored and are not committed
 
-## RPM Staging Validation
+## RPM Package Validation
 
 - [ ] `scripts/release/validate_agent_rpm.py` passes against the selected RPM
-      staging tree
+      staging tree and RPM package artifact
 - [ ] validator supports `--version`
 - [ ] validator supports optional `--rpm-root`
+- [ ] validator supports optional `--package`
 - [ ] validator output is JSON only
 - [ ] validator output includes `ok`, `version`, `rpm_root`, `checks`,
       `warnings`, and `errors`
@@ -627,6 +636,9 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] validator inspects
       `BUILDROOT/openassetwatch-agent-<version>-1.x86_64/`
 - [ ] validator inspects the staged package manifest JSON
+- [ ] validator inspects the final `.rpm`, `.rpm.sha256`, and
+      `.rpm.manifest.json`
+- [ ] validator uses `rpm -qp` inspection without installing the package
 - [ ] validator confirms `BUILD/`, `BUILDROOT/`, `RPMS/`, `SOURCES/`,
       `SPECS/`, and `SRPMS/` exist
 - [ ] validator confirms expected staged payload files and directories exist
@@ -654,14 +666,17 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] validator rejects unconditional service start behavior
 - [ ] validator rejects config or identity deletion behavior
 - [ ] validator rejects broad sudo behavior
+- [ ] validator confirms RPM metadata, requirements, payload paths,
+      ownership/modes, `%config(noreplace)` example files, scriptlets,
+      checksum, and package manifest
 - [ ] validator fails closed when the spec file is missing
 - [ ] validator fails closed when sudoers is missing
 - [ ] validator fails closed when sudoers directly allows raw `/usr/sbin/ip`
       commands
 - [ ] validator does not build or install an RPM
-- [ ] validator does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`,
-      `service`, `sudo`, package-manager commands, or service-manager
-      commands
+- [ ] validator does not run `rpmbuild`, `rpm -i`, `dnf`, `yum`,
+      `systemctl`, `service`, `sudo`, package-manager install commands, or
+      service-manager commands
 
 ## Disposable Linux Install Test Guidance
 
@@ -793,6 +808,11 @@ Complete for this phase:
 - [x] Debian one-shot `oaw-agent run-once` service packaging
 - [x] Debian systemd timer packaging
 - [x] guarded Debian timer enablement metadata
+- [x] RPM package artifact creation when `rpmbuild` is available
+- [x] RPM package checksum generation
+- [x] RPM package manifest generation
+- [x] RPM one-shot `oaw-agent run-once` service packaging
+- [x] RPM systemd timer packaging
 - [x] package manifest generation
 - [x] local release orchestration helper
 - [x] release validation helper
@@ -820,7 +840,8 @@ Future work:
 - [ ] Linux real OS installation path to `/usr`, `/etc`, and `/var`
 - [ ] cross-platform service scheduling beyond the packaged Linux timer
 - [ ] signed `.deb` release publication and install validation
-- [ ] `.rpm` package build
+- [x] unsigned `.rpm` package build helper
+- [ ] signed `.rpm` release publication and install validation
 - [x] Windows MSI
 - [x] macOS unsigned PKG validation artifact
 - [ ] production signed Windows release publication

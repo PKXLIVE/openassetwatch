@@ -185,6 +185,9 @@ Future collector packaging may include:
   * Agent native Windows service and MSI deployment details:
     [docs/AGENT_WINDOWS_DEPLOYMENT.md](docs/AGENT_WINDOWS_DEPLOYMENT.md)
 * Linux systemd installer
+  * Agent Linux DEB/RPM/TAR.GZ package source and release pipeline details:
+    [docs/AGENT_INSTALLATION.md](docs/AGENT_INSTALLATION.md) and
+    [docs/RELEASE_PIPELINE.md](docs/RELEASE_PIPELINE.md)
 * macOS launchd PKG installer
   * Agent macOS LaunchDaemon and PKG deployment details:
     [docs/AGENT_MACOS_DEPLOYMENT.md](docs/AGENT_MACOS_DEPLOYMENT.md)

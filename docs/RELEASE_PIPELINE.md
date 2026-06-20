@@ -7,9 +7,9 @@ OpenAssetWatch. It is not fully implemented yet.
 
 - Go commands and package layout exist as a foundation.
 - Installer scripts exist for Linux, macOS, Windows, and Docker shape review.
-- Agent package scaffolding exists under
-  [packaging/agent](../packaging/agent/README.md) for future Windows MSI,
-  Linux `.deb`, Linux `.rpm`, Linux `.tar.gz`, and macOS package planning.
+- Agent package source exists under
+  [packaging/agent](../packaging/agent/README.md) for Windows MSI, Linux
+  `.deb`, Linux `.rpm`, Linux `.tar.gz`, and macOS PKG artifacts.
 - The MVP deployment sizing baseline is documented in
   [Deployment Sizing](DEPLOYMENT_SIZING.md) so release and packaging work can
   stay aligned with the Linux-first Control Tower deployment target.
@@ -29,15 +29,17 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/validate_agent_deb.py](../scripts/release/validate_agent_deb.py).
   It inspects an existing `.deb` under ignored `dist/` paths without
   installing it or invoking host package tooling.
-- Local Linux RPM spec staging exists through
+- Local Linux RPM artifact generation exists through
   [scripts/release/package_agent_rpm.py](../scripts/release/package_agent_rpm.py).
-  It consumes an existing Linux amd64 `oaw-agent` dist artifact and writes only
-  an RPM build tree, spec file, staged payload, and manifest under ignored
-  `dist/` paths. It does not build or install an RPM.
-- Local Linux RPM staging validation exists through
+  It consumes an existing Linux amd64 `oaw-agent` dist artifact, stages the RPM
+  build tree from committed package source, invokes `rpmbuild` when available,
+  and writes only unsigned `.rpm`, SHA256, and package manifest output under
+  ignored `dist/` paths. It does not install the RPM.
+- Local Linux RPM package validation exists through
   [scripts/release/validate_agent_rpm.py](../scripts/release/validate_agent_rpm.py).
-  It inspects an existing RPM staging tree, spec file, staged payload, and
-  manifest under ignored `dist/` paths without building or installing an RPM.
+  It inspects the staging tree, spec file, staged payload, package manifest,
+  checksum, and real `.rpm` metadata/payload/scriptlets using RPM query
+  tooling without installing the RPM.
 - Local Windows install layout staging exists through
   [scripts/release/stage_agent_windows_install.py](../scripts/release/stage_agent_windows_install.py).
   It consumes an existing Windows amd64 `oaw-agent.exe` dist artifact and
@@ -443,11 +445,11 @@ allows only the helper scripts and no longer allows direct raw `/usr/sbin/ip`
 commands. It does not install the package and does not run host
 package-manager or service-manager commands.
 
-## Local RPM Spec Staging
+## Local RPM Package Artifacts
 
-After building a Linux amd64 agent binary artifact, use the RPM staging helper
-to generate the future RPM build tree, spec file, and staged payload under
-ignored `dist/` output:
+After building a Linux amd64 agent binary artifact, use the RPM helper in a
+Linux environment with `rpmbuild` available to generate an unsigned `.rpm`
+artifact under ignored `dist/` output:
 
 ```powershell
 .\scripts\release\build_agent_dist.ps1 `
@@ -468,6 +470,9 @@ The helper writes:
 - `dist/agent/<version>/rpm/SPECS/openassetwatch-agent.spec`
 - `dist/agent/<version>/rpm/SRPMS/`
 - `dist/agent/<version>/rpm/openassetwatch-agent-<version>-1.x86_64.manifest.json`
+- `dist/agent/<version>/packages/openassetwatch-agent-<rpm-version>-1.x86_64.rpm`
+- `dist/agent/<version>/packages/openassetwatch-agent-<rpm-version>-1.x86_64.rpm.sha256`
+- `dist/agent/<version>/packages/openassetwatch-agent-<rpm-version>-1.x86_64.rpm.manifest.json`
 
 The staged payload lives under:
 
@@ -503,12 +508,14 @@ sudo grants, shell access, interpreter access, downloaders, package managers,
 service managers, file mutation commands, offensive tooling, wildcards, or
 arbitrary arguments.
 
-This helper does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`,
-`service`, `sudo`, package-manager commands, or service-manager commands. It
-does not build an RPM file, install software, enable services, start services,
-or write to host `/usr`, `/etc`, `/var`, `/lib`, or `/opt`.
+The helper invokes `rpmbuild` only to create the local RPM artifact from the
+reviewed staging tree. It does not run `rpm -i`, `dnf`, `yum`, `systemctl`,
+`service`, `sudo`, package-manager install commands, or service-manager
+commands. It does not install software, enable services on the build host,
+start services, or write to host `/usr`, `/etc`, `/var`, `/lib`, or `/opt`.
 
-Validate the generated RPM staging tree without building or installing an RPM:
+Validate the generated RPM staging tree and final RPM package without
+installing it:
 
 ```powershell
 python .\scripts\release\validate_agent_rpm.py `
@@ -516,15 +523,16 @@ python .\scripts\release\validate_agent_rpm.py `
 ```
 
 The validator checks the RPM build tree, spec file, staged `BUILDROOT`
-payload, package manifest, embedded release manifest, service unit, timer
-unit, helper scripts, sudoers helper-only allowlist, example config and
-identity placeholders, and forbidden content patterns. It verifies that the
-spec creates or reuses the `openassetwatch` service user and group, enables
-`oaw-agent.timer` as target-install scriptlet behavior, does not start
-`oaw-agent.service` directly or unconditionally, does not delete config or
-identity files, and does not grant broad sudo access. It does not run `rpm`,
-`rpmbuild`, `dnf`, `yum`, `systemctl`, `service`, `sudo`, package-manager
-commands, or service-manager commands.
+payload, staging manifest, package checksum, package manifest, RPM metadata,
+RPM requirements, RPM payload paths, RPM file ownership/modes, RPM
+`%config(noreplace)` example metadata, RPM scriptlets, embedded release
+manifest, service unit, timer unit, helper scripts, sudoers helper-only
+allowlist, example config and identity placeholders, and forbidden content
+patterns. It verifies that the package creates or reuses the `openassetwatch`
+service user and group, enables `oaw-agent.timer` as target-install scriptlet
+behavior, does not start `oaw-agent.service` directly or unconditionally, does
+not delete config or identity files, and does not grant broad sudo access. It
+uses `rpm -qp` inspection commands only and does not install the RPM.
 
 ## Disposable Linux Install Test Guidance
 
@@ -558,9 +566,11 @@ administrator control, runs the one-shot `oaw-agent run-once` service through
 the timer, creates only the non-interactive `openassetwatch` service identity,
 creates only the narrow documented sudoers allowlist, and cleans up according
 to the package lifecycle policy. They should also verify
-that `/usr/lib/openassetwatch/agent/libexec/` and the helper scripts are
-root-owned and not writable by `openassetwatch`, while
-`/opt/openassetwatch/**` is owned by `openassetwatch:openassetwatch`.
+that `/opt/openassetwatch/agent/bin/oaw-agent`,
+`/usr/lib/openassetwatch/agent/libexec/`, and the helper scripts are
+root-owned and not writable by `openassetwatch`, while state and logs under
+`/var/lib/openassetwatch/agent` and `/var/log/openassetwatch/agent` are
+owned by `openassetwatch:openassetwatch`.
 
 ## Local TAR.GZ Package Artifacts
 
@@ -777,6 +787,11 @@ Complete for this phase:
 - [x] Debian one-shot `oaw-agent run-once` service packaging
 - [x] Debian systemd timer packaging
 - [x] guarded Debian timer enablement metadata
+- [x] RPM package artifact creation when `rpmbuild` is available
+- [x] RPM package checksum generation
+- [x] RPM package manifest generation
+- [x] RPM one-shot `oaw-agent run-once` service packaging
+- [x] RPM systemd timer packaging
 - [x] package manifest generation
 - [x] local release orchestration helper
 - [x] release validation helper
@@ -804,7 +819,8 @@ Future work:
 - [ ] Linux real OS installation path to `/usr`, `/etc`, and `/var`
 - [ ] cross-platform service scheduling beyond the packaged Linux timer
 - [ ] signed `.deb` release publication and install validation
-- [ ] `.rpm` package build
+- [x] unsigned `.rpm` package build helper
+- [ ] signed `.rpm` release publication and install validation
 - [x] Windows MSI
 - [x] macOS unsigned PKG validation artifact
 - [ ] production signed Windows release publication

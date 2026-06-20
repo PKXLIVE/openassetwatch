@@ -9,6 +9,14 @@ Current state:
   `scripts/release/build_agent_msi.ps1`
 - macOS unsigned PKG artifacts can be built from staged LaunchDaemon payloads
   through `scripts/release/build_agent_macos_pkg.sh` on macOS
+- Linux DEB artifacts can be built and validated from the canonical Linux
+  package source tree through `scripts/release/package_agent_deb.py` and
+  `scripts/release/validate_agent_deb.py`
+- Linux RPM artifacts can be built and validated when `rpmbuild`/`rpm`
+  tooling is available through `scripts/release/package_agent_rpm.py` and
+  `scripts/release/validate_agent_rpm.py`
+- Linux TAR.GZ remains a manual fallback artifact and does not install users,
+  services, or sudoers rules
 - no package-manager commands are executed from this directory
 - no package-manager commands are executed by this directory
 - service-manager commands appear only in reviewed target-install package
@@ -33,10 +41,15 @@ Package targets:
 - [OS Package Mapping](os-package-mapping.md)
 - [Windows WiX MSI source](windows/OpenAssetWatchAgent.wxs)
 - [macOS package scripts](macos/scripts/)
+- [Linux package source](linux/)
+- [Linux common package source](linux/common/)
+- [Linux DEB package source](linux/deb/)
+- [Linux RPM package source](linux/rpm/)
+- [Linux TAR.GZ fallback notes](linux/targz/)
 - [Windows MSI manifest template](templates/windows-msi.manifest.yaml)
-- [Linux DEB manifest template](templates/linux-deb.manifest.yaml)
-- [Linux RPM manifest template](templates/linux-rpm.manifest.yaml)
-- [Linux TAR.GZ manifest template](templates/linux-targz.manifest.yaml)
+- [Linux DEB manifest template](linux/deb/manifest-template.yaml)
+- [Linux RPM manifest template](linux/rpm/manifest-template.yaml)
+- [Linux TAR.GZ manifest template](linux/targz/manifest-template.yaml)
 - [macOS PKG manifest template](templates/macos-pkg.manifest.yaml)
 
 ## Package Boundary
@@ -93,6 +106,46 @@ logs, local status files, or service definitions.
 This helper does not build MSI, DEB, RPM, or PKG packages. It does not install
 software, modify the OS, run package-manager commands, run service-manager
 commands, or contact network services.
+
+## Linux DEB And RPM Package Sources
+
+Linux package source files live under `packaging/agent/linux/`:
+
+- `common/`: config and identity examples, privileged helper wrappers,
+  sudoers allowlist, systemd service/timer units, and shared README content.
+- `deb/`: Debian control metadata, `conffiles`, maintainer scripts, and
+  package-adjacent manifest template.
+- `rpm/`: RPM spec template and package-adjacent manifest template.
+- `targz/`: manual fallback notes and manifest template.
+
+The production Linux package layout is currently Linux `amd64`/RPM `x86_64`.
+The packaged executable is root-owned at
+`/opt/openassetwatch/agent/bin/oaw-agent`, `/usr/bin/oaw-agent` is a
+compatibility command, state and logs are service-owned under `/var`, and
+privileged helper scripts are root-owned under
+`/usr/lib/openassetwatch/agent/libexec/`.
+
+Local unsigned DEB artifacts can be built and validated from an existing Linux
+dist artifact:
+
+```powershell
+.\scripts\release\build_agent_dist.ps1 -Version 0.1.0-local -TargetOS linux -TargetArch amd64
+python .\scripts\release\package_agent_deb.py --version 0.1.0-local
+python .\scripts\release\validate_agent_deb.py --version 0.1.0-local
+```
+
+Local unsigned RPM artifacts require RPM tooling and can be built and
+validated in Linux CI or another disposable Linux environment with
+`rpmbuild`/`rpm` available:
+
+```bash
+pwsh ./scripts/release/build_agent_dist.ps1 -Version 0.1.0-local -TargetOS linux -TargetArch amd64
+python3 ./scripts/release/package_agent_rpm.py --version 0.1.0-local
+python3 ./scripts/release/validate_agent_rpm.py --version 0.1.0-local
+```
+
+Local and pull-request Linux packages are unsigned validation artifacts.
+Signed release publication remains a tagged release pipeline responsibility.
 
 ## Local Windows MSI Artifact Generation
 

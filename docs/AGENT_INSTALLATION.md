@@ -584,8 +584,9 @@ uses Go APIs and local cache files for host identity and Linux inventory.
 
 Package ownership expectations:
 
-- `/opt/openassetwatch/` and package-managed paths below it are owned by
-  `openassetwatch:openassetwatch`.
+- `/opt/openassetwatch/` and package-managed executable paths below it are
+  owned by `root:root` so the `openassetwatch` service user cannot modify the
+  packaged binary.
 - `/usr/lib/openassetwatch/agent/libexec/` and the privileged helper scripts
   are owned by `root:root` and are not writable by `openassetwatch`.
 - `/var/lib/openassetwatch/agent/` is owned by
@@ -626,10 +627,11 @@ directly. It also verifies that `postrm` is limited to daemon-reload cleanup
 and does not delete admin-managed identity or config files. It does not install
 the package or run host package-manager or service-manager commands.
 
-## Local RPM Spec Staging
+## Local RPM Package Artifacts
 
-Use the local RPM staging helper to prepare an RPM build tree, spec file, and
-staged payload from an existing Linux amd64 agent dist artifact:
+Use the local RPM helper in a Linux environment with `rpmbuild` available to
+prepare an RPM build tree, spec file, staged payload, and unsigned `.rpm`
+artifact from an existing Linux amd64 agent dist artifact:
 
 ```powershell
 .\scripts\release\build_agent_dist.ps1 `
@@ -650,6 +652,9 @@ The helper writes only under ignored `dist/` output:
 - `dist/agent/<version>/rpm/SPECS/openassetwatch-agent.spec`
 - `dist/agent/<version>/rpm/SRPMS/`
 - `dist/agent/<version>/rpm/openassetwatch-agent-<version>-1.x86_64.manifest.json`
+- `dist/agent/<version>/packages/openassetwatch-agent-<rpm-version>-1.x86_64.rpm`
+- `dist/agent/<version>/packages/openassetwatch-agent-<rpm-version>-1.x86_64.rpm.sha256`
+- `dist/agent/<version>/packages/openassetwatch-agent-<rpm-version>-1.x86_64.rpm.manifest.json`
 
 The staged payload root is:
 
@@ -680,14 +685,16 @@ scripts remain root-owned under `/usr/lib/openassetwatch/agent/libexec/`, and
 the staged sudoers file allows only those helpers. No direct raw
 `/usr/sbin/ip` sudo rules are staged.
 
-This helper does not build an RPM file and does not run `rpm`, `rpmbuild`,
-`dnf`, `yum`, `systemctl`, `service`, `sudo`, package-manager commands, or
-service-manager commands. It does not install software, enable services, start
-services, write to host `/usr`, `/etc`, `/var`, `/lib`, `/opt`, or create real
-config values, real identity values, logs, runtime status, tokens,
+This helper invokes `rpmbuild` only to create the local RPM artifact from the
+reviewed staging tree. It does not run `rpm -i`, `dnf`, `yum`, `systemctl`,
+`service`, `sudo`, package-manager install commands, or service-manager
+commands. It does not install software, enable services on the build host,
+start services, write to host `/usr`, `/etc`, `/var`, `/lib`, `/opt`, or create
+real config values, real identity values, logs, runtime status, tokens,
 credentials, API keys, or secrets.
 
-Validate the generated RPM staging tree without building or installing an RPM:
+Validate the generated RPM staging tree and final RPM package without
+installing it:
 
 ```powershell
 python .\scripts\release\validate_agent_rpm.py `
@@ -696,15 +703,15 @@ python .\scripts\release\validate_agent_rpm.py `
 
 The validator inspects the existing staging tree under
 `dist/agent/<version>/rpm/`, including `SPECS/openassetwatch-agent.spec`,
-`BUILDROOT/openassetwatch-agent-<version>-1.x86_64/`, the package manifest,
-and the embedded release manifest. It verifies the expected payload layout,
-the one-shot `run-once` service, the timer cadence, config and identity
-preconditions, helper scripts, the helper-only sudoers allowlist, example
-placeholders, and forbidden content patterns. It also verifies that the spec
-models only expected RPM target-install scriptlet behavior and does not start
-the service unconditionally, delete config or identity, or grant broad sudo.
-It does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`, `service`,
-`sudo`, package-manager commands, or service-manager commands.
+`BUILDROOT/openassetwatch-agent-<version>-1.x86_64/`, the staging manifest,
+the final RPM package, package checksum, package manifest, and embedded release
+manifest. It uses `rpm -qp` inspection to verify metadata, requirements,
+payload paths, ownership/modes, `%config(noreplace)` example metadata, and
+scriptlets. It also verifies the one-shot `run-once` service, timer cadence,
+config and identity preconditions, helper scripts, helper-only sudoers
+allowlist, placeholders, forbidden content patterns, guarded timer enablement,
+no unconditional service start, no config/identity deletion, and no broad sudo.
+It does not install the RPM or run package-manager install commands.
 
 ## Disposable Linux Install Test Guidance
 
@@ -904,6 +911,11 @@ Complete for this phase:
 - [x] Debian one-shot `oaw-agent run-once` service packaging
 - [x] Debian systemd timer packaging
 - [x] guarded Debian timer enablement metadata
+- [x] RPM package artifact creation when `rpmbuild` is available
+- [x] RPM package checksum generation
+- [x] RPM package manifest generation
+- [x] RPM one-shot `oaw-agent run-once` service packaging
+- [x] RPM systemd timer packaging
 - [x] package manifest generation
 - [x] local release orchestration helper
 - [x] release validation helper
@@ -935,7 +947,8 @@ Future work:
 - [ ] Linux real OS installation path to `/usr`, `/etc`, and `/var`
 - [ ] cross-platform service scheduling beyond the packaged Linux timer
 - [ ] signed `.deb` release publication and install validation
-- [ ] `.rpm` package build
+- [x] unsigned `.rpm` package build helper
+- [ ] signed `.rpm` release publication and install validation
 - [x] Windows MSI
 - [x] macOS unsigned PKG validation artifact
 - [ ] package-manager execution by local release helpers

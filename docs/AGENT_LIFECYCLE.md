@@ -286,11 +286,14 @@ For future install, uninstall, upgrade, rollback, package validation, and
 enterprise deployment lifecycle planning, see
 [Agent Installation](AGENT_INSTALLATION.md).
 
-Use the [agent package scaffold](../packaging/agent/README.md) to review
+Use the [agent package source](../packaging/agent/README.md) to review
 Windows MSI, Linux `.deb`, Linux `.rpm`, Linux `.tar.gz`, and macOS PKG layout
-expectations. The scaffold and local release helpers do not execute
-package-manager commands, service-manager commands outside reviewed package
-scripts, or unprompted host modifications.
+expectations. Linux DEB and RPM source now lives under
+`packaging/agent/linux/`; local and pull-request package artifacts are
+unsigned validation outputs until signing and release publication are added.
+The source tree and local release helpers do not execute package-manager
+install commands, service-manager commands outside reviewed package scripts,
+or unprompted host modifications.
 
 Use `oaw-agent service plan` to inspect the future service target for the
 current operating system before any service install, uninstall, daemon, or

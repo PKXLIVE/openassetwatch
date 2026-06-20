@@ -1,8 +1,10 @@
 # Agent OS Package Mapping
 
-This document maps operating systems to future OpenAssetWatch agent package
-targets. It is documentation only and does not execute package-manager or
-service-manager commands.
+This document maps operating systems to OpenAssetWatch agent package targets.
+It is documentation only and does not execute package-manager or
+service-manager commands. Current local and pull-request Linux packages are
+unsigned validation artifacts; signed publication remains release-pipeline
+work.
 
 ## Mapping
 
@@ -34,9 +36,10 @@ commands require explicit administrator action outside the agent runtime.
 
 ## Package Family Notes
 
-- `.deb` packages are intended for Debian and Ubuntu families.
-- `.rpm` packages are intended for RHEL, Rocky Linux, AlmaLinux, CentOS,
-  Fedora, SUSE, and openSUSE families.
+- `.deb` packages are implemented for Debian and Ubuntu family validation
+  artifacts on Linux `amd64`.
+- `.rpm` packages are implemented for RPM-family validation artifacts on Linux
+  `x86_64` when RPM tooling is available.
 - `.tar.gz` packages are fallback artifacts for unsupported Linux
   distributions or manual install workflows.
 - Windows package planning targets signed MSI and enterprise deployment tools.
