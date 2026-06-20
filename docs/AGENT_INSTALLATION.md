@@ -415,7 +415,8 @@ The helper writes local validation output under ignored `dist/` paths:
 - `.pkg.sha256`
 - `.pkg.manifest.json`
 
-Current CI validates macOS 15 on Apple Silicon and Intel runners. Earlier
+Current CI validates macOS 15 on Apple Silicon and Intel runners, and the
+package manifest defaults its tested minimum macOS metadata to `15.0`. Earlier
 macOS versions are not claimed as tested until matching CI or release evidence
 exists.
 
@@ -463,7 +464,9 @@ bash scripts/release/sign_notarize_agent_macos.sh \
   --arch-mode universal \
   --app-identity "Developer ID Application: Example" \
   --installer-identity "Developer ID Installer: Example" \
-  --notary-profile openassetwatch
+  --api-key /path/to/AuthKey_EXAMPLE.p8 \
+  --api-key-id EXAMPLEKEYID \
+  --api-issuer EXAMPLE-ISSUER-ID
 ```
 
 The signed release helper rebuilds from verified artifacts so the embedded
@@ -471,6 +474,13 @@ package binary is signed before pkgroot staging. It then signs the product PKG,
 requires notarization `Accepted` status unless explicitly running a signed-only
 validation, staples the ticket, validates Gatekeeper assessment, and regenerates
 the final checksum and manifest after signing/stapling.
+
+The hosted signed-release workflow imports Developer ID Application and
+Developer ID Installer P12 certificates from base64 GitHub Actions secrets into
+a temporary keychain, materializes the App Store Connect API key into the runner
+temp directory, verifies the expected identities, and removes the temporary
+keychain, P12 files, and API key in an `always()` cleanup step. Pull-request CI
+remains unsigned and does not require signing or notarization secrets.
 
 Uninstall uses the explicit macOS uninstaller. By default it preserves config,
 identity, state, logs, and the service account:

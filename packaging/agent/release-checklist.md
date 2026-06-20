@@ -248,6 +248,8 @@ uninstall, upgrade, roll back, or publish anything.
       versions
 - [ ] supplied Darwin artifact inputs include binary, checksum, manifest,
       version, OS, architecture, git commit metadata, and matching SHA256
+- [ ] package manifest tested minimum macOS metadata is `15.0` unless a newer
+      CI-tested value is supplied explicitly
 - [ ] supplied and locally built Darwin binaries are verified as Mach-O with
       the expected arm64, x86_64, or exact universal slices
 - [ ] package identifier is `com.openassetwatch.agent`
@@ -304,6 +306,14 @@ uninstall, upgrade, roll back, or publish anything.
       artifacts only
 - [ ] production release flow signs the embedded binary before pkgroot staging
       and before product PKG signing
+- [ ] hosted signed-release workflow imports Developer ID Application and
+      Developer ID Installer P12 secrets into a temporary keychain
+- [ ] hosted signed-release workflow verifies expected signing identities
+      before building the signed PKG
+- [ ] hosted signed-release workflow materializes notarization credentials from
+      secrets and does not assume a preexisting keychain profile
+- [ ] hosted signed-release workflow removes temporary keychain, P12 files, and
+      notarization key material with `always()` cleanup
 - [ ] production release flow verifies hardened runtime, secure timestamp, and
       absence of `get-task-allow`
 - [ ] production release flow expands or inspects the final PKG and verifies

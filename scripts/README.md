@@ -31,7 +31,10 @@ should not be added here.
   numeric receipt versions, verify Darwin slice/universal architecture inputs,
   provide explicit macOS signing and notarization hooks that sign the embedded
   binary before pkgroot staging and regenerate final checksum/manifest metadata
-  after notarization/stapling, provide a safe macOS uninstaller with dry-run,
+  after notarization/stapling, support hosted signed-release workflows that
+  import signing identities into a temporary keychain and materialize
+  notarization API-key material only in runner temp storage, provide a safe
+  macOS uninstaller with dry-run,
   root-precondition failure, no system-Python dependency, and data-preservation
   defaults, validate
   generated release artifacts, orchestrate the local release flow, stage a local

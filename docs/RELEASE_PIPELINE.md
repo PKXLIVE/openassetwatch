@@ -318,8 +318,17 @@ release output must be signed, notarized, stapled, and verified with
 `sign_notarize_agent_macos.sh` or equivalent release infrastructure. Signed but
 not notarized packages are signing-validation artifacts only. macOS PKG receipt
 versions are numeric only; prerelease/build suffixes are rejected to avoid
-receipt-version collisions. Current CI validates macOS 15 arm64 and Intel
+receipt-version collisions. Package manifests default tested minimum macOS
+metadata to `15.0` because current CI validates macOS 15 arm64 and Intel
 runners, plus universal package installation where supported.
+
+The hosted signed macOS release workflow is intentionally tag/manual only. It
+imports base64 Developer ID Application and Developer ID Installer P12 secrets
+into a temporary keychain, configures non-interactive access for
+`codesign`/`productsign`, verifies both expected identities, materializes an App
+Store Connect API key from secrets for `notarytool`, and deletes the keychain,
+certificate files, and API key in an `always()` cleanup step. Pull-request CI is
+unsigned and secret-free.
 
 ## Local Debian Package Artifacts
 
