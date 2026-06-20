@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - feat/oaw-agent-windows-native-service-msi
   pull_request:
     paths:
       - ".github/workflows/agent-ci.yml"
@@ -27,7 +26,8 @@ jobs:
           cache: true
       - name: gofmt
         run: |
-          changed="$(gofmt -l cmd/oaw-agent internal/agent pkg 2>/dev/null || true)"
+          files="$(git ls-files '*.go')"
+          changed="$(gofmt -l $files)"
           if [ -n "$changed" ]; then
             echo "$changed"
             exit 1
@@ -54,8 +54,12 @@ jobs:
             "scripts/release/sign_agent_windows.ps1"
           )
           foreach ($script in $scripts) {
-            $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$null, [ref]$errors)
+            $tokens = $null
+            $errors = $null
+            $resolved = (Resolve-Path $script).Path
+            $null = [System.Management.Automation.Language.Parser]::ParseFile($resolved, [ref]$tokens, [ref]$errors)
             if ($errors.Count -gt 0) {
+              Write-Error "PowerShell parser errors in $script"
               $errors | Format-List | Out-String | Write-Error
               exit 1
             }
@@ -80,7 +84,15 @@ jobs:
       - name: gofmt
         shell: pwsh
         run: |
-          $changed = gofmt -l cmd/oaw-agent internal/agent pkg
+          $files = git ls-files '*.go'
+          foreach ($file in $files) {
+            $content = [System.IO.File]::ReadAllText($file)
+            $normalized = $content -replace "`r`n", "`n"
+            if ($normalized -ne $content) {
+              [System.IO.File]::WriteAllText($file, $normalized, [System.Text.UTF8Encoding]::new($false))
+            }
+          }
+          $changed = gofmt -l $files
           if ($changed) {
             $changed
             exit 1
