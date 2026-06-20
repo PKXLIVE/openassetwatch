@@ -224,6 +224,92 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] production release flow signs the MSI
 - [ ] production release flow verifies executable and MSI signatures
 
+## macOS LaunchDaemon PKG Validation
+
+- [ ] `scripts/release/build_agent_macos_pkg.sh` parses cleanly
+- [ ] `scripts/release/stage_agent_macos_install.py` passes against an
+      existing Darwin agent artifact
+- [ ] `scripts/release/validate_agent_macos_install.py` passes against the
+      staged macOS install layout
+- [ ] `packaging/agent/macos/scripts/preinstall` parses cleanly
+- [ ] `packaging/agent/macos/scripts/postinstall` parses cleanly
+- [ ] package output is written only under ignored
+      `dist/agent/<version>/packages/`
+- [ ] package artifact name is
+      `OpenAssetWatchAgent-<version>-macos-<arch-mode>.pkg`
+- [ ] package SHA256 checksum file is generated
+- [ ] package manifest JSON is generated
+- [ ] staging manifest records version, package version, OS, architecture
+      mode, source artifact checksum, package identifier, launchd label,
+      service account, production paths, ownership intent, signing state, and
+      notarization state
+- [ ] package identifier is `com.openassetwatch.agent`
+- [ ] launchd label is `com.openassetwatch.agent`
+- [ ] package supports Apple Silicon `arm64` and Intel `amd64` artifacts, plus
+      universal package generation on macOS with `lipo`
+- [ ] staged payload includes
+      `/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent`
+- [ ] staged payload includes
+      `/Library/Application Support/OpenAssetWatch/Agent/config/config.example.json`
+- [ ] staged payload includes
+      `/Library/Application Support/OpenAssetWatch/Agent/identity/identity.example.json`
+- [ ] staged payload includes
+      `/Library/Application Support/OpenAssetWatch/Agent/state/`
+- [ ] staged payload includes `/Library/Logs/OpenAssetWatch/Agent/`
+- [ ] staged payload includes
+      `/Library/LaunchDaemons/com.openassetwatch.agent.plist`
+- [ ] staged payload includes
+      `/Library/Application Support/OpenAssetWatch/Agent/install-manifest.json`
+- [ ] LaunchDaemon plist uses `ProgramArguments`, not shell command strings
+- [ ] LaunchDaemon runs
+      `/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent service run`
+- [ ] LaunchDaemon uses explicit config, identity, and output-dir arguments
+      under `/Library/Application Support/OpenAssetWatch/Agent`
+- [ ] LaunchDaemon uses `UserName=_openassetwatch`
+- [ ] LaunchDaemon uses `GroupName=_openassetwatch`
+- [ ] LaunchDaemon uses `RunAtLoad=true`
+- [ ] LaunchDaemon uses `KeepAlive={Crashed=true}`
+- [ ] LaunchDaemon uses `ThrottleInterval=60`
+- [ ] LaunchDaemon uses `ExitTimeOut=30`
+- [ ] LaunchDaemon does not use `StartInterval` or `StartCalendarInterval`
+- [ ] LaunchDaemon does not use shell chaining, shell execution, environment
+      secrets, active scanning, or offensive tooling
+- [ ] `postinstall` creates or reuses a non-interactive `_openassetwatch`
+      service user and group without fixed UID/GID assumptions
+- [ ] `postinstall` validates the plist with `plutil`
+- [ ] `postinstall` validates the binary with `file`
+- [ ] `postinstall` uses modern `launchctl bootout`, `bootstrap`, `enable`,
+      `kickstart`, and `print`
+- [ ] `postinstall` does not call backend network services
+- [ ] `postinstall` does not overwrite real config or identity
+- [ ] `preinstall` boots out an existing LaunchDaemon before repair or upgrade
+- [ ] `preinstall` refuses downgrades unless an administrator performs a
+      deliberate rollback with a trusted older package
+- [ ] package examples are placeholders and contain no tokens, credentials,
+      passwords, API keys, or secrets
+- [ ] unsigned local PKG artifacts are marked as validation artifacts only
+- [ ] production release flow signs the binary
+- [ ] production release flow signs the PKG
+- [ ] production release flow submits the PKG for notarization
+- [ ] production release flow staples and verifies the notarized PKG
+
+## macOS Uninstall Validation
+
+- [ ] `scripts/release/uninstall_agent_macos.sh` parses cleanly
+- [ ] uninstaller supports `--dry-run`
+- [ ] real uninstall requires root
+- [ ] uninstaller uses modern `launchctl bootout`
+- [ ] uninstaller removes package-managed binary, plist, examples, and install
+      manifest only from canonical OpenAssetWatch paths
+- [ ] uninstaller preserves config and identity by default
+- [ ] uninstaller preserves state and logs by default
+- [ ] `--remove-state` is required before removing state
+- [ ] `--remove-logs` is required before removing logs
+- [ ] `--purge` is required before removing config or identity directories
+- [ ] uninstaller refuses empty, unrelated, and symlink-escaped paths
+- [ ] uninstaller preserves the `_openassetwatch` service account by default
+- [ ] uninstaller emits JSON only
+
 ## Windows File Helper Validation
 
 - [ ] `scripts/release/install_agent_windows_files.ps1` parses cleanly
@@ -682,22 +768,34 @@ Complete for this phase:
 - [x] proof install layout under ignored `dist/staging/`
 - [x] local sandbox install helper
 - [x] proof local install layout under ignored `dist/local-install/`
+- [x] Windows native `oaw-agent service run` runtime
+- [x] WiX Toolset MSI build helper
+- [x] Windows MSI checksum and manifest generation
+- [x] macOS native `oaw-agent service run` LaunchDaemon runtime
+- [x] macOS LaunchDaemon install staging and validation
+- [x] unsigned macOS PKG build helper
+- [x] macOS PKG checksum and manifest generation
+- [x] macOS safe uninstall helper
 
 Future work:
 
-- [ ] real OS installation
-- [ ] writing to Program Files, ProgramData, `/usr`, `/etc`, `/var`, or
-      `/Library`
-- [ ] service installation
-- [ ] long-running daemon or service runtime
+- [x] Windows real OS installation path through MSI
+- [x] Windows service installation path through MSI
+- [x] Windows service runtime
+- [x] macOS real OS installation path through PKG
+- [x] macOS LaunchDaemon installation path through PKG
+- [x] macOS service runtime
+- [ ] Linux real OS installation path to `/usr`, `/etc`, and `/var`
 - [ ] cross-platform service scheduling beyond the packaged Linux timer
 - [ ] signed `.deb` release publication and install validation
 - [ ] `.rpm` package build
-- [ ] Windows MSI
-- [ ] macOS signed/notarized package
+- [x] Windows MSI
+- [x] macOS unsigned PKG validation artifact
+- [ ] production signed Windows release publication
+- [ ] production signed/notarized macOS release publication
 - [ ] package-manager execution by local release helpers
 - [ ] service-manager execution by local release helpers beyond packaged,
-      guarded Debian maintainer-script behavior
+      guarded Debian and macOS package-script behavior
 - [ ] self-update
 - [ ] licensing enforcement
 

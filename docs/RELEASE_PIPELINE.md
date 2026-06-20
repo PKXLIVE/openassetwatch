@@ -61,6 +61,28 @@ OpenAssetWatch. It is not fully implemented yet.
   [scripts/release/sign_agent_windows.ps1](../scripts/release/sign_agent_windows.ps1).
   They require explicit certificate inputs and support executable/MSI signing
   and verification. CI builds remain unsigned validation artifacts.
+- Local macOS LaunchDaemon install staging exists through
+  [scripts/release/stage_agent_macos_install.py](../scripts/release/stage_agent_macos_install.py).
+  It consumes an existing Darwin agent artifact and writes only a
+  `/Library/Application Support`, `/Library/Logs`, and LaunchDaemon proof
+  layout under ignored `dist/` paths.
+- Local macOS LaunchDaemon install validation exists through
+  [scripts/release/validate_agent_macos_install.py](../scripts/release/validate_agent_macos_install.py).
+  It inspects the staged LaunchDaemon layout, plist, package scripts, manifests,
+  examples, and safety boundaries without installing the package.
+- Local macOS PKG generation exists through
+  [scripts/release/build_agent_macos_pkg.sh](../scripts/release/build_agent_macos_pkg.sh).
+  It runs on macOS, builds Darwin arm64/amd64 slices or a universal binary, and
+  writes unsigned PKG, SHA256, and manifest artifacts under ignored `dist/`
+  paths.
+- macOS signing and notarization hooks exist through
+  [scripts/release/sign_notarize_agent_macos.sh](../scripts/release/sign_notarize_agent_macos.sh).
+  They require explicit Developer ID and notary inputs. Local and PR PKG
+  artifacts remain unsigned validation artifacts.
+- A safe macOS uninstaller exists through
+  [scripts/release/uninstall_agent_macos.sh](../scripts/release/uninstall_agent_macos.sh).
+  It preserves config, identity, state, logs, and the service account by
+  default, with explicit cleanup flags for administrator-controlled removal.
 - Explicit Windows service install and uninstall helpers exist through
   [scripts/release/install_agent_windows_service.ps1](../scripts/release/install_agent_windows_service.ps1)
   and
@@ -98,9 +120,10 @@ OpenAssetWatch. It is not fully implemented yet.
   It validates local packages, writes backup metadata under ignored
   `dist/local-install/` paths, and creates only repo-local sandbox install
   roots.
-- No signed native packages are produced yet.
-- No installer execution, service installation, or package-manager execution
-  is implemented by the scaffold.
+- No production signed native packages are produced yet.
+- Windows MSI and macOS PKG package-script behavior is implemented and tested
+  through explicit package artifacts. Local release helpers do not execute
+  package-manager commands.
 - No signing keys or credentials are stored in the repository.
 
 ## Local Agent Binary Artifacts
@@ -242,6 +265,54 @@ Log source metadata, enables `NT SERVICE\OpenAssetWatchAgent` service-SID ACLs,
 configures bounded service recovery metadata, records delayed automatic startup
 metadata, and preserves administrator-managed config, identity, state, and
 logs. Unsigned local MSI output is not release-ready.
+
+## Local macOS LaunchDaemon PKG Artifacts
+
+On macOS, build and validate a LaunchDaemon PKG under ignored `dist/` output:
+
+```bash
+bash scripts/release/build_agent_macos_pkg.sh \
+  --version 0.1.0-local \
+  --arch-mode universal
+
+python3 scripts/release/validate_agent_macos_install.py \
+  --version 0.1.0-local
+```
+
+The macOS PKG helper emits:
+
+- `dist/agent/<version>/darwin-arm64/oaw-agent`
+- `dist/agent/<version>/darwin-amd64/oaw-agent`
+- `dist/agent/<version>/darwin-universal/oaw-agent` for universal mode
+- `dist/agent/<version>/macos-install/`
+- `dist/agent/<version>/packages/OpenAssetWatchAgent-<version>-macos-<arch-mode>.pkg`
+- `.pkg.sha256`
+- `.pkg.manifest.json`
+
+The staged and packaged payload contains:
+
+- `/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent`
+- `/Library/Application Support/OpenAssetWatch/Agent/config/config.example.json`
+- `/Library/Application Support/OpenAssetWatch/Agent/identity/identity.example.json`
+- `/Library/Application Support/OpenAssetWatch/Agent/state/`
+- `/Library/Logs/OpenAssetWatch/Agent/`
+- `/Library/LaunchDaemons/com.openassetwatch.agent.plist`
+- `/Library/Application Support/OpenAssetWatch/Agent/install-manifest.json`
+
+The LaunchDaemon runs the supported `oaw-agent service run` command with
+explicit config, identity, and state paths under
+`/Library/Application Support/OpenAssetWatch/Agent`. It uses the
+non-interactive `_openassetwatch` service identity, `RunAtLoad=true`,
+`KeepAlive={Crashed=true}`, and bounded launchd restart throttling. It does
+not package `StartInterval`, `StartCalendarInterval`, shell chaining, active
+scanning, or offensive tooling.
+
+The package scripts use target-machine `launchctl` operations only as part of
+the PKG install/uninstall lifecycle. They do not contact a backend, store
+secrets, overwrite real config or identity, or run package-manager commands.
+Unsigned local macOS PKG artifacts are validation artifacts only. Production
+release output must be signed, notarized, stapled, and verified with
+`sign_notarize_agent_macos.sh` or equivalent release infrastructure.
 
 ## Local Debian Package Artifacts
 
@@ -697,22 +768,34 @@ Complete for this phase:
 - [x] proof install layout under ignored `dist/staging/`
 - [x] local sandbox install helper
 - [x] proof local install layout under ignored `dist/local-install/`
+- [x] Windows native `oaw-agent service run` runtime
+- [x] WiX Toolset MSI build helper
+- [x] Windows MSI checksum and manifest generation
+- [x] macOS native `oaw-agent service run` LaunchDaemon runtime
+- [x] macOS LaunchDaemon install staging and validation
+- [x] unsigned macOS PKG build helper
+- [x] macOS PKG checksum and manifest generation
+- [x] macOS safe uninstall helper
 
 Future work:
 
-- [ ] real OS installation
-- [ ] writing to Program Files, ProgramData, `/usr`, `/etc`, `/var`, or
-  `/Library`
-- [ ] service installation
-- [ ] long-running daemon or service runtime
+- [x] Windows real OS installation path through MSI
+- [x] Windows service installation path through MSI
+- [x] Windows service runtime
+- [x] macOS real OS installation path through PKG
+- [x] macOS LaunchDaemon installation path through PKG
+- [x] macOS service runtime
+- [ ] Linux real OS installation path to `/usr`, `/etc`, and `/var`
 - [ ] cross-platform service scheduling beyond the packaged Linux timer
 - [ ] signed `.deb` release publication and install validation
 - [ ] `.rpm` package build
-- [ ] Windows MSI
-- [ ] macOS signed/notarized package
+- [x] Windows MSI
+- [x] macOS unsigned PKG validation artifact
+- [ ] production signed Windows release publication
+- [ ] production signed/notarized macOS release publication
 - [ ] package-manager execution by local release helpers
 - [ ] service-manager execution by local release helpers beyond packaged,
-  guarded Debian maintainer-script behavior
+  guarded Debian and macOS package-script behavior
 - [ ] self-update
 - [ ] licensing enforcement
 

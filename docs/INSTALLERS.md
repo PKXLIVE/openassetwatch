@@ -66,9 +66,10 @@ references, or a self-hosted administrator-provided secret store.
 
 Future default installed-agent identity locations should be:
 
-- Windows: `%PROGRAMDATA%\OpenAssetWatch\agent\identity.json`
-- Linux: `/var/lib/openassetwatch/agent/identity.json`
-- macOS: `/Library/Application Support/OpenAssetWatch/agent/identity.json`
+- Windows: `%ProgramData%\OpenAssetWatch\Agent\identity\identity.json`
+- Linux: `/etc/openassetwatch/agent/identity.json`
+- macOS:
+  `/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json`
 
 The current Go agent can explicitly initialize this non-secret file for local
 development:

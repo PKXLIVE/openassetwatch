@@ -1,15 +1,20 @@
 # OpenAssetWatch Agent Package Scaffold
 
-This directory contains release and package planning scaffolds plus the Windows
-WiX MSI authoring source for OpenAssetWatch agent packages.
+This directory contains release and package planning scaffolds plus native
+package authoring inputs for OpenAssetWatch agent packages.
 
 Current state:
 
 - Windows MSI artifacts can be built from the WiX source through
   `scripts/release/build_agent_msi.ps1`
+- macOS unsigned PKG artifacts can be built from staged LaunchDaemon payloads
+  through `scripts/release/build_agent_macos_pkg.sh` on macOS
 - no package-manager commands are executed from this directory
-- no service-manager commands are executed from this directory
-- no files are installed, removed, upgraded, or rolled back by this scaffold
+- no package-manager commands are executed by this directory
+- service-manager commands appear only in reviewed target-install package
+  scripts or explicit administrator tools
+- no files are installed, removed, upgraded, or rolled back merely by reading
+  this scaffold
 - no signing keys, enrollment tokens, license keys, API keys, passwords, or
   other secrets are stored here
 
@@ -20,13 +25,14 @@ Package targets:
 - Linux `.rpm` package for RHEL, Rocky Linux, AlmaLinux, CentOS, Fedora, SUSE,
   and openSUSE
 - Linux `.tar.gz` fallback for unsupported distributions or manual install
-- macOS signed and notarized package
+- macOS LaunchDaemon PKG, signed and notarized for production release
 
 ## Scaffold Contents
 
 - [Release Checklist](release-checklist.md)
 - [OS Package Mapping](os-package-mapping.md)
 - [Windows WiX MSI source](windows/OpenAssetWatchAgent.wxs)
+- [macOS package scripts](macos/scripts/)
 - [Windows MSI manifest template](templates/windows-msi.manifest.yaml)
 - [Linux DEB manifest template](templates/linux-deb.manifest.yaml)
 - [Linux RPM manifest template](templates/linux-rpm.manifest.yaml)
@@ -106,10 +112,35 @@ The MSI installs the native Windows service model using `oaw-agent.exe service
 run`. Local MSI output is unsigned and is not production release-ready until
 the executable and MSI are signed and verified.
 
+## Local macOS PKG Artifact Generation
+
+On macOS, the PKG helper can build unsigned LaunchDaemon validation artifacts
+under ignored `dist/` output:
+
+```bash
+bash scripts/release/build_agent_macos_pkg.sh \
+  --version 0.1.0-local \
+  --arch-mode universal
+
+python3 scripts/release/validate_agent_macos_install.py \
+  --version 0.1.0-local
+```
+
+The package installs the native macOS service model using
+`/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent service run`.
+It stages and packages `com.openassetwatch.agent` as a system LaunchDaemon
+running as `_openassetwatch`, with config, identity, and state under
+`/Library/Application Support/OpenAssetWatch/Agent` and logs under
+`/Library/Logs/OpenAssetWatch/Agent`.
+
+Local PKG output is unsigned and is not production release-ready until the
+binary and package are signed, notarized, stapled, and verified.
+
 ## Related Docs
 
 - [Agent Installation Lifecycle](../../docs/AGENT_INSTALLATION.md)
 - [Agent Windows Deployment](../../docs/AGENT_WINDOWS_DEPLOYMENT.md)
+- [Agent macOS Deployment](../../docs/AGENT_MACOS_DEPLOYMENT.md)
 - [Agent Lifecycle And Service Readiness](../../docs/AGENT_LIFECYCLE.md)
 - [Release Pipeline](../../docs/RELEASE_PIPELINE.md)
 - [Signed Releases](../../docs/SIGNED_RELEASES.md)

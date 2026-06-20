@@ -23,7 +23,7 @@ agent's safe-by-default runtime posture:
 - Linux `.rpm` package for RHEL, Rocky Linux, AlmaLinux, CentOS, Fedora, SUSE,
   and openSUSE families
 - Linux `.tar.gz` fallback for unsupported distributions or manual install
-- macOS signed and notarized package
+- macOS LaunchDaemon PKG, signed and notarized for production release
 - enterprise deployment through Intune, SCCM, Jamf, Ansible, Puppet, Chef, and
   shell-based deployment systems
 
@@ -85,16 +85,23 @@ configuration, identity, logs, and service metadata.
 
 ### macOS Launchd
 
-- binary path: `/usr/local/bin/oaw-agent`
-- config path: `/etc/openassetwatch/agent/config.json`
-- identity path: `/etc/openassetwatch/agent/identity.json`
-- log directory: `/var/log/openassetwatch/agent/`
-- status file path: `/var/log/openassetwatch/agent/status.json`
+- binary path:
+  `/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent`
+- config path:
+  `/Library/Application Support/OpenAssetWatch/Agent/config/config.json`
+- identity path:
+  `/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json`
+- state directory:
+  `/Library/Application Support/OpenAssetWatch/Agent/state`
+- log directory: `/Library/Logs/OpenAssetWatch/Agent/`
+- status file path:
+  `/Library/Application Support/OpenAssetWatch/Agent/state/status.json`
 - service name: `com.openassetwatch.agent`
 - service definition path:
   `/Library/LaunchDaemons/com.openassetwatch.agent.plist`
 - package metadata path:
   `/var/db/receipts/com.openassetwatch.agent.*`
+- service identity: `_openassetwatch`
 
 ## Linux Package Selection
 
@@ -380,6 +387,84 @@ service with `NT SERVICE\OpenAssetWatchAgent` service-SID ACLs, Event Log
 source metadata, bounded service recovery metadata, and delayed automatic start
 metadata. It preserves real config, identity, state, and logs on repair,
 upgrade, and uninstall.
+
+## Local macOS LaunchDaemon PKG
+
+macOS production deployment centers on a LaunchDaemon package that runs the
+portable service supervisor through `oaw-agent service run`. See the focused
+deployment guide: [Agent macOS Deployment](AGENT_MACOS_DEPLOYMENT.md).
+
+Build, stage, and validate a local unsigned macOS package on macOS:
+
+```bash
+bash scripts/release/build_agent_macos_pkg.sh \
+  --version 0.1.0-local \
+  --arch-mode universal
+
+python3 scripts/release/validate_agent_macos_install.py \
+  --version 0.1.0-local
+```
+
+The helper writes local validation output under ignored `dist/` paths:
+
+- `dist/agent/<version>/darwin-arm64/oaw-agent`
+- `dist/agent/<version>/darwin-amd64/oaw-agent`
+- `dist/agent/<version>/darwin-universal/oaw-agent`
+- `dist/agent/<version>/macos-install/`
+- `dist/agent/<version>/packages/OpenAssetWatchAgent-<version>-macos-universal.pkg`
+- `.pkg.sha256`
+- `.pkg.manifest.json`
+
+The staged package payload uses these canonical macOS paths:
+
+- `/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent`
+- `/Library/Application Support/OpenAssetWatch/Agent/config/config.example.json`
+- `/Library/Application Support/OpenAssetWatch/Agent/identity/identity.example.json`
+- `/Library/Application Support/OpenAssetWatch/Agent/state/`
+- `/Library/Logs/OpenAssetWatch/Agent/`
+- `/Library/LaunchDaemons/com.openassetwatch.agent.plist`
+- `/Library/Application Support/OpenAssetWatch/Agent/install-manifest.json`
+
+The LaunchDaemon runs:
+
+```text
+/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent service run --config /Library/Application Support/OpenAssetWatch/Agent/config/config.json --identity-file /Library/Application Support/OpenAssetWatch/Agent/identity/identity.json --output-dir /Library/Application Support/OpenAssetWatch/Agent/state
+```
+
+It runs as `_openassetwatch:_openassetwatch`, uses `RunAtLoad=true`,
+`KeepAlive={Crashed=true}`, `ThrottleInterval=60`, and no
+`StartInterval`/`StartCalendarInterval` scheduling. This is a daemon runtime,
+not a separate scheduler.
+
+The package scripts use modern `launchctl` `bootout`, `bootstrap`, `enable`,
+`kickstart`, and `print` operations on the target macOS machine. They create or
+reuse the `_openassetwatch` non-interactive service identity, preserve real
+config and identity, avoid backend network calls, and do not store tokens,
+credentials, passwords, API keys, or secrets.
+
+Unsigned local PKG artifacts are not release-ready. Production macOS release
+artifacts must be signed with Developer ID identities, notarized by Apple,
+stapled, and verified before distribution:
+
+```bash
+bash scripts/release/sign_notarize_agent_macos.sh \
+  --pkg dist/agent/<version>/packages/OpenAssetWatchAgent-<version>-macos-universal.pkg \
+  --binary dist/agent/<version>/darwin-universal/oaw-agent \
+  --app-identity "Developer ID Application: Example" \
+  --installer-identity "Developer ID Installer: Example" \
+  --notary-profile openassetwatch
+```
+
+Uninstall uses the explicit macOS uninstaller. By default it preserves config,
+identity, state, logs, and the service account:
+
+```bash
+sudo bash scripts/release/uninstall_agent_macos.sh
+```
+
+Use `--remove-state`, `--remove-logs`, or `--purge` only for explicit
+administrator cleanup. The uninstaller refuses empty, unrelated, and
+symlink-escaped paths.
 
 ## Local Debian Package Artifact
 
@@ -804,6 +889,11 @@ Complete for this phase:
 - [x] Windows service/file helper dry-run validation
 - [x] WiX Toolset MSI build helper
 - [x] MSI checksum and manifest generation
+- [x] macOS native `oaw-agent service run` LaunchDaemon runtime
+- [x] macOS LaunchDaemon install staging and validation
+- [x] unsigned macOS PKG build helper
+- [x] macOS PKG checksum and manifest generation
+- [x] macOS safe uninstall helper
 
 Future work:
 
@@ -811,15 +901,19 @@ Future work:
 - [x] Windows service installation path through MSI
 - [x] Windows service runtime
 - [ ] production signed Windows release publication
-- [ ] writing to `/usr`, `/etc`, `/var`, or `/Library`
+- [x] macOS real OS installation path through PKG
+- [x] macOS LaunchDaemon installation path through PKG
+- [x] macOS service runtime
+- [ ] production signed/notarized macOS release publication
+- [ ] Linux real OS installation path to `/usr`, `/etc`, and `/var`
 - [ ] cross-platform service scheduling beyond the packaged Linux timer
 - [ ] signed `.deb` release publication and install validation
 - [ ] `.rpm` package build
 - [x] Windows MSI
-- [ ] macOS signed/notarized package
+- [x] macOS unsigned PKG validation artifact
 - [ ] package-manager execution by local release helpers
 - [ ] service-manager execution by local release helpers beyond packaged,
-  guarded Debian maintainer-script behavior
+  guarded Debian and macOS package-script behavior
 - [ ] self-update
 - [ ] licensing enforcement
 
