@@ -7,8 +7,10 @@ import argparse
 import json
 import os
 import plistlib
+import re
 import shutil
 import stat
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +48,11 @@ PLIST_PATH = "/Library/LaunchDaemons/com.openassetwatch.agent.plist"
 INSTALL_MANIFEST_PATH = "/Library/Application Support/OpenAssetWatch/Agent/install-manifest.json"
 
 REQUIRED_BINARY_FIELDS = ("artifact_name", "version", "os", "arch", "path", "sha256")
+MACOS_PACKAGE_VERSION_RE = re.compile(r"^\d+(?:\.\d+){0,2}$")
+MACHO_CPU_TYPES = {
+    0x0100000C: "arm64",
+    0x01000007: "amd64",
+}
 FORBIDDEN_STAGE_TERMS = (
     "token",
     "secret",
@@ -72,18 +79,59 @@ class Reporter:
 
 
 def normalize_package_version(version: str) -> str:
-    core = version.split("-", 1)[0]
-    parts = core.split(".")
+    if not MACOS_PACKAGE_VERSION_RE.fullmatch(version):
+        raise ValueError(
+            "macOS PKG builds require a numeric package version with one to three dot-separated components; "
+            "prerelease/build suffixes are rejected to avoid receipt-version collisions."
+        )
+    parts = version.split(".")
     if len(parts) > 3:
-        raise ValueError("macOS package version must have at most three numeric components before any suffix.")
+        raise ValueError("macOS package version must have at most three numeric components.")
     normalized: list[str] = []
     for part in parts:
-        if not part.isdigit():
-            raise ValueError("macOS package version components must be numeric.")
         normalized.append(str(int(part)))
     while len(normalized) < 3:
         normalized.append("0")
     return ".".join(normalized)
+
+
+def macho_architectures(path: Path) -> list[str]:
+    data = path.read_bytes()
+    if len(data) < 8:
+        raise ValueError("macOS binary is too small to contain a Mach-O header.")
+    magic = data[:4]
+    arches: list[str] = []
+    if magic in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
+        _, count = struct.unpack(">II", data[:8])
+        offset = 8
+        entry_size = 20 if magic == b"\xca\xfe\xba\xbe" else 32
+        for _ in range(count):
+            if len(data) < offset + entry_size:
+                raise ValueError("macOS universal binary has a truncated fat header.")
+            cputype = struct.unpack(">I", data[offset : offset + 4])[0]
+            arch = MACHO_CPU_TYPES.get(cputype)
+            if arch:
+                arches.append(arch)
+            offset += entry_size
+        if not arches:
+            raise ValueError("macOS universal binary contains no supported arm64 or amd64 slices.")
+        return sorted(set(arches))
+    if magic == b"\xcf\xfa\xed\xfe":
+        cputype = struct.unpack("<I", data[4:8])[0]
+    elif magic == b"\xfe\xed\xfa\xcf":
+        cputype = struct.unpack(">I", data[4:8])[0]
+    else:
+        raise ValueError("macOS binary is not a Mach-O or universal binary.")
+    arch = MACHO_CPU_TYPES.get(cputype)
+    if not arch:
+        raise ValueError("macOS binary architecture is not supported.")
+    return [arch]
+
+
+def expected_architectures(arch_mode: str) -> list[str]:
+    if arch_mode == "universal":
+        return ["amd64", "arm64"]
+    return [arch_mode]
 
 
 def macos_install_root(repo_root: Path, output_root: Path, version: str) -> Path:
@@ -163,6 +211,8 @@ def artifact_paths(
         raise ValueError(f"macOS binary manifest arch must be {expected_arch}.")
     if resolve_repo_path(repo_root, str(manifest["path"])) != artifact_path.resolve():
         raise ValueError("macOS binary manifest path does not match artifact.")
+    if not str(manifest.get("git_commit", "")).strip():
+        raise ValueError("macOS binary manifest must include git_commit source metadata.")
 
     actual_hash = sha256_file(artifact_path).lower()
     checksum_hash = checksum_path.read_text(encoding="ascii").strip().split()[0].lower()
@@ -170,6 +220,13 @@ def artifact_paths(
         raise ValueError("macOS binary SHA256 does not match manifest.")
     if actual_hash != checksum_hash:
         raise ValueError("macOS binary SHA256 does not match checksum file.")
+    actual_arches = macho_architectures(artifact_path)
+    expected_arches = expected_architectures(arch_mode)
+    if actual_arches != expected_arches:
+        raise ValueError(f"macOS binary architectures = {actual_arches}, want {expected_arches}.")
+    manifest_arches = sorted(manifest.get("architectures", [manifest["arch"]]))
+    if expected_arch == "universal" and manifest_arches != expected_arches:
+        raise ValueError("macOS universal binary manifest must list arm64 and amd64 architectures.")
     return artifact_path, checksum_path, manifest_path, manifest
 
 
@@ -205,12 +262,12 @@ def launchd_plist() -> dict[str, Any]:
         "UserName": SERVICE_USER,
         "GroupName": SERVICE_GROUP,
         "RunAtLoad": True,
-        "KeepAlive": {"Crashed": True},
+        "KeepAlive": True,
         "ThrottleInterval": 60,
         "ProcessType": "Background",
         "ExitTimeOut": 30,
         "WorkingDirectory": STATE_DIR,
-        "Umask": 0o027,
+        "Umask": "027",
         "StandardOutPath": "/dev/null",
         "StandardErrorPath": "/dev/null",
     }
@@ -334,6 +391,14 @@ def write_staging(
         "source_checksum": to_repo_relative(repo_root, checksum_path),
         "source_manifest": to_repo_relative(repo_root, binary_manifest_path),
         "source_artifact_sha256": binary_manifest["sha256"],
+        "source_git_commit": binary_manifest.get("git_commit", ""),
+        "source_provenance": {
+            "artifact": to_repo_relative(repo_root, artifact_path),
+            "checksum": to_repo_relative(repo_root, checksum_path),
+            "manifest": to_repo_relative(repo_root, binary_manifest_path),
+            "git_commit": binary_manifest.get("git_commit", ""),
+            "sha256": binary_manifest["sha256"],
+        },
         "macos_install_root": to_repo_relative(repo_root, root),
         "staged_paths": {name: to_repo_relative(repo_root, path) for name, path in paths.items()},
         "production_paths": production_paths(),
@@ -350,6 +415,7 @@ def write_staging(
             "staging only; no host installation occurs",
             "examples are placeholders only",
             "LaunchDaemon uses service run and the portable supervisor",
+            "launchd KeepAlive=true keeps the daemon available after fatal nonzero exits; transient runtime failures stay inside the supervisor loop",
             "no active scanning, shell command strings, or installer network calls",
         ],
     }

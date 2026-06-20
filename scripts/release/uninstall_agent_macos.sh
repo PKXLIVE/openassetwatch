@@ -44,11 +44,40 @@ add_removed() { REMOVED+=("$*"); }
 add_error() { ERRORS+=("$*"); }
 add_warning() { WARNINGS+=("$*"); }
 
+json_string() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '"%s"' "$value"
+}
+
 json_array() {
-  python3 - "$@" <<'PY'
-import json, sys
-print(json.dumps(list(sys.argv[1:])))
-PY
+  local first=true
+  printf '['
+  for item in "$@"; do
+    if [ "$first" = true ]; then
+      first=false
+    else
+      printf ','
+    fi
+    json_string "$item"
+  done
+  printf ']'
+}
+
+emit_report() {
+  local ok="$1"
+  printf '{\n'
+  printf '  "ok": %s,\n' "$ok"
+  printf '  "dry_run": %s,\n' "$DRY_RUN"
+  printf '  "actions": %s,\n' "$(json_array "${ACTIONS[@]}")"
+  printf '  "removed": %s,\n' "$(json_array "${REMOVED[@]}")"
+  printf '  "warnings": %s,\n' "$(json_array "${WARNINGS[@]}")"
+  printf '  "errors": %s\n' "$(json_array "${ERRORS[@]}")"
+  printf '}\n'
 }
 
 safe_path() {
@@ -80,18 +109,25 @@ remove_path() {
   fi
   add_action "Remove $path"
   if [ "$DRY_RUN" = false ] && [ -e "$path" ]; then
-    rm -rf "$path"
-    add_removed "$path"
+    if rm -rf "$path"; then
+      add_removed "$path"
+    else
+      add_error "failed to remove $path"
+    fi
   fi
 }
 
 if [ "$DRY_RUN" = false ] && [ "$(id -u)" -ne 0 ]; then
   add_error "root is required for real macOS uninstall"
+  emit_report false
+  exit 1
 fi
 
 add_action "Boot out LaunchDaemon $LABEL if loaded"
 if [ "$DRY_RUN" = false ]; then
-  /bin/launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
+  if ! /bin/launchctl bootout system "$PLIST" >/dev/null 2>&1; then
+    add_warning "LaunchDaemon was not loaded or could not be booted out."
+  fi
 fi
 
 remove_path "$PLIST"
@@ -101,6 +137,8 @@ remove_path "$CONFIG_DIR/config.example.json"
 remove_path "$IDENTITY_DIR/identity.example.json"
 
 if [ "$PURGE" = true ]; then
+  REMOVE_STATE=true
+  REMOVE_LOGS=true
   remove_path "$CONFIG_DIR"
   remove_path "$IDENTITY_DIR"
 else
@@ -122,7 +160,9 @@ fi
 if [ "$FORGET_RECEIPT" = true ]; then
   add_action "Forget package receipt $PACKAGE_ID"
   if [ "$DRY_RUN" = false ]; then
-    /usr/sbin/pkgutil --forget "$PACKAGE_ID" >/dev/null 2>&1 || true
+    if ! /usr/sbin/pkgutil --forget "$PACKAGE_ID" >/dev/null 2>&1; then
+      add_warning "Package receipt was already absent or could not be forgotten."
+    fi
   fi
 fi
 
@@ -138,18 +178,6 @@ fi
 
 OK=true
 [ "${#ERRORS[@]}" -eq 0 ] || OK=false
-python3 - "$OK" "$DRY_RUN" "$(json_array "${ACTIONS[@]}")" "$(json_array "${REMOVED[@]}")" "$(json_array "${WARNINGS[@]}")" "$(json_array "${ERRORS[@]}")" <<'PY'
-import json, sys
-ok = sys.argv[1] == "true"
-value = {
-    "ok": ok,
-    "dry_run": sys.argv[2] == "true",
-    "actions": json.loads(sys.argv[3]),
-    "removed": json.loads(sys.argv[4]),
-    "warnings": json.loads(sys.argv[5]),
-    "errors": json.loads(sys.argv[6]),
-}
-print(json.dumps(value, indent=2))
-PY
+emit_report "$OK"
 
 [ "$OK" = true ]

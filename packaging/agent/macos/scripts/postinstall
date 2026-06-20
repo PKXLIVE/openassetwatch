@@ -13,6 +13,9 @@ LOG_DIR="/Library/Logs/OpenAssetWatch/Agent"
 PLIST="/Library/LaunchDaemons/com.openassetwatch.agent.plist"
 BINARY="$BIN_DIR/oaw-agent"
 MANIFEST="$APP_ROOT/install-manifest.json"
+SUCCESS=false
+CREATED_GROUP=false
+CREATED_USER=false
 
 log() {
   printf '%s\n' "openassetwatch-agent postinstall: $*"
@@ -22,6 +25,26 @@ fail() {
   printf '%s\n' "openassetwatch-agent postinstall: ERROR: $*" >&2
   exit 1
 }
+
+cleanup_on_exit() {
+  status="$?"
+  if [ "$SUCCESS" = true ] && [ "$status" -eq 0 ]; then
+    return 0
+  fi
+  set +e
+  log "rolling back partial LaunchDaemon load after failed install"
+  /bin/launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
+  if [ "$CREATED_USER" = true ]; then
+    /usr/bin/dscl . -delete "/Users/$USER_NAME" >/dev/null 2>&1 || true
+  fi
+  if [ "$CREATED_GROUP" = true ]; then
+    /usr/bin/dscl . -delete "/Groups/$GROUP_NAME" >/dev/null 2>&1 || true
+  fi
+  exit "$status"
+}
+
+trap cleanup_on_exit EXIT
+trap 'exit 130' INT TERM HUP
 
 read_dscl_value() {
   /usr/bin/dscl . -read "$1" "$2" 2>/dev/null | /usr/bin/awk '{print $2}'
@@ -45,11 +68,14 @@ ensure_group() {
   if /usr/bin/dscl . -read "/Groups/$GROUP_NAME" >/dev/null 2>&1; then
     gid="$(read_dscl_value "/Groups/$GROUP_NAME" PrimaryGroupID)"
     [ -n "$gid" ] || fail "existing group $GROUP_NAME lacks PrimaryGroupID"
+    password="$(read_dscl_value "/Groups/$GROUP_NAME" Password)"
+    [ "$password" = "*" ] || fail "existing group $GROUP_NAME has unexpected password marker"
     return 0
   fi
   existing="$(/usr/bin/dscl . -list /Groups PrimaryGroupID)"
   gid="$(next_available_id group "$existing")"
   /usr/bin/dscl . -create "/Groups/$GROUP_NAME"
+  CREATED_GROUP=true
   /usr/bin/dscl . -create "/Groups/$GROUP_NAME" PrimaryGroupID "$gid"
   /usr/bin/dscl . -create "/Groups/$GROUP_NAME" Password "*"
 }
@@ -60,17 +86,24 @@ ensure_user() {
 
   if /usr/bin/dscl . -read "/Users/$USER_NAME" >/dev/null 2>&1; then
     user_gid="$(read_dscl_value "/Users/$USER_NAME" PrimaryGroupID)"
+    user_uid="$(read_dscl_value "/Users/$USER_NAME" UniqueID)"
     home="$(read_dscl_value "/Users/$USER_NAME" NFSHomeDirectory)"
     shell="$(read_dscl_value "/Users/$USER_NAME" UserShell)"
+    hidden="$(read_dscl_value "/Users/$USER_NAME" IsHidden)"
+    password="$(read_dscl_value "/Users/$USER_NAME" Password)"
+    [ -n "$user_uid" ] || fail "existing user $USER_NAME lacks UniqueID"
     [ "$user_gid" = "$gid" ] || fail "existing user $USER_NAME has unexpected group"
     [ "$home" = "/var/empty" ] || fail "existing user $USER_NAME has unexpected home"
     [ "$shell" = "/usr/bin/false" ] || fail "existing user $USER_NAME has unexpected shell"
+    [ "$hidden" = "1" ] || fail "existing user $USER_NAME is not hidden"
+    [ "$password" = "*" ] || fail "existing user $USER_NAME has unexpected password marker"
     return 0
   fi
 
   existing="$(/usr/bin/dscl . -list /Users UniqueID)"
   uid="$(next_available_id user "$existing")"
   /usr/bin/dscl . -create "/Users/$USER_NAME"
+  CREATED_USER=true
   /usr/bin/dscl . -create "/Users/$USER_NAME" UniqueID "$uid"
   /usr/bin/dscl . -create "/Users/$USER_NAME" PrimaryGroupID "$gid"
   /usr/bin/dscl . -create "/Users/$USER_NAME" NFSHomeDirectory /var/empty
@@ -115,12 +148,12 @@ apply_permissions
 /usr/bin/plutil -lint "$PLIST" >/dev/null
 /usr/bin/file "$BINARY" | /usr/bin/grep -Eq 'Mach-O|universal binary' || fail "installed binary is not Mach-O"
 
-trap '/bin/launchctl bootout system "$PLIST" >/dev/null 2>&1 || true' INT TERM HUP
 /bin/launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
 /bin/launchctl bootstrap system "$PLIST"
 /bin/launchctl enable "system/$LABEL"
-/bin/launchctl kickstart -k "system/$LABEL" || true
+/bin/launchctl kickstart -k "system/$LABEL"
 /bin/launchctl print "system/$LABEL" >/dev/null
 
 log "installed LaunchDaemon $LABEL"
+SUCCESS=true
 exit 0

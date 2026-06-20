@@ -7,6 +7,8 @@ import argparse
 import json
 import plistlib
 import re
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -128,15 +130,15 @@ def validate_plist(paths: dict[str, Path]) -> None:
         "ProcessType": "Background",
         "ExitTimeOut": 30,
         "WorkingDirectory": STATE_DIR,
-        "Umask": 0o027,
+        "Umask": "027",
         "StandardOutPath": "/dev/null",
         "StandardErrorPath": "/dev/null",
     }
     for key, value in expected.items():
         if plist.get(key) != value:
             raise ValueError(f"LaunchDaemon plist {key} = {plist.get(key)!r}, want {value!r}.")
-    if plist.get("KeepAlive") != {"Crashed": True}:
-        raise ValueError("LaunchDaemon plist KeepAlive must restart crashed daemon only.")
+    if plist.get("KeepAlive") is not True:
+        raise ValueError("LaunchDaemon plist KeepAlive must be true for fatal nonzero restart coverage.")
     for forbidden in ("StartInterval", "StartCalendarInterval", "EnvironmentVariables"):
         if forbidden in plist:
             raise ValueError(f"LaunchDaemon plist must not contain {forbidden}.")
@@ -155,6 +157,13 @@ def validate_manifest(repo_root: Path, root: Path, paths: dict[str, Path]) -> No
         raise ValueError("macOS staging manifest service principal mismatch.")
     if manifest.get("production_paths") != production_paths():
         raise ValueError("macOS staging manifest production paths mismatch.")
+    provenance = manifest.get("source_provenance")
+    if not isinstance(provenance, dict):
+        raise ValueError("macOS staging manifest must include source provenance.")
+    if not str(provenance.get("git_commit", "")).strip():
+        raise ValueError("macOS staging manifest source provenance must include git_commit.")
+    if provenance.get("sha256") != manifest.get("source_artifact_sha256"):
+        raise ValueError("macOS staging manifest source provenance SHA256 mismatch.")
     if install_manifest.get("production_paths") != production_paths():
         raise ValueError("embedded install manifest production paths mismatch.")
     required_paths = {
@@ -201,9 +210,15 @@ def validate_scripts(paths: dict[str, Path]) -> None:
         "/usr/bin/plutil -lint",
         "/var/empty",
         "/usr/bin/false",
+        "trap cleanup_on_exit EXIT",
+        "SUCCESS=true",
+        "CREATED_GROUP=true",
+        "CREATED_USER=true",
     ):
         if required not in postinstall:
             raise ValueError(f"postinstall missing required behavior: {required}")
+    if '/bin/launchctl kickstart -k "system/$LABEL" || true' in postinstall:
+        raise ValueError("postinstall must fail and roll back if kickstart fails.")
     preinstall = paths["preinstall"].read_text(encoding="utf-8")
     if "/bin/launchctl bootout system" not in preinstall:
         raise ValueError("preinstall must boot out an existing daemon before upgrade.")
@@ -212,12 +227,60 @@ def validate_scripts(paths: dict[str, Path]) -> None:
         uninstall_text = uninstall.read_text(encoding="utf-8")
         if "has_symlink_component" not in uninstall_text:
             raise ValueError("macOS uninstaller must refuse symlink components during cleanup.")
+        if "python3" in uninstall_text:
+            raise ValueError("macOS uninstaller must not depend on system python3.")
+        if 'emit_report false' not in uninstall_text:
+            raise ValueError("macOS uninstaller must fail closed with structured output before real non-root mutation.")
+
+
+def run_text(command: list[str]) -> str:
+    completed = subprocess.run(command, check=True, text=True, capture_output=True)
+    return completed.stdout + completed.stderr
+
+
+def validate_pkg_payload(package_path: Path, require_signed_binary: bool) -> None:
+    if not package_path.is_file():
+        raise ValueError("macOS PKG to validate does not exist.")
+    payload = run_text(["pkgutil", "--payload-files", str(package_path)])
+    for expected in (
+        "Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent",
+        "Library/LaunchDaemons/com.openassetwatch.agent.plist",
+    ):
+        if expected not in payload:
+            raise ValueError(f"macOS PKG payload missing {expected}.")
+    if not require_signed_binary:
+        return
+    with tempfile.TemporaryDirectory(prefix="oaw-macos-pkg-") as temp_dir:
+        run_text(["pkgutil", "--expand-full", str(package_path), temp_dir])
+        embedded = next(
+            Path(temp_dir).glob("**/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent"),
+            None,
+        )
+        if embedded is None:
+            raise ValueError("macOS PKG expanded payload missing oaw-agent binary.")
+        run_text(["codesign", "--verify", "--strict", "--verbose=2", str(embedded)])
+        details = run_text(["codesign", "-dvv", str(embedded)])
+        if "runtime" not in details.lower():
+            raise ValueError("embedded signed oaw-agent lacks hardened runtime.")
+        if "Timestamp=" not in details:
+            raise ValueError("embedded signed oaw-agent lacks secure timestamp.")
+        entitlements_result = subprocess.run(
+            ["codesign", "-d", "--entitlements", ":-", str(embedded)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        entitlements = entitlements_result.stdout + entitlements_result.stderr
+        if "get-task-allow" in entitlements:
+            raise ValueError("embedded signed oaw-agent must not include get-task-allow.")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
     parser.add_argument("--macos-install-root")
+    parser.add_argument("--pkg")
+    parser.add_argument("--require-signed-binary", action="store_true")
     return parser.parse_args()
 
 
@@ -236,9 +299,16 @@ def main() -> int:
         validate_plist(paths)
         validate_manifest(repo_root, root, paths)
         validate_scripts(paths)
+        if args.pkg:
+            package_path = resolve_repo_path(repo_root, args.pkg)
+            if not is_inside(repo_root, package_path):
+                raise ValueError("macOS PKG validation path must stay inside the repository.")
+            validate_pkg_payload(package_path, args.require_signed_binary)
         reporter.check("macos staged layout", True, "macOS staged LaunchDaemon layout paths exist.")
         reporter.check("macos launchd plist", True, "LaunchDaemon plist matches production service run model.")
         reporter.check("macos package scripts", True, "Package scripts use safe modern launchctl lifecycle behavior.")
+        if args.pkg:
+            reporter.check("macos pkg payload", True, "PKG payload and embedded binary signature policy validated.")
     except Exception as exc:
         reporter.check("macos install validator", False, str(exc))
 

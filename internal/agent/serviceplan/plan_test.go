@@ -192,7 +192,6 @@ func TestLaunchdTemplateContainsExpectedSafeFields(t *testing.T) {
 		"<key>RunAtLoad</key>",
 		"<true/>",
 		"<key>KeepAlive</key>",
-		"<key>Crashed</key>",
 		"<key>ThrottleInterval</key>",
 		"<integer>60</integer>",
 		"<key>ProcessType</key>",
@@ -201,7 +200,7 @@ func TestLaunchdTemplateContainsExpectedSafeFields(t *testing.T) {
 		"<integer>30</integer>",
 		"<key>WorkingDirectory</key>",
 		"<key>Umask</key>",
-		"<integer>027</integer>",
+		"<string>027</string>",
 		"<string>/dev/null</string>",
 		"Status file: " + plan.StatusPath,
 		"No shell, StartInterval, StartCalendarInterval, or environment secrets are configured",
@@ -210,7 +209,7 @@ func TestLaunchdTemplateContainsExpectedSafeFields(t *testing.T) {
 			t.Fatalf("launchd template missing %q:\n%s", want, template.Template)
 		}
 	}
-	for _, forbidden := range []string{"<key>StartInterval</key>", "<key>StartCalendarInterval</key>", "/bin/sh", "KeepAlive</key>\n  <false/>"} {
+	for _, forbidden := range []string{"<key>StartInterval</key>", "<key>StartCalendarInterval</key>", "/bin/sh", "<key>Crashed</key>", "KeepAlive</key>\n  <false/>"} {
 		if strings.Contains(template.Template, forbidden) {
 			t.Fatalf("launchd template contains forbidden %q:\n%s", forbidden, template.Template)
 		}
