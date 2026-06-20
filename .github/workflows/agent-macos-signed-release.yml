@@ -1,0 +1,89 @@
+name: Agent macOS signed release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Numeric macOS package version, for example 0.2.0"
+        required: true
+      arch_mode:
+        description: "macOS package architecture mode"
+        required: true
+        default: "universal"
+        type: choice
+        options:
+          - universal
+          - arm64
+          - amd64
+  push:
+    tags:
+      - "agent-macos-v*"
+
+jobs:
+  signed-macos-pkg:
+    runs-on: macos-15
+    env:
+      MACOS_DEVELOPER_ID_APPLICATION: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}
+      MACOS_DEVELOPER_ID_INSTALLER: ${{ secrets.MACOS_DEVELOPER_ID_INSTALLER }}
+      MACOS_NOTARY_KEYCHAIN_PROFILE: ${{ secrets.MACOS_NOTARY_KEYCHAIN_PROFILE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Verify signing secrets are configured
+        run: |
+          set -euo pipefail
+          [ -n "$MACOS_DEVELOPER_ID_APPLICATION" ] || { echo "MACOS_DEVELOPER_ID_APPLICATION is required"; exit 1; }
+          [ -n "$MACOS_DEVELOPER_ID_INSTALLER" ] || { echo "MACOS_DEVELOPER_ID_INSTALLER is required"; exit 1; }
+          [ -n "$MACOS_NOTARY_KEYCHAIN_PROFILE" ] || { echo "MACOS_NOTARY_KEYCHAIN_PROFILE is required"; exit 1; }
+      - name: Resolve release inputs
+        id: release
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+            arch_mode="${{ inputs.arch_mode }}"
+          else
+            version="${GITHUB_REF_NAME#agent-macos-v}"
+            arch_mode="universal"
+          fi
+          python3 - <<'PY' "$version"
+          import re, sys
+          version = sys.argv[1]
+          if not re.fullmatch(r"\d+(?:\.\d+){0,2}", version):
+              raise SystemExit("signed macOS release version must be numeric with up to three dot-separated components")
+          PY
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'arch_mode=%s\n' "$arch_mode" >> "$GITHUB_OUTPUT"
+      - name: Syntax checks
+        run: |
+          python3 -m py_compile scripts/release/stage_agent_macos_install.py scripts/release/validate_agent_macos_install.py
+          bash -n scripts/release/build_agent_macos_pkg.sh scripts/release/sign_notarize_agent_macos.sh scripts/release/uninstall_agent_macos.sh packaging/agent/macos/scripts/preinstall packaging/agent/macos/scripts/postinstall
+      - name: Build signed, notarized, stapled PKG
+        run: |
+          bash scripts/release/sign_notarize_agent_macos.sh \
+            --version "${{ steps.release.outputs.version }}" \
+            --arch-mode "${{ steps.release.outputs.arch_mode }}" \
+            --app-identity "$MACOS_DEVELOPER_ID_APPLICATION" \
+            --installer-identity "$MACOS_DEVELOPER_ID_INSTALLER" \
+            --notary-profile "$MACOS_NOTARY_KEYCHAIN_PROFILE"
+      - name: Validate signed package payload
+        run: |
+          PKG="dist/agent/${{ steps.release.outputs.version }}/packages/OpenAssetWatchAgent-${{ steps.release.outputs.version }}-macos-${{ steps.release.outputs.arch_mode }}.pkg"
+          python3 scripts/release/validate_agent_macos_install.py \
+            --version "${{ steps.release.outputs.version }}" \
+            --macos-install-root "dist/agent/${{ steps.release.outputs.version }}/macos-install" \
+            --pkg "$PKG" \
+            --require-signed-binary
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openassetwatch-agent-macos-signed
+          path: |
+            dist/agent/${{ steps.release.outputs.version }}/packages/*.pkg
+            dist/agent/${{ steps.release.outputs.version }}/packages/*.sha256
+            dist/agent/${{ steps.release.outputs.version }}/packages/*.json

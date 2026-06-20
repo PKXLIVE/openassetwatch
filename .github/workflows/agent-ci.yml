@@ -275,25 +275,41 @@ jobs:
           python3 -m py_compile scripts/release/stage_agent_macos_install.py scripts/release/validate_agent_macos_install.py
           bash -n scripts/release/build_agent_macos_pkg.sh scripts/release/sign_notarize_agent_macos.sh scripts/release/uninstall_agent_macos.sh packaging/agent/macos/scripts/preinstall packaging/agent/macos/scripts/postinstall
       - name: Build arm64 PKG
-        run: bash scripts/release/build_agent_macos_pkg.sh --version 0.1.0-ci --arch-mode arm64
+        run: bash scripts/release/build_agent_macos_pkg.sh --version 0.1.100 --arch-mode arm64
+      - name: Build arm64 upgrade fixture PKG
+        run: bash scripts/release/build_agent_macos_pkg.sh --version 0.1.99 --arch-mode arm64
       - name: LaunchDaemon lifecycle smoke test
         run: |
           set -euo pipefail
-          PKG="dist/agent/0.1.0-ci/packages/OpenAssetWatchAgent-0.1.0-ci-macos-arm64.pkg"
+          PKG="dist/agent/0.1.100/packages/OpenAssetWatchAgent-0.1.100-macos-arm64.pkg"
+          OLD_PKG="dist/agent/0.1.99/packages/OpenAssetWatchAgent-0.1.99-macos-arm64.pkg"
           LABEL="com.openassetwatch.agent"
+          PACKAGE_ID="com.openassetwatch.agent"
           APP_ROOT="/Library/Application Support/OpenAssetWatch/Agent"
+          BINARY="$APP_ROOT/bin/oaw-agent"
           CONFIG="$APP_ROOT/config/config.json"
           IDENTITY="$APP_ROOT/identity/identity.json"
           STATE="$APP_ROOT/state"
+          LOG_DIR="/Library/Logs/OpenAssetWatch/Agent"
+          PLIST="/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           MOCK="$RUNNER_TEMP/oaw_mock_backend.py"
           MOCK_LOG="$RUNNER_TEMP/oaw_mock_backend.jsonl"
           cleanup() {
             sudo bash scripts/release/uninstall_agent_macos.sh --remove-state --remove-logs --purge --forget-receipt || true
-            sudo rm -rf "$APP_ROOT" "/Library/Logs/OpenAssetWatch/Agent" "/Library/LaunchDaemons/com.openassetwatch.agent.plist" || true
+            sudo rm -rf "$APP_ROOT" "$LOG_DIR" "$PLIST" || true
             [ -n "${BACKEND_PID:-}" ] && kill "$BACKEND_PID" 2>/dev/null || true
           }
+          check_owner_mode() {
+            path="$1"
+            want="$2"
+            got="$(stat -f "%Su:%Sg %Lp" "$path")"
+            if [ "$got" != "$want" ]; then
+              echo "$path owner/mode = $got, want $want"
+              exit 1
+            fi
+          }
           trap cleanup EXIT
-          sudo installer -pkg "$PKG" -target /
+          sudo installer -pkg "$OLD_PKG" -target /
           sudo launchctl print "system/$LABEL" >/dev/null
           deadline=$((SECONDS + 45))
           while [ "$SECONDS" -lt "$deadline" ]; do
@@ -311,6 +327,14 @@ jobs:
           printf '%s\n' '{"site_id":"ci-macos","agent_id":"55555555-5555-4555-8555-555555555555","deployment_id":"66666666-6666-4666-8666-666666666666","tenant_id":"ci","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}' | sudo tee "$IDENTITY" >/dev/null
           sudo chmod 0640 "$CONFIG" "$IDENTITY"
           sudo chown root:_openassetwatch "$CONFIG" "$IDENTITY"
+          sudo installer -pkg "$PKG" -target /
+          /usr/sbin/pkgutil --pkg-info "$PACKAGE_ID" | grep "version: 0.1.100"
+          check_owner_mode "$BINARY" "root:wheel 755"
+          check_owner_mode "$PLIST" "root:wheel 644"
+          check_owner_mode "$CONFIG" "root:_openassetwatch 640"
+          check_owner_mode "$IDENTITY" "root:_openassetwatch 640"
+          check_owner_mode "$STATE" "_openassetwatch:_openassetwatch 750"
+          check_owner_mode "$LOG_DIR" "_openassetwatch:_openassetwatch 750"
           cat > "$MOCK" <<'PY'
           import json
           import os
@@ -349,6 +373,15 @@ jobs:
           assert status["health"] == "healthy", status
           PY
           ps -axo user,command | grep '[o]aw-agent service run' | grep '^_openassetwatch'
+          sudo installer -pkg "$PKG" -target /
+          grep -q "ci-macos" "$CONFIG"
+          grep -q "55555555-5555-4555-8555-555555555555" "$IDENTITY"
+          if sudo installer -pkg "$OLD_PKG" -target /; then
+            echo "Downgrade unexpectedly succeeded"
+            exit 1
+          fi
+          grep -q "ci-macos" "$CONFIG"
+          grep -q "55555555-5555-4555-8555-555555555555" "$IDENTITY"
           sudo launchctl bootout system "/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           sudo launchctl bootstrap system "/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           sudo launchctl print "system/$LABEL" >/dev/null
@@ -380,11 +413,11 @@ jobs:
           go test ./...
           go test -race ./cmd/oaw-agent ./internal/agent/supervisor ./internal/collector/network
       - name: Build Intel PKG
-        run: bash scripts/release/build_agent_macos_pkg.sh --version 0.1.0-ci-intel --arch-mode amd64
+        run: bash scripts/release/build_agent_macos_pkg.sh --version 0.1.101 --arch-mode amd64
       - name: Install and uninstall Intel PKG
         run: |
           set -euo pipefail
-          PKG="dist/agent/0.1.0-ci-intel/packages/OpenAssetWatchAgent-0.1.0-ci-intel-macos-amd64.pkg"
+          PKG="dist/agent/0.1.101/packages/OpenAssetWatchAgent-0.1.101-macos-amd64.pkg"
           cleanup() {
             sudo bash scripts/release/uninstall_agent_macos.sh --remove-state --remove-logs --purge --forget-receipt || true
           }
@@ -405,19 +438,31 @@ jobs:
         with:
           python-version: "3.x"
       - name: Build universal unsigned PKG
-        run: bash scripts/release/build_agent_macos_pkg.sh --version 0.1.0-ci-universal --arch-mode universal
+        run: bash scripts/release/build_agent_macos_pkg.sh --version 0.1.102 --arch-mode universal
       - name: Inspect universal artifact
         run: |
           set -euo pipefail
-          BIN="dist/agent/0.1.0-ci-universal/darwin-universal/oaw-agent"
-          PKG="dist/agent/0.1.0-ci-universal/packages/OpenAssetWatchAgent-0.1.0-ci-universal-macos-universal.pkg"
+          BIN="dist/agent/0.1.102/darwin-universal/oaw-agent"
+          PKG="dist/agent/0.1.102/packages/OpenAssetWatchAgent-0.1.102-macos-universal.pkg"
           lipo -verify_arch arm64 x86_64 "$BIN"
           pkgutil --payload-files "$PKG" | grep "Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent"
           pkgutil --payload-files "$PKG" | grep "Library/LaunchDaemons/com.openassetwatch.agent.plist"
+      - name: Install and uninstall universal PKG
+        run: |
+          set -euo pipefail
+          PKG="dist/agent/0.1.102/packages/OpenAssetWatchAgent-0.1.102-macos-universal.pkg"
+          cleanup() {
+            sudo bash scripts/release/uninstall_agent_macos.sh --remove-state --remove-logs --purge --forget-receipt || true
+          }
+          trap cleanup EXIT
+          sudo installer -pkg "$PKG" -target /
+          /usr/sbin/pkgutil --pkg-info com.openassetwatch.agent | grep "version: 0.1.102"
+          sudo launchctl print system/com.openassetwatch.agent >/dev/null
+          sudo bash scripts/release/uninstall_agent_macos.sh --remove-state --remove-logs --forget-receipt
       - uses: actions/upload-artifact@v4
         with:
           name: openassetwatch-agent-macos-unsigned
           path: |
-            dist/agent/0.1.0-ci-universal/packages/*.pkg
-            dist/agent/0.1.0-ci-universal/packages/*.sha256
-            dist/agent/0.1.0-ci-universal/packages/*.json
+            dist/agent/0.1.102/packages/*.pkg
+            dist/agent/0.1.102/packages/*.sha256
+            dist/agent/0.1.102/packages/*.json
