@@ -3,10 +3,13 @@
 This document captures the current manual `oaw-agent` lifecycle and the
 readiness checklist for packaged service operation.
 
-Current state: the agent supports explicit command-line operation and a native
-Windows service runtime through `oaw-agent service run`. Windows MSI deployment
-details live in [Agent Windows Deployment](AGENT_WINDOWS_DEPLOYMENT.md). The
-agent does not perform active scanning.
+Current state: the agent supports explicit command-line operation plus native
+service runtimes through `oaw-agent service run` on Windows and macOS. Windows
+MSI deployment details live in
+[Agent Windows Deployment](AGENT_WINDOWS_DEPLOYMENT.md). macOS LaunchDaemon and
+PKG deployment details live in
+[Agent macOS Deployment](AGENT_MACOS_DEPLOYMENT.md). The agent does not perform
+active scanning.
 
 ## Current Manual Lifecycle
 
@@ -28,10 +31,19 @@ Default paths are:
 - Windows state: `%ProgramData%\OpenAssetWatch\Agent\state\`
 - Windows logs: `%ProgramData%\OpenAssetWatch\Agent\logs\`
 - Windows status file: `%ProgramData%\OpenAssetWatch\Agent\state\status.json`
-- Linux/macOS identity: `/etc/openassetwatch/agent/identity.json`
-- Linux/macOS config: `/etc/openassetwatch/agent/config.json`
-- Linux/macOS logs: `/var/log/openassetwatch/agent/`
-- Linux/macOS status file: `/var/log/openassetwatch/agent/status.json`
+- Linux identity: `/etc/openassetwatch/agent/identity.json`
+- Linux config: `/etc/openassetwatch/agent/config.json`
+- Linux state: `/var/lib/openassetwatch/agent/`
+- Linux logs: `/var/log/openassetwatch/agent/`
+- Linux status file: `/var/log/openassetwatch/agent/status.json`
+- macOS identity:
+  `/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json`
+- macOS config:
+  `/Library/Application Support/OpenAssetWatch/Agent/config/config.json`
+- macOS state: `/Library/Application Support/OpenAssetWatch/Agent/state`
+- macOS logs: `/Library/Logs/OpenAssetWatch/Agent/`
+- macOS status file:
+  `/Library/Application Support/OpenAssetWatch/Agent/state/status.json`
 
 ### 2. Initialize Config
 
@@ -274,11 +286,11 @@ For future install, uninstall, upgrade, rollback, package validation, and
 enterprise deployment lifecycle planning, see
 [Agent Installation](AGENT_INSTALLATION.md).
 
-Use the [agent package scaffold](../packaging/agent/README.md) to review future
-Windows MSI, Linux `.deb`, Linux `.rpm`, Linux `.tar.gz`, and macOS package
-layout expectations before any package build automation exists. The scaffold is
-text/YAML only and does not execute package-manager commands, service-manager
-commands, installer actions, or host modifications.
+Use the [agent package scaffold](../packaging/agent/README.md) to review
+Windows MSI, Linux `.deb`, Linux `.rpm`, Linux `.tar.gz`, and macOS PKG layout
+expectations. The scaffold and local release helpers do not execute
+package-manager commands, service-manager commands outside reviewed package
+scripts, or unprompted host modifications.
 
 Use `oaw-agent service plan` to inspect the future service target for the
 current operating system before any service install, uninstall, daemon, or
@@ -360,14 +372,24 @@ goals. Before service mode is enabled, release planning should document:
 
 ### macOS Launchd
 
-Future macOS support should use a signed and notarized package with launchd
-configuration. It should define:
+macOS support uses a system LaunchDaemon installed by a PKG artifact. The
+LaunchDaemon runs the existing portable supervisor with:
 
-- launch daemon or agent model
-- account and permissions model
-- config and identity paths
-- log path
-- start, stop, restart, and status behavior
+```text
+/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent service run --config /Library/Application Support/OpenAssetWatch/Agent/config/config.json --identity-file /Library/Application Support/OpenAssetWatch/Agent/identity/identity.json --output-dir /Library/Application Support/OpenAssetWatch/Agent/state
+```
+
+The package creates or reuses the non-interactive `_openassetwatch` service
+identity, installs `com.openassetwatch.agent`, and stores state under
+`/Library/Application Support/OpenAssetWatch/Agent/state` with logs under
+`/Library/Logs/OpenAssetWatch/Agent`. It preserves administrator-managed config
+and identity during repair, upgrade, rollback, and uninstall. Local package
+artifacts are unsigned validation artifacts; production release artifacts still
+require Developer ID signing, notarization, stapling, and signature validation.
+
+See [Agent macOS Deployment](AGENT_MACOS_DEPLOYMENT.md) for install,
+provisioning, launchctl lifecycle, signing, notarization, and uninstall
+details.
 
 ### Scheduling And Retry Expectations
 

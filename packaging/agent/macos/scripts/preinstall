@@ -1,0 +1,52 @@
+#!/bin/sh
+set -eu
+
+PACKAGE_ID="com.openassetwatch.agent"
+PACKAGE_VERSION="__OAW_PACKAGE_VERSION__"
+PLIST="/Library/LaunchDaemons/com.openassetwatch.agent.plist"
+
+log() {
+  printf '%s\n' "openassetwatch-agent preinstall: $*"
+}
+
+fail() {
+  printf '%s\n' "openassetwatch-agent preinstall: ERROR: $*" >&2
+  exit 1
+}
+
+version_gt() {
+  current="$1"
+  candidate="$2"
+  IFS=.
+  set -- $current
+  c_major="${1:-0}"; c_minor="${2:-0}"; c_patch="${3:-0}"
+  set -- $candidate
+  n_major="${1:-0}"; n_minor="${2:-0}"; n_patch="${3:-0}"
+  unset IFS
+  [ "$c_major" -gt "$n_major" ] && return 0
+  [ "$c_major" -lt "$n_major" ] && return 1
+  [ "$c_minor" -gt "$n_minor" ] && return 0
+  [ "$c_minor" -lt "$n_minor" ] && return 1
+  [ "$c_patch" -gt "$n_patch" ] && return 0
+  return 1
+}
+
+[ "$(id -u)" -eq 0 ] || fail "must run as root"
+
+case "$(uname -m)" in
+  arm64|x86_64) ;;
+  *) fail "unsupported architecture: $(uname -m)" ;;
+esac
+
+installed_version="$(/usr/sbin/pkgutil --pkg-info "$PACKAGE_ID" 2>/dev/null | /usr/bin/awk '/^version:/ {print $2}' || true)"
+if [ -n "$installed_version" ] && version_gt "$installed_version" "$PACKAGE_VERSION"; then
+  fail "refusing downgrade from $installed_version to $PACKAGE_VERSION"
+fi
+
+if [ -f "$PLIST" ]; then
+  log "booting out existing LaunchDaemon before install or upgrade"
+  /bin/launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
+fi
+
+log "preserving config, identity, state, and logs"
+exit 0

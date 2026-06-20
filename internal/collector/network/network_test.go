@@ -1,6 +1,10 @@
 package network
 
 import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -111,4 +115,71 @@ destination: default
 	if gateway.Address != "192.168.1.1" || gateway.Interface != "en0" {
 		t.Fatalf("unexpected darwin gateway: %+v", gateway)
 	}
+}
+
+func TestDarwinCommandPathsAreAbsolute(t *testing.T) {
+	if got := arpExecutablePath("darwin"); got != darwinARPPath {
+		t.Fatalf("darwin arp path = %q, want %q", got, darwinARPPath)
+	}
+	if got := routeExecutablePath("darwin"); got != darwinRoutePath {
+		t.Fatalf("darwin route path = %q, want %q", got, darwinRoutePath)
+	}
+	if got := arpExecutablePath("linux"); got != "arp" {
+		t.Fatalf("linux arp path = %q, want PATH lookup fallback", got)
+	}
+}
+
+func TestBoundedCommandOutputRejectsLargeOutput(t *testing.T) {
+	restore := stubLocalCommand(t, "large")
+	defer restore()
+
+	got, err := boundedCommandOutput(context.Background(), "helper")
+	if !errors.Is(err, errCommandOutputTooLarge) {
+		t.Fatalf("boundedCommandOutput error = %v, want output-too-large", err)
+	}
+	if got != "" {
+		t.Fatalf("boundedCommandOutput returned output for oversized command: %d bytes", len(got))
+	}
+}
+
+func TestBoundedCommandOutputHonorsContextCancellation(t *testing.T) {
+	restore := stubLocalCommand(t, "sleep")
+	defer restore()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err := boundedCommandOutput(ctx, "helper")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("boundedCommandOutput error = %v, want context.Canceled", err)
+	}
+	if got != "" {
+		t.Fatalf("boundedCommandOutput returned output after cancellation: %q", got)
+	}
+}
+
+func stubLocalCommand(t *testing.T, mode string) func() {
+	t.Helper()
+	original := newLocalCommand
+	newLocalCommand = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=TestNetworkCommandHelperProcess", "--", mode)
+		cmd.Env = append(os.Environ(), "OAW_NETWORK_HELPER_PROCESS=1")
+		return cmd
+	}
+	return func() { newLocalCommand = original }
+}
+
+func TestNetworkCommandHelperProcess(t *testing.T) {
+	if os.Getenv("OAW_NETWORK_HELPER_PROCESS") != "1" {
+		return
+	}
+	mode := os.Args[len(os.Args)-1]
+	switch mode {
+	case "large":
+		_, _ = os.Stdout.Write(make([]byte, localCommandMaxBytes+2))
+	case "sleep":
+		time.Sleep(10 * time.Second)
+	default:
+		_, _ = os.Stdout.WriteString("ok")
+	}
+	os.Exit(0)
 }

@@ -185,7 +185,9 @@ Future collector packaging may include:
   * Agent native Windows service and MSI deployment details:
     [docs/AGENT_WINDOWS_DEPLOYMENT.md](docs/AGENT_WINDOWS_DEPLOYMENT.md)
 * Linux systemd installer
-* macOS launchd installer
+* macOS launchd PKG installer
+  * Agent macOS LaunchDaemon and PKG deployment details:
+    [docs/AGENT_MACOS_DEPLOYMENT.md](docs/AGENT_MACOS_DEPLOYMENT.md)
 * Raspberry Pi / ARM support
 * Docker-based sensor deployment
 

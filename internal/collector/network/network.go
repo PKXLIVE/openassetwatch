@@ -3,6 +3,8 @@ package network
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -23,7 +25,15 @@ const (
 	sourceGetNetNeighbor = "windows_get_net_neighbor"
 	sourceGetNetRoute    = "windows_get_net_route"
 	sourceRouteDefault   = "darwin_route_default"
+	darwinARPPath        = "/usr/sbin/arp"
+	darwinRoutePath      = "/sbin/route"
+	localCommandTimeout  = 5 * time.Second
+	localCommandMaxBytes = 1024 * 1024
 )
+
+var errCommandOutputTooLarge = errors.New("local command output exceeded maximum size")
+
+var newLocalCommand = exec.CommandContext
 
 type InterfaceInventory struct {
 	PrimaryInterfaces []models.NetworkInterface
@@ -567,31 +577,61 @@ func windowsNeighborOutput() (string, error) {
 }
 
 func arpAOutput() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), localCommandTimeout)
 	defer cancel()
 
-	command := exec.CommandContext(ctx, "arp", "-a")
-	output, err := command.Output()
-	if ctx.Err() != nil {
-		return "", ctx.Err()
-	}
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
+	return boundedCommandOutput(ctx, arpExecutablePath(runtime.GOOS), "-a")
 }
 
 func darwinDefaultRouteOutput() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), localCommandTimeout)
 	defer cancel()
 
-	command := exec.CommandContext(ctx, "route", "-n", "get", "default")
-	output, err := command.Output()
-	if ctx.Err() != nil {
-		return "", ctx.Err()
+	return boundedCommandOutput(ctx, routeExecutablePath(runtime.GOOS), "-n", "get", "default")
+}
+
+func arpExecutablePath(goos string) string {
+	if goos == "darwin" {
+		return darwinARPPath
 	}
+	return "arp"
+}
+
+func routeExecutablePath(goos string) string {
+	if goos == "darwin" {
+		return darwinRoutePath
+	}
+	return "route"
+}
+
+func boundedCommandOutput(ctx context.Context, executable string, args ...string) (string, error) {
+	command := newLocalCommand(ctx, executable, args...)
+	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return "", err
 	}
-	return string(output), nil
+	if err := command.Start(); err != nil {
+		return "", err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(stdout, localCommandMaxBytes+1))
+	if ctx.Err() != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return "", ctx.Err()
+	}
+	if readErr != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return "", readErr
+	}
+	if len(data) > localCommandMaxBytes {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return "", errCommandOutputTooLarge
+	}
+	waitErr := command.Wait()
+	if waitErr != nil {
+		return "", waitErr
+	}
+	return string(data), nil
 }

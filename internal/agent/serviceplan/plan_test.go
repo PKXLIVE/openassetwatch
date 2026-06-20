@@ -170,20 +170,48 @@ func TestWindowsTemplateIsPlanTextOnly(t *testing.T) {
 func TestLaunchdTemplateContainsExpectedSafeFields(t *testing.T) {
 	plan := Build("darwin", fixturePaths(t), nil)
 	template := BuildTemplate(plan)
+	if plan.BinaryPath != DarwinBinaryPath {
+		t.Fatalf("darwin binary path = %q, want %q", plan.BinaryPath, DarwinBinaryPath)
+	}
 
 	for _, want := range []string{
 		"<plist version=\"1.0\">",
 		"<string>" + plan.ServiceName + "</string>",
 		"<string>" + plan.BinaryPath + "</string>",
+		"<string>service</string>",
+		"<string>run</string>",
 		"<string>--config</string>",
 		"<string>" + plan.ConfigPath + "</string>",
 		"<string>--identity-file</string>",
 		"<string>" + plan.IdentityPath + "</string>",
+		"<string>--output-dir</string>",
+		"<string>" + plan.StateDir + "</string>",
+		"<key>UserName</key>",
+		"<string>_openassetwatch</string>",
+		"<key>GroupName</key>",
+		"<key>RunAtLoad</key>",
+		"<true/>",
+		"<key>KeepAlive</key>",
+		"<key>ThrottleInterval</key>",
+		"<integer>60</integer>",
+		"<key>ProcessType</key>",
+		"<string>Background</string>",
+		"<key>ExitTimeOut</key>",
+		"<integer>30</integer>",
+		"<key>WorkingDirectory</key>",
+		"<key>Umask</key>",
+		"<string>027</string>",
+		"<string>/dev/null</string>",
 		"Status file: " + plan.StatusPath,
-		"Scheduling is intentionally not configured",
+		"No shell, StartInterval, StartCalendarInterval, or sensitive environment values are configured",
 	} {
 		if !strings.Contains(template.Template, want) {
 			t.Fatalf("launchd template missing %q:\n%s", want, template.Template)
+		}
+	}
+	for _, forbidden := range []string{"<key>StartInterval</key>", "<key>StartCalendarInterval</key>", "/bin/sh", "<key>Crashed</key>", "KeepAlive</key>\n  <false/>"} {
+		if strings.Contains(template.Template, forbidden) {
+			t.Fatalf("launchd template contains forbidden %q:\n%s", forbidden, template.Template)
 		}
 	}
 }
@@ -198,6 +226,7 @@ func TestPlanOutputContainsNoTokenOrSecretTerms(t *testing.T) {
 	paths := agentpaths.AgentPaths{
 		IdentityPath: filepath.Join(tempDir, "identity.json"),
 		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		StateDir:     filepath.Join(tempDir, "state"),
 		LogDir:       filepath.Join(tempDir, "logs"),
 		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
 	}
@@ -227,6 +256,7 @@ func TestTemplateOutputContainsNoTokenOrSecretTerms(t *testing.T) {
 	paths := agentpaths.AgentPaths{
 		IdentityPath: filepath.Join(tempDir, "identity.json"),
 		ConfigPath:   filepath.Join(tempDir, "config.json"),
+		StateDir:     filepath.Join(tempDir, "state"),
 		LogDir:       filepath.Join(tempDir, "logs"),
 		StatusPath:   filepath.Join(tempDir, "logs", "status.json"),
 	}
@@ -246,6 +276,7 @@ func fixturePaths(t *testing.T) agentpaths.AgentPaths {
 	return agentpaths.AgentPaths{
 		IdentityPath: filepath.Join(base, "identity.json"),
 		ConfigPath:   filepath.Join(base, "config.json"),
+		StateDir:     filepath.Join(base, "state"),
 		LogDir:       filepath.Join(base, "logs"),
 		StatusPath:   filepath.Join(base, "logs", "status.json"),
 	}

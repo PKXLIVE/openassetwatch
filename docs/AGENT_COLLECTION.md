@@ -62,8 +62,9 @@ keys, API keys, signing keys, or customer secrets.
 Future installed-agent default identity locations should be:
 
 - Windows: `%ProgramData%\OpenAssetWatch\Agent\identity\identity.json`
-- Linux: `/var/lib/openassetwatch/agent/identity.json`
-- macOS: `/Library/Application Support/OpenAssetWatch/agent/identity.json`
+- Linux: `/etc/openassetwatch/agent/identity.json`
+- macOS:
+  `/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json`
 
 The local collection command can load this identity file explicitly:
 
@@ -80,7 +81,9 @@ go run ./cmd/oaw-agent paths
 Default agent identity paths are:
 
 - Windows: `%ProgramData%\OpenAssetWatch\Agent\identity\identity.json`
-- Linux/macOS: `/etc/openassetwatch/agent/identity.json`
+- Linux: `/etc/openassetwatch/agent/identity.json`
+- macOS:
+  `/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json`
 
 If `--identity-file`, `--site-id`, and `--config` are omitted, collection tries
 the default identity path. If that file is missing, collection fails clearly
@@ -132,17 +135,22 @@ or other secrets in this file.
 Default agent config paths are:
 
 - Windows: `%ProgramData%\OpenAssetWatch\Agent\config\config.json`
-- Linux/macOS: `/etc/openassetwatch/agent/config.json`
+- Linux: `/etc/openassetwatch/agent/config.json`
+- macOS:
+  `/Library/Application Support/OpenAssetWatch/Agent/config/config.json`
 
 Default agent log paths are:
 
 - Windows: `%ProgramData%\OpenAssetWatch\Agent\logs\`
-- Linux/macOS: `/var/log/openassetwatch/agent/`
+- Linux: `/var/log/openassetwatch/agent/`
+- macOS: `/Library/Logs/OpenAssetWatch/Agent/`
 
 The planned last-known local status file is:
 
 - Windows: `%ProgramData%\OpenAssetWatch\Agent\state\status.json`
-- Linux/macOS: `/var/log/openassetwatch/agent/status.json`
+- Linux: `/var/log/openassetwatch/agent/status.json`
+- macOS:
+  `/Library/Application Support/OpenAssetWatch/Agent/state/status.json`
 
 Explicit CLI flags remain highest priority. For collection:
 

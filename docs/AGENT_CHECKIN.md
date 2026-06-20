@@ -123,8 +123,9 @@ provided wrapper.
 Future default installed-agent identity locations should be:
 
 - Windows: `%ProgramData%\OpenAssetWatch\Agent\identity\identity.json`
-- Linux: `/var/lib/openassetwatch/agent/identity.json`
-- macOS: `/Library/Application Support/OpenAssetWatch/agent/identity.json`
+- Linux: `/etc/openassetwatch/agent/identity.json`
+- macOS:
+  `/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json`
 
 Do not place enrollment tokens, license keys, signing keys, API keys, or
 customer secrets in that file.
@@ -151,22 +152,29 @@ go run ./cmd/oaw-agent paths
 Default agent identity paths are:
 
 - Windows: `%ProgramData%\OpenAssetWatch\Agent\identity\identity.json`
-- Linux/macOS: `/etc/openassetwatch/agent/identity.json`
+- Linux: `/etc/openassetwatch/agent/identity.json`
+- macOS:
+  `/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json`
 
 Default agent config paths are:
 
 - Windows: `%ProgramData%\OpenAssetWatch\Agent\config\config.json`
-- Linux/macOS: `/etc/openassetwatch/agent/config.json`
+- Linux: `/etc/openassetwatch/agent/config.json`
+- macOS:
+  `/Library/Application Support/OpenAssetWatch/Agent/config/config.json`
 
 Default agent log paths are:
 
 - Windows: `%ProgramData%\OpenAssetWatch\Agent\logs\`
-- Linux/macOS: `/var/log/openassetwatch/agent/`
+- Linux: `/var/log/openassetwatch/agent/`
+- macOS: `/Library/Logs/OpenAssetWatch/Agent/`
 
 The planned last-known local status file is:
 
 - Windows: `%ProgramData%\OpenAssetWatch\Agent\state\status.json`
-- Linux/macOS: `/var/log/openassetwatch/agent/status.json`
+- Linux: `/var/log/openassetwatch/agent/status.json`
+- macOS:
+  `/Library/Application Support/OpenAssetWatch/Agent/state/status.json`
 
 When `--identity-file` is omitted, `check-in` reads the default identity path.
 If the default file is missing, the command fails clearly and does not create

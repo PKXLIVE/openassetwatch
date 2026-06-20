@@ -354,10 +354,10 @@ func runServiceRun(args []string, stdout io.Writer, stderr io.Writer) int {
 		MaxRetryDelay:   time.Hour,
 		Jitter:          30 * time.Second,
 		ShutdownTimeout: 30 * time.Second,
-		ServiceName:     "OpenAssetWatchAgent",
+		ServiceName:     defaultServiceName(),
 	}
 	cycle := func(ctx context.Context) agentsupervisor.CycleResult {
-		report := executeRunOnceContext(ctx, configPath, identityPath, outputDir)
+		report := executeRunOnceContext(ctx, resolvedConfigPath, resolvedIdentityPath, outputDir)
 		if report.OK {
 			return agentsupervisor.CycleResult{OK: true, LastInventoryPath: report.InventoryPath}
 		}
@@ -370,6 +370,17 @@ func runServiceRun(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 
 	return runServiceRuntimeForCommand(options, cycle, stdout, stderr)
+}
+
+func defaultServiceName() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "OpenAssetWatchAgent"
+	case "darwin":
+		return "com.openassetwatch.agent"
+	default:
+		return "openassetwatch-agent"
+	}
 }
 
 func buildCurrentServicePlan() agentserviceplan.Plan {
