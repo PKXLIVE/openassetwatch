@@ -15,10 +15,15 @@ package:
   service_user: _openassetwatch
   service_group: _openassetwatch
   package_metadata_path: /var/db/receipts/com.openassetwatch.agent.*
+  package_version_policy: numeric_one_to_three_components_no_prerelease_suffix
+  tested_macos_versions:
+    - macos-15-arm64-ci
+    - macos-15-intel-ci
 validation:
   checksum: required
   signature: required_for_release
   notarization: required_for_release
+  embedded_binary_signature: required_for_signed_release
   sbom: planned
   provenance: planned
 safety:
@@ -28,6 +33,9 @@ safety:
   secrets: none
   notes:
     - Local unsigned PKG artifacts are validation artifacts only.
+    - Signed but not notarized PKG artifacts are signing-validation artifacts only.
+    - Release signing signs the final embedded binary before pkgroot staging.
     - LaunchDaemon uses oaw-agent service run and the portable supervisor.
+    - LaunchDaemon uses KeepAlive=true, ThrottleInterval=60, and umask "027".
     - No StartInterval or StartCalendarInterval scheduling is packaged.
     - Signing and notarization credentials must remain outside the repository.

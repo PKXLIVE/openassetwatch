@@ -398,11 +398,11 @@ Build, stage, and validate a local unsigned macOS package on macOS:
 
 ```bash
 bash scripts/release/build_agent_macos_pkg.sh \
-  --version 0.1.0-local \
+  --version 0.1.0 \
   --arch-mode universal
 
 python3 scripts/release/validate_agent_macos_install.py \
-  --version 0.1.0-local
+  --version 0.1.0
 ```
 
 The helper writes local validation output under ignored `dist/` paths:
@@ -414,6 +414,10 @@ The helper writes local validation output under ignored `dist/` paths:
 - `dist/agent/<version>/packages/OpenAssetWatchAgent-<version>-macos-universal.pkg`
 - `.pkg.sha256`
 - `.pkg.manifest.json`
+
+Current CI validates macOS 15 on Apple Silicon and Intel runners. Earlier
+macOS versions are not claimed as tested until matching CI or release evidence
+exists.
 
 The staged package payload uses these canonical macOS paths:
 
@@ -432,9 +436,11 @@ The LaunchDaemon runs:
 ```
 
 It runs as `_openassetwatch:_openassetwatch`, uses `RunAtLoad=true`,
-`KeepAlive={Crashed=true}`, `ThrottleInterval=60`, and no
+`KeepAlive=true`, `ThrottleInterval=60`, umask `"027"`, and no
 `StartInterval`/`StartCalendarInterval` scheduling. This is a daemon runtime,
-not a separate scheduler.
+not a separate scheduler. Transient config, identity, DNS, backend, HTTP, and
+collection failures degrade inside the supervisor loop and should not exit the
+process.
 
 The package scripts use modern `launchctl` `bootout`, `bootstrap`, `enable`,
 `kickstart`, and `print` operations on the target macOS machine. They create or
@@ -442,18 +448,29 @@ reuse the `_openassetwatch` non-interactive service identity, preserve real
 config and identity, avoid backend network calls, and do not store tokens,
 credentials, passwords, API keys, or secrets.
 
-Unsigned local PKG artifacts are not release-ready. Production macOS release
+macOS PKG receipt versions must be numeric with one to three dot-separated
+components. Prerelease and build suffixes are rejected for PKG builds to avoid
+mapping different release strings to the same installed receipt version.
+
+Unsigned local PKG artifacts are not release-ready. Signed but not notarized
+artifacts are signing-validation artifacts only. Production macOS release
 artifacts must be signed with Developer ID identities, notarized by Apple,
 stapled, and verified before distribution:
 
 ```bash
 bash scripts/release/sign_notarize_agent_macos.sh \
-  --pkg dist/agent/<version>/packages/OpenAssetWatchAgent-<version>-macos-universal.pkg \
-  --binary dist/agent/<version>/darwin-universal/oaw-agent \
+  --version <numeric-version> \
+  --arch-mode universal \
   --app-identity "Developer ID Application: Example" \
   --installer-identity "Developer ID Installer: Example" \
   --notary-profile openassetwatch
 ```
+
+The signed release helper rebuilds from verified artifacts so the embedded
+package binary is signed before pkgroot staging. It then signs the product PKG,
+requires notarization `Accepted` status unless explicitly running a signed-only
+validation, staples the ticket, validates Gatekeeper assessment, and regenerates
+the final checksum and manifest after signing/stapling.
 
 Uninstall uses the explicit macOS uninstaller. By default it preserves config,
 identity, state, logs, and the service account:

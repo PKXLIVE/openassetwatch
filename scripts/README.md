@@ -27,9 +27,13 @@ should not be added here.
   provide explicit Windows file install and uninstall helpers with dry-run
   validation for administrator-controlled file copy and cleanup, stage and
   validate macOS LaunchDaemon install layouts from existing Darwin artifacts,
-  build unsigned macOS PKG artifacts with Apple packaging tools on macOS,
-  provide explicit macOS signing and notarization hooks, provide a safe macOS
-  uninstaller with dry-run and data-preservation defaults, validate
+  build unsigned macOS PKG artifacts with Apple packaging tools on macOS using
+  numeric receipt versions, verify Darwin slice/universal architecture inputs,
+  provide explicit macOS signing and notarization hooks that sign the embedded
+  binary before pkgroot staging and regenerate final checksum/manifest metadata
+  after notarization/stapling, provide a safe macOS uninstaller with dry-run,
+  root-precondition failure, no system-Python dependency, and data-preservation
+  defaults, validate
   generated release artifacts, orchestrate the local release flow, stage a local
   proof-of-layout install tree under ignored `dist/` paths, create a local
   sandbox install proof under ignored `dist/` paths, remove only that local

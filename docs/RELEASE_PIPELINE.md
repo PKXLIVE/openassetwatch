@@ -77,8 +77,11 @@ OpenAssetWatch. It is not fully implemented yet.
   paths.
 - macOS signing and notarization hooks exist through
   [scripts/release/sign_notarize_agent_macos.sh](../scripts/release/sign_notarize_agent_macos.sh).
-  They require explicit Developer ID and notary inputs. Local and PR PKG
-  artifacts remain unsigned validation artifacts.
+  They require explicit Developer ID and notary inputs, rebuild from verified
+  Darwin artifacts, sign the final embedded binary before pkgroot staging, sign
+  the product PKG, notarize, staple, validate Gatekeeper assessment, and
+  regenerate final checksum/manifest metadata. Local and PR PKG artifacts
+  remain unsigned validation artifacts.
 - A safe macOS uninstaller exists through
   [scripts/release/uninstall_agent_macos.sh](../scripts/release/uninstall_agent_macos.sh).
   It preserves config, identity, state, logs, and the service account by
@@ -272,11 +275,11 @@ On macOS, build and validate a LaunchDaemon PKG under ignored `dist/` output:
 
 ```bash
 bash scripts/release/build_agent_macos_pkg.sh \
-  --version 0.1.0-local \
+  --version 0.1.0 \
   --arch-mode universal
 
 python3 scripts/release/validate_agent_macos_install.py \
-  --version 0.1.0-local
+  --version 0.1.0
 ```
 
 The macOS PKG helper emits:
@@ -303,7 +306,7 @@ The LaunchDaemon runs the supported `oaw-agent service run` command with
 explicit config, identity, and state paths under
 `/Library/Application Support/OpenAssetWatch/Agent`. It uses the
 non-interactive `_openassetwatch` service identity, `RunAtLoad=true`,
-`KeepAlive={Crashed=true}`, and bounded launchd restart throttling. It does
+`KeepAlive=true`, umask `"027"`, and bounded launchd restart throttling. It does
 not package `StartInterval`, `StartCalendarInterval`, shell chaining, active
 scanning, or offensive tooling.
 
@@ -312,7 +315,11 @@ the PKG install/uninstall lifecycle. They do not contact a backend, store
 secrets, overwrite real config or identity, or run package-manager commands.
 Unsigned local macOS PKG artifacts are validation artifacts only. Production
 release output must be signed, notarized, stapled, and verified with
-`sign_notarize_agent_macos.sh` or equivalent release infrastructure.
+`sign_notarize_agent_macos.sh` or equivalent release infrastructure. Signed but
+not notarized packages are signing-validation artifacts only. macOS PKG receipt
+versions are numeric only; prerelease/build suffixes are rejected to avoid
+receipt-version collisions. Current CI validates macOS 15 arm64 and Intel
+runners, plus universal package installation where supported.
 
 ## Local Debian Package Artifacts
 

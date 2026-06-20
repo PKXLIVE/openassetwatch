@@ -243,6 +243,13 @@ uninstall, upgrade, roll back, or publish anything.
       mode, source artifact checksum, package identifier, launchd label,
       service account, production paths, ownership intent, signing state, and
       notarization state
+- [ ] macOS package version is numeric with one to three dot-separated
+      components; prerelease and build suffixes are rejected for PKG receipt
+      versions
+- [ ] supplied Darwin artifact inputs include binary, checksum, manifest,
+      version, OS, architecture, git commit metadata, and matching SHA256
+- [ ] supplied and locally built Darwin binaries are verified as Mach-O with
+      the expected arm64, x86_64, or exact universal slices
 - [ ] package identifier is `com.openassetwatch.agent`
 - [ ] launchd label is `com.openassetwatch.agent`
 - [ ] package supports Apple Silicon `arm64` and Intel `amd64` artifacts, plus
@@ -268,8 +275,9 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] LaunchDaemon uses `UserName=_openassetwatch`
 - [ ] LaunchDaemon uses `GroupName=_openassetwatch`
 - [ ] LaunchDaemon uses `RunAtLoad=true`
-- [ ] LaunchDaemon uses `KeepAlive={Crashed=true}`
+- [ ] LaunchDaemon uses `KeepAlive=true`
 - [ ] LaunchDaemon uses `ThrottleInterval=60`
+- [ ] LaunchDaemon umask is encoded consistently as string `"027"`
 - [ ] LaunchDaemon uses `ExitTimeOut=30`
 - [ ] LaunchDaemon does not use `StartInterval` or `StartCalendarInterval`
 - [ ] LaunchDaemon does not use shell chaining, shell execution, environment
@@ -280,6 +288,10 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] `postinstall` validates the binary with `file`
 - [ ] `postinstall` uses modern `launchctl bootout`, `bootstrap`, `enable`,
       `kickstart`, and `print`
+- [ ] `postinstall` uses an EXIT trap to boot out a partially loaded daemon
+      after ordinary command failure
+- [ ] `postinstall` cleans up user/group records only if it created partial
+      records during the failed transaction
 - [ ] `postinstall` does not call backend network services
 - [ ] `postinstall` does not overwrite real config or identity
 - [ ] `preinstall` boots out an existing LaunchDaemon before repair or upgrade
@@ -288,16 +300,26 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] package examples are placeholders and contain no tokens, credentials,
       passwords, API keys, or secrets
 - [ ] unsigned local PKG artifacts are marked as validation artifacts only
-- [ ] production release flow signs the binary
-- [ ] production release flow signs the PKG
+- [ ] signed but not notarized PKG artifacts are marked as signing-validation
+      artifacts only
+- [ ] production release flow signs the embedded binary before pkgroot staging
+      and before product PKG signing
+- [ ] production release flow verifies hardened runtime, secure timestamp, and
+      absence of `get-task-allow`
+- [ ] production release flow expands or inspects the final PKG and verifies
+      the embedded binary signature
+- [ ] production release flow signs the PKG with Developer ID Installer
 - [ ] production release flow submits the PKG for notarization
+- [ ] production release flow downloads the detailed notary log and requires
+      `Accepted` status
 - [ ] production release flow staples and verifies the notarized PKG
+- [ ] final PKG checksum and manifest are regenerated after signing/stapling
 
 ## macOS Uninstall Validation
 
 - [ ] `scripts/release/uninstall_agent_macos.sh` parses cleanly
 - [ ] uninstaller supports `--dry-run`
-- [ ] real uninstall requires root
+- [ ] real uninstall fails closed before mutation when not root
 - [ ] uninstaller uses modern `launchctl bootout`
 - [ ] uninstaller removes package-managed binary, plist, examples, and install
       manifest only from canonical OpenAssetWatch paths
@@ -308,7 +330,7 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] `--purge` is required before removing config or identity directories
 - [ ] uninstaller refuses empty, unrelated, and symlink-escaped paths
 - [ ] uninstaller preserves the `_openassetwatch` service account by default
-- [ ] uninstaller emits JSON only
+- [ ] uninstaller emits JSON only without depending on system Python
 
 ## Windows File Helper Validation
 
