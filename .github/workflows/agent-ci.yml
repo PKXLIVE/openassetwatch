@@ -1,0 +1,224 @@
+name: Agent CI
+
+on:
+  push:
+    branches:
+      - main
+      - feat/oaw-agent-windows-native-service-msi
+  pull_request:
+    paths:
+      - ".github/workflows/agent-ci.yml"
+      - "cmd/oaw-agent/**"
+      - "internal/agent/**"
+      - "pkg/**"
+      - "scripts/release/**"
+      - "packaging/agent/**"
+      - "go.mod"
+      - "go.sum"
+
+jobs:
+  ubuntu-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: |
+          changed="$(gofmt -l cmd/oaw-agent internal/agent pkg 2>/dev/null || true)"
+          if [ -n "$changed" ]; then
+            echo "$changed"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+      - name: race tests
+        run: go test -race ./cmd/oaw-agent ./internal/agent/supervisor
+      - name: Windows cross-build
+        shell: pwsh
+        run: ./scripts/release/build_agent_dist.ps1 -Version 0.1.0-ci -TargetOS windows -TargetArch amd64
+      - name: Release script syntax
+        shell: pwsh
+        run: |
+          $scripts = @(
+            "scripts/release/build_agent_dist.ps1",
+            "scripts/release/build_agent_msi.ps1",
+            "scripts/release/install_agent_windows_files.ps1",
+            "scripts/release/uninstall_agent_windows_files.ps1",
+            "scripts/release/install_agent_windows_service.ps1",
+            "scripts/release/uninstall_agent_windows_service.ps1",
+            "scripts/release/sign_agent_windows.ps1"
+          )
+          foreach ($script in $scripts) {
+            $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$null, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | Format-List | Out-String | Write-Error
+              exit 1
+            }
+          }
+          python3 -m py_compile scripts/release/stage_agent_windows_install.py scripts/release/validate_agent_windows_install.py scripts/release/validate_agent_windows_msi.py
+
+  windows-agent:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: gofmt
+        shell: pwsh
+        run: |
+          $changed = gofmt -l cmd/oaw-agent internal/agent pkg
+          if ($changed) {
+            $changed
+            exit 1
+          }
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+
+      - name: Build Windows artifact
+        shell: pwsh
+        run: ./scripts/release/build_agent_dist.ps1 -Version 0.1.0-ci -TargetOS windows -TargetArch amd64
+
+      - name: Stage and validate Windows layout
+        shell: pwsh
+        run: |
+          python ./scripts/release/stage_agent_windows_install.py --version 0.1.0-ci
+          python ./scripts/release/validate_agent_windows_install.py --version 0.1.0-ci
+
+      - name: Dry-run Windows helpers
+        shell: pwsh
+        run: |
+          $root = "dist/agent/0.1.0-ci/windows-install"
+          $metadata = "$root/service/oaw-agent-service.json"
+          ./scripts/release/install_agent_windows_files.ps1 -WindowsInstallRoot $root -DryRun
+          ./scripts/release/uninstall_agent_windows_files.ps1 -ServiceMetadata $metadata -DryRun
+          ./scripts/release/install_agent_windows_service.ps1 -InstallRoot $root -ServiceMetadata $metadata -DryRun
+          ./scripts/release/uninstall_agent_windows_service.ps1 -ServiceMetadata $metadata -DryRun
+
+      - name: Build and validate MSI
+        shell: pwsh
+        run: |
+          ./scripts/release/build_agent_msi.ps1 -Version 0.1.0-ci -TargetArch amd64
+          python ./scripts/release/validate_agent_windows_msi.py --version 0.1.0-ci
+
+      - name: Real SCM lifecycle smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $serviceName = "OpenAssetWatchAgent"
+          $root = Resolve-Path "dist/agent/0.1.0-ci/windows-install"
+          $metadata = Join-Path $root "service/oaw-agent-service.json"
+          $mock = Join-Path $env:RUNNER_TEMP "oaw_mock_backend.py"
+          @'
+          import json
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          from pathlib import Path
+          log = Path(__import__("os").environ["OAW_MOCK_LOG"])
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  self.send_response(200)
+                  self.end_headers()
+              def do_POST(self):
+                  body = self.rfile.read(int(self.headers.get("content-length", "0")))
+                  with log.open("a", encoding="utf-8") as f:
+                      f.write(json.dumps({"path": self.path, "body_len": len(body)}) + "\n")
+                  self.send_response(202)
+                  self.end_headers()
+              def log_message(self, fmt, *args):
+                  return
+          HTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
+          '@ | Set-Content -Encoding utf8 $mock
+          $env:OAW_MOCK_LOG = Join-Path $env:RUNNER_TEMP "oaw_mock_backend.jsonl"
+          $backend = Start-Process python -ArgumentList $mock -PassThru
+          try {
+            ./scripts/release/install_agent_windows_files.ps1 -WindowsInstallRoot $root
+            New-Item -ItemType Directory -Force -Path "C:\ProgramData\OpenAssetWatch\Agent\config","C:\ProgramData\OpenAssetWatch\Agent\identity" | Out-Null
+            '{"server_url":"http://127.0.0.1:18080","site_id":"ci-site"}' | Set-Content -Encoding utf8 "C:\ProgramData\OpenAssetWatch\Agent\config\config.json"
+            '{"site_id":"ci-site","agent_id":"11111111-1111-4111-8111-111111111111","deployment_id":"22222222-2222-4222-8222-222222222222","tenant_id":"ci","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}' | Set-Content -Encoding utf8 "C:\ProgramData\OpenAssetWatch\Agent\identity\identity.json"
+            ./scripts/release/install_agent_windows_service.ps1 -InstallRoot $root -ServiceMetadata $metadata -Start
+            $deadline = (Get-Date).AddSeconds(75)
+            do {
+              Start-Sleep -Seconds 2
+              $svc = Get-Service -Name $serviceName -ErrorAction Stop
+              $statusPath = "C:\ProgramData\OpenAssetWatch\Agent\state\status.json"
+              $inventoryPath = "C:\ProgramData\OpenAssetWatch\Agent\state\last-inventory.json"
+              $statusOk = Test-Path $statusPath
+              $inventoryOk = Test-Path $inventoryPath
+              $events = if (Test-Path $env:OAW_MOCK_LOG) { Get-Content $env:OAW_MOCK_LOG } else { @() }
+              if ($svc.Status -eq "Running" -and $statusOk -and $inventoryOk -and ($events -match "/api/v1/agents/check-in") -and ($events -match "/api/v1/collections/local-inventory")) {
+                break
+              }
+            } while ((Get-Date) -lt $deadline)
+            if ($svc.Status -ne "Running") { throw "Service did not report Running." }
+            if (-not (Test-Path $statusPath)) { throw "status.json was not written." }
+            if (-not (Test-Path $inventoryPath)) { throw "last-inventory.json was not written." }
+            $status = Get-Content -Raw $statusPath | ConvertFrom-Json
+            if ($status.health -ne "healthy") { throw "status.json did not report healthy: $($status | ConvertTo-Json -Compress)" }
+            Stop-Service -Name $serviceName -ErrorAction Stop
+            (Get-Service -Name $serviceName -ErrorAction Stop).WaitForStatus("Stopped", "00:00:30")
+            Start-Service -Name $serviceName -ErrorAction Stop
+            (Get-Service -Name $serviceName -ErrorAction Stop).WaitForStatus("Running", "00:00:30")
+          }
+          finally {
+            ./scripts/release/uninstall_agent_windows_service.ps1 -ServiceName $serviceName -Stop -DryRun:$false -ErrorAction SilentlyContinue | Out-Host
+            ./scripts/release/uninstall_agent_windows_files.ps1 -ProgramFilesAgentRoot "C:\Program Files\OpenAssetWatch\Agent" -ProgramDataAgentRoot "C:\ProgramData\OpenAssetWatch\Agent" -RemoveState -RemoveLogs -ErrorAction SilentlyContinue | Out-Host
+            Remove-Item -LiteralPath "C:\Program Files\OpenAssetWatch\Agent" -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath "C:\ProgramData\OpenAssetWatch\Agent" -Recurse -Force -ErrorAction SilentlyContinue
+            Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue
+          }
+          if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+            throw "Service was not removed."
+          }
+
+      - name: MSI lifecycle smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $msi = Resolve-Path "dist/agent/0.1.0-ci/packages/OpenAssetWatchAgent-0.1.0-ci-windows-amd64.msi"
+          ./scripts/release/build_agent_dist.ps1 -Version 0.1.1-ci -TargetOS windows -TargetArch amd64
+          ./scripts/release/build_agent_msi.ps1 -Version 0.1.1-ci -TargetArch amd64
+          $msiUpgrade = Resolve-Path "dist/agent/0.1.1-ci/packages/OpenAssetWatchAgent-0.1.1-ci-windows-amd64.msi"
+          $log = Join-Path $env:RUNNER_TEMP "oaw-msi-install.log"
+          $configPath = "C:\ProgramData\OpenAssetWatch\Agent\config\config.json"
+          $identityPath = "C:\ProgramData\OpenAssetWatch\Agent\identity\identity.json"
+          try {
+            New-Item -ItemType Directory -Force -Path "C:\ProgramData\OpenAssetWatch\Agent\config","C:\ProgramData\OpenAssetWatch\Agent\identity" | Out-Null
+            '{"server_url":"http://127.0.0.1:18080","site_id":"ci-msi-site"}' | Set-Content -Encoding utf8 $configPath
+            '{"site_id":"ci-msi-site","agent_id":"33333333-3333-4333-8333-333333333333","deployment_id":"44444444-4444-4444-8444-444444444444","tenant_id":"ci","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}' | Set-Content -Encoding utf8 $identityPath
+            $proc = Start-Process msiexec.exe -ArgumentList @("/i", $msi, "/qn", "/norestart", "/l*v", $log) -Wait -PassThru
+            if ($proc.ExitCode -ne 0) { throw "MSI install failed with $($proc.ExitCode)." }
+            if (-not (Get-Service -Name OpenAssetWatchAgent -ErrorAction SilentlyContinue)) { throw "MSI did not create service." }
+            $repair = Start-Process msiexec.exe -ArgumentList @("/fa", $msi, "/qn", "/norestart") -Wait -PassThru
+            if ($repair.ExitCode -ne 0) { throw "MSI repair failed with $($repair.ExitCode)." }
+            if (-not (Select-String -LiteralPath $configPath -Pattern "ci-msi-site" -Quiet)) { throw "MSI repair did not preserve config." }
+            if (-not (Select-String -LiteralPath $identityPath -Pattern "33333333-3333-4333-8333-333333333333" -Quiet)) { throw "MSI repair did not preserve identity." }
+            $upgrade = Start-Process msiexec.exe -ArgumentList @("/i", $msiUpgrade, "/qn", "/norestart") -Wait -PassThru
+            if ($upgrade.ExitCode -ne 0) { throw "MSI major upgrade failed with $($upgrade.ExitCode)." }
+            if (-not (Get-Service -Name OpenAssetWatchAgent -ErrorAction SilentlyContinue)) { throw "MSI major upgrade removed service." }
+            if (-not (Select-String -LiteralPath $configPath -Pattern "ci-msi-site" -Quiet)) { throw "MSI major upgrade did not preserve config." }
+            if (-not (Select-String -LiteralPath $identityPath -Pattern "33333333-3333-4333-8333-333333333333" -Quiet)) { throw "MSI major upgrade did not preserve identity." }
+          }
+          finally {
+            $uninstall = Start-Process msiexec.exe -ArgumentList @("/x", $msiUpgrade, "/qn", "/norestart") -Wait -PassThru
+            if ($uninstall.ExitCode -ne 0) { throw "MSI uninstall failed with $($uninstall.ExitCode)." }
+          }
+          if (Get-Service -Name OpenAssetWatchAgent -ErrorAction SilentlyContinue) {
+            throw "MSI uninstall left an orphan service."
+          }
+          if (-not (Test-Path $configPath)) { throw "MSI uninstall did not preserve config." }
+          if (-not (Test-Path $identityPath)) { throw "MSI uninstall did not preserve identity." }
