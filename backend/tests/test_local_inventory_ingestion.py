@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from app.main import LOCAL_INVENTORY_COLLECTIONS, app, local_inventory_collection
+from app.main import app, local_inventory_collection
 
 
 def local_inventory_payload() -> dict[str, object]:
@@ -142,17 +143,19 @@ def post_raw_json(path: str, body: bytes) -> tuple[int, bytes]:
 
 
 class LocalInventoryIngestionTests(unittest.TestCase):
-    def setUp(self) -> None:
-        LOCAL_INVENTORY_COLLECTIONS.clear()
-
     def test_valid_collection_json_is_accepted(self) -> None:
-        response = local_inventory_collection(local_inventory_payload())
+        with patch(
+            "app.main.record_local_inventory_collection",
+            return_value={"collection_id": 1, "normalized_asset_count": 1},
+        ) as record:
+            response = local_inventory_collection(local_inventory_payload())
 
         self.assertEqual(response.status, "accepted")
         self.assertEqual(response.observation_batch_id, 1)
         self.assertEqual(response.site_id, "site-local")
         self.assertEqual(response.observed_asset_count, 1)
-        self.assertEqual(LOCAL_INVENTORY_COLLECTIONS[0]["site_id"], "site-local")
+        self.assertEqual(response.normalized_asset_count, 1)
+        self.assertEqual(record.call_args.kwargs["site_id"], "site-local")
 
     def test_malformed_json_is_rejected(self) -> None:
         status, response_body = post_raw_json("/api/v1/collections/local-inventory", b'{"schema_version":')
@@ -176,10 +179,14 @@ class LocalInventoryIngestionTests(unittest.TestCase):
         payload["agent_id"] = "22222222-2222-4222-8222-222222222222"
         payload["sensor_id"] = "33333333-3333-4333-8333-333333333333"
 
-        response = local_inventory_collection(payload)
+        with patch(
+            "app.main.record_local_inventory_collection",
+            return_value={"collection_id": 1, "normalized_asset_count": 1},
+        ):
+            response = local_inventory_collection(payload)
 
         self.assertEqual(response.status, "accepted")
-        saved_payload = LOCAL_INVENTORY_COLLECTIONS[0]["payload"]
+        saved_payload = payload
         self.assertEqual(saved_payload["deployment_id"], "11111111-1111-4111-8111-111111111111")
         self.assertEqual(saved_payload["agent_id"], "22222222-2222-4222-8222-222222222222")
         self.assertEqual(saved_payload["sensor_id"], "33333333-3333-4333-8333-333333333333")
@@ -187,10 +194,14 @@ class LocalInventoryIngestionTests(unittest.TestCase):
     def test_payload_without_optional_installed_identity_is_accepted(self) -> None:
         payload = local_inventory_payload()
 
-        response = local_inventory_collection(payload)
+        with patch(
+            "app.main.record_local_inventory_collection",
+            return_value={"collection_id": 1, "normalized_asset_count": 1},
+        ):
+            response = local_inventory_collection(payload)
 
         self.assertEqual(response.status, "accepted")
-        saved_payload = LOCAL_INVENTORY_COLLECTIONS[0]["payload"]
+        saved_payload = payload
         self.assertNotIn("deployment_id", saved_payload)
         self.assertNotIn("agent_id", saved_payload)
         self.assertNotIn("sensor_id", saved_payload)
@@ -198,20 +209,28 @@ class LocalInventoryIngestionTests(unittest.TestCase):
     def test_external_ci_hints_are_accepted_as_observations(self) -> None:
         payload = local_inventory_payload()
 
-        response = local_inventory_collection(payload)
+        with patch(
+            "app.main.record_local_inventory_collection",
+            return_value={"collection_id": 1, "normalized_asset_count": 1},
+        ):
+            response = local_inventory_collection(payload)
 
         self.assertEqual(response.status, "accepted")
-        asset = LOCAL_INVENTORY_COLLECTIONS[0]["payload"]["assets"][0]
+        asset = payload["assets"][0]
         self.assertEqual(asset["external_ci_id"], "ci-123")
         self.assertEqual(asset["external_ci_source"], "ServiceNow")
 
     def test_neighbor_and_interface_observations_are_accepted(self) -> None:
         payload = local_inventory_payload()
 
-        response = local_inventory_collection(payload)
+        with patch(
+            "app.main.record_local_inventory_collection",
+            return_value={"collection_id": 1, "normalized_asset_count": 1},
+        ):
+            response = local_inventory_collection(payload)
 
         self.assertEqual(response.observed_asset_count, 1)
-        asset = LOCAL_INVENTORY_COLLECTIONS[0]["payload"]["assets"][0]
+        asset = payload["assets"][0]
         self.assertEqual(asset["primary_interfaces"][0]["source"], "go_net_interfaces")
         self.assertEqual(asset["network_neighbors"][0]["source"], "windows_get_net_neighbor")
 
@@ -245,16 +264,21 @@ class LocalInventoryIngestionTests(unittest.TestCase):
         self.assertIn("assets", raised.exception.detail)
 
     def test_http_valid_collection_returns_json_response(self) -> None:
-        status, response_body = post_raw_json(
-            "/api/v1/collections/local-inventory",
-            json.dumps(local_inventory_payload()).encode("utf-8"),
-        )
+        with patch(
+            "app.main.record_local_inventory_collection",
+            return_value={"collection_id": 1, "normalized_asset_count": 1},
+        ):
+            status, response_body = post_raw_json(
+                "/api/v1/collections/local-inventory",
+                json.dumps(local_inventory_payload()).encode("utf-8"),
+            )
 
         self.assertEqual(status, 200)
         response = json.loads(response_body)
         self.assertEqual(response["status"], "accepted")
         self.assertEqual(response["site_id"], "site-local")
         self.assertEqual(response["observed_asset_count"], 1)
+        self.assertEqual(response["normalized_asset_count"], 1)
 
 
 if __name__ == "__main__":

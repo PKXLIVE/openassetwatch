@@ -3,21 +3,34 @@ import json
 import os
 import secrets
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import Body, Header, HTTPException, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from .database import (
+    control_tower_summary,
     create_policy_assignment,
+    create_agent_enrollment,
+    create_site,
     find_assigned_collector_policy,
     latest_inventory_submission,
+    list_agent_checkins,
+    list_agent_enrollments,
     list_assets,
     list_collectors,
+    list_control_tower_assets,
     list_collector_policies,
     list_policy_assignments,
+    list_sites,
     normalize_inventory_submission,
+    record_agent_checkin,
+    record_local_inventory_collection,
     save_inventory_submission,
     upsert_collector_policy,
     upsert_collector_metadata,
@@ -30,24 +43,33 @@ app = FastAPI(
 )
 
 
+CONTROL_TOWER_VERSION = os.getenv("OPENASSETWATCH_CONTROL_TOWER_VERSION", "0.1.0")
+EXPECTED_AGENT_VERSION = os.getenv("OPENASSETWATCH_EXPECTED_AGENT_VERSION", "0.1.0")
+AGENT_RELEASE_CHANNEL = os.getenv("OPENASSETWATCH_AGENT_RELEASE_CHANNEL", "local")
+UI_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "OPENASSETWATCH_CORS_ORIGINS",
+        "http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000,http://127.0.0.1:8000",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-OpenAssetWatch-Collector-Token"],
+)
+
+if UI_STATIC_DIR.exists():
+    app.mount("/ui/static", StaticFiles(directory=UI_STATIC_DIR), name="control-tower-static")
+
+
 COLLECTOR_TOKEN_ENV = "OPENASSETWATCH_COLLECTOR_TOKEN"
 COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
-
-
-@app.get("/")
-def root():
-    return {
-        "name": "OpenAssetWatch",
-        "status": "running",
-        "version": "0.1.0",
-    }
-
-
-@app.get("/health")
-def health():
-    return {
-        "status": "healthy"
-    }
 
 
 def require_collector_token(provided_token: str | None) -> None:
@@ -145,6 +167,7 @@ class LocalInventoryCollectionResponse(BaseModel):
     site_id: str
     received_at: datetime
     observed_asset_count: int
+    normalized_asset_count: int = 0
     message: str
 
 
@@ -154,6 +177,199 @@ class AgentCheckInResponse(BaseModel):
     agent_id: str | None = None
     received_at: datetime
     message: str
+
+
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    version: str
+
+
+class SiteRequest(BaseModel):
+    site_id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    description: str | None = None
+
+
+class SiteResponse(BaseModel):
+    site_id: str
+    name: str
+    description: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SiteListResponse(BaseModel):
+    sites: list[dict[str, Any]]
+
+
+class AgentEnrollmentRequest(BaseModel):
+    agent_id: str = Field(..., min_length=1)
+    site_id: str = Field(..., min_length=1)
+    display_name: str | None = None
+    agent_type: str = Field(default="endpoint-agent")
+    platform: str | None = None
+    architecture: str | None = None
+
+
+class AgentEnrollmentResponse(BaseModel):
+    agent_id: str
+    site_id: str
+    display_name: str | None = None
+    agent_type: str
+    platform: str | None = None
+    architecture: str | None = None
+    version: str | None = None
+    hostname: str | None = None
+    mode: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    last_seen_at: datetime | None = None
+
+
+class AgentListResponse(BaseModel):
+    agents: list[dict[str, Any]]
+
+
+class AgentCheckInRequest(BaseModel):
+    agent_id: str | None = None
+    site_id: str = Field(..., min_length=1)
+    version: str | None = None
+    agent_version: str | None = None
+    platform: dict[str, Any] | str | None = None
+    architecture: str | None = None
+    hostname: str | None = None
+    mode: str | None = None
+    timestamp: datetime | None = None
+    check_in_at: datetime | None = None
+
+    class Config:
+        extra = "allow"
+
+
+class ControlTowerSummaryResponse(BaseModel):
+    site_count: int
+    agent_count: int
+    checkin_count: int
+    asset_count: int
+    evidence_count: int
+
+
+class ReleaseStatusResponse(BaseModel):
+    server_version: str
+    expected_agent_version: str
+    channel: str
+    update_available: bool
+    update_execution: str
+    message: str
+
+
+@app.get("/")
+def root():
+    return {
+        "name": "OpenAssetWatch",
+        "status": "running",
+        "version": CONTROL_TOWER_VERSION,
+    }
+
+
+@app.get("/health", response_model=HealthResponse)
+def health():
+    return {
+        "status": "healthy",
+        "service": "openassetwatch-control-tower",
+        "version": CONTROL_TOWER_VERSION,
+    }
+
+
+@app.get("/ui", include_in_schema=False)
+def control_tower_ui():
+    index_path = UI_STATIC_DIR / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="control tower UI is not installed")
+    return FileResponse(index_path)
+
+
+@app.get("/api/v1/sites", response_model=SiteListResponse)
+def api_list_sites():
+    try:
+        return {"sites": list_sites()}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sites") from exc
+
+
+@app.post("/api/v1/sites", response_model=SiteResponse)
+def api_create_site(payload: SiteRequest):
+    try:
+        return create_site(
+            site_id=payload.site_id.strip(),
+            name=payload.name.strip(),
+            description=payload.description.strip() if isinstance(payload.description, str) else None,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to save site") from exc
+
+
+@app.get("/api/v1/agents", response_model=AgentListResponse)
+def api_list_agents():
+    try:
+        return {"agents": list_agent_enrollments()}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load agents") from exc
+
+
+@app.post("/api/v1/agents/enrollments", response_model=AgentEnrollmentResponse)
+def api_create_agent_enrollment(payload: AgentEnrollmentRequest):
+    if payload.agent_type not in {"endpoint-agent", "network-sensor"}:
+        raise HTTPException(status_code=400, detail="agent_type must be endpoint-agent or network-sensor")
+    try:
+        return create_agent_enrollment(
+            agent_id=payload.agent_id.strip(),
+            site_id=payload.site_id.strip(),
+            display_name=payload.display_name.strip() if isinstance(payload.display_name, str) else None,
+            agent_type=payload.agent_type,
+            platform=payload.platform.strip() if isinstance(payload.platform, str) else None,
+            architecture=payload.architecture.strip() if isinstance(payload.architecture, str) else None,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to save agent enrollment") from exc
+
+
+@app.get("/api/v1/control-tower/summary", response_model=ControlTowerSummaryResponse)
+def api_control_tower_summary():
+    try:
+        return control_tower_summary()
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load control tower summary") from exc
+
+
+@app.get("/api/v1/control-tower/check-ins")
+def api_control_tower_checkins(limit: int = 25):
+    safe_limit = max(1, min(limit, 100))
+    try:
+        return {"check_ins": list_agent_checkins(limit=safe_limit)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load check-ins") from exc
+
+
+@app.get("/api/v1/control-tower/assets")
+def api_control_tower_assets():
+    try:
+        return {"assets": list_control_tower_assets()}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load control tower assets") from exc
+
+
+@app.get("/api/v1/releases/agent", response_model=ReleaseStatusResponse)
+def api_agent_release_status():
+    return {
+        "server_version": CONTROL_TOWER_VERSION,
+        "expected_agent_version": EXPECTED_AGENT_VERSION,
+        "channel": AGENT_RELEASE_CHANNEL,
+        "update_available": False,
+        "update_execution": "disabled",
+        "message": "Agent release metadata placeholder only; no download or update execution is performed.",
+    }
 
 
 class CollectorPolicyResponse(BaseModel):
@@ -225,7 +441,6 @@ LOCAL_INVENTORY_FORBIDDEN_TOP_LEVEL_FIELDS = frozenset(
         "script_content",
     }
 )
-LOCAL_INVENTORY_COLLECTIONS: list[dict[str, Any]] = []
 AGENT_CHECKIN_FORBIDDEN_TOP_LEVEL_FIELDS = frozenset(
     {
         "command",
@@ -236,7 +451,6 @@ AGENT_CHECKIN_FORBIDDEN_TOP_LEVEL_FIELDS = frozenset(
         "script_content",
     }
 )
-AGENT_CHECKINS: list[dict[str, Any]] = []
 
 
 def calculate_policy_hash(policy_payload: dict[str, Any]) -> str:
@@ -541,28 +755,6 @@ def forbidden_local_inventory_fields(payload: dict[str, Any]) -> list[str]:
     return sorted(field for field in payload if field in LOCAL_INVENTORY_FORBIDDEN_TOP_LEVEL_FIELDS)
 
 
-def save_local_inventory_collection(
-    *,
-    payload: dict[str, Any],
-    site_id: str,
-    received_at: datetime,
-    observed_asset_count: int,
-) -> int:
-    # Transitional storage until the ingestion pipeline has durable observation
-    # batch persistence and asset matching.
-    observation_batch_id = len(LOCAL_INVENTORY_COLLECTIONS) + 1
-    LOCAL_INVENTORY_COLLECTIONS.append(
-        {
-            "observation_batch_id": observation_batch_id,
-            "site_id": site_id,
-            "received_at": received_at,
-            "observed_asset_count": observed_asset_count,
-            "payload": payload,
-        }
-    )
-    return observation_batch_id
-
-
 def agent_checkin_site_id(payload: dict[str, Any]) -> str:
     site_id = payload.get("site_id")
     if not isinstance(site_id, str) or not site_id.strip():
@@ -582,30 +774,6 @@ def agent_checkin_optional_text(payload: dict[str, Any], field_name: str) -> str
 
 def forbidden_agent_checkin_fields(payload: dict[str, Any]) -> list[str]:
     return sorted(field for field in payload if field in AGENT_CHECKIN_FORBIDDEN_TOP_LEVEL_FIELDS)
-
-
-def save_agent_checkin(
-    *,
-    payload: dict[str, Any],
-    site_id: str,
-    agent_id: str | None,
-    received_at: datetime,
-) -> int:
-    # Transitional storage until durable agent identity and enrollment state
-    # have a database-backed repository.
-    checkin_id = len(AGENT_CHECKINS) + 1
-    stored_payload = {key: value for key, value in payload.items() if key != "enrollment_token"}
-    AGENT_CHECKINS.append(
-        {
-            "checkin_id": checkin_id,
-            "site_id": site_id,
-            "agent_id": agent_id,
-            "received_at": received_at,
-            "enrollment_token_present": "enrollment_token" in payload and payload["enrollment_token"] is not None,
-            "payload": stored_payload,
-        }
-    )
-    return checkin_id
 
 
 @app.post(
@@ -629,12 +797,15 @@ def agent_check_in(raw_payload: Any = Body(...)):
     site_id = agent_checkin_site_id(raw_payload)
     agent_id = agent_checkin_optional_text(raw_payload, "agent_id")
     received_at = datetime.now(timezone.utc)
-    save_agent_checkin(
-        payload=raw_payload,
-        site_id=site_id,
-        agent_id=agent_id,
-        received_at=received_at,
-    )
+    try:
+        record_agent_checkin(
+            payload=raw_payload,
+            site_id=site_id,
+            agent_id=agent_id,
+            received_at=received_at,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to persist agent check-in") from exc
 
     return AgentCheckInResponse(
         status="accepted",
@@ -665,19 +836,23 @@ def local_inventory_collection(raw_payload: Any = Body(...)):
     site_id = local_inventory_site_id(raw_payload)
     observed_asset_count = local_inventory_observed_asset_count(raw_payload)
     received_at = datetime.now(timezone.utc)
-    observation_batch_id = save_local_inventory_collection(
-        payload=raw_payload,
-        site_id=site_id,
-        received_at=received_at,
-        observed_asset_count=observed_asset_count,
-    )
+    try:
+        collection_result = record_local_inventory_collection(
+            payload=raw_payload,
+            site_id=site_id,
+            received_at=received_at,
+            observed_asset_count=observed_asset_count,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to persist local inventory collection") from exc
 
     return LocalInventoryCollectionResponse(
         status="accepted",
-        observation_batch_id=observation_batch_id,
+        observation_batch_id=collection_result["collection_id"],
         site_id=site_id,
         received_at=received_at,
         observed_asset_count=observed_asset_count,
+        normalized_asset_count=collection_result["normalized_asset_count"],
         message="local inventory collection accepted as passive observations",
     )
 

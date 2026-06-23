@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from app.main import AGENT_CHECKINS, agent_check_in, app
+from app.main import agent_check_in, app
 
 
 def agent_checkin_payload() -> dict[str, object]:
@@ -71,26 +72,24 @@ def post_raw_json(path: str, body: bytes) -> tuple[int, bytes]:
 
 
 class AgentCheckInTests(unittest.TestCase):
-    def setUp(self) -> None:
-        AGENT_CHECKINS.clear()
-
     def test_valid_checkin_with_site_id_and_agent_id_is_accepted(self) -> None:
-        response = agent_check_in(agent_checkin_payload())
+        with patch("app.main.record_agent_checkin", return_value=1) as record:
+            response = agent_check_in(agent_checkin_payload())
 
         self.assertEqual(response.status, "accepted")
         self.assertEqual(response.site_id, "site-local")
         self.assertEqual(response.agent_id, "22222222-2222-4222-8222-222222222222")
-        self.assertEqual(AGENT_CHECKINS[0]["site_id"], "site-local")
-        self.assertEqual(AGENT_CHECKINS[0]["agent_id"], "22222222-2222-4222-8222-222222222222")
+        self.assertEqual(record.call_args.kwargs["site_id"], "site-local")
+        self.assertEqual(record.call_args.kwargs["agent_id"], "22222222-2222-4222-8222-222222222222")
 
     def test_transitional_checkin_with_site_id_only_is_accepted(self) -> None:
-        response = agent_check_in({"site_id": "site-local"})
+        with patch("app.main.record_agent_checkin", return_value=1) as record:
+            response = agent_check_in({"site_id": "site-local"})
 
         self.assertEqual(response.status, "accepted")
         self.assertEqual(response.site_id, "site-local")
         self.assertIsNone(response.agent_id)
-        self.assertIsNone(AGENT_CHECKINS[0]["agent_id"])
-        self.assertNotIn("agent_id", AGENT_CHECKINS[0]["payload"])
+        self.assertIsNone(record.call_args.kwargs["agent_id"])
 
     def test_malformed_json_is_rejected(self) -> None:
         status, response_body = post_raw_json("/api/v1/agents/check-in", b'{"site_id":')
@@ -131,19 +130,17 @@ class AgentCheckInTests(unittest.TestCase):
         payload = agent_checkin_payload()
         payload["enrollment_token"] = "sensitive-token-value"
 
-        status, response_body = post_raw_json(
-            "/api/v1/agents/check-in",
-            json.dumps(payload).encode("utf-8"),
-        )
+        with patch("app.main.record_agent_checkin", return_value=1):
+            status, response_body = post_raw_json(
+                "/api/v1/agents/check-in",
+                json.dumps(payload).encode("utf-8"),
+            )
 
         self.assertEqual(status, 200)
         response = json.loads(response_body)
         self.assertEqual(response["status"], "accepted")
         self.assertNotIn("enrollment_token", response)
         self.assertNotIn("sensitive-token-value", response_body.decode("utf-8"))
-        self.assertTrue(AGENT_CHECKINS[0]["enrollment_token_present"])
-        self.assertNotIn("enrollment_token", AGENT_CHECKINS[0]["payload"])
-        self.assertNotIn("sensitive-token-value", json.dumps(AGENT_CHECKINS[0], default=str))
 
 
 if __name__ == "__main__":

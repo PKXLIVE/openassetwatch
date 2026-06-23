@@ -13,10 +13,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 
-DEFAULT_DATABASE_URL = (
-    "postgresql+psycopg2://openassetwatch:"
-    "openassetwatch_change_me@postgres:5432/openassetwatch"
-)
+DEFAULT_DATABASE_PASSWORD = os.getenv("OAW_POSTGRES_PASSWORD", "openassetwatch_local_only_change_me")
+DEFAULT_DATABASE_URL = f"postgresql+psycopg2://openassetwatch:{DEFAULT_DATABASE_PASSWORD}@postgres:5432/openassetwatch"
 INVALID_MAC_TEXT_VALUES = {
     "(incomplete)",
     "<incomplete>",
@@ -163,6 +161,87 @@ CREATE TABLE IF NOT EXISTS policy_assignments (
 )
 """
 
+CREATE_SITES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS sites (
+    site_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+"""
+
+CREATE_AGENT_ENROLLMENTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS agent_enrollments (
+    agent_id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    display_name TEXT,
+    agent_type TEXT NOT NULL,
+    platform TEXT,
+    architecture TEXT,
+    version TEXT,
+    hostname TEXT,
+    mode TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ,
+    CHECK (agent_type IN ('endpoint-agent', 'network-sensor'))
+)
+"""
+
+CREATE_AGENT_CHECKINS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS agent_checkins (
+    id BIGSERIAL PRIMARY KEY,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    agent_id TEXT,
+    version TEXT,
+    platform TEXT,
+    architecture TEXT,
+    hostname TEXT,
+    mode TEXT,
+    checked_in_at TIMESTAMPTZ,
+    received_at TIMESTAMPTZ NOT NULL,
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+"""
+
+CREATE_LOCAL_INVENTORY_COLLECTIONS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS local_inventory_collections (
+    id BIGSERIAL PRIMARY KEY,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    source_agent_id TEXT,
+    schema_version TEXT,
+    collected_at TIMESTAMPTZ,
+    received_at TIMESTAMPTZ NOT NULL,
+    observed_asset_count INTEGER NOT NULL DEFAULT 0,
+    normalized_asset_count INTEGER NOT NULL DEFAULT 0,
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+"""
+
+CREATE_CONTROL_TOWER_ASSETS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS control_tower_assets (
+    asset_key TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    hostname TEXT,
+    primary_ip TEXT,
+    mac TEXT,
+    os TEXT,
+    platform TEXT,
+    source_agent_id TEXT,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (site_id, asset_id)
+)
+"""
+
 NORMALIZATION_INDEX_SQL = [
     "ALTER TABLE collector_inventory_submissions ADD COLUMN IF NOT EXISTS collector_guid TEXT",
     "CREATE INDEX IF NOT EXISTS idx_collector_inventory_submissions_collector_guid ON collector_inventory_submissions (collector_guid)",
@@ -183,6 +262,13 @@ NORMALIZATION_INDEX_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_collector_policies_enabled ON collector_policies (enabled)",
     "CREATE INDEX IF NOT EXISTS idx_policy_assignments_enabled_priority ON policy_assignments (enabled, priority DESC)",
     "CREATE INDEX IF NOT EXISTS idx_policy_assignments_policy_id ON policy_assignments (policy_id)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_enrollments_site_id ON agent_enrollments (site_id)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_enrollments_last_seen_at ON agent_enrollments (last_seen_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_checkins_site_id_received_at ON agent_checkins (site_id, received_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_checkins_agent_id_received_at ON agent_checkins (agent_id, received_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_local_inventory_collections_site_id_received_at ON local_inventory_collections (site_id, received_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_control_tower_assets_site_id ON control_tower_assets (site_id)",
+    "CREATE INDEX IF NOT EXISTS idx_control_tower_assets_last_seen_at ON control_tower_assets (last_seen_at DESC)",
 ]
 
 
@@ -202,6 +288,11 @@ def ensure_database_schema() -> None:
         connection.execute(text(CREATE_ASSET_SOFTWARE_DETECTIONS_TABLE_SQL))
         connection.execute(text(CREATE_COLLECTOR_POLICIES_TABLE_SQL))
         connection.execute(text(CREATE_POLICY_ASSIGNMENTS_TABLE_SQL))
+        connection.execute(text(CREATE_SITES_TABLE_SQL))
+        connection.execute(text(CREATE_AGENT_ENROLLMENTS_TABLE_SQL))
+        connection.execute(text(CREATE_AGENT_CHECKINS_TABLE_SQL))
+        connection.execute(text(CREATE_LOCAL_INVENTORY_COLLECTIONS_TABLE_SQL))
+        connection.execute(text(CREATE_CONTROL_TOWER_ASSETS_TABLE_SQL))
         for statement in NORMALIZATION_INDEX_SQL:
             connection.execute(text(statement))
 
@@ -1321,3 +1412,564 @@ def find_assigned_collector_policy(
         platform=platform,
         labels=labels,
     )
+
+
+def _row_dicts(rows: Any) -> list[dict[str, Any]]:
+    return [dict(row) for row in rows]
+
+
+def _platform_text(value: Any) -> str | None:
+    if isinstance(value, dict):
+        platform = _clean_text(value.get("platform"))
+        if platform:
+            return platform
+        system = _clean_text(value.get("os") or value.get("system"))
+        architecture = _clean_text(value.get("architecture") or value.get("arch"))
+        if system and architecture:
+            return f"{system}/{architecture}"
+        return system
+    return _clean_text(value)
+
+
+def _architecture_text(value: Any) -> str | None:
+    if isinstance(value, dict):
+        return _clean_text(value.get("architecture") or value.get("arch"))
+    return None
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def create_site(*, site_id: str, name: str, description: str | None) -> dict[str, Any]:
+    ensure_database_schema()
+    statement = text(
+        """
+        INSERT INTO sites (site_id, name, description)
+        VALUES (:site_id, :name, :description)
+        ON CONFLICT (site_id) DO UPDATE SET
+            name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            updated_at = NOW()
+        RETURNING site_id, name, description, created_at, updated_at
+        """
+    )
+    with get_engine().begin() as connection:
+        row = connection.execute(
+            statement,
+            {"site_id": site_id, "name": name, "description": description},
+        ).mappings().one()
+    return dict(row)
+
+
+def ensure_site_record(*, site_id: str, name: str | None = None, description: str | None = None) -> dict[str, Any]:
+    return create_site(site_id=site_id, name=name or site_id, description=description)
+
+
+def list_sites() -> list[dict[str, Any]]:
+    ensure_database_schema()
+    statement = text(
+        """
+        SELECT site_id, name, description, created_at, updated_at
+        FROM sites
+        ORDER BY updated_at DESC, site_id ASC
+        """
+    )
+    with get_engine().begin() as connection:
+        rows = connection.execute(statement).mappings().all()
+    return _row_dicts(rows)
+
+
+def create_agent_enrollment(
+    *,
+    agent_id: str,
+    site_id: str,
+    display_name: str | None,
+    agent_type: str,
+    platform: str | None,
+    architecture: str | None,
+    version: str | None = None,
+    hostname: str | None = None,
+    mode: str | None = None,
+    last_seen_at: datetime | None = None,
+) -> dict[str, Any]:
+    ensure_site_record(site_id=site_id)
+    statement = text(
+        """
+        INSERT INTO agent_enrollments (
+            agent_id,
+            site_id,
+            display_name,
+            agent_type,
+            platform,
+            architecture,
+            version,
+            hostname,
+            mode,
+            last_seen_at
+        )
+        VALUES (
+            :agent_id,
+            :site_id,
+            :display_name,
+            :agent_type,
+            :platform,
+            :architecture,
+            :version,
+            :hostname,
+            :mode,
+            :last_seen_at
+        )
+        ON CONFLICT (agent_id) DO UPDATE SET
+            site_id = EXCLUDED.site_id,
+            display_name = COALESCE(EXCLUDED.display_name, agent_enrollments.display_name),
+            agent_type = EXCLUDED.agent_type,
+            platform = COALESCE(EXCLUDED.platform, agent_enrollments.platform),
+            architecture = COALESCE(EXCLUDED.architecture, agent_enrollments.architecture),
+            version = COALESCE(EXCLUDED.version, agent_enrollments.version),
+            hostname = COALESCE(EXCLUDED.hostname, agent_enrollments.hostname),
+            mode = COALESCE(EXCLUDED.mode, agent_enrollments.mode),
+            last_seen_at = COALESCE(EXCLUDED.last_seen_at, agent_enrollments.last_seen_at),
+            updated_at = NOW()
+        RETURNING
+            agent_id,
+            site_id,
+            display_name,
+            agent_type,
+            platform,
+            architecture,
+            version,
+            hostname,
+            mode,
+            created_at,
+            updated_at,
+            last_seen_at
+        """
+    )
+    with get_engine().begin() as connection:
+        row = connection.execute(
+            statement,
+            {
+                "agent_id": agent_id,
+                "site_id": site_id,
+                "display_name": display_name,
+                "agent_type": agent_type,
+                "platform": platform,
+                "architecture": architecture,
+                "version": version,
+                "hostname": hostname,
+                "mode": mode,
+                "last_seen_at": last_seen_at,
+            },
+        ).mappings().one()
+    return dict(row)
+
+
+def list_agent_enrollments() -> list[dict[str, Any]]:
+    ensure_database_schema()
+    statement = text(
+        """
+        SELECT
+            agent_id,
+            site_id,
+            display_name,
+            agent_type,
+            platform,
+            architecture,
+            version,
+            hostname,
+            mode,
+            created_at,
+            updated_at,
+            last_seen_at
+        FROM agent_enrollments
+        ORDER BY last_seen_at DESC NULLS LAST, updated_at DESC, agent_id ASC
+        """
+    )
+    with get_engine().begin() as connection:
+        rows = connection.execute(statement).mappings().all()
+    return _row_dicts(rows)
+
+
+def record_agent_checkin(
+    *,
+    payload: dict[str, Any],
+    site_id: str,
+    agent_id: str | None,
+    received_at: datetime,
+) -> int:
+    ensure_site_record(site_id=site_id)
+    platform = _platform_text(payload.get("platform"))
+    architecture = _architecture_text(payload.get("platform"))
+    version = _clean_text(payload.get("version") or payload.get("agent_version"))
+    hostname = _clean_text(payload.get("hostname"))
+    mode = _clean_text(payload.get("mode"))
+    checked_in_at = _parse_datetime(payload.get("timestamp") or payload.get("check_in_at"))
+    stored_payload = {key: value for key, value in payload.items() if key != "enrollment_token"}
+
+    statement = text(
+        """
+        INSERT INTO agent_checkins (
+            site_id,
+            agent_id,
+            version,
+            platform,
+            architecture,
+            hostname,
+            mode,
+            checked_in_at,
+            received_at,
+            payload_json
+        )
+        VALUES (
+            :site_id,
+            :agent_id,
+            :version,
+            :platform,
+            :architecture,
+            :hostname,
+            :mode,
+            :checked_in_at,
+            :received_at,
+            CAST(:payload_json AS JSONB)
+        )
+        RETURNING id
+        """
+    )
+    with get_engine().begin() as connection:
+        checkin_id = connection.execute(
+            statement,
+            {
+                "site_id": site_id,
+                "agent_id": agent_id,
+                "version": version,
+                "platform": platform,
+                "architecture": architecture,
+                "hostname": hostname,
+                "mode": mode,
+                "checked_in_at": checked_in_at,
+                "received_at": received_at,
+                "payload_json": _json_payload(stored_payload),
+            },
+        ).scalar_one()
+
+    if agent_id:
+        create_agent_enrollment(
+            agent_id=agent_id,
+            site_id=site_id,
+            display_name=hostname or agent_id,
+            agent_type="endpoint-agent",
+            platform=platform,
+            architecture=architecture,
+            version=version,
+            hostname=hostname,
+            mode=mode,
+            last_seen_at=received_at,
+        )
+    return int(checkin_id)
+
+
+def _first_nested_text(values: list[Any], *field_names: str) -> str | None:
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        for field_name in field_names:
+            text_value = _clean_text(value.get(field_name))
+            if text_value:
+                return text_value
+    return None
+
+
+def _asset_primary_ip(asset: dict[str, Any]) -> str | None:
+    direct_value = _clean_text(asset.get("primary_ip"))
+    if direct_value:
+        return direct_value
+    ip_addresses = asset.get("ip_addresses")
+    if isinstance(ip_addresses, list):
+        value = _first_nested_text(ip_addresses, "address", "ip_address", "ip")
+        if value:
+            return value
+    interfaces = asset.get("primary_interfaces")
+    if isinstance(interfaces, list):
+        for interface in interfaces:
+            if isinstance(interface, dict) and isinstance(interface.get("ip_addresses"), list):
+                value = _first_nested_text(interface["ip_addresses"], "address", "ip_address", "ip")
+                if value:
+                    return value
+    return None
+
+
+def _asset_mac(asset: dict[str, Any]) -> str | None:
+    direct_value = _normalize_mac_address(asset.get("mac") or asset.get("mac_address"))
+    if direct_value:
+        return direct_value
+    mac_addresses = asset.get("mac_addresses")
+    if isinstance(mac_addresses, list):
+        value = _first_nested_text(mac_addresses, "address", "mac_address", "mac")
+        if value:
+            return _normalize_mac_address(value)
+    interfaces = asset.get("primary_interfaces")
+    if isinstance(interfaces, list):
+        value = _first_nested_text(interfaces, "mac_address", "mac")
+        if value:
+            return _normalize_mac_address(value)
+    return None
+
+
+def _asset_evidence_count(asset: dict[str, Any]) -> int:
+    count = 1
+    for field_name in (
+        "host",
+        "platform_info",
+        "primary_interfaces",
+        "ip_addresses",
+        "mac_addresses",
+        "default_gateway",
+        "network_neighbors",
+        "software",
+    ):
+        value = asset.get(field_name)
+        if isinstance(value, list):
+            count += len([entry for entry in value if entry is not None])
+        elif value:
+            count += 1
+    return count
+
+
+def normalize_local_inventory_assets(payload: dict[str, Any], *, site_id: str, received_at: datetime) -> list[dict[str, Any]]:
+    assets = payload.get("assets")
+    if not isinstance(assets, list):
+        return []
+    source_agent_id = _clean_text(payload.get("agent_id"))
+    normalized: list[dict[str, Any]] = []
+    for index, asset in enumerate(assets):
+        if not isinstance(asset, dict):
+            continue
+        hostname = _clean_text(asset.get("hostname") or _metadata_object(asset.get("host")).get("hostname"))
+        primary_ip = _asset_primary_ip(asset)
+        mac = _asset_mac(asset)
+        asset_id = _clean_text(asset.get("asset_id")) or hostname or mac or primary_ip
+        if not asset_id:
+            asset_id = f"observed-{index + 1}"
+        platform_info = _metadata_object(asset.get("platform_info"))
+        normalized.append(
+            {
+                "asset_key": f"{site_id}:{asset_id}",
+                "asset_id": asset_id,
+                "site_id": site_id,
+                "hostname": hostname,
+                "primary_ip": primary_ip,
+                "mac": mac,
+                "os": _clean_text(asset.get("os") or platform_info.get("os")),
+                "platform": _clean_text(asset.get("platform") or platform_info.get("platform")),
+                "source_agent_id": source_agent_id,
+                "first_seen_at": received_at,
+                "last_seen_at": received_at,
+                "evidence_count": _asset_evidence_count(asset),
+                "metadata": asset,
+            }
+        )
+    return normalized
+
+
+def _upsert_control_tower_asset(connection: Any, asset: dict[str, Any]) -> None:
+    connection.execute(
+        text(
+            """
+            INSERT INTO control_tower_assets (
+                asset_key,
+                asset_id,
+                site_id,
+                hostname,
+                primary_ip,
+                mac,
+                os,
+                platform,
+                source_agent_id,
+                first_seen_at,
+                last_seen_at,
+                evidence_count,
+                metadata_json
+            )
+            VALUES (
+                :asset_key,
+                :asset_id,
+                :site_id,
+                :hostname,
+                :primary_ip,
+                :mac,
+                :os,
+                :platform,
+                :source_agent_id,
+                :first_seen_at,
+                :last_seen_at,
+                :evidence_count,
+                CAST(:metadata_json AS JSONB)
+            )
+            ON CONFLICT (asset_key) DO UPDATE SET
+                hostname = COALESCE(EXCLUDED.hostname, control_tower_assets.hostname),
+                primary_ip = COALESCE(EXCLUDED.primary_ip, control_tower_assets.primary_ip),
+                mac = COALESCE(EXCLUDED.mac, control_tower_assets.mac),
+                os = COALESCE(EXCLUDED.os, control_tower_assets.os),
+                platform = COALESCE(EXCLUDED.platform, control_tower_assets.platform),
+                source_agent_id = COALESCE(EXCLUDED.source_agent_id, control_tower_assets.source_agent_id),
+                last_seen_at = EXCLUDED.last_seen_at,
+                evidence_count = control_tower_assets.evidence_count + EXCLUDED.evidence_count,
+                metadata_json = EXCLUDED.metadata_json,
+                updated_at = NOW()
+            """
+        ),
+        {
+            "asset_key": asset["asset_key"],
+            "asset_id": asset["asset_id"],
+            "site_id": asset["site_id"],
+            "hostname": asset["hostname"],
+            "primary_ip": asset["primary_ip"],
+            "mac": asset["mac"],
+            "os": asset["os"],
+            "platform": asset["platform"],
+            "source_agent_id": asset["source_agent_id"],
+            "first_seen_at": asset["first_seen_at"],
+            "last_seen_at": asset["last_seen_at"],
+            "evidence_count": asset["evidence_count"],
+            "metadata_json": _json_payload(asset["metadata"]),
+        },
+    )
+
+
+def record_local_inventory_collection(
+    *,
+    payload: dict[str, Any],
+    site_id: str,
+    received_at: datetime,
+    observed_asset_count: int,
+) -> dict[str, int]:
+    ensure_site_record(site_id=site_id)
+    normalized_assets = normalize_local_inventory_assets(payload, site_id=site_id, received_at=received_at)
+    statement = text(
+        """
+        INSERT INTO local_inventory_collections (
+            site_id,
+            source_agent_id,
+            schema_version,
+            collected_at,
+            received_at,
+            observed_asset_count,
+            normalized_asset_count,
+            payload_json
+        )
+        VALUES (
+            :site_id,
+            :source_agent_id,
+            :schema_version,
+            :collected_at,
+            :received_at,
+            :observed_asset_count,
+            :normalized_asset_count,
+            CAST(:payload_json AS JSONB)
+        )
+        RETURNING id
+        """
+    )
+    with get_engine().begin() as connection:
+        collection_id = connection.execute(
+            statement,
+            {
+                "site_id": site_id,
+                "source_agent_id": _clean_text(payload.get("agent_id")),
+                "schema_version": _clean_text(payload.get("schema_version")),
+                "collected_at": _parse_datetime(payload.get("collected_at")),
+                "received_at": received_at,
+                "observed_asset_count": observed_asset_count,
+                "normalized_asset_count": len(normalized_assets),
+                "payload_json": _json_payload(payload),
+            },
+        ).scalar_one()
+        for asset in normalized_assets:
+            _upsert_control_tower_asset(connection, asset)
+    return {"collection_id": int(collection_id), "normalized_asset_count": len(normalized_assets)}
+
+
+def list_agent_checkins(limit: int = 25) -> list[dict[str, Any]]:
+    ensure_database_schema()
+    statement = text(
+        """
+        SELECT
+            id,
+            site_id,
+            agent_id,
+            version,
+            platform,
+            architecture,
+            hostname,
+            mode,
+            checked_in_at,
+            received_at,
+            created_at
+        FROM agent_checkins
+        ORDER BY received_at DESC, id DESC
+        LIMIT :limit
+        """
+    )
+    with get_engine().begin() as connection:
+        rows = connection.execute(statement, {"limit": limit}).mappings().all()
+    return _row_dicts(rows)
+
+
+def list_control_tower_assets() -> list[dict[str, Any]]:
+    ensure_database_schema()
+    statement = text(
+        """
+        SELECT
+            asset_id,
+            site_id,
+            hostname,
+            primary_ip,
+            mac,
+            os,
+            platform,
+            source_agent_id,
+            first_seen_at,
+            last_seen_at,
+            evidence_count,
+            metadata_json,
+            created_at,
+            updated_at
+        FROM control_tower_assets
+        ORDER BY last_seen_at DESC, asset_id ASC
+        """
+    )
+    with get_engine().begin() as connection:
+        rows = connection.execute(statement).mappings().all()
+
+    assets: list[dict[str, Any]] = []
+    for row in rows:
+        asset = dict(row)
+        metadata = asset.pop("metadata_json")
+        asset["metadata"] = _load_json_value(metadata, {})
+        assets.append(asset)
+    return assets
+
+
+def control_tower_summary() -> dict[str, int]:
+    ensure_database_schema()
+    statement = text(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM sites) AS site_count,
+            (SELECT COUNT(*) FROM agent_enrollments) AS agent_count,
+            (SELECT COUNT(*) FROM agent_checkins) AS checkin_count,
+            (SELECT COUNT(*) FROM control_tower_assets) AS asset_count,
+            (SELECT COALESCE(SUM(evidence_count), 0) FROM control_tower_assets) AS evidence_count
+        """
+    )
+    with get_engine().begin() as connection:
+        row = connection.execute(statement).mappings().one()
+    return {key: int(value or 0) for key, value in dict(row).items()}
