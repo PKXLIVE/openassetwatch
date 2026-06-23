@@ -104,6 +104,18 @@ OpenAssetWatch. It is not fully implemented yet.
 - Local release artifact validation exists through
   [scripts/release/validate_agent_release.ps1](../scripts/release/validate_agent_release.ps1).
   It verifies existing dist/package artifacts and emits JSON only.
+- Release publication metadata validation exists through
+  [scripts/release/validate_agent_release_publication.py](../scripts/release/validate_agent_release_publication.py).
+  It validates tag/version normalization, artifact manifest completeness,
+  checksum agreement, Apache-2.0 license metadata, unsigned/signed state,
+  notarization evidence, expected package coverage, and the GitHub Actions
+  release trigger policy.
+- Tagged release-publication CI exists through
+  [.github/workflows/agent-release.yml](../.github/workflows/agent-release.yml).
+  Pull requests build and validate unsigned artifacts without publishing.
+  `v*` tags build release-candidate artifacts, require production signing
+  evidence for production publication, and gate GitHub Release creation behind
+  `OAW_AGENT_RELEASE_PUBLICATION_ENABLED=true`.
 - Local release orchestration exists through
   [scripts/release/release_agent_local.ps1](../scripts/release/release_agent_local.ps1).
   It runs the local binary build, TAR.GZ wrapping, and release validation
@@ -126,10 +138,145 @@ OpenAssetWatch. It is not fully implemented yet.
   `dist/local-install/` paths, and creates only repo-local sandbox install
   roots.
 - No production signed native packages are produced yet.
+- Production publication is fail-closed until signing and notarization evidence
+  exists for the relevant artifacts.
 - Windows MSI and macOS PKG package-script behavior is implemented and tested
   through explicit package artifacts. Local release helpers do not execute
   package-manager commands.
 - No signing keys or credentials are stored in the repository.
+
+## Agent Release Publication Workflow
+
+The hosted release workflow is the first production publication framework for
+agent artifacts. It separates validation from publication:
+
+- `pull_request`: builds and validates unsigned PR validation artifacts, uploads
+  them to the workflow run, and never creates GitHub Releases.
+- `workflow_dispatch`: builds unsigned release-candidate artifacts for an
+  explicit version when `unsigned_dry_run=true`.
+- `push` tags matching `v*`: builds release-candidate artifacts from the tag.
+  Production signing and GitHub Release publication are tag-only and fail
+  closed unless signing evidence and the explicit repository variable gate are
+  present.
+
+The workflow builds the following artifact families when the platform tooling
+is available in GitHub Actions:
+
+- Windows `amd64` dist artifact and Windows `amd64` MSI
+- macOS `arm64` PKG
+- macOS Intel `amd64` PKG
+- macOS universal PKG
+- Linux `amd64` DEB
+- Linux `x86_64` RPM
+- Linux `amd64` TAR.GZ fallback
+- SHA256 checksum files
+- package and binary manifests
+- release-publication manifest
+
+SBOM and provenance paths are part of the release-publication metadata contract.
+They remain empty until dedicated SBOM/provenance generation is wired into the
+pipeline.
+
+## Release Versioning
+
+Git tags are the release source of truth. A stable tag such as `v0.1.0`
+normalizes to `0.1.0` for source and package metadata. A pre-release tag such
+as `v0.1.0-rc.1` normalizes deterministically:
+
+- source version: `0.1.0-rc.1`
+- DEB version metadata: `0.1.0~rc.1`
+- RPM version metadata: `0.1.0_rc.1`
+- Windows Installer version: `0.1.0`
+- macOS package receipt version: `0.1.0`
+
+Windows Installer package versions must satisfy Windows Installer limits:
+major and minor values are at most `255`, and the build value is at most
+`65535`.
+
+## Release Dry Run
+
+For a hosted unsigned dry run, use the `Agent release publication` workflow
+with `workflow_dispatch`, a version such as `v0.1.0-rc.1`, and
+`unsigned_dry_run=true`. The workflow uploads artifacts to the workflow run and
+does not publish a GitHub Release.
+
+Local validation can be run against any existing `dist/agent/<version>/`
+release root:
+
+```powershell
+python .\scripts\release\validate_agent_release_publication.py normalize-version --tag v0.1.0-rc.1
+python .\scripts\release\validate_agent_release_publication.py check-workflow --workflow .github\workflows\agent-release.yml
+python .\scripts\release\validate_agent_release_publication.py validate `
+  --version 0.1.0-local `
+  --release-root dist\agent\0.1.0-local `
+  --classification unsigned-release-candidate `
+  --expected-package-type linux-deb `
+  --expected-package-type linux-rpm `
+  --expected-package-type linux-targz
+```
+
+Use the expected package-type list that matches the artifacts present in the
+local release root.
+
+## Production Signing Inputs
+
+Signing material must be supplied through GitHub Actions secrets or trusted
+external signing services. Do not commit signing material.
+
+Windows production signing requires:
+
+- Authenticode code-signing certificate or signing service
+- certificate password or signing-service token
+- timestamp server URL
+
+macOS production signing and notarization require:
+
+- Developer ID Application certificate
+- Developer ID Installer certificate
+- Apple notarization credentials or API key
+- keychain password
+- Apple team ID
+
+Linux production package signing requires:
+
+- GPG signing key for DEB/RPM package signing
+- signing key passphrase if required
+- package repository signing plan if repository publication is added later
+
+GitHub release publication may require:
+
+- a release token if `GITHUB_TOKEN` is insufficient
+- artifact attestation permissions when provenance attestation is enabled
+
+The release workflow names the production signing secret inputs and fails
+closed when required production signing material is missing. It does not fake
+signing success.
+
+## Release Verification
+
+Before public publication, verify:
+
+- every expected package type is present in the release-publication manifest
+- every artifact manifest includes filename, package type, OS, architecture,
+  version, git commit, build timestamp, SHA256, Apache-2.0 license metadata,
+  signed state, notarized state where applicable, SBOM path, and provenance path
+- every `.sha256` file matches the referenced artifact
+- unsigned validation artifacts are marked `signed=false`
+- signed artifacts include signing evidence
+- macOS notarized artifacts include notarization evidence
+- no release metadata contains secrets, tokens, credentials, passwords, private
+  keys, or API keys
+
+Current public production release blockers:
+
+- production Windows signing evidence is not yet wired into the publication
+  manifest
+- production macOS notarization/stapling evidence is not yet wired into the
+  publication manifest
+- production Linux package signing is not yet wired into the publication
+  manifest
+- SBOM generation is not yet wired into the release workflow
+- provenance/attestation generation is not yet wired into the release workflow
 
 ## Local Agent Binary Artifacts
 
