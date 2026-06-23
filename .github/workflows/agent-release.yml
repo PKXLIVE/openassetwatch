@@ -270,6 +270,7 @@ jobs:
         with:
           pattern: openassetwatch-agent-*-release-candidate
           merge-multiple: true
+          path: dist/agent/${{ needs.resolve-release.outputs.version }}
       - name: Validate release-candidate artifact metadata
         run: |
           set -euo pipefail
@@ -323,6 +324,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: openassetwatch-agent-release-candidate-bundle
+          path: dist/agent/${{ needs.resolve-release.outputs.version }}
       - name: Fail closed until signed evidence exists
         run: |
           set -euo pipefail
@@ -374,6 +376,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: openassetwatch-agent-release-candidate-bundle
+          path: dist/agent/${{ needs.resolve-release.outputs.version }}
       - name: Create or update GitHub Release
         run: |
           set -euo pipefail

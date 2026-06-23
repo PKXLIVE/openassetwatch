@@ -378,6 +378,43 @@ class ReleasePublicationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 releasepub.validate_workflow_policy(workflow)
 
+    def test_workflow_policy_requires_release_root_download_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workflow = Path(tmp) / "agent-release.yml"
+            workflow.write_text(
+                "\n".join(
+                    [
+                        "on:",
+                        "  pull_request:",
+                        "  push:",
+                        "    tags:",
+                        "      - \"v*\"",
+                        "jobs:",
+                        "  assemble-release-candidate:",
+                        "    steps:",
+                        "      - uses: actions/download-artifact@v4",
+                        "        with:",
+                        "          pattern: openassetwatch-agent-*-release-candidate",
+                        "          merge-multiple: true",
+                        "  production-signing-gate:",
+                        "    steps:",
+                        "      - uses: actions/download-artifact@v4",
+                        "        with:",
+                        "          name: openassetwatch-agent-release-candidate-bundle",
+                        "  publish-github-release:",
+                        "    if: github.event_name == 'push' && vars.OAW_AGENT_RELEASE_PUBLICATION_ENABLED == 'true'",
+                        "    steps:",
+                        "      - uses: actions/download-artifact@v4",
+                        "        with:",
+                        "          name: openassetwatch-agent-release-candidate-bundle",
+                        "      - run: gh release upload v0.1.0 file",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "artifact downloads must target dist/agent"):
+                releasepub.validate_workflow_policy(workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -381,6 +381,9 @@ def validate_workflow_policy(workflow_path: Path) -> None:
         raise ValueError("GitHub Release publishing must be guarded to tag push events.")
     if "OAW_AGENT_RELEASE_PUBLICATION_ENABLED" not in text:
         raise ValueError("GitHub Release publishing must require an explicit repository variable gate.")
+    release_download_path = "path: dist/agent/${{ needs.resolve-release.outputs.version }}"
+    if text.count(release_download_path) < 3:
+        raise ValueError("Release workflow artifact downloads must target dist/agent/<version>.")
 
 
 def workflow_push_declares_branches(text: str) -> bool:
