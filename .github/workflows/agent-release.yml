@@ -1,0 +1,388 @@
+name: Agent release publication
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/agent-release.yml"
+      - ".github/workflows/agent-ci.yml"
+      - "scripts/release/**"
+      - "scripts/check_license_metadata.py"
+      - "packaging/agent/**"
+      - "docs/RELEASE_PIPELINE.md"
+      - "README.md"
+      - "cmd/oaw-agent/**"
+      - "internal/agent/**"
+      - "pkg/**"
+      - "go.mod"
+      - "go.sum"
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version or tag, for example v0.1.0 or v0.1.0-rc.1"
+        required: true
+      unsigned_dry_run:
+        description: "Build unsigned release-candidate artifacts without publishing a GitHub Release"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: agent-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Validate release publication metadata policy
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            scripts/check_license_metadata.py \
+            scripts/release/release_common.py \
+            scripts/release/validate_agent_release_publication.py \
+            scripts/release/test_agent_release_publication.py
+          python3 scripts/check_license_metadata.py
+          python3 scripts/release/test_linux_packaging.py
+          python3 scripts/release/test_agent_release_publication.py
+          python3 scripts/release/validate_agent_release_publication.py normalize-version --tag v0.1.0
+          python3 scripts/release/validate_agent_release_publication.py normalize-version --tag v0.1.0-rc.1
+          python3 scripts/release/validate_agent_release_publication.py check-workflow --workflow .github/workflows/agent-release.yml
+
+  resolve-release:
+    runs-on: ubuntu-latest
+    needs: release-policy
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.source_version }}
+      deb_version: ${{ steps.version.outputs.deb_version }}
+      rpm_version: ${{ steps.version.outputs.rpm_version }}
+      msi_version: ${{ steps.version.outputs.msi_version }}
+      macos_package_version: ${{ steps.version.outputs.macos_package_version }}
+      classification: ${{ steps.version.outputs.classification }}
+      unsigned_dry_run: ${{ steps.version.outputs.unsigned_dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Resolve tag and package versions
+        id: version
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            raw="v0.1.0-pr.${{ github.run_number }}"
+            unsigned_dry_run="true"
+            classification="unsigned-pr-validation"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            raw="${{ inputs.version }}"
+            unsigned_dry_run="${{ inputs.unsigned_dry_run }}"
+            if [ "$unsigned_dry_run" = "true" ]; then
+              classification="unsigned-release-candidate"
+            else
+              classification="signed-production"
+            fi
+          else
+            raw="${GITHUB_REF_NAME}"
+            unsigned_dry_run="false"
+            classification="signed-production"
+          fi
+          python3 - "$raw" "$classification" "$unsigned_dry_run" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+          from dataclasses import asdict
+          sys.path.insert(0, "scripts/release")
+          from validate_agent_release_publication import normalize_version
+          raw, classification, unsigned_dry_run, output_path = sys.argv[1:]
+          info = normalize_version(raw)
+          with open(output_path, "a", encoding="utf-8") as handle:
+              for key, value in asdict(info).items():
+                  handle.write(f"{key}={value}\n")
+              handle.write(f"classification={classification}\n")
+              handle.write(f"unsigned_dry_run={unsigned_dry_run}\n")
+          print(json.dumps({"ok": True, "version": asdict(info), "classification": classification}, indent=2))
+          PY
+
+  linux-amd64-packages:
+    runs-on: ubuntu-latest
+    needs: resolve-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install Linux package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm sudo systemd
+      - name: Build Linux dist artifact
+        shell: pwsh
+        run: ./scripts/release/build_agent_dist.ps1 -Version "${{ needs.resolve-release.outputs.version }}" -TargetOS linux -TargetArch amd64
+      - name: Build and validate Linux packages
+        shell: pwsh
+        run: |
+          python3 ./scripts/release/package_agent_deb.py --version "${{ needs.resolve-release.outputs.version }}"
+          python3 ./scripts/release/validate_agent_deb.py --version "${{ needs.resolve-release.outputs.version }}"
+          python3 ./scripts/release/package_agent_rpm.py --version "${{ needs.resolve-release.outputs.version }}"
+          python3 ./scripts/release/validate_agent_rpm.py --version "${{ needs.resolve-release.outputs.version }}"
+          ./scripts/release/package_agent_targz.ps1 -ArtifactDir "dist/agent/${{ needs.resolve-release.outputs.version }}/linux-amd64"
+          ./scripts/release/validate_agent_release.ps1 -Version "${{ needs.resolve-release.outputs.version }}" -IncludePackages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openassetwatch-agent-linux-amd64-release-candidate
+          path: |
+            dist/agent/${{ needs.resolve-release.outputs.version }}/linux-amd64/**
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.deb
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.rpm
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.tar.gz
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.sha256
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.json
+
+  windows-amd64-msi:
+    runs-on: windows-latest
+    needs: resolve-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Build Windows dist artifact and MSI
+        shell: pwsh
+        run: |
+          ./scripts/release/build_agent_dist.ps1 -Version "${{ needs.resolve-release.outputs.version }}" -TargetOS windows -TargetArch amd64
+          ./scripts/release/build_agent_msi.ps1 -Version "${{ needs.resolve-release.outputs.version }}" -TargetArch amd64
+          python ./scripts/release/validate_agent_windows_msi.py --version "${{ needs.resolve-release.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openassetwatch-agent-windows-amd64-release-candidate
+          path: |
+            dist/agent/${{ needs.resolve-release.outputs.version }}/windows-amd64/**
+            dist/agent/${{ needs.resolve-release.outputs.version }}/windows-install/**
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.msi
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.sha256
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.json
+
+  macos-arm64-pkg:
+    runs-on: macos-15
+    needs: resolve-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Build unsigned arm64 PKG
+        run: bash scripts/release/build_agent_macos_pkg.sh --version "${{ needs.resolve-release.outputs.version }}" --package-version "${{ needs.resolve-release.outputs.macos_package_version }}" --arch-mode arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openassetwatch-agent-macos-arm64-release-candidate
+          path: |
+            dist/agent/${{ needs.resolve-release.outputs.version }}/darwin-arm64/**
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/OpenAssetWatchAgent-${{ needs.resolve-release.outputs.version }}-macos-arm64.pkg
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/OpenAssetWatchAgent-${{ needs.resolve-release.outputs.version }}-macos-arm64.pkg.sha256
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/OpenAssetWatchAgent-${{ needs.resolve-release.outputs.version }}-macos-arm64.pkg.manifest.json
+
+  macos-intel-pkg:
+    runs-on: macos-15-intel
+    needs: resolve-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Build unsigned Intel PKG
+        run: bash scripts/release/build_agent_macos_pkg.sh --version "${{ needs.resolve-release.outputs.version }}" --package-version "${{ needs.resolve-release.outputs.macos_package_version }}" --arch-mode amd64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openassetwatch-agent-macos-amd64-release-candidate
+          path: |
+            dist/agent/${{ needs.resolve-release.outputs.version }}/darwin-amd64/**
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/OpenAssetWatchAgent-${{ needs.resolve-release.outputs.version }}-macos-amd64.pkg
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/OpenAssetWatchAgent-${{ needs.resolve-release.outputs.version }}-macos-amd64.pkg.sha256
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/OpenAssetWatchAgent-${{ needs.resolve-release.outputs.version }}-macos-amd64.pkg.manifest.json
+
+  macos-universal-pkg:
+    runs-on: macos-15
+    needs: resolve-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Build unsigned universal PKG
+        run: bash scripts/release/build_agent_macos_pkg.sh --version "${{ needs.resolve-release.outputs.version }}" --package-version "${{ needs.resolve-release.outputs.macos_package_version }}" --arch-mode universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openassetwatch-agent-macos-universal-release-candidate
+          path: |
+            dist/agent/${{ needs.resolve-release.outputs.version }}/darwin-universal/**
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/OpenAssetWatchAgent-${{ needs.resolve-release.outputs.version }}-macos-universal.pkg
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/OpenAssetWatchAgent-${{ needs.resolve-release.outputs.version }}-macos-universal.pkg.sha256
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/OpenAssetWatchAgent-${{ needs.resolve-release.outputs.version }}-macos-universal.pkg.manifest.json
+
+  assemble-release-candidate:
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-release
+      - linux-amd64-packages
+      - windows-amd64-msi
+      - macos-arm64-pkg
+      - macos-intel-pkg
+      - macos-universal-pkg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: openassetwatch-agent-*-release-candidate
+          merge-multiple: true
+      - name: Validate release-candidate artifact metadata
+        run: |
+          set -euo pipefail
+          python3 scripts/release/validate_agent_release_publication.py validate \
+            --version "${{ needs.resolve-release.outputs.version }}" \
+            --release-root "dist/agent/${{ needs.resolve-release.outputs.version }}" \
+            --classification "${{ needs.resolve-release.outputs.classification }}" \
+            --expected-package-type windows-msi \
+            --expected-package-type macos-pkg-arm64 \
+            --expected-package-type macos-pkg-amd64 \
+            --expected-package-type macos-pkg-universal \
+            --expected-package-type linux-deb \
+            --expected-package-type linux-rpm \
+            --expected-package-type linux-targz \
+            --write-manifest "dist/agent/${{ needs.resolve-release.outputs.version }}/release-publication-manifest.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openassetwatch-agent-release-candidate-bundle
+          path: |
+            dist/agent/${{ needs.resolve-release.outputs.version }}/release-publication-manifest.json
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.msi
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.pkg
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.deb
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.rpm
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.tar.gz
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.sha256
+            dist/agent/${{ needs.resolve-release.outputs.version }}/packages/*.json
+
+  production-signing-gate:
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-release
+      - assemble-release-candidate
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && needs.resolve-release.outputs.unsigned_dry_run != 'true')
+    env:
+      WINDOWS_CODESIGN_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CODESIGN_CERTIFICATE_BASE64 }}
+      WINDOWS_CODESIGN_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_CERTIFICATE_PASSWORD }}
+      WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+      MACOS_DEVELOPER_ID_APPLICATION: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}
+      MACOS_DEVELOPER_ID_INSTALLER: ${{ secrets.MACOS_DEVELOPER_ID_INSTALLER }}
+      MACOS_NOTARY_API_KEY_BASE64: ${{ secrets.MACOS_NOTARY_API_KEY_BASE64 }}
+      MACOS_NOTARY_API_KEY_ID: ${{ secrets.MACOS_NOTARY_API_KEY_ID }}
+      MACOS_NOTARY_API_ISSUER_ID: ${{ secrets.MACOS_NOTARY_API_ISSUER_ID }}
+      LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
+      LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - uses: actions/download-artifact@v4
+        with:
+          name: openassetwatch-agent-release-candidate-bundle
+      - name: Fail closed until signed evidence exists
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            WINDOWS_CODESIGN_CERTIFICATE_BASE64 \
+            WINDOWS_CODESIGN_CERTIFICATE_PASSWORD \
+            WINDOWS_TIMESTAMP_URL \
+            MACOS_DEVELOPER_ID_APPLICATION \
+            MACOS_DEVELOPER_ID_INSTALLER \
+            MACOS_NOTARY_API_KEY_BASE64 \
+            MACOS_NOTARY_API_KEY_ID \
+            MACOS_NOTARY_API_ISSUER_ID \
+            LINUX_GPG_PRIVATE_KEY \
+            LINUX_GPG_PASSPHRASE
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Production release signing is blocked; missing secrets:\n' >&2
+            printf ' - %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+          python3 scripts/release/validate_agent_release_publication.py validate \
+            --version "${{ needs.resolve-release.outputs.version }}" \
+            --release-root "dist/agent/${{ needs.resolve-release.outputs.version }}" \
+            --classification signed-production \
+            --require-signed \
+            --expected-package-type windows-msi \
+            --expected-package-type macos-pkg-arm64 \
+            --expected-package-type macos-pkg-amd64 \
+            --expected-package-type macos-pkg-universal \
+            --expected-package-type linux-deb \
+            --expected-package-type linux-rpm \
+            --expected-package-type linux-targz
+
+  publish-github-release:
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-release
+      - assemble-release-candidate
+      - production-signing-gate
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.OAW_AGENT_RELEASE_PUBLICATION_ENABLED == 'true'
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: openassetwatch-agent-release-candidate-bundle
+      - name: Create or update GitHub Release
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve-release.outputs.tag }}"
+          notes="OpenAssetWatch agent release $tag. Production publication requires signed artifacts and notarized macOS packages."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --notes "$notes"
+          else
+            gh release create "$tag" --title "$tag" --notes "$notes"
+          fi
+          gh release upload "$tag" dist/agent/${{ needs.resolve-release.outputs.version }}/release-publication-manifest.json --clobber
+          gh release upload "$tag" dist/agent/${{ needs.resolve-release.outputs.version }}/packages/* --clobber
