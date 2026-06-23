@@ -120,6 +120,9 @@ jobs:
           mkdir -p "$EXTRACT/usr/lib/systemd/system"
           cp "$EXTRACT/lib/systemd/system/oaw-agent.service" "$EXTRACT/usr/lib/systemd/system/oaw-agent.service"
           cp "$EXTRACT/lib/systemd/system/oaw-agent.timer" "$EXTRACT/usr/lib/systemd/system/oaw-agent.timer"
+          for unit in sysinit.target basic.target timers.target; do
+            printf '[Unit]\nDescription=CI synthetic %s\n' "$unit" > "$EXTRACT/usr/lib/systemd/system/$unit"
+          done
           systemd-analyze --root="$EXTRACT" verify oaw-agent.service oaw-agent.timer
           sudo visudo -cf "$EXTRACT/etc/sudoers.d/openassetwatch-agent"
       - uses: actions/upload-artifact@v4
@@ -167,6 +170,9 @@ jobs:
           mkdir -p "$ROOT/etc"
           printf 'root:x:0:0:root:/root:/usr/sbin/nologin\nopenassetwatch:x:999:999:OpenAssetWatch Agent:/var/lib/openassetwatch/agent:/usr/sbin/nologin\n' > "$ROOT/etc/passwd"
           printf 'root:x:0:\nopenassetwatch:x:999:\n' > "$ROOT/etc/group"
+          for unit in sysinit.target basic.target timers.target; do
+            printf '[Unit]\nDescription=CI synthetic %s\n' "$unit" > "$ROOT/usr/lib/systemd/system/$unit"
+          done
           systemd-analyze --root="$ROOT" verify oaw-agent.service oaw-agent.timer
           sudo visudo -cf "$ROOT/etc/sudoers.d/openassetwatch-agent"
       - uses: actions/upload-artifact@v4
@@ -286,7 +292,7 @@ jobs:
 
           assert_file() {
             path="$1"
-            if [ ! -f "$path" ]; then
+            if ! sudo test -f "$path"; then
               echo "Expected file to exist after package removal: $path"
               sudo ls -la "$(dirname "$path")" || true
               return 1
@@ -901,6 +907,8 @@ jobs:
           check_owner_mode "$IDENTITY" "root:_openassetwatch 640"
           check_owner_mode "$STATE" "_openassetwatch:_openassetwatch 750"
           check_owner_mode "$LOG_DIR" "_openassetwatch:_openassetwatch 750"
+          sudo rm -f "$STATE/status.json" "$STATE/last-inventory.json"
+          : > "$MOCK_LOG"
           sudo launchctl kickstart -k "system/$LABEL"
           deadline=$((SECONDS + 90))
           while [ "$SECONDS" -lt "$deadline" ]; do
