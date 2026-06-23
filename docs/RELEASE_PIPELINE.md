@@ -593,10 +593,9 @@ root-owned and not writable by `openassetwatch`, while state and logs under
 `/var/lib/openassetwatch/agent` and `/var/log/openassetwatch/agent` are
 owned by `openassetwatch:openassetwatch`. Downgrade is treated as an explicit
 administrator rollback action through native package-manager downgrade flags,
-not routine repair. Public Linux package release remains blocked until the
-repository has an authoritative OpenAssetWatch license declaration; RPM
-metadata uses `LicenseRef-OpenAssetWatch-UNSPECIFIED` only because a license
-field is required.
+not routine repair. Linux package metadata uses the canonical OpenAssetWatch
+Apache-2.0 license declaration and packages license/copyright material for
+target hosts.
 
 ## Local TAR.GZ Package Artifacts
 

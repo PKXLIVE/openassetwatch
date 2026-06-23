@@ -1,0 +1,15 @@
+name: License metadata
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-license-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check OpenAssetWatch license metadata
+        run: python scripts/check_license_metadata.py

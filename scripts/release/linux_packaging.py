@@ -11,7 +11,7 @@ from release_common import is_inside, read_json, resolve_repo_path, sha256_file,
 
 PACKAGE_NAME = "openassetwatch-agent"
 PACKAGE_URL = "https://github.com/PKXLIVE/openassetwatch"
-PACKAGE_LICENSE = "LicenseRef-OpenAssetWatch-UNSPECIFIED"
+PACKAGE_LICENSE = "Apache-2.0"
 TARGET_OS = "linux"
 TARGET_ARCH = "amd64"
 DEBIAN_ARCH = "amd64"
@@ -131,6 +131,35 @@ def config_example() -> bytes:
 
 def identity_example() -> bytes:
     return read_source_bytes("common/examples/identity.example.json")
+
+
+def license_file() -> bytes:
+    return (get_repo_root() / "LICENSE").read_bytes()
+
+
+def notice_file() -> bytes:
+    return (get_repo_root() / "NOTICE").read_bytes()
+
+
+def deb_copyright_file() -> bytes:
+    return (
+        "\n".join(
+            [
+                "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/",
+                "Upstream-Name: OpenAssetWatch",
+                f"Source: {PACKAGE_URL}",
+                "",
+                "Files: *",
+                "Copyright: 2026 OpenAssetWatch contributors",
+                f"License: {PACKAGE_LICENSE}",
+                "",
+                f"License: {PACKAGE_LICENSE}",
+                " Licensed under the Apache License, Version 2.0.",
+                " See /usr/share/doc/openassetwatch-agent/LICENSE for the full license text.",
+                "",
+            ]
+        )
+    ).encode("utf-8")
 
 
 def ip_neigh_helper_script() -> bytes:

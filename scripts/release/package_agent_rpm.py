@@ -41,6 +41,8 @@ from linux_packaging import (
     identity_example,
     ip_addr_helper_script,
     ip_neigh_helper_script,
+    license_file,
+    notice_file,
     package_readme,
     rpm_service_unit,
     rpm_spec_file,
@@ -86,6 +88,8 @@ RPM_EXPECTED_FILES = (
     RPM_SERVICE_PACKAGE_PATH,
     RPM_TIMER_PACKAGE_PATH,
     "./usr/share/doc/openassetwatch-agent/README.md",
+    "./usr/share/doc/openassetwatch-agent/LICENSE",
+    "./usr/share/doc/openassetwatch-agent/NOTICE",
     "./usr/share/doc/openassetwatch-agent/release-manifest.json",
 )
 
@@ -371,6 +375,8 @@ def stage_payload(
         RPM_SERVICE_PACKAGE_PATH: (rpm_service_unit(), 0o644),
         RPM_TIMER_PACKAGE_PATH: (rpm_timer_unit(), 0o644),
         "./usr/share/doc/openassetwatch-agent/README.md": (package_readme(version), 0o644),
+        "./usr/share/doc/openassetwatch-agent/LICENSE": (license_file(), 0o644),
+        "./usr/share/doc/openassetwatch-agent/NOTICE": (notice_file(), 0o644),
         "./usr/share/doc/openassetwatch-agent/release-manifest.json": (release_manifest_data, 0o644),
     }
     for directory in RPM_EXPECTED_DIRS:
@@ -512,6 +518,8 @@ def validate_spec(path: Path, version: str) -> None:
         "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show",
         "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show",
         "%attr(0755,root,root) /opt/openassetwatch/agent/bin/oaw-agent",
+        "%license /usr/share/doc/openassetwatch-agent/LICENSE",
+        "%doc /usr/share/doc/openassetwatch-agent/NOTICE",
     )
     missing = [item for item in required if item not in text]
     if missing:
