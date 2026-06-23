@@ -16,20 +16,41 @@ The local Docker Compose stack runs:
 - `backend`: FastAPI Control Tower API on `http://localhost:8000`
 - `web`: static Control Tower dashboard on `http://localhost:8080`
 - `postgres`: PostgreSQL persistence, bound to `127.0.0.1:5432`
-- `redis`: reserved local service dependency, bound to `127.0.0.1:6379`
 
 PostgreSQL is the default persistence layer for this foundation. It is
 production-friendly, works with the existing backend code, and keeps the local
 demo close to the future self-hosted deployment model.
 
+Redis is not part of the current Control Tower MVP stack because the backend,
+web UI, tests, and documented runtime behavior do not use it yet. It should be
+added back only with a concrete queue/cache feature and matching healthcheck.
+
 ## Safe Defaults
 
-- database, Redis, API, and web ports bind to localhost by default
+- database, API, and web ports bind to localhost by default
 - `.env.example` contains placeholders only
 - collector token auth is optional for local development and empty by default
 - no production secrets are committed
 - the release endpoint is metadata-only and never downloads or executes updates
 - ingestion endpoints reject unsafe top-level command and credential fields
+
+## Startup Readiness
+
+Docker Compose includes healthchecks for:
+
+- `postgres`: `pg_isready`
+- `backend`: HTTP GET `/health`
+- `web`: HTTP GET `/`
+
+Where supported by Docker Compose, dependency ordering waits for:
+
+- backend after Postgres is healthy
+- web after backend is healthy
+
+The backend image installs Python dependencies at build time through
+`backend/Dockerfile`. The `./backend` source directory remains bind-mounted for
+local development reloads, so code changes still apply without rebuilding the
+image unless dependencies change.
 
 ## Local Startup
 
@@ -42,7 +63,13 @@ Copy-Item .env.example .env
 Start the stack:
 
 ```powershell
-docker compose up -d
+docker compose up -d --build --remove-orphans
+```
+
+Wait for healthy services:
+
+```powershell
+docker compose ps
 ```
 
 Open the UI:
@@ -71,6 +98,18 @@ Stop the stack:
 
 ```powershell
 docker compose down
+```
+
+View logs:
+
+```powershell
+docker compose logs -f backend
+```
+
+Reset local development data:
+
+```powershell
+docker compose down -v --remove-orphans
 ```
 
 ## Environment Variables

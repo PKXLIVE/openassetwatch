@@ -21,10 +21,16 @@ service backed by PostgreSQL through SQLAlchemy.
 From the repository root:
 
 ```powershell
-docker compose up -d
+docker compose up -d --build --remove-orphans
 ```
 
-Then check:
+Wait for healthy services:
+
+```powershell
+docker compose ps
+```
+
+Then check backend health:
 
 ```powershell
 curl.exe http://localhost:8000/health
@@ -35,6 +41,28 @@ Open the dashboard:
 ```text
 http://localhost:8080
 ```
+
+View backend logs:
+
+```powershell
+docker compose logs -f backend
+```
+
+Stop the stack:
+
+```powershell
+docker compose down
+```
+
+Reset local development data:
+
+```powershell
+docker compose down -v --remove-orphans
+```
+
+The backend image installs Python dependencies at build time through
+`backend/Dockerfile`; the source tree remains bind-mounted into `/app` for
+local development reloads.
 
 ## Database
 

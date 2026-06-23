@@ -56,7 +56,7 @@ OpenAssetWatch Collector
 OpenAssetWatch Backend API
         |
         v
-PostgreSQL / Redis
+PostgreSQL
         |
         v
 Control Tower Dashboard / Risk Engine / AI Advisor / Integrations
@@ -95,10 +95,16 @@ openassetwatch/
 
 ## Local Development
 
-### Start the backend stack
+### Start the Control Tower stack
 
 ```bash
-docker compose up -d
+docker compose up -d --build --remove-orphans
+```
+
+Wait for services to become healthy:
+
+```bash
+docker compose ps
 ```
 
 ### Check backend health
@@ -123,9 +129,21 @@ Expected response:
 http://localhost:8080
 ```
 
-The local stack binds API, web, PostgreSQL, and Redis ports to localhost by
+The local stack binds API, web, and PostgreSQL ports to localhost by
 default. See [docs/CONTROL_TOWER_DEPLOYMENT.md](docs/CONTROL_TOWER_DEPLOYMENT.md)
 for startup steps, API endpoints, database tables, and limitations.
+
+View logs:
+
+```bash
+docker compose logs -f backend
+```
+
+Stop the stack:
+
+```bash
+docker compose down
+```
 
 ---
 
@@ -460,7 +478,7 @@ Current completed work includes:
 * Initial repository scaffold
 * FastAPI backend foundation
 * Docker Compose local stack
-* PostgreSQL and Redis services
+* PostgreSQL service
 * Collector modes: device, network, and hybrid
 * Platform and capability detection
 * Local network ARP/neighbor discovery
