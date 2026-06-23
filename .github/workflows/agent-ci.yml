@@ -455,19 +455,28 @@ jobs:
           HTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
           PY
           CONTAINER="oaw-rocky-systemd-${{ github.run_id }}-${{ github.run_attempt }}"
+          IMAGE="oaw-rocky-systemd:${{ github.run_id }}-${{ github.run_attempt }}"
+          cat > "$RUNNER_TEMP/oaw-rocky-systemd.Dockerfile" <<'EOF'
+          FROM rockylinux:9
+          RUN dnf -y install systemd python3 sudo shadow-utils iproute && dnf clean all
+          STOPSIGNAL SIGRTMIN+3
+          CMD ["/usr/lib/systemd/systemd"]
+          EOF
+          docker build --tag "$IMAGE" --file "$RUNNER_TEMP/oaw-rocky-systemd.Dockerfile" "$RUNNER_TEMP"
           cleanup() {
             docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+            docker rmi "$IMAGE" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
           docker run --detach --privileged --name "$CONTAINER" \
+            --cgroupns=host \
             --tmpfs /run \
             --tmpfs /run/lock \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
             -v "$PWD:/work" \
             -v "$RUNNER_TEMP:/tmp/oaw-runner-temp" \
             -w /work \
-            rockylinux:9 \
-            /usr/sbin/init
+            "$IMAGE"
           for _ in $(seq 1 60); do
             if docker exec "$CONTAINER" systemctl is-system-running >/tmp/oaw-rocky-systemd-state.txt 2>&1; then
               break
@@ -477,7 +486,6 @@ jobs:
             fi
             sleep 1
           done
-          docker exec "$CONTAINER" /bin/bash -lc "dnf -y install python3 sudo systemd shadow-utils iproute"
           docker exec "$CONTAINER" /bin/bash -lc '
               set -euo pipefail
               OLD_RPM="dist/agent/0.1.90/packages/openassetwatch-agent-0.1.90-1.x86_64.rpm"
@@ -907,8 +915,21 @@ jobs:
           check_owner_mode "$IDENTITY" "root:_openassetwatch 640"
           check_owner_mode "$STATE" "_openassetwatch:_openassetwatch 750"
           check_owner_mode "$LOG_DIR" "_openassetwatch:_openassetwatch 750"
+          sudo launchctl bootout system "$PLIST" 2>/dev/null || true
+          for _ in $(seq 1 30); do
+            if ! sudo launchctl print "system/$LABEL" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          if sudo launchctl print "system/$LABEL" >/dev/null 2>&1; then
+            echo "LaunchDaemon label still loaded after bootout"
+            exit 1
+          fi
           sudo rm -f "$STATE/status.json" "$STATE/last-inventory.json"
           : > "$MOCK_LOG"
+          sudo launchctl bootstrap system "$PLIST"
+          sudo launchctl print "system/$LABEL" >/dev/null
           sudo launchctl kickstart -k "system/$LABEL"
           deadline=$((SECONDS + 90))
           while [ "$SECONDS" -lt "$deadline" ]; do
