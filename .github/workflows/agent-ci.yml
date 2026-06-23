@@ -117,9 +117,10 @@ jobs:
           mkdir -p "$EXTRACT/etc"
           printf 'root:x:0:0:root:/root:/usr/sbin/nologin\nopenassetwatch:x:999:999:OpenAssetWatch Agent:/var/lib/openassetwatch/agent:/usr/sbin/nologin\n' > "$EXTRACT/etc/passwd"
           printf 'root:x:0:\nopenassetwatch:x:999:\n' > "$EXTRACT/etc/group"
-          systemd-analyze --root="$EXTRACT" verify \
-            /lib/systemd/system/oaw-agent.service \
-            /lib/systemd/system/oaw-agent.timer
+          mkdir -p "$EXTRACT/usr/lib/systemd/system"
+          cp "$EXTRACT/lib/systemd/system/oaw-agent.service" "$EXTRACT/usr/lib/systemd/system/oaw-agent.service"
+          cp "$EXTRACT/lib/systemd/system/oaw-agent.timer" "$EXTRACT/usr/lib/systemd/system/oaw-agent.timer"
+          systemd-analyze --root="$EXTRACT" verify oaw-agent.service oaw-agent.timer
           sudo visudo -cf "$EXTRACT/etc/sudoers.d/openassetwatch-agent"
       - uses: actions/upload-artifact@v4
         with:
@@ -166,9 +167,7 @@ jobs:
           mkdir -p "$ROOT/etc"
           printf 'root:x:0:0:root:/root:/usr/sbin/nologin\nopenassetwatch:x:999:999:OpenAssetWatch Agent:/var/lib/openassetwatch/agent:/usr/sbin/nologin\n' > "$ROOT/etc/passwd"
           printf 'root:x:0:\nopenassetwatch:x:999:\n' > "$ROOT/etc/group"
-          systemd-analyze --root="$ROOT" verify \
-            /usr/lib/systemd/system/oaw-agent.service \
-            /usr/lib/systemd/system/oaw-agent.timer
+          systemd-analyze --root="$ROOT" verify oaw-agent.service oaw-agent.timer
           sudo visudo -cf "$ROOT/etc/sudoers.d/openassetwatch-agent"
       - uses: actions/upload-artifact@v4
         with:
@@ -276,6 +275,41 @@ jobs:
             return 1
           }
 
+          assert_absent() {
+            path="$1"
+            if [ -e "$path" ]; then
+              echo "Expected path to be absent after package removal: $path"
+              sudo ls -ld "$path" || true
+              return 1
+            fi
+          }
+
+          assert_file() {
+            path="$1"
+            if [ ! -f "$path" ]; then
+              echo "Expected file to exist after package removal: $path"
+              sudo ls -la "$(dirname "$path")" || true
+              return 1
+            fi
+          }
+
+          assert_timer_disabled() {
+            if sudo systemctl is-enabled --quiet oaw-agent.timer; then
+              echo "oaw-agent.timer unexpectedly remains enabled after package removal."
+              sudo systemctl is-enabled oaw-agent.timer || true
+              sudo systemctl status oaw-agent.timer --no-pager || true
+              return 1
+            fi
+          }
+
+          assert_timer_inactive() {
+            if sudo systemctl is-active --quiet oaw-agent.timer; then
+              echo "oaw-agent.timer unexpectedly remains active after package removal."
+              sudo systemctl status oaw-agent.timer --no-pager || true
+              return 1
+            fi
+          }
+
           install_ci_timer_override() {
             sudo mkdir -p /etc/systemd/system/oaw-agent.timer.d
             sudo tee /etc/systemd/system/oaw-agent.timer.d/ci.conf >/dev/null <<'EOF'
@@ -352,16 +386,17 @@ jobs:
 
           sudo dpkg -r openassetwatch-agent
           sudo systemctl daemon-reload
-          test ! -e /opt/openassetwatch/agent/bin/oaw-agent
-          test ! -e /lib/systemd/system/oaw-agent.service
-          test ! -e /lib/systemd/system/oaw-agent.timer
-          test ! -e /etc/systemd/system/timers.target.wants/oaw-agent.timer
-          ! sudo systemctl is-enabled --quiet oaw-agent.timer
-          ! sudo systemctl is-active --quiet oaw-agent.timer
-          test -f /etc/openassetwatch/agent/config.json
-          test -f /etc/openassetwatch/agent/identity.json
-          test -f /var/lib/openassetwatch/agent/state-survival.txt
-          test -f /var/log/openassetwatch/agent/log-survival.txt
+          sudo systemctl reset-failed oaw-agent.service oaw-agent.timer >/dev/null 2>&1 || true
+          assert_absent /opt/openassetwatch/agent/bin/oaw-agent
+          assert_absent /lib/systemd/system/oaw-agent.service
+          assert_absent /lib/systemd/system/oaw-agent.timer
+          assert_absent /etc/systemd/system/timers.target.wants/oaw-agent.timer
+          assert_timer_disabled
+          assert_timer_inactive
+          assert_file /etc/openassetwatch/agent/config.json
+          assert_file /etc/openassetwatch/agent/identity.json
+          assert_file /var/lib/openassetwatch/agent/state-survival.txt
+          assert_file /var/log/openassetwatch/agent/log-survival.txt
 
   linux-rpm-lifecycle:
     runs-on: ubuntu-latest
@@ -836,14 +871,6 @@ jobs:
           printf '%s\n' '{"site_id":"ci-macos","agent_id":"55555555-5555-4555-8555-555555555555","deployment_id":"66666666-6666-4666-8666-666666666666","tenant_id":"ci","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}' | sudo tee "$IDENTITY" >/dev/null
           sudo chmod 0640 "$CONFIG" "$IDENTITY"
           sudo chown root:_openassetwatch "$CONFIG" "$IDENTITY"
-          sudo installer -pkg "$PKG" -target /
-          /usr/sbin/pkgutil --pkg-info "$PACKAGE_ID" | grep "version: 0.1.100"
-          check_owner_mode "$BINARY" "root:wheel 755"
-          check_owner_mode "$PLIST" "root:wheel 644"
-          check_owner_mode "$CONFIG" "root:_openassetwatch 640"
-          check_owner_mode "$IDENTITY" "root:_openassetwatch 640"
-          check_owner_mode "$STATE" "_openassetwatch:_openassetwatch 750"
-          check_owner_mode "$LOG_DIR" "_openassetwatch:_openassetwatch 750"
           cat > "$MOCK" <<'PY'
           import json
           import os
@@ -866,6 +893,14 @@ jobs:
           OAW_MOCK_LOG="$MOCK_LOG" python3 "$MOCK" &
           BACKEND_PID=$!
           wait_for_backend
+          sudo installer -pkg "$PKG" -target /
+          /usr/sbin/pkgutil --pkg-info "$PACKAGE_ID" | grep "version: 0.1.100"
+          check_owner_mode "$BINARY" "root:wheel 755"
+          check_owner_mode "$PLIST" "root:wheel 644"
+          check_owner_mode "$CONFIG" "root:_openassetwatch 640"
+          check_owner_mode "$IDENTITY" "root:_openassetwatch 640"
+          check_owner_mode "$STATE" "_openassetwatch:_openassetwatch 750"
+          check_owner_mode "$LOG_DIR" "_openassetwatch:_openassetwatch 750"
           sudo launchctl kickstart -k "system/$LABEL"
           deadline=$((SECONDS + 90))
           while [ "$SECONDS" -lt "$deadline" ]; do

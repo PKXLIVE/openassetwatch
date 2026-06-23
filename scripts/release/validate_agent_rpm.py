@@ -80,6 +80,19 @@ EXPECTED_TIMER_LINES = (
     "Unit=oaw-agent.service",
 )
 
+RPM_PAYLOAD_LISTING_EXPECTED_DIRS = (
+    "/opt/openassetwatch",
+    "/opt/openassetwatch/agent",
+    "/opt/openassetwatch/agent/bin",
+    "/usr/lib/openassetwatch",
+    "/usr/lib/openassetwatch/agent",
+    "/usr/lib/openassetwatch/agent/libexec",
+    "/etc/openassetwatch",
+    "/etc/openassetwatch/agent",
+    "/var/lib/openassetwatch/agent",
+    "/var/log/openassetwatch/agent",
+)
+
 SPEC_REQUIRED_TEXT = (
     f"Name: {PACKAGE_NAME}",
     "BuildArch: x86_64",
@@ -474,7 +487,7 @@ def validate_rpm_query_metadata(package_path: Path, version: str) -> None:
 
 def validate_rpm_payload_listing(package_path: Path) -> None:
     listing = {line.strip() for line in run_rpm(["-qpl", str(package_path)]).splitlines() if line.strip()}
-    expected = {install_path(path) for path in RPM_EXPECTED_FILES} | {install_path(path) for path in RPM_EXPECTED_DIRS}
+    expected = {install_path(path) for path in RPM_EXPECTED_FILES} | set(RPM_PAYLOAD_LISTING_EXPECTED_DIRS)
     missing = expected - listing
     if missing:
         raise ValueError(f"RPM payload listing missing expected paths: {', '.join(sorted(missing))}.")
