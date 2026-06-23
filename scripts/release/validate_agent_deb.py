@@ -55,6 +55,9 @@ EXPECTED_DATA_FILES = {
     "./lib/systemd/system/oaw-agent.service",
     TIMER_PACKAGE_PATH,
     "./usr/share/doc/openassetwatch-agent/README.md",
+    "./usr/share/doc/openassetwatch-agent/LICENSE",
+    "./usr/share/doc/openassetwatch-agent/NOTICE",
+    "./usr/share/doc/openassetwatch-agent/copyright",
     "./usr/share/doc/openassetwatch-agent/release-manifest.json",
 }
 EXPECTED_DATA_SYMLINKS = {
@@ -627,6 +630,23 @@ def validate_timer_manifest(timer: dict[str, Any], source: str) -> None:
         raise ValueError(f"{source} timer metadata mismatch.")
 
 
+def validate_license_material(data_files: dict[str, bytes]) -> None:
+    if data_files["./usr/share/doc/openassetwatch-agent/LICENSE"] != linuxsrc.license_file():
+        raise ValueError("DEB package LICENSE must match the root Apache-2.0 LICENSE file.")
+    if data_files["./usr/share/doc/openassetwatch-agent/NOTICE"] != linuxsrc.notice_file():
+        raise ValueError("DEB package NOTICE must match the root OpenAssetWatch NOTICE file.")
+    copyright_text = data_files["./usr/share/doc/openassetwatch-agent/copyright"].decode("utf-8")
+    required = (
+        "Upstream-Name: OpenAssetWatch",
+        "Copyright: 2026 OpenAssetWatch contributors",
+        f"License: {linuxsrc.PACKAGE_LICENSE}",
+        "Apache License, Version 2.0",
+    )
+    missing = [item for item in required if item not in copyright_text]
+    if missing:
+        raise ValueError(f"DEB copyright file missing expected license text: {', '.join(missing)}.")
+
+
 def validate_release_manifest(data: bytes, version: str) -> None:
     value = json.loads(data.decode("utf-8"))
     if value.get("package_name") != PACKAGE_NAME:
@@ -757,6 +777,7 @@ def validate_data_archive(
     validate_sudoers_file(data_files[SUDOERS_PACKAGE_PATH])
     validate_service_unit(data_files["./lib/systemd/system/oaw-agent.service"])
     validate_timer_unit(data_files[TIMER_PACKAGE_PATH])
+    validate_license_material(data_files)
     validate_release_manifest(data_files["./usr/share/doc/openassetwatch-agent/release-manifest.json"], version)
     validate_forbidden_content(data_files)
 

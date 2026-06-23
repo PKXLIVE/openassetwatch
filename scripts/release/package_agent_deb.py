@@ -63,6 +63,9 @@ EXPECTED_DATA_FILES = (
     "./lib/systemd/system/oaw-agent.service",
     TIMER_PACKAGE_PATH,
     "./usr/share/doc/openassetwatch-agent/README.md",
+    "./usr/share/doc/openassetwatch-agent/LICENSE",
+    "./usr/share/doc/openassetwatch-agent/NOTICE",
+    "./usr/share/doc/openassetwatch-agent/copyright",
     "./usr/share/doc/openassetwatch-agent/release-manifest.json",
 )
 EXPECTED_DATA_SYMLINKS = {
@@ -193,6 +196,18 @@ def config_example() -> bytes:
 
 def identity_example() -> bytes:
     return linuxsrc.identity_example()
+
+
+def license_file() -> bytes:
+    return linuxsrc.license_file()
+
+
+def notice_file() -> bytes:
+    return linuxsrc.notice_file()
+
+
+def deb_copyright_file() -> bytes:
+    return linuxsrc.deb_copyright_file()
 
 
 def ip_neigh_helper_script() -> bytes:
@@ -384,6 +399,9 @@ def build_data_tar(
         "./lib/systemd/system/oaw-agent.service": (service_unit(), 0o644),
         TIMER_PACKAGE_PATH: (timer_unit(), 0o644),
         "./usr/share/doc/openassetwatch-agent/README.md": (package_readme(version), 0o644),
+        "./usr/share/doc/openassetwatch-agent/LICENSE": (license_file(), 0o644),
+        "./usr/share/doc/openassetwatch-agent/NOTICE": (notice_file(), 0o644),
+        "./usr/share/doc/openassetwatch-agent/copyright": (deb_copyright_file(), 0o644),
         "./usr/share/doc/openassetwatch-agent/release-manifest.json": (release_manifest_data, 0o644),
     }
     output = io.BytesIO()

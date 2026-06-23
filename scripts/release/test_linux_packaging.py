@@ -115,7 +115,9 @@ class LinuxPackagingSourceTests(unittest.TestCase):
 
     def test_rpm_spec_uses_correct_lifecycle_metadata(self) -> None:
         spec = linuxsrc.rpm_spec_file("0.1.0-test").decode("utf-8")
-        self.assertIn("License: LicenseRef-OpenAssetWatch-UNSPECIFIED", spec)
+        self.assertIn("License: Apache-2.0", spec)
+        self.assertIn("%license /usr/share/doc/openassetwatch-agent/LICENSE", spec)
+        self.assertIn("%doc /usr/share/doc/openassetwatch-agent/NOTICE", spec)
         self.assertIn("URL: https://github.com/PKXLIVE/openassetwatch", spec)
         self.assertIn("%preun", spec)
         self.assertIn("systemctl enable oaw-agent.timer", spec)
@@ -127,6 +129,16 @@ class LinuxPackagingSourceTests(unittest.TestCase):
         self.assertNotIn("|| true", spec)
         self.assertNotIn("systemctl enable oaw-agent.service", spec)
         self.assertNotIn("systemctl restart oaw-agent.service", spec)
+
+    def test_license_material_is_canonical(self) -> None:
+        self.assertEqual(linuxsrc.PACKAGE_LICENSE, "Apache-2.0")
+        self.assertIn(b"Apache License", linuxsrc.license_file())
+        self.assertIn(b"Version 2.0", linuxsrc.license_file())
+        self.assertIn(b"OpenAssetWatch", linuxsrc.notice_file())
+        copyright_text = linuxsrc.deb_copyright_file().decode("utf-8")
+        self.assertIn("Upstream-Name: OpenAssetWatch", copyright_text)
+        self.assertIn("License: Apache-2.0", copyright_text)
+        self.assertIn("OpenAssetWatch contributors", copyright_text)
 
     def test_package_templates_are_not_scaffold_only(self) -> None:
         root = linuxsrc.linux_source_root()

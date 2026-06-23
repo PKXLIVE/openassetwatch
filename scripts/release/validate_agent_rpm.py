@@ -108,6 +108,8 @@ SPEC_REQUIRED_TEXT = (
     "--shell /usr/sbin/nologin",
     f"License: {linuxsrc.PACKAGE_LICENSE}",
     f"URL: {linuxsrc.PACKAGE_URL}",
+    "%license /usr/share/doc/openassetwatch-agent/LICENSE",
+    "%doc /usr/share/doc/openassetwatch-agent/NOTICE",
     "systemctl daemon-reload",
     "systemctl enable oaw-agent.timer",
     "systemctl restart oaw-agent.timer",
@@ -287,6 +289,13 @@ def validate_helpers_and_sudoers(buildroot: Path) -> None:
 def validate_examples(buildroot: Path) -> None:
     validate_example_config(payload_path(buildroot, "./etc/openassetwatch/agent/config.example.json").read_bytes())
     validate_example_identity(payload_path(buildroot, "./etc/openassetwatch/agent/identity.example.json").read_bytes())
+
+
+def validate_license_material(buildroot: Path) -> None:
+    if payload_path(buildroot, "./usr/share/doc/openassetwatch-agent/LICENSE").read_bytes() != linuxsrc.license_file():
+        raise ValueError("RPM staged LICENSE must match the root Apache-2.0 LICENSE file.")
+    if payload_path(buildroot, "./usr/share/doc/openassetwatch-agent/NOTICE").read_bytes() != linuxsrc.notice_file():
+        raise ValueError("RPM staged NOTICE must match the root OpenAssetWatch NOTICE file.")
 
 
 def validate_manifest(repo_root: Path, rpm_root: Path, buildroot: Path, spec_path: Path, manifest_path: Path, version: str) -> None:
@@ -622,6 +631,8 @@ def validate_rpm(
     reporter.check("helper sudoers model", True, "Helpers and sudoers match the approved allowlist.")
     validate_examples(buildroot)
     reporter.check("example files", True, "Config and identity examples contain placeholders only.")
+    validate_license_material(buildroot)
+    reporter.check("license material", True, "RPM staged payload includes root LICENSE and NOTICE material.")
     validate_manifest(repo_root, rpm_root, buildroot, spec_path, manifest_path, version)
     reporter.check("rpm staging manifest", True, "RPM staging manifest fields are valid.")
     validate_embedded_release_manifest(manifest_path, buildroot, version)

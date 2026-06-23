@@ -26,10 +26,8 @@ Current state:
   this scaffold
 - no signing keys, enrollment tokens, license keys, API keys, passwords, or
   other secrets are stored here
-- public Linux package release remains blocked until the repository has an
-  authoritative OpenAssetWatch license declaration; RPM metadata uses
-  `LicenseRef-OpenAssetWatch-UNSPECIFIED` only as a conservative required
-  metadata value
+- Linux package metadata uses the canonical OpenAssetWatch Apache-2.0 license
+  declaration and packages license/copyright material for target hosts
 
 Package targets:
 

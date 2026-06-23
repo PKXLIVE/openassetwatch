@@ -466,4 +466,4 @@ Future contribution areas may include:
 
 ## License
 
-License information will be added as the project matures.
+OpenAssetWatch is licensed under the Apache License, Version 2.0. See LICENSE for details.

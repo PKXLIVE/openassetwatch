@@ -786,10 +786,8 @@ Expected checks inside the disposable Linux environment:
   data according to future package lifecycle policy
 - downgrade is treated as an explicit administrator rollback action, using
   native package-manager downgrade flags rather than routine repair/upgrade
-- public Linux package release remains blocked until the repository has an
-  authoritative OpenAssetWatch license declaration; package metadata uses the
-  conservative `LicenseRef-OpenAssetWatch-UNSPECIFIED` placeholder only because
-  RPM metadata requires a license value
+- Linux package metadata uses the canonical OpenAssetWatch Apache-2.0 license
+  declaration and packages license/copyright material for target hosts
 
 ## Local Install Staging
 

@@ -30,7 +30,7 @@ agent self-update behavior. They are guarded for active systemd hosts and must
 fail visibly on real systemd errors rather than hiding failures with
 unconditional `|| true`.
 
-No authoritative repository license file is currently present. Linux package
-metadata therefore uses `LicenseRef-OpenAssetWatch-UNSPECIFIED` where a package
-format requires a license field, and public release remains blocked until the
-project makes an explicit license decision.
+OpenAssetWatch is licensed under the Apache License, Version 2.0. Linux package
+metadata uses the SPDX identifier `Apache-2.0`, and package artifacts should
+include the repository `LICENSE` and `NOTICE` files where supported by the
+package format.

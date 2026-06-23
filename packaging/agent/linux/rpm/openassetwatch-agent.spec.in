@@ -112,4 +112,6 @@ exit 0
 %dir %attr(0755,openassetwatch,openassetwatch) /var/lib/openassetwatch/agent
 %dir %attr(0755,openassetwatch,openassetwatch) /var/log/openassetwatch/agent
 %doc /usr/share/doc/openassetwatch-agent/README.md
+%license /usr/share/doc/openassetwatch-agent/LICENSE
+%doc /usr/share/doc/openassetwatch-agent/NOTICE
 %attr(0644,root,root) /usr/share/doc/openassetwatch-agent/release-manifest.json

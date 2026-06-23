@@ -878,7 +878,14 @@ jobs:
           python3 - <<'PY' "$RUNNER_TEMP/oaw-status-initial.json"
           import json, sys
           status=json.load(open(sys.argv[1], encoding="utf-8"))
-          assert status["health"] in ("degraded", "healthy"), status
+          health = status.get("health")
+          if health == "stopping":
+              assert status.get("service_state") == "stopped", status
+              assert int(status.get("consecutive_failure_count") or 0) >= 1, status
+              assert status.get("config_path", "").endswith("/config/config.json"), status
+              assert status.get("identity_path", "").endswith("/identity/identity.json"), status
+          else:
+              assert health in ("degraded", "healthy"), status
           PY
           sudo mkdir -p "$APP_ROOT/config" "$APP_ROOT/identity"
           printf '%s\n' '{"server_url":"http://127.0.0.1:18080","site_id":"ci-macos"}' | sudo tee "$CONFIG" >/dev/null
