@@ -26,6 +26,7 @@ SECRET_RE = re.compile(
     re.IGNORECASE,
 )
 RELEASE_BINARY_DIR_RE = re.compile(r"^(linux|windows|darwin)-[A-Za-z0-9]+$")
+SAFE_SENSITIVE_MARKER_VALUES = {"passwd"}
 REQUIRED_RELEASE_ARTIFACT_FIELDS = (
     "artifact_filename",
     "package_type",
@@ -214,8 +215,34 @@ def validate_no_secret_markers(path: Path) -> None:
         raise ValueError(f"Release metadata path contains a forbidden sensitive marker: {path.name}")
     if path.suffix.lower() in {".json", ".txt", ".sha256", ".md"} and path.is_file():
         text = path.read_text(encoding="utf-8", errors="ignore")
+        if path.suffix.lower() == ".json":
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                payload = None
+            if payload is not None:
+                validate_no_secret_json_markers(payload, path)
+                return
         if SECRET_RE.search(text):
             raise ValueError(f"Release metadata file contains a forbidden sensitive marker: {path}")
+
+
+def validate_no_secret_json_markers(value: Any, path: Path) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if SECRET_RE.search(str(key)):
+                raise ValueError(f"Release metadata JSON contains a forbidden sensitive key in {path}: {key}")
+            validate_no_secret_json_markers(child, path)
+        return
+    if isinstance(value, list):
+        for child in value:
+            validate_no_secret_json_markers(child, path)
+        return
+    if isinstance(value, str):
+        if value.strip().lower() in SAFE_SENSITIVE_MARKER_VALUES:
+            return
+        if SECRET_RE.search(value):
+            raise ValueError(f"Release metadata JSON contains a forbidden sensitive marker in {path}.")
 
 
 def validate_signing_evidence(artifact_path: Path, manifest_path: Path, manifest: dict[str, Any]) -> None:

@@ -261,6 +261,58 @@ class ReleasePublicationTests(unittest.TestCase):
                         require_signed=False,
                     )
 
+    def test_release_publication_allows_passwd_package_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            release_root = repo / "dist" / "agent" / "0.1.0"
+            package, sha = write_artifact(release_root, "packages/openassetwatch-agent_0.1.0_amd64.deb")
+            write_manifest(
+                repo,
+                package,
+                {
+                    "package_path": package.relative_to(repo).as_posix(),
+                    "sha256": sha,
+                    "dependencies": ["systemd", "passwd"],
+                },
+            )
+            with mock.patch.object(releasepub, "get_repo_root", return_value=repo):
+                artifacts, warnings = releasepub.validate_release_root(
+                    repo,
+                    "0.1.0",
+                    release_root,
+                    {"linux-deb"},
+                    "unsigned-release-candidate",
+                    require_signed=False,
+                )
+
+            self.assertEqual(warnings, [])
+            self.assertEqual(artifacts[0].release_key, "linux-deb")
+
+    def test_release_publication_rejects_sensitive_manifest_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            release_root = repo / "dist" / "agent" / "0.1.0"
+            package, sha = write_artifact(release_root, "packages/openassetwatch-agent_0.1.0_amd64.deb")
+            write_manifest(
+                repo,
+                package,
+                {
+                    "package_path": package.relative_to(repo).as_posix(),
+                    "sha256": sha,
+                    "notes": "token placeholder",
+                },
+            )
+            with mock.patch.object(releasepub, "get_repo_root", return_value=repo):
+                with self.assertRaisesRegex(ValueError, "forbidden sensitive marker"):
+                    releasepub.validate_release_root(
+                        repo,
+                        "0.1.0",
+                        release_root,
+                        {"linux-deb"},
+                        "unsigned-release-candidate",
+                        require_signed=False,
+                    )
+
     def test_checksum_mismatch_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
