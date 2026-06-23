@@ -918,6 +918,17 @@ jobs:
             echo "LaunchDaemon label still loaded after bootout"
             exit 1
           fi
+          for _ in $(seq 1 45); do
+            if ! ps -axo command | grep '[o]aw-agent service run' >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if ps -axo command | grep '[o]aw-agent service run' >/dev/null; then
+            echo "LaunchDaemon process still running after bootout"
+            ps -axo user,pid,command | grep '[o]aw-agent service run' || true
+            exit 1
+          fi
           sudo rm -f "$STATE/status.json" "$STATE/last-inventory.json"
           : > "$MOCK_LOG"
           sudo installer -pkg "$PKG" -target /
