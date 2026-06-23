@@ -1,0 +1,115 @@
+Name: {{PACKAGE_NAME}}
+Version: {{RPM_VERSION}}
+Release: {{RPM_RELEASE}}%{?dist}
+Summary: OpenAssetWatch defensive local asset inventory agent
+License: {{PACKAGE_LICENSE}}
+URL: {{PACKAGE_URL}}
+# OpenAssetWatch-Source-Version: {{VERSION}}
+BuildArch: x86_64
+Requires: systemd
+Requires: shadow-utils
+
+%description
+The OpenAssetWatch agent collects local, passive asset inventory
+observations for administrator-approved OpenAssetWatch deployments.
+
+%pre
+set -e
+SERVICE_USER="{{SERVICE_USER}}"
+SERVICE_GROUP="{{SERVICE_GROUP}}"
+STATE_DIR="/var/lib/openassetwatch/agent"
+fail() {
+    echo "openassetwatch-agent: $*" >&2
+    exit 1
+}
+if ! getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
+    groupadd --system "$SERVICE_GROUP"
+fi
+if id -u "$SERVICE_USER" >/dev/null 2>&1; then
+    getent group "$SERVICE_GROUP" >/dev/null 2>&1 || fail "existing user $SERVICE_USER requires group $SERVICE_GROUP"
+    primary_group="$(id -gn "$SERVICE_USER")"
+    [ "$primary_group" = "$SERVICE_GROUP" ] || fail "existing user $SERVICE_USER has primary group $primary_group, expected $SERVICE_GROUP"
+    passwd_entry="$(getent passwd "$SERVICE_USER")"
+    home_dir="$(printf '%s\n' "$passwd_entry" | awk -F: '{print $6}')"
+    login_shell="$(printf '%s\n' "$passwd_entry" | awk -F: '{print $7}')"
+    [ "$home_dir" = "$STATE_DIR" ] || fail "existing user $SERVICE_USER has home $home_dir, expected $STATE_DIR"
+    case "$login_shell" in
+        /usr/sbin/nologin|/sbin/nologin|/bin/false) ;;
+        *) fail "existing user $SERVICE_USER has interactive shell $login_shell" ;;
+    esac
+    if id -nG "$SERVICE_USER" | tr ' ' '\n' | grep -Eq '^(sudo|admin|wheel)$'; then
+        fail "existing user $SERVICE_USER has unexpected administrative group membership"
+    fi
+else
+    useradd --system --gid "$SERVICE_GROUP" --home-dir "$STATE_DIR" --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+fi
+exit 0
+
+%post
+set -e
+systemd_active() {
+    [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1
+}
+chown -R {{SERVICE_USER}}:{{SERVICE_GROUP}} /var/lib/openassetwatch/agent
+chown -R {{SERVICE_USER}}:{{SERVICE_GROUP}} /var/log/openassetwatch/agent
+if systemd_active; then
+    systemctl daemon-reload
+    systemctl enable oaw-agent.timer
+    if [ -f /etc/openassetwatch/agent/config.json ] && [ -f /etc/openassetwatch/agent/identity.json ]; then
+        systemctl restart oaw-agent.timer
+    fi
+fi
+exit 0
+
+%preun
+set -e
+systemd_active() {
+    [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1
+}
+stop_units() {
+    systemctl stop oaw-agent.timer
+    if systemctl is-active --quiet oaw-agent.service; then
+        systemctl stop oaw-agent.service
+    fi
+}
+if systemd_active; then
+    if [ "$1" -eq 0 ]; then
+        stop_units
+        systemctl disable oaw-agent.timer
+        rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer
+        systemctl daemon-reload
+    elif [ "$1" -eq 1 ]; then
+        stop_units
+    fi
+fi
+exit 0
+
+%postun
+set -e
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload
+fi
+exit 0
+
+%files
+%dir %attr(0755,root,root) /opt/openassetwatch
+%dir %attr(0755,root,root) /opt/openassetwatch/agent
+%dir %attr(0755,root,root) /opt/openassetwatch/agent/bin
+%attr(0755,root,root) /opt/openassetwatch/agent/bin/oaw-agent
+%attr(0755,root,root) /usr/bin/oaw-agent
+%dir %attr(0755,root,root) /usr/lib/openassetwatch
+%dir %attr(0755,root,root) /usr/lib/openassetwatch/agent
+%dir %attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec
+%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show
+%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show
+%dir %attr(0755,root,root) /etc/openassetwatch
+%dir %attr(0755,root,root) /etc/openassetwatch/agent
+%config(noreplace) %attr(0644,root,root) /etc/openassetwatch/agent/config.example.json
+%config(noreplace) %attr(0644,root,root) /etc/openassetwatch/agent/identity.example.json
+%attr(0440,root,root) /etc/sudoers.d/openassetwatch-agent
+%attr(0644,root,root) /usr/lib/systemd/system/oaw-agent.service
+%attr(0644,root,root) /usr/lib/systemd/system/oaw-agent.timer
+%dir %attr(0755,openassetwatch,openassetwatch) /var/lib/openassetwatch/agent
+%dir %attr(0755,openassetwatch,openassetwatch) /var/log/openassetwatch/agent
+%doc /usr/share/doc/openassetwatch-agent/README.md
+%attr(0644,root,root) /usr/share/doc/openassetwatch-agent/release-manifest.json

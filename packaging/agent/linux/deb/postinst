@@ -1,0 +1,64 @@
+#!/bin/sh
+set -e
+
+SERVICE_USER="openassetwatch"
+SERVICE_GROUP="openassetwatch"
+STATE_DIR="/var/lib/openassetwatch/agent"
+LOG_DIR="/var/log/openassetwatch/agent"
+
+fail() {
+    echo "openassetwatch-agent: $*" >&2
+    exit 1
+}
+
+systemd_active() {
+    [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1
+}
+
+ensure_group() {
+    if ! getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
+        groupadd --system "$SERVICE_GROUP"
+    fi
+}
+
+validate_or_create_user() {
+    if id -u "$SERVICE_USER" >/dev/null 2>&1; then
+        getent group "$SERVICE_GROUP" >/dev/null 2>&1 || fail "existing user $SERVICE_USER requires group $SERVICE_GROUP"
+        primary_group="$(id -gn "$SERVICE_USER")"
+        [ "$primary_group" = "$SERVICE_GROUP" ] || fail "existing user $SERVICE_USER has primary group $primary_group, expected $SERVICE_GROUP"
+        passwd_entry="$(getent passwd "$SERVICE_USER")"
+        home_dir="$(printf '%s\n' "$passwd_entry" | awk -F: '{print $6}')"
+        login_shell="$(printf '%s\n' "$passwd_entry" | awk -F: '{print $7}')"
+        [ "$home_dir" = "$STATE_DIR" ] || fail "existing user $SERVICE_USER has home $home_dir, expected $STATE_DIR"
+        case "$login_shell" in
+            /usr/sbin/nologin|/sbin/nologin|/bin/false) ;;
+            *) fail "existing user $SERVICE_USER has interactive shell $login_shell" ;;
+        esac
+        if id -nG "$SERVICE_USER" | tr ' ' '\n' | grep -Eq '^(sudo|admin|wheel)$'; then
+            fail "existing user $SERVICE_USER has unexpected administrative group membership"
+        fi
+    else
+        useradd --system --gid "$SERVICE_GROUP" --home-dir "$STATE_DIR" --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+    fi
+}
+
+case "$1" in
+    configure)
+        ensure_group
+        validate_or_create_user
+        chown -R "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR"
+        chown -R "$SERVICE_USER:$SERVICE_GROUP" "$LOG_DIR"
+        if systemd_active; then
+            systemctl daemon-reload
+            systemctl enable oaw-agent.timer
+            if [ -f /etc/openassetwatch/agent/config.json ] && [ -f /etc/openassetwatch/agent/identity.json ]; then
+                systemctl restart oaw-agent.timer
+            fi
+        fi
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    *)
+        ;;
+esac
+exit 0

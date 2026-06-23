@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+if [ "$#" -ne 0 ]; then
+    echo "oaw-ip-addr-show does not accept arguments" >&2
+    exit 64
+fi
+exec /usr/sbin/ip addr show

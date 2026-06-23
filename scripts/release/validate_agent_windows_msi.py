@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from package_agent_deb import get_repo_root, is_inside, read_json, resolve_repo_path, to_repo_relative, validate_version
+from release_common import get_repo_root, is_inside, read_json, resolve_repo_path, to_repo_relative, validate_version
 
 
 TARGET_ARCH = "amd64"

@@ -1,0 +1,34 @@
+#!/bin/sh
+set -e
+
+systemd_active() {
+    [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1
+}
+
+stop_units() {
+    systemctl stop oaw-agent.timer
+    if systemctl is-active --quiet oaw-agent.service; then
+        systemctl stop oaw-agent.service
+    fi
+}
+
+case "$1" in
+    remove)
+        if systemd_active; then
+            stop_units
+            systemctl disable oaw-agent.timer
+            rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer
+            systemctl daemon-reload
+        fi
+        ;;
+    upgrade|deconfigure)
+        if systemd_active; then
+            stop_units
+        fi
+        ;;
+    failed-upgrade)
+        ;;
+    *)
+        ;;
+esac
+exit 0

@@ -1,0 +1,8 @@
+{
+  "site_id": "site-example",
+  "agent_id": "replace-with-generated-agent-id",
+  "deployment_id": "replace-with-deployment-guid",
+  "tenant_id": "optional-tenant-id",
+  "created_at": "replace-with-created-at",
+  "updated_at": "replace-with-updated-at"
+}

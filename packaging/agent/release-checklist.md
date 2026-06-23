@@ -426,15 +426,22 @@ uninstall, upgrade, roll back, or publish anything.
       `/usr/share/doc/openassetwatch-agent/README.md`
 - [ ] package contents include
       `/usr/share/doc/openassetwatch-agent/release-manifest.json`
-- [ ] package contains only expected maintainer scripts: `postinst` and
-      `postrm`
+- [ ] package contains only expected maintainer scripts: `postinst`, `prerm`,
+      and `postrm`
+- [ ] package control metadata includes canonical Homepage URL
+- [ ] package metadata records the current package license decision
 - [ ] `postinst` creates or reuses only the `openassetwatch` system group and
       non-interactive `openassetwatch` system user
+- [ ] `postinst` validates a preexisting `openassetwatch` principal before
+      reuse and fails closed on incompatible primary group, shell, home path, or
+      administrator group membership
 - [ ] `postinst` uses `/usr/sbin/nologin` for the service account shell
 - [ ] `postinst` sets service ownership only on
       `/var/lib/openassetwatch/agent/` and `/var/log/openassetwatch/agent/`
-- [ ] `/opt/openassetwatch/` and package-managed paths below it are owned by
-      `openassetwatch:openassetwatch`
+- [ ] `/opt/openassetwatch/` and package-managed executable paths below it are
+      owned by `root:root`
+- [ ] `openassetwatch` service user cannot modify
+      `/opt/openassetwatch/agent/bin/oaw-agent`
 - [ ] `/usr/lib/openassetwatch/agent/libexec/` remains root-controlled
 - [ ] helper scripts are owned by `root:root` and are not writable by
       `openassetwatch`
@@ -445,12 +452,20 @@ uninstall, upgrade, roll back, or publish anything.
       `/etc/openassetwatch/agent/identity.json` exist
 - [ ] `postinst` does not start `oaw-agent.service` directly or
       unconditionally
-- [ ] `postrm` is limited to `systemctl daemon-reload` for service-manager
-      cleanup
+- [ ] `prerm` stops `oaw-agent.timer` and any active `oaw-agent.service` on
+      upgrade/deconfigure before package replacement
+- [ ] `prerm` stops and disables `oaw-agent.timer` on final removal
+- [ ] `prerm` removes only
+      `/etc/systemd/system/timers.target.wants/oaw-agent.timer`
+- [ ] `postrm` is limited to daemon-reload cleanup and data preservation
+- [ ] maintainer scripts do not hide active-systemd failures with unconditional
+      `|| true`
 - [ ] maintainer scripts do not overwrite config, overwrite identity, create
       secrets, call network services, execute arbitrary user-controlled
       commands, change sudoers, or grant sudo permissions beyond the packaged
       allowlist
+- [ ] ordinary purge preserves real config, identity, state, logs, and the
+      service principal until an explicit purge mechanism is reviewed
 - [ ] sudoers file is owned by root in package metadata
 - [ ] sudoers file mode is `0440`
 - [ ] sudoers file applies only to the `openassetwatch` service user
@@ -528,8 +543,9 @@ uninstall, upgrade, roll back, or publish anything.
       `ALL=(ALL) ALL`
 - [ ] `/opt/openassetwatch/`, `/opt/openassetwatch/agent/`,
       `/opt/openassetwatch/agent/bin/`, and
-      `/opt/openassetwatch/agent/bin/oaw-agent` are owned by
-      `openassetwatch:openassetwatch`
+      `/opt/openassetwatch/agent/bin/oaw-agent` are owned by `root:root`
+- [ ] `openassetwatch` service user cannot modify the packaged `/opt`
+      executable
 - [ ] `/usr/lib/openassetwatch/agent/libexec/` and helper scripts are owned
       by `root:root`
 - [ ] `/var/lib/openassetwatch/agent/` and `/var/log/openassetwatch/agent/`
@@ -538,13 +554,18 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] expected maintainer scripts are present
 - [ ] unexpected maintainer files are refused
 - [ ] maintainer scripts create the non-interactive service account safely
+- [ ] validator confirms preexisting service principals are compatibility
+      checked before reuse
 - [ ] `postinst` enables `oaw-agent.timer`
 - [ ] `postinst` starts or restarts `oaw-agent.timer` only when both real
       config and identity files exist
 - [ ] `postinst` does not start `oaw-agent.service` directly or
       unconditionally
 - [ ] `postinst` does not change sudoers
+- [ ] `prerm` stops/disables the timer and removes only the OpenAssetWatch
+      timer enablement symlink on final removal
 - [ ] `postrm` is limited to approved daemon-reload cleanup
+- [ ] validators reject unconditional `|| true` in package lifecycle scripts
 - [ ] maintainer scripts do not overwrite config or identity
 - [ ] maintainer scripts do not grant sudo permissions beyond the packaged
       allowlist
@@ -552,13 +573,14 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] validator does not install the package or run package-manager or
       service-manager commands
 
-## RPM Spec Staging
+## RPM Package Build
 
 - [ ] `scripts/release/package_agent_rpm.py` passes against an existing Linux
       amd64 dist artifact
 - [ ] helper output is JSON only
 - [ ] helper output includes `ok`, `version`, `rpm_root`, `spec`,
-      `buildroot`, `manifest`, `checks`, `warnings`, and `errors`
+      `buildroot`, `manifest`, `package`, `checksum`, `package_manifest`,
+      `checks`, `warnings`, and `errors`
 - [ ] RPM staging output is written only under ignored
       `dist/agent/<version>/rpm/`
 - [ ] RPM build tree contains `BUILD/`, `BUILDROOT/`, `RPMS/`, `SOURCES/`,
@@ -589,11 +611,27 @@ uninstall, upgrade, roll back, or publish anything.
       `/usr/share/doc/openassetwatch-agent/release-manifest.json`
 - [ ] staged release manifest records helper metadata, sudoers metadata,
       service metadata, timer metadata, and ownership expectations
+- [ ] `.rpm` artifact is generated under ignored
+      `dist/agent/<version>/packages/`
+- [ ] `.rpm.sha256` checksum file is generated
+- [ ] `.rpm.manifest.json` package manifest is generated
 - [ ] spec declares `Requires: systemd` and `Requires: shadow-utils`
+- [ ] spec declares canonical package URL and the current package license
+      decision
+- [ ] spec includes `%pre`, `%post`, `%preun`, and `%postun`
 - [ ] spec models the one-shot `oaw-agent run-once` service and timer
       behavior
 - [ ] spec enables `oaw-agent.timer` only for target install behavior
 - [ ] spec does not start `oaw-agent.service` directly or unconditionally
+- [ ] `%pre` validates a preexisting `openassetwatch` principal before reuse
+      and fails closed on incompatible primary group, shell, home path, or
+      administrator group membership
+- [ ] `%preun` distinguishes final erase from upgrade
+- [ ] `%preun` stops and disables `oaw-agent.timer` on final erase
+- [ ] `%preun` removes only
+      `/etc/systemd/system/timers.target.wants/oaw-agent.timer`
+- [ ] RPM scriptlets do not hide active-systemd failures with unconditional
+      `|| true`
 - [ ] helper scripts run exactly `/usr/sbin/ip neigh show` and
       `/usr/sbin/ip addr show`
 - [ ] helper scripts do not accept arguments
@@ -605,20 +643,21 @@ uninstall, upgrade, roll back, or publish anything.
       grants, wildcards, shell/interpreter access, downloaders, package
       managers, service managers, file mutation commands, offensive tooling,
       or arbitrary arguments
-- [ ] helper does not build an RPM file
-- [ ] helper does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`,
-      `service`, `sudo`, package-manager commands, or service-manager
-      commands
+- [ ] helper invokes `rpmbuild` only to create the RPM artifact from the
+      reviewed staging tree
+- [ ] helper does not run `rpm -i`, `dnf`, `yum`, `systemctl`, `service`,
+      `sudo`, package-manager install commands, or service-manager commands
 - [ ] helper does not install software, enable services, start services, or
       modify host OS state
 - [ ] generated `dist/` artifacts remain ignored and are not committed
 
-## RPM Staging Validation
+## RPM Package Validation
 
 - [ ] `scripts/release/validate_agent_rpm.py` passes against the selected RPM
-      staging tree
+      staging tree and RPM package artifact
 - [ ] validator supports `--version`
 - [ ] validator supports optional `--rpm-root`
+- [ ] validator supports optional `--package`
 - [ ] validator output is JSON only
 - [ ] validator output includes `ok`, `version`, `rpm_root`, `checks`,
       `warnings`, and `errors`
@@ -627,6 +666,9 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] validator inspects
       `BUILDROOT/openassetwatch-agent-<version>-1.x86_64/`
 - [ ] validator inspects the staged package manifest JSON
+- [ ] validator inspects the final `.rpm`, `.rpm.sha256`, and
+      `.rpm.manifest.json`
+- [ ] validator uses `rpm -qp` inspection without installing the package
 - [ ] validator confirms `BUILD/`, `BUILDROOT/`, `RPMS/`, `SOURCES/`,
       `SPECS/`, and `SRPMS/` exist
 - [ ] validator confirms expected staged payload files and directories exist
@@ -651,21 +693,28 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] validator confirms spec creates or reuses the `openassetwatch`
       user/group
 - [ ] validator confirms spec enables `oaw-agent.timer`
+- [ ] validator confirms `%preun` stop/disable behavior and final erase versus
+      upgrade handling
+- [ ] validator confirms canonical package URL and package license metadata
 - [ ] validator rejects unconditional service start behavior
 - [ ] validator rejects config or identity deletion behavior
 - [ ] validator rejects broad sudo behavior
+- [ ] validator confirms RPM metadata, requirements, payload paths,
+      ownership/modes, `%config(noreplace)` example files, scriptlets,
+      checksum, and package manifest
 - [ ] validator fails closed when the spec file is missing
 - [ ] validator fails closed when sudoers is missing
 - [ ] validator fails closed when sudoers directly allows raw `/usr/sbin/ip`
       commands
 - [ ] validator does not build or install an RPM
-- [ ] validator does not run `rpm`, `rpmbuild`, `dnf`, `yum`, `systemctl`,
-      `service`, `sudo`, package-manager commands, or service-manager
-      commands
+- [ ] validator does not run `rpmbuild`, `rpm -i`, `dnf`, `yum`,
+      `systemctl`, `service`, `sudo`, package-manager install commands, or
+      service-manager commands
 
 ## Disposable Linux Install Test Guidance
 
-- [ ] install tests run only inside a disposable Debian or Ubuntu VM/container
+- [ ] install tests run only inside a disposable Debian/Ubuntu or RPM-family
+      VM/container with systemd genuinely running
 - [ ] install commands are not run on the Windows build host
 - [ ] expected files are present after install in the disposable environment
 - [ ] package artifact creation does not enable or start services on the build
@@ -675,7 +724,15 @@ uninstall, upgrade, roll back, or publish anything.
 - [ ] package installation starts or restarts the timer only when both real
       config and identity files already exist
 - [ ] timer execution triggers the one-shot `oaw-agent run-once` service
+- [ ] GitHub CI exercises the Debian timer lifecycle on an Ubuntu runner with
+      active systemd
+- [ ] GitHub CI exercises the RPM timer lifecycle in Rocky Linux 9 with systemd
+      running as PID 1
 - [ ] real config and identity files remain administrator-controlled
+- [ ] remove/erase stops and disables the timer and leaves no OpenAssetWatch
+      timer enablement symlink
+- [ ] downgrade is treated as an explicit administrator rollback action using
+      native package-manager downgrade flags
 - [ ] cleanup commands are run only inside the disposable environment
 
 ## Local Install Staging
@@ -793,6 +850,13 @@ Complete for this phase:
 - [x] Debian one-shot `oaw-agent run-once` service packaging
 - [x] Debian systemd timer packaging
 - [x] guarded Debian timer enablement metadata
+- [x] Debian package removal lifecycle metadata
+- [x] RPM package artifact creation when `rpmbuild` is available
+- [x] RPM package checksum generation
+- [x] RPM package manifest generation
+- [x] RPM one-shot `oaw-agent run-once` service packaging
+- [x] RPM systemd timer packaging
+- [x] RPM package removal lifecycle metadata
 - [x] package manifest generation
 - [x] local release orchestration helper
 - [x] release validation helper
@@ -820,7 +884,8 @@ Future work:
 - [ ] Linux real OS installation path to `/usr`, `/etc`, and `/var`
 - [ ] cross-platform service scheduling beyond the packaged Linux timer
 - [ ] signed `.deb` release publication and install validation
-- [ ] `.rpm` package build
+- [x] unsigned `.rpm` package build helper
+- [ ] signed `.rpm` release publication and install validation
 - [x] Windows MSI
 - [x] macOS unsigned PKG validation artifact
 - [ ] production signed Windows release publication

@@ -15,47 +15,35 @@ import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import linux_packaging as linuxsrc
 
-PACKAGE_NAME = "openassetwatch-agent"
-TARGET_OS = "linux"
-TARGET_ARCH = "amd64"
-DEBIAN_ARCH = "amd64"
-SERVICE_USER = "openassetwatch"
-SERVICE_GROUP = "openassetwatch"
-OPT_BINARY = "/opt/openassetwatch/agent/bin/oaw-agent"
-OPT_BINARY_PACKAGE_PATH = "./opt/openassetwatch/agent/bin/oaw-agent"
-USR_BIN_PACKAGE_PATH = "./usr/bin/oaw-agent"
-USR_BIN_LINK_TARGET = OPT_BINARY
-LIBEXEC_DIR = "/usr/lib/openassetwatch/agent/libexec"
-IP_NEIGH_HELPER = f"{LIBEXEC_DIR}/oaw-ip-neigh-show"
-IP_ADDR_HELPER = f"{LIBEXEC_DIR}/oaw-ip-addr-show"
-IP_NEIGH_HELPER_PACKAGE_PATH = "./usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show"
-IP_ADDR_HELPER_PACKAGE_PATH = "./usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show"
-SERVICE_COMMAND = (
-    f"{OPT_BINARY} run-once --config /etc/openassetwatch/agent/config.json "
-    "--identity-file /etc/openassetwatch/agent/identity.json "
-    "--output-dir /var/lib/openassetwatch/agent"
-)
+
+PACKAGE_NAME = linuxsrc.PACKAGE_NAME
+TARGET_OS = linuxsrc.TARGET_OS
+TARGET_ARCH = linuxsrc.TARGET_ARCH
+DEBIAN_ARCH = linuxsrc.DEBIAN_ARCH
+SERVICE_USER = linuxsrc.SERVICE_USER
+SERVICE_GROUP = linuxsrc.SERVICE_GROUP
+OPT_BINARY = linuxsrc.OPT_BINARY
+OPT_BINARY_PACKAGE_PATH = linuxsrc.OPT_BINARY_PACKAGE_PATH
+USR_BIN_PACKAGE_PATH = linuxsrc.USR_BIN_PACKAGE_PATH
+USR_BIN_LINK_TARGET = linuxsrc.USR_BIN_LINK_TARGET
+IP_NEIGH_HELPER = linuxsrc.IP_NEIGH_HELPER
+IP_ADDR_HELPER = linuxsrc.IP_ADDR_HELPER
+IP_NEIGH_HELPER_PACKAGE_PATH = linuxsrc.IP_NEIGH_HELPER_PACKAGE_PATH
+IP_ADDR_HELPER_PACKAGE_PATH = linuxsrc.IP_ADDR_HELPER_PACKAGE_PATH
+SERVICE_COMMAND = linuxsrc.SERVICE_COMMAND
 TIMER_PACKAGE_PATH = "./lib/systemd/system/oaw-agent.timer"
-TIMER_INSTALL_PATH = "/lib/systemd/system/oaw-agent.timer"
-PACKAGE_DEPENDENCIES = {"systemd", "passwd"}
-SUDOERS_PACKAGE_PATH = "./etc/sudoers.d/openassetwatch-agent"
-SUDOERS_INSTALL_PATH = "/etc/sudoers.d/openassetwatch-agent"
-APPROVED_SUDOERS_COMMANDS = (
-    IP_NEIGH_HELPER,
-    IP_ADDR_HELPER,
-)
-PRIVILEGED_HELPERS = (
-    (IP_NEIGH_HELPER_PACKAGE_PATH, IP_NEIGH_HELPER, "/usr/sbin/ip neigh show"),
-    (IP_ADDR_HELPER_PACKAGE_PATH, IP_ADDR_HELPER, "/usr/sbin/ip addr show"),
-)
-SERVICE_OWNED_DIRS = {
-    "./opt/openassetwatch",
-    "./opt/openassetwatch/agent",
-    "./opt/openassetwatch/agent/bin",
-    OPT_BINARY_PACKAGE_PATH,
-    "./var/lib/openassetwatch/agent",
-    "./var/log/openassetwatch/agent",
+TIMER_INSTALL_PATH = linuxsrc.TIMER_INSTALL_PATH
+PACKAGE_DEPENDENCIES = set(linuxsrc.PACKAGE_DEPENDENCIES_DEB)
+SUDOERS_PACKAGE_PATH = linuxsrc.SUDOERS_PACKAGE_PATH
+SUDOERS_INSTALL_PATH = linuxsrc.SUDOERS_INSTALL_PATH
+APPROVED_SUDOERS_COMMANDS = linuxsrc.APPROVED_SUDOERS_COMMANDS
+PRIVILEGED_HELPERS = linuxsrc.PRIVILEGED_HELPERS
+SERVICE_OWNED_DIRS = set(linuxsrc.SERVICE_OWNED_DIRS)
+ROOT_OWNED_DIRS = set(linuxsrc.ROOT_OWNED_DIRS) | {
+    "./lib/systemd/system/oaw-agent.service",
+    TIMER_PACKAGE_PATH,
 }
 EXPECTED_DATA_FILES = {
     OPT_BINARY_PACKAGE_PATH,
@@ -104,7 +92,9 @@ ALLOWED_DATA_DIRS = {
 }
 EXPECTED_CONTROL_FILES = {
     "./control",
+    "./conffiles",
     "./postinst",
+    "./prerm",
     "./postrm",
 }
 REQUIRED_MANIFEST_FIELDS = (
@@ -119,11 +109,7 @@ REQUIRED_MANIFEST_FIELDS = (
     "git_commit",
     "contents",
 )
-FORBIDDEN_TEXT_RE = re.compile(
-    r"(token|secret|credential|password|api[_-]?key|private[_-]?key|enrollment|"
-    r"status\.json|\.log$|\.pem$|\.key$)",
-    re.IGNORECASE,
-)
+FORBIDDEN_TEXT_RE = linuxsrc.FORBIDDEN_CONTENT_RE
 VERSION_RE = re.compile(r"^[A-Za-z0-9.+~_-]+$")
 PACKAGE_RE = re.compile(r"^openassetwatch-agent_(?P<version>[A-Za-z0-9.+~_-]+)_amd64\.deb$")
 
@@ -273,6 +259,10 @@ def validate_package_metadata(repo_root: Path, package_path: Path, version: str)
         raise ValueError("DEB package manifest must be for linux/amd64.")
     if manifest["package_type"] != "deb":
         raise ValueError("DEB package manifest package_type must be deb.")
+    if manifest.get("package_url") != linuxsrc.PACKAGE_URL:
+        raise ValueError("DEB package manifest package_url must be the canonical repository URL.")
+    if manifest.get("package_license") != linuxsrc.PACKAGE_LICENSE:
+        raise ValueError("DEB package manifest package_license must match the repository license decision.")
     if str(manifest["sha256"]).lower() != actual_hash:
         raise ValueError("DEB package manifest SHA256 does not match package.")
     if resolve_repo_path(repo_root, str(manifest["package_path"])) != package_path.resolve():
@@ -394,55 +384,26 @@ def validate_control_archive(control_files: dict[str, bytes]) -> None:
     for line in required_lines:
         if line not in control_text:
             raise ValueError(f"DEB control file missing expected line: {line}")
+    if f"Homepage: {linuxsrc.PACKAGE_URL}" not in control_text:
+        raise ValueError("DEB control file must use the canonical OpenAssetWatch repository Homepage.")
+    if ".example" in control_text:
+        raise ValueError("DEB control metadata must not contain placeholder example domains.")
+    if control_files["./conffiles"] != linuxsrc.deb_conffiles():
+        raise ValueError("DEB conffiles metadata must match the committed package source.")
     validate_maintainer_script("postinst", control_files["./postinst"])
+    validate_maintainer_script("prerm", control_files["./prerm"])
     validate_maintainer_script("postrm", control_files["./postrm"])
 
 
 def validate_maintainer_script(name: str, data: bytes) -> None:
     text = data.decode("utf-8")
-    postinst_expected = "\n".join(
-        [
-            "#!/bin/sh",
-            "set -e",
-            f"if ! getent group {SERVICE_GROUP} >/dev/null 2>&1; then",
-            f"    groupadd --system {SERVICE_GROUP}",
-            "fi",
-            f"if ! id -u {SERVICE_USER} >/dev/null 2>&1; then",
-            (
-                f"    useradd --system --gid {SERVICE_GROUP} "
-                "--home-dir /var/lib/openassetwatch/agent --no-create-home "
-            f"--shell /usr/sbin/nologin {SERVICE_USER}"
-            ),
-            "fi",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
-            'if command -v systemctl >/dev/null 2>&1; then',
-            "    systemctl daemon-reload || true",
-            "    systemctl enable oaw-agent.timer || true",
-            (
-                "    if [ -f /etc/openassetwatch/agent/config.json ] "
-                "&& [ -f /etc/openassetwatch/agent/identity.json ]; then"
-            ),
-            "        systemctl restart oaw-agent.timer || true",
-            "    fi",
-            "fi",
-            "exit 0",
-            "",
-        ]
-    )
-    postrm_expected = "\n".join(
-        [
-            "#!/bin/sh",
-            "set -e",
-            'if command -v systemctl >/dev/null 2>&1; then',
-            "    systemctl daemon-reload || true",
-            "fi",
-            "exit 0",
-            "",
-        ]
-    )
-    expected = postinst_expected if name == "postinst" else postrm_expected
-    if text != expected:
+    expected_scripts = {
+        "postinst": linuxsrc.deb_postinst_script(),
+        "prerm": linuxsrc.deb_prerm_script(),
+        "postrm": linuxsrc.deb_postrm_script(),
+    }
+    expected = expected_scripts[name]
+    if data != expected:
         raise ValueError(f"{name} maintainer script must match the approved service-account template.")
     forbidden = (
         " reload-or-restart ",
@@ -450,63 +411,81 @@ def validate_maintainer_script(name: str, data: bytes) -> None:
         " dpkg",
         " curl",
         " wget",
-        "chmod",
         "cat >",
         "tee ",
-        "sudo",
+        " sudo ",
+        "/sudo",
         "sudoers",
+        "|| true",
     )
     found = [item for item in forbidden if item in text]
     if found:
         raise ValueError(f"{name} maintainer script contains unsafe command text: {', '.join(found)}.")
     if name == "postinst":
-        guarded_restart = (
-            "    if [ -f /etc/openassetwatch/agent/config.json ] "
-            "&& [ -f /etc/openassetwatch/agent/identity.json ]; then\n"
-            "        systemctl restart oaw-agent.timer || true\n"
-            "    fi"
-        )
         required = (
-            f"groupadd --system {SERVICE_GROUP}",
-            f"useradd --system --gid {SERVICE_GROUP}",
+            'case "$1" in',
+            "configure)",
+            'groupadd --system "$SERVICE_GROUP"',
+            'useradd --system --gid "$SERVICE_GROUP"',
             "--shell /usr/sbin/nologin",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/lib/openassetwatch/agent",
-            f"chown -R {SERVICE_USER}:{SERVICE_GROUP} /var/log/openassetwatch/agent",
-            "systemctl daemon-reload || true",
-            "systemctl enable oaw-agent.timer || true",
-            guarded_restart,
+            'primary_group="$(id -gn "$SERVICE_USER")',
+            "grep -Eq '^(sudo|admin|wheel)$'",
+            'chown -R "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR"',
+            'chown -R "$SERVICE_USER:$SERVICE_GROUP" "$LOG_DIR"',
+            "systemd_active",
+            "systemctl daemon-reload",
+            "systemctl enable oaw-agent.timer",
         )
         for item in required:
             if item not in text:
                 raise ValueError(f"postinst missing expected service account command text: {item}")
+        stripped_lines = [line.strip() for line in text.splitlines()]
+        guarded_restart = (
+            "if [ -f /etc/openassetwatch/agent/config.json ] && [ -f /etc/openassetwatch/agent/identity.json ]; then",
+            "systemctl restart oaw-agent.timer",
+            "fi",
+        )
+        if not any(tuple(stripped_lines[index : index + 3]) == guarded_restart for index in range(len(stripped_lines) - 2)):
+            raise ValueError("postinst must guard timer restart on both config and identity existence.")
         if "systemctl start oaw-agent.service" in text:
             raise ValueError("postinst must not start the service unconditionally.")
         if "systemctl restart oaw-agent.service" in text:
             raise ValueError("postinst must not restart the service directly.")
         if "systemctl enable oaw-agent.service" in text:
             raise ValueError("postinst must enable the timer instead of the service.")
-        if text.count("systemctl restart oaw-agent.timer || true") != 1:
+        if text.count("systemctl restart oaw-agent.timer") != 1:
             raise ValueError("postinst must contain exactly one guarded timer restart.")
+    elif name == "prerm":
+        required = (
+            'case "$1" in',
+            "remove)",
+            "upgrade|deconfigure)",
+            "failed-upgrade)",
+            "systemctl stop oaw-agent.timer",
+            "systemctl disable oaw-agent.timer",
+            "rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer",
+            "systemctl daemon-reload",
+        )
+        for item in required:
+            if item not in text:
+                raise ValueError(f"prerm missing expected lifecycle command text: {item}")
+        if "rm -rf" in text:
+            raise ValueError("prerm must not recursively delete files.")
+        if "userdel" in text or "groupdel" in text:
+            raise ValueError("prerm must not delete service principals.")
     elif name == "postrm":
         if any(item in text for item in ("useradd", "groupadd", "chown")):
             raise ValueError("postrm must not create users, groups, or change ownership.")
-        if any(item in text for item in ("enable", "start", "restart", "stop")):
+        if any(item in text for item in ("enable", "start", "restart", "stop", "disable", "rm -f")):
             raise ValueError("postrm must not enable, start, restart, or stop services.")
 
 
 def helper_script(helper_name: str, command: str) -> bytes:
-    return "\n".join(
-        [
-            "#!/bin/sh",
-            "set -eu",
-            'if [ "$#" -ne 0 ]; then',
-            f'    echo "{helper_name} does not accept arguments" >&2',
-            "    exit 64",
-            "fi",
-            f"exec {command}",
-            "",
-        ]
-    ).encode("utf-8")
+    if helper_name == "oaw-ip-neigh-show" and command == "/usr/sbin/ip neigh show":
+        return linuxsrc.ip_neigh_helper_script()
+    if helper_name == "oaw-ip-addr-show" and command == "/usr/sbin/ip addr show":
+        return linuxsrc.ip_addr_helper_script()
+    raise ValueError(f"Unknown helper source request: {helper_name} -> {command}")
 
 
 def validate_helper_script(path: str, data: bytes) -> None:
@@ -654,6 +633,12 @@ def validate_release_manifest(data: bytes, version: str) -> None:
         raise ValueError("Release manifest package_name mismatch.")
     if value.get("version") != version:
         raise ValueError("Release manifest version mismatch.")
+    if value.get("package_type") != "deb":
+        raise ValueError("Release manifest package_type must be deb.")
+    if value.get("package_url") != linuxsrc.PACKAGE_URL:
+        raise ValueError("Release manifest package_url must use the canonical repository URL.")
+    if value.get("package_license") != linuxsrc.PACKAGE_LICENSE:
+        raise ValueError("Release manifest package_license mismatch.")
     if value.get("os") != TARGET_OS or value.get("arch") != TARGET_ARCH:
         raise ValueError("Release manifest must be for linux/amd64.")
     installed_paths = set(value.get("installed_paths", []))
@@ -681,25 +666,18 @@ def validate_release_manifest(data: bytes, version: str) -> None:
         raise ValueError("Release manifest directories do not match expected package directories.")
     if not PACKAGE_DEPENDENCIES.issubset(set(value.get("dependencies", []))):
         raise ValueError("Release manifest dependencies must include systemd and passwd.")
-    if set(value.get("maintainer_scripts", [])) != {"postinst", "postrm"}:
-        raise ValueError("Release manifest maintainer_scripts must be postinst and postrm.")
+    if set(value.get("maintainer_scripts", [])) != {"postinst", "prerm", "postrm"}:
+        raise ValueError("Release manifest maintainer_scripts must be postinst, prerm, and postrm.")
+    lifecycle = value.get("lifecycle", {})
+    if lifecycle.get("remove") != "stop_disable_timer_remove_enablement_link_preserve_customer_data":
+        raise ValueError("Release manifest must describe timer stop/disable behavior on removal.")
+    if lifecycle.get("downgrade") != "native_package_manager_downgrade_is_explicit_admin_action":
+        raise ValueError("Release manifest must describe explicit admin downgrade policy.")
     ownership = value.get("ownership", {})
     if set(ownership.get("openassetwatch:openassetwatch", [])) != SERVICE_OWNED_DIRS:
         raise ValueError("Release manifest service-owned directories do not match expected layout.")
     root_owned = set(ownership.get("root:root", []))
-    expected_root_owned = {
-        "./usr/lib/openassetwatch",
-        "./usr/lib/openassetwatch/agent",
-        "./usr/lib/openassetwatch/agent/libexec",
-        IP_NEIGH_HELPER_PACKAGE_PATH,
-        IP_ADDR_HELPER_PACKAGE_PATH,
-        "./etc/openassetwatch/agent",
-        "./usr/bin/oaw-agent",
-        SUDOERS_PACKAGE_PATH,
-        "./lib/systemd/system/oaw-agent.service",
-        TIMER_PACKAGE_PATH,
-    }
-    if root_owned != expected_root_owned:
+    if root_owned != ROOT_OWNED_DIRS:
         raise ValueError("Release manifest root-owned paths do not match expected helper layout.")
     if value.get("privileged_helpers") != expected_helper_metadata():
         raise ValueError("Release manifest privileged helper metadata mismatch.")
@@ -761,14 +739,7 @@ def validate_data_archive(
     for path in SERVICE_OWNED_DIRS:
         if ownership.get(path) != (SERVICE_USER, SERVICE_GROUP):
             raise ValueError(f"DEB data archive ownership for {path} must be {SERVICE_USER}:{SERVICE_GROUP}.")
-    root_owned_paths = {
-        "./usr/lib/openassetwatch",
-        "./usr/lib/openassetwatch/agent",
-        "./usr/lib/openassetwatch/agent/libexec",
-        IP_NEIGH_HELPER_PACKAGE_PATH,
-        IP_ADDR_HELPER_PACKAGE_PATH,
-    }
-    for path in root_owned_paths:
+    for path in ROOT_OWNED_DIRS:
         if ownership.get(path) != ("root", "root"):
             raise ValueError(f"DEB data archive ownership for {path} must be root:root.")
     for path in (IP_NEIGH_HELPER_PACKAGE_PATH, IP_ADDR_HELPER_PACKAGE_PATH):

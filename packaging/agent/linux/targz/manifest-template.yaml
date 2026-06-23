@@ -1,0 +1,39 @@
+package:
+  name: openassetwatch-agent
+  target_os: linux
+  package_type: tar.gz
+  status: manual_fallback_unsigned
+  install_model: archive_for_manual_install
+  local_helper: scripts/release/package_agent_targz.ps1
+  distro_family:
+    - unknown
+    - unsupported
+  architecture:
+    source: host_or_explicit_target
+  archive_contents:
+    - agent binary
+    - binary checksum
+    - binary manifest
+    - safe README notes
+  recommended_binary_path: /opt/openassetwatch/agent/bin/oaw-agent
+  recommended_compatibility_command: /usr/bin/oaw-agent
+  recommended_config_path: /etc/openassetwatch/agent/config.json
+  recommended_identity_path: /etc/openassetwatch/agent/identity.json
+  recommended_state_directory: /var/lib/openassetwatch/agent
+  recommended_log_directory: /var/log/openassetwatch/agent
+validation:
+  checksum: required
+  package_manifest: required
+  signature: release_only
+  sbom: planned
+  provenance: planned
+safety:
+  creates_users_or_groups: false
+  writes_systemd_units: false
+  modifies_sudoers: false
+  executes_package_managers: false
+  secrets: none
+  notes:
+    - TAR.GZ is a portable fallback artifact, not a system installer.
+    - Administrators are responsible for any manual service, user, config, identity, and sudoers setup.
+    - The archive must not contain generated config, identity, logs, status files, tokens, credentials, or secrets.

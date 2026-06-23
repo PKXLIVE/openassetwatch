@@ -1,6 +1,6 @@
 # Installers
 
-Initial installer scaffolding was added for Linux, macOS, Windows, and Docker:
+Legacy installer scaffolding was added for Linux, macOS, Windows, and Docker:
 
 - `installers/linux/install.sh`
 - `installers/linux/uninstall.sh`
@@ -17,8 +17,11 @@ Initial installer scaffolding was added for Linux, macOS, Windows, and Docker:
 ## Current Scaffold State
 
 These installers are service-shape scaffolds for local development and review.
-They are not final production installers, they are not signed packages, and they
-do not install offensive tools.
+They are not current production agent package source, they are not signed
+packages, and they do not install offensive tools. They are retained because
+they still document earlier multi-component agent, sensor, collector, and
+Docker service shapes. Current production agent package source lives under
+`packaging/agent/`, with build and validation helpers under `scripts/release/`.
 
 The Go build should produce the `oaw-agent`, `oaw-sensor`, `oaw-cli`,
 `oaw-server`, `oaw-mcp-stdio`, and `oaw-test-config` binaries. Packaging tools
@@ -98,13 +101,13 @@ The scripts support:
 - no offensive tool installation
 - no secrets embedded in example configs
 
-## Future Native Package Targets
+## Current Native Agent Package Targets
 
-The production release path should move from scripts to signed native packages:
+The production release path uses signed native packages:
 
-- Windows: signed MSI.
-- macOS: signed and notarized PKG.
-- Linux: signed DEB and RPM.
+- Windows: signed MSI from `packaging/agent/windows/`.
+- macOS: signed and notarized PKG from `packaging/agent/macos/`.
+- Linux: signed DEB and RPM from `packaging/agent/linux/`.
 - Docker: signed image with SBOM and provenance metadata.
 
 Signing keys, certificates, notarization credentials, registry credentials, and
@@ -113,16 +116,17 @@ names. Never commit signing material or raw secret values.
 
 ## Linux
 
-The current Linux scaffold uses a systemd unit and defaults to:
+The legacy Linux scaffold uses a systemd unit and defaults to:
 
 - service name: `oaw-agent` or `oaw-sensor`
 - config path: `/etc/openassetwatch/<mode>.json`
 - binary path: `/usr/local/bin/oaw-<mode>`
 - service user: `openassetwatch`
 
-The future Linux release path should build signed DEB and RPM packages that
-install the binary, config directory, service unit, logs/state directories, and
-uninstall metadata.
+The current Go agent Linux package path builds unsigned local DEB/RPM
+validation artifacts from `packaging/agent/linux/` and `scripts/release/`.
+Production release still requires signing and disposable Linux install,
+upgrade, downgrade, and uninstall validation.
 
 ## macOS
 

@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+systemd_active() {
+    [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1
+}
+
+case "$1" in
+    remove|purge|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        if systemd_active; then
+            systemctl daemon-reload
+        fi
+        ;;
+    *)
+        ;;
+esac
+exit 0
