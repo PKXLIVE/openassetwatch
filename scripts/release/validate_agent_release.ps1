@@ -246,6 +246,12 @@ function Test-BinaryArtifactDirectory {
     [void](Test-ChecksumFile -FilePath $artifactPath -ChecksumPath $checksumPath -ExpectedHash ([string]$manifest.sha256) -Context "binary $relativeArtifactDir")
 }
 
+function Test-ReleaseArtifactDirectoryName {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    return $Name -match '^(linux|windows|darwin)-[A-Za-z0-9]+$'
+}
+
 function Test-PackageManifest {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -309,7 +315,7 @@ try {
     Add-Check -Name "release root exists" -Ok $releaseRootExists -Message $releaseRootMessage
     if (Test-Path -LiteralPath $releaseRoot -PathType Container) {
         $artifactDirs = @(Get-ChildItem -LiteralPath $releaseRoot -Directory -ErrorAction SilentlyContinue | Where-Object {
-            $_.Name -ne "packages" -and -not $_.Name.StartsWith(".")
+            Test-ReleaseArtifactDirectoryName -Name $_.Name
         })
         if ($artifactDirs.Count -eq 0) {
             Add-Check -Name "dist artifact directories exist" -Ok $false -Message "No dist artifact directories found under dist/agent/$Version."

@@ -25,6 +25,7 @@ SECRET_RE = re.compile(
     r"(password|passwd|token|secret|credential|api[_-]?key|private[_-]?key|p12|\.pem)",
     re.IGNORECASE,
 )
+RELEASE_BINARY_DIR_RE = re.compile(r"^(linux|windows|darwin)-[A-Za-z0-9]+$")
 REQUIRED_RELEASE_ARTIFACT_FIELDS = (
     "artifact_filename",
     "package_type",
@@ -183,6 +184,17 @@ def release_key(package_type: str, os_name: str, architecture: str) -> str:
     return f"{os_name}-{package_type}-{architecture}"
 
 
+def is_release_artifact_manifest_path(release_root: Path, manifest_path: Path) -> bool:
+    try:
+        relative_parts = manifest_path.relative_to(release_root).parts
+    except ValueError:
+        return False
+    if len(relative_parts) != 2:
+        return False
+    parent, _filename = relative_parts
+    return parent == "packages" or bool(RELEASE_BINARY_DIR_RE.fullmatch(parent))
+
+
 def validate_checksum(artifact_path: Path, checksum_path: Path, expected_sha: str) -> None:
     if not artifact_path.is_file():
         raise ValueError(f"Artifact file is missing: {artifact_path}")
@@ -297,6 +309,8 @@ def discover_manifest_paths(release_root: Path) -> list[Path]:
     package_types = {"deb", "rpm", "tar.gz", "msi", "pkg"}
     for path in sorted(release_root.rglob("*.manifest.json")):
         if not path.is_file() or "release-publication-manifest" in path.name:
+            continue
+        if not is_release_artifact_manifest_path(release_root, path):
             continue
         manifest = read_json(path)
         if manifest.get("artifact_type") == "oaw-agent-binary" or manifest.get("package_type") in package_types:
