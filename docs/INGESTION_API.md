@@ -206,13 +206,17 @@ The backend must not fabricate them when they are missing.
 }
 ```
 
-## Transitional Storage
+## Durable MVP Storage
 
-The first implementation stores accepted local inventory collections in an
-in-memory observation batch repository for backend tests and manual import
-experiments. This is intentionally transitional. Durable storage, asset
-matching, tenant authorization, and audit records should be added in a later
-backend workstream.
+The Control Tower foundation stores accepted agent check-ins and local
+inventory collections in PostgreSQL. Raw local inventory payloads are retained
+as evidence, then minimally normalized into `control_tower_assets` records with
+site ID, host, primary IP, MAC address, OS, platform, source agent ID, first and
+last seen timestamps, and an evidence count.
+
+This is still MVP normalization. Tenant authorization, enrollment-token
+issuance, full asset reconciliation, richer audit records, findings, and CMDB
+matching remain future backend workstreams.
 
 ## Passive Observation Safety Model
 

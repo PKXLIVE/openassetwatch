@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenAssetWatch Control Tower</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #64748b;
+      --line: #d8dee8;
+      --accent: #0f766e;
+      --warn: #a16207;
+      --bad: #b91c1c;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+
+    main {
+      display: grid;
+      gap: 1rem;
+      padding: 1rem;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+
+    section,
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .metric {
+      padding: 0.85rem;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.75rem;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 0.25rem;
+      font-size: 1.35rem;
+    }
+
+    section {
+      overflow: hidden;
+    }
+
+    section h2 {
+      margin: 0;
+      padding: 0.8rem 0.9rem;
+      border-bottom: 1px solid var(--line);
+      font-size: 0.9rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.83rem;
+    }
+
+    th,
+    td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      background: #fbfcfe;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 0.15rem 0.5rem;
+      background: #e7f7f3;
+      color: var(--accent);
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .error {
+      color: var(--bad);
+      font-weight: 700;
+    }
+
+    @media (max-width: 900px) {
+      .summary,
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OpenAssetWatch Control Tower</h1>
+    <span id="health" class="pill">loading</span>
+  </header>
+  <main>
+    <div class="summary" aria-label="Dashboard summary">
+      <div class="metric"><span>Sites</span><strong id="site-count">0</strong></div>
+      <div class="metric"><span>Agents and Sensors</span><strong id="agent-count">0</strong></div>
+      <div class="metric"><span>Check-ins</span><strong id="checkin-count">0</strong></div>
+      <div class="metric"><span>Assets</span><strong id="asset-count">0</strong></div>
+      <div class="metric"><span>Evidence</span><strong id="evidence-count">0</strong></div>
+    </div>
+
+    <div class="grid">
+      <section>
+        <h2>Sites</h2>
+        <table>
+          <thead><tr><th>Site ID</th><th>Name</th><th>Updated</th></tr></thead>
+          <tbody id="sites"><tr><td colspan="3" class="muted">No sites loaded.</td></tr></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Agents and Sensors</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Type</th><th>Platform</th><th>Last Seen</th></tr></thead>
+          <tbody id="agents"><tr><td colspan="4" class="muted">No agents loaded.</td></tr></tbody>
+        </table>
+      </section>
+    </div>
+
+    <section>
+      <h2>Recent Check-ins</h2>
+      <table>
+        <thead><tr><th>Agent ID</th><th>Site</th><th>Host</th><th>Version</th><th>Received</th></tr></thead>
+        <tbody id="checkins"><tr><td colspan="5" class="muted">No check-ins loaded.</td></tr></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Discovered Assets</h2>
+      <table>
+        <thead><tr><th>Asset ID</th><th>Site</th><th>Host</th><th>IP</th><th>MAC</th><th>OS</th><th>Evidence</th></tr></thead>
+        <tbody id="assets"><tr><td colspan="7" class="muted">No assets loaded.</td></tr></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Release Status</h2>
+      <table>
+        <tbody id="release"><tr><td class="muted">Release metadata not loaded.</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const apiBase = window.location.port === "8080" ? "http://localhost:8000" : "";
+
+    function text(value) {
+      return value === null || value === undefined || value === "" ? "not reported" : String(value);
+    }
+
+    function fmtDate(value) {
+      if (!value) return "not seen";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? text(value) : date.toLocaleString();
+    }
+
+    function rows(target, values, render, emptyColumns, emptyText) {
+      const body = document.getElementById(target);
+      if (!values || values.length === 0) {
+        body.innerHTML = `<tr><td colspan="${emptyColumns}" class="muted">${emptyText}</td></tr>`;
+        return;
+      }
+      body.innerHTML = values.map(render).join("");
+    }
+
+    async function loadJSON(path) {
+      const response = await fetch(`${apiBase}${path}`, {headers: {"Accept": "application/json"}});
+      if (!response.ok) throw new Error(`${path} returned ${response.status}`);
+      return response.json();
+    }
+
+    async function refresh() {
+      try {
+        const [health, summary, sites, agents, checkins, assets, release] = await Promise.all([
+          loadJSON("/health"),
+          loadJSON("/api/v1/control-tower/summary"),
+          loadJSON("/api/v1/sites"),
+          loadJSON("/api/v1/agents"),
+          loadJSON("/api/v1/control-tower/check-ins"),
+          loadJSON("/api/v1/control-tower/assets"),
+          loadJSON("/api/v1/releases/agent")
+        ]);
+
+        document.getElementById("health").textContent = `${health.status} ${health.version}`;
+        document.getElementById("site-count").textContent = summary.site_count;
+        document.getElementById("agent-count").textContent = summary.agent_count;
+        document.getElementById("checkin-count").textContent = summary.checkin_count;
+        document.getElementById("asset-count").textContent = summary.asset_count;
+        document.getElementById("evidence-count").textContent = summary.evidence_count;
+
+        rows("sites", sites.sites, site => `<tr><td>${text(site.site_id)}</td><td>${text(site.name)}</td><td>${fmtDate(site.updated_at)}</td></tr>`, 3, "No sites found.");
+        rows("agents", agents.agents, agent => `<tr><td>${text(agent.agent_id)}</td><td>${text(agent.agent_type)}</td><td>${text(agent.platform)}</td><td>${fmtDate(agent.last_seen_at)}</td></tr>`, 4, "No agents or sensors found.");
+        rows("checkins", checkins.check_ins, item => `<tr><td>${text(item.agent_id)}</td><td>${text(item.site_id)}</td><td>${text(item.hostname)}</td><td>${text(item.version)}</td><td>${fmtDate(item.received_at)}</td></tr>`, 5, "No check-ins found.");
+        rows("assets", assets.assets, asset => `<tr><td>${text(asset.asset_id)}</td><td>${text(asset.site_id)}</td><td>${text(asset.hostname)}</td><td>${text(asset.primary_ip)}</td><td>${text(asset.mac)}</td><td>${text(asset.os)}</td><td>${text(asset.evidence_count)}</td></tr>`, 7, "No assets found.");
+
+        document.getElementById("release").innerHTML = `
+          <tr><th>Server Version</th><td>${text(release.server_version)}</td></tr>
+          <tr><th>Expected Agent</th><td>${text(release.expected_agent_version)}</td></tr>
+          <tr><th>Channel</th><td>${text(release.channel)}</td></tr>
+          <tr><th>Update Execution</th><td>${text(release.update_execution)}</td></tr>
+          <tr><th>Status</th><td>${text(release.message)}</td></tr>`;
+      } catch (error) {
+        document.getElementById("health").textContent = "error";
+        document.getElementById("health").className = "pill error";
+        document.getElementById("release").innerHTML = `<tr><td class="error">${text(error.message)}</td></tr>`;
+      }
+    }
+
+    refresh();
+  </script>
+</body>
+</html>

@@ -192,6 +192,11 @@ Future installer or administrator flow:
 Installers must not store enrollment tokens, API keys, passwords, signing
 keys, license keys, or other secrets in config, identity, logs, or examples.
 
+For self-hosted deployments, `server_url` points at the OpenAssetWatch Control
+Tower API, for example `http://localhost:8000` in local Compose. See
+[CONTROL_TOWER_DEPLOYMENT.md](CONTROL_TOWER_DEPLOYMENT.md) for the local API,
+database, and dashboard foundation.
+
 ## Uninstall Lifecycle
 
 Future uninstaller or administrator flow:

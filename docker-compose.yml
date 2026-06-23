@@ -5,36 +5,50 @@ services:
     environment:
       POSTGRES_DB: openassetwatch
       POSTGRES_USER: openassetwatch
-      POSTGRES_PASSWORD: openassetwatch_change_me
+      POSTGRES_PASSWORD: ${OAW_POSTGRES_PASSWORD:-openassetwatch_local_only_change_me}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:7
     container_name: openassetwatch-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
 
   backend:
     image: python:3.12-slim
     container_name: openassetwatch-backend
     working_dir: /app
     environment:
-      DATABASE_URL: postgresql+psycopg2://openassetwatch:openassetwatch_change_me@postgres:5432/openassetwatch
+      DATABASE_URL: postgresql+psycopg2://openassetwatch:${OAW_POSTGRES_PASSWORD:-openassetwatch_local_only_change_me}@postgres:5432/openassetwatch
       OPENASSETWATCH_COLLECTOR_TOKEN: ${OPENASSETWATCH_COLLECTOR_TOKEN:-}
+      OPENASSETWATCH_CONTROL_TOWER_VERSION: ${OPENASSETWATCH_CONTROL_TOWER_VERSION:-0.1.0}
+      OPENASSETWATCH_EXPECTED_AGENT_VERSION: ${OPENASSETWATCH_EXPECTED_AGENT_VERSION:-0.1.0}
+      OPENASSETWATCH_AGENT_RELEASE_CHANNEL: ${OPENASSETWATCH_AGENT_RELEASE_CHANNEL:-local}
+      OPENASSETWATCH_CORS_ORIGINS: ${OPENASSETWATCH_CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000,http://127.0.0.1:8000}
     volumes:
       - ./backend:/app
     command: >
       sh -c "pip install -r requirements.txt &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       - postgres
       - redis
+
+  web:
+    image: nginx:1.27-alpine
+    container_name: openassetwatch-web
+    volumes:
+      - ./backend/app/static:/usr/share/nginx/html:ro
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

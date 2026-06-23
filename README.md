@@ -28,14 +28,18 @@ The platform starts with safe local discovery and grows into a broader asset ris
 
 The current MVP focuses on:
 
+* Self-hosted Control Tower foundation
+* FastAPI backend API
+* PostgreSQL persistence through Docker Compose
+* Static web dashboard foundation
+* Site/project model
+* Agent and future sensor enrollment model
+* Agent check-in and local inventory ingestion endpoints
+* Basic asset normalization and evidence counts
 * Standalone collector framework
 * Device, network, and hybrid collector modes
 * Local ARP/neighbor discovery
 * Safe filtering of multicast, broadcast, and non-host network entries
-* Backend FastAPI service
-* PostgreSQL and Redis services through Docker Compose
-* Basic backend health endpoint
-* Collector check-in API roadmap
 * Architecture documentation for future AI, IoT/OT, vulnerability, ITSM, identity, PAM, cloud, and Splunk integrations
 
 ---
@@ -55,7 +59,7 @@ OpenAssetWatch Backend API
 PostgreSQL / Redis
         |
         v
-Dashboard / Risk Engine / AI Advisor / Integrations
+Control Tower Dashboard / Risk Engine / AI Advisor / Integrations
 ```
 
 ### Collector Modes
@@ -107,9 +111,21 @@ Expected response:
 
 ```json
 {
-  "status": "healthy"
+  "status": "healthy",
+  "service": "openassetwatch-control-tower",
+  "version": "0.1.0"
 }
 ```
+
+### Open the Control Tower dashboard
+
+```text
+http://localhost:8080
+```
+
+The local stack binds API, web, PostgreSQL, and Redis ports to localhost by
+default. See [docs/CONTROL_TOWER_DEPLOYMENT.md](docs/CONTROL_TOWER_DEPLOYMENT.md)
+for startup steps, API endpoints, database tables, and limitations.
 
 ---
 
@@ -163,11 +179,20 @@ Hybrid mode combines device inventory and local network discovery into one paylo
 
 Current and planned backend endpoints include:
 
-| Endpoint                            | Status      | Purpose                         |
-| ----------------------------------- | ----------- | ------------------------------- |
-| `GET /health`                       | Available   | Backend health check            |
-| `POST /api/v1/collectors/checkin`   | MVP roadmap | Collector heartbeat/check-in    |
-| `POST /api/v1/collectors/inventory` | Future      | Full collector inventory upload |
+| Endpoint | Status | Purpose |
+| --- | --- | --- |
+| `GET /health` | Available | Control Tower health and version |
+| `GET /api/v1/sites` | Available | List sites/projects |
+| `POST /api/v1/sites` | Available | Create or update a site/project |
+| `GET /api/v1/agents` | Available | List endpoint agents and future sensors |
+| `POST /api/v1/agents/enrollments` | Available | Create or update agent/sensor enrollment records |
+| `POST /api/v1/agents/check-in` | Available | Agent health and identity check-in |
+| `POST /api/v1/collections/local-inventory` | Available | Go agent local inventory ingestion |
+| `GET /api/v1/control-tower/summary` | Available | Dashboard counts |
+| `GET /api/v1/control-tower/assets` | Available | Normalized Control Tower assets |
+| `GET /api/v1/releases/agent` | Available | Agent release metadata placeholder |
+| `POST /api/v1/collectors/checkin` | Available | Legacy Python collector heartbeat/check-in |
+| `POST /api/v1/collectors/inventory` | Available | Legacy Python collector inventory upload |
 
 ---
 

@@ -148,3 +148,95 @@ CREATE INDEX IF NOT EXISTS idx_policy_assignments_enabled_priority
 
 CREATE INDEX IF NOT EXISTS idx_policy_assignments_policy_id
     ON policy_assignments (policy_id);
+
+CREATE TABLE IF NOT EXISTS sites (
+    site_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS agent_enrollments (
+    agent_id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    display_name TEXT,
+    agent_type TEXT NOT NULL,
+    platform TEXT,
+    architecture TEXT,
+    version TEXT,
+    hostname TEXT,
+    mode TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ,
+    CHECK (agent_type IN ('endpoint-agent', 'network-sensor'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_enrollments_site_id
+    ON agent_enrollments (site_id);
+
+CREATE INDEX IF NOT EXISTS idx_agent_enrollments_last_seen_at
+    ON agent_enrollments (last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_checkins (
+    id BIGSERIAL PRIMARY KEY,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    agent_id TEXT,
+    version TEXT,
+    platform TEXT,
+    architecture TEXT,
+    hostname TEXT,
+    mode TEXT,
+    checked_in_at TIMESTAMPTZ,
+    received_at TIMESTAMPTZ NOT NULL,
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_checkins_site_id_received_at
+    ON agent_checkins (site_id, received_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agent_checkins_agent_id_received_at
+    ON agent_checkins (agent_id, received_at DESC);
+
+CREATE TABLE IF NOT EXISTS local_inventory_collections (
+    id BIGSERIAL PRIMARY KEY,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    source_agent_id TEXT,
+    schema_version TEXT,
+    collected_at TIMESTAMPTZ,
+    received_at TIMESTAMPTZ NOT NULL,
+    observed_asset_count INTEGER NOT NULL DEFAULT 0,
+    normalized_asset_count INTEGER NOT NULL DEFAULT 0,
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_local_inventory_collections_site_id_received_at
+    ON local_inventory_collections (site_id, received_at DESC);
+
+CREATE TABLE IF NOT EXISTS control_tower_assets (
+    asset_key TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    hostname TEXT,
+    primary_ip TEXT,
+    mac TEXT,
+    os TEXT,
+    platform TEXT,
+    source_agent_id TEXT,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (site_id, asset_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_control_tower_assets_site_id
+    ON control_tower_assets (site_id);
+
+CREATE INDEX IF NOT EXISTS idx_control_tower_assets_last_seen_at
+    ON control_tower_assets (last_seen_at DESC);
