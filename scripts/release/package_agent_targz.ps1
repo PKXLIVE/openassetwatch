@@ -227,6 +227,7 @@ $packageManifest = [ordered]@{
     os = $targetOS
     arch = $targetArch
     package_type = "tar.gz"
+    package_license = "Apache-2.0"
     source_artifact_path = Convert-ToRepoRelativePath -RepoRoot $repoRoot -PathValue $sourceArtifactPath
     source_checksum_path = Convert-ToRepoRelativePath -RepoRoot $repoRoot -PathValue $sourceChecksumPath
     source_manifest_path = Convert-ToRepoRelativePath -RepoRoot $repoRoot -PathValue $binaryManifestPath

@@ -203,6 +203,7 @@ $manifest = [ordered]@{
     package_name = "openassetwatch-agent"
     artifact_name = $msiName
     package_type = "msi"
+    package_license = "Apache-2.0"
     version = $Version
     msi_version = $msiVersion
     os = "windows"

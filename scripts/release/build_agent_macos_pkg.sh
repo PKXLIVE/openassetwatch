@@ -13,6 +13,7 @@ Options:
   --app-identity <identity>             Developer ID Application identity for the embedded oaw-agent binary.
   --installer-identity <identity>       Developer ID Installer identity for productbuild.
   --sign-identity <identity>            Alias for --installer-identity.
+  --package-version <version>           Numeric macOS package receipt version.
   --min-macos <version>                 CI-tested minimum macOS metadata. Default: 15.0.
 USAGE
 }
@@ -24,6 +25,7 @@ ARM64_ARTIFACT_DIR=""
 AMD64_ARTIFACT_DIR=""
 APP_IDENTITY=""
 INSTALLER_IDENTITY=""
+PACKAGE_VERSION_OVERRIDE=""
 MIN_MACOS="15.0"
 
 while [ "$#" -gt 0 ]; do
@@ -36,6 +38,7 @@ while [ "$#" -gt 0 ]; do
     --app-identity) APP_IDENTITY="${2:-}"; shift 2 ;;
     --installer-identity) INSTALLER_IDENTITY="${2:-}"; shift 2 ;;
     --sign-identity) INSTALLER_IDENTITY="${2:-}"; shift 2 ;;
+    --package-version) PACKAGE_VERSION_OVERRIDE="${2:-}"; shift 2 ;;
     --min-macos) MIN_MACOS="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -72,7 +75,11 @@ if [ -n "$APP_IDENTITY" ]; then
   command -v codesign >/dev/null || { echo "codesign is required for signed macOS packages" >&2; exit 1; }
 fi
 
-PACKAGE_VERSION="$(PYTHONPATH="$SCRIPT_DIR" python3 - "$VERSION" <<'PY'
+PACKAGE_VERSION_SOURCE="$VERSION"
+if [ -n "$PACKAGE_VERSION_OVERRIDE" ]; then
+  PACKAGE_VERSION_SOURCE="$PACKAGE_VERSION_OVERRIDE"
+fi
+PACKAGE_VERSION="$(PYTHONPATH="$SCRIPT_DIR" python3 - "$PACKAGE_VERSION_SOURCE" <<'PY'
 from stage_agent_macos_install import normalize_package_version
 import sys
 print(normalize_package_version(sys.argv[1]))
@@ -128,6 +135,7 @@ value = {
     "arch": arch,
     "path": rel.replace(os.sep, "/"),
     "sha256": sha,
+    "license": "Apache-2.0",
     "build_timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat().replace("+00:00", "Z"),
     "git_commit": commit,
 }
@@ -293,7 +301,7 @@ else
   STAGE_ARCH_MODE="$ARCH_MODE"
 fi
 
-python3 "$SCRIPT_DIR/stage_agent_macos_install.py" --version "$VERSION" --arch-mode "$STAGE_ARCH_MODE" --output-dir "$OUTPUT_ROOT"
+python3 "$SCRIPT_DIR/stage_agent_macos_install.py" --version "$VERSION" --package-version "$PACKAGE_VERSION" --arch-mode "$STAGE_ARCH_MODE" --output-dir "$OUTPUT_ROOT"
 python3 "$SCRIPT_DIR/validate_agent_macos_install.py" --version "$VERSION" --macos-install-root "$AGENT_ROOT/macos-install"
 plutil -lint "$AGENT_ROOT/macos-install/pkgroot/Library/LaunchDaemons/com.openassetwatch.agent.plist" >/dev/null
 
@@ -337,6 +345,7 @@ value = {
     "os": "darwin",
     "arch_mode": arch_mode,
     "package_type": "pkg",
+    "package_license": "Apache-2.0",
     "path": os.path.relpath(pkg, os.getcwd()).replace(os.sep, "/"),
     "sha256": sha,
     "tested_minimum_macos_version": min_macos,
