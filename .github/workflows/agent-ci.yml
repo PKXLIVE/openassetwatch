@@ -907,14 +907,6 @@ jobs:
           OAW_MOCK_LOG="$MOCK_LOG" python3 "$MOCK" &
           BACKEND_PID=$!
           wait_for_backend
-          sudo installer -pkg "$PKG" -target /
-          /usr/sbin/pkgutil --pkg-info "$PACKAGE_ID" | grep "version: 0.1.100"
-          check_owner_mode "$BINARY" "root:wheel 755"
-          check_owner_mode "$PLIST" "root:wheel 644"
-          check_owner_mode "$CONFIG" "root:_openassetwatch 640"
-          check_owner_mode "$IDENTITY" "root:_openassetwatch 640"
-          check_owner_mode "$STATE" "_openassetwatch:_openassetwatch 750"
-          check_owner_mode "$LOG_DIR" "_openassetwatch:_openassetwatch 750"
           sudo launchctl bootout system "$PLIST" 2>/dev/null || true
           for _ in $(seq 1 30); do
             if ! sudo launchctl print "system/$LABEL" >/dev/null 2>&1; then
@@ -928,9 +920,15 @@ jobs:
           fi
           sudo rm -f "$STATE/status.json" "$STATE/last-inventory.json"
           : > "$MOCK_LOG"
-          sudo launchctl bootstrap system "$PLIST"
+          sudo installer -pkg "$PKG" -target /
+          /usr/sbin/pkgutil --pkg-info "$PACKAGE_ID" | grep "version: 0.1.100"
+          check_owner_mode "$BINARY" "root:wheel 755"
+          check_owner_mode "$PLIST" "root:wheel 644"
+          check_owner_mode "$CONFIG" "root:_openassetwatch 640"
+          check_owner_mode "$IDENTITY" "root:_openassetwatch 640"
+          check_owner_mode "$STATE" "_openassetwatch:_openassetwatch 750"
+          check_owner_mode "$LOG_DIR" "_openassetwatch:_openassetwatch 750"
           sudo launchctl print "system/$LABEL" >/dev/null
-          sudo launchctl kickstart -k "system/$LABEL"
           deadline=$((SECONDS + 90))
           while [ "$SECONDS" -lt "$deadline" ]; do
             if sudo test -f "$STATE/last-inventory.json" && [ -f "$MOCK_LOG" ] && grep -q "/api/v1/agents/check-in" "$MOCK_LOG" && grep -q "/api/v1/collections/local-inventory" "$MOCK_LOG"; then
