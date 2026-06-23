@@ -114,7 +114,12 @@ jobs:
           test -x "$EXTRACT/opt/openassetwatch/agent/bin/oaw-agent"
           test -f "$EXTRACT/lib/systemd/system/oaw-agent.service"
           test -f "$EXTRACT/lib/systemd/system/oaw-agent.timer"
-          systemd-analyze --root="$EXTRACT" verify oaw-agent.service oaw-agent.timer
+          mkdir -p "$EXTRACT/etc"
+          printf 'root:x:0:0:root:/root:/usr/sbin/nologin\nopenassetwatch:x:999:999:OpenAssetWatch Agent:/var/lib/openassetwatch/agent:/usr/sbin/nologin\n' > "$EXTRACT/etc/passwd"
+          printf 'root:x:0:\nopenassetwatch:x:999:\n' > "$EXTRACT/etc/group"
+          systemd-analyze --root="$EXTRACT" verify \
+            /lib/systemd/system/oaw-agent.service \
+            /lib/systemd/system/oaw-agent.timer
           sudo visudo -cf "$EXTRACT/etc/sudoers.d/openassetwatch-agent"
       - uses: actions/upload-artifact@v4
         with:
@@ -158,7 +163,12 @@ jobs:
           test -x "$ROOT/opt/openassetwatch/agent/bin/oaw-agent"
           test -f "$ROOT/usr/lib/systemd/system/oaw-agent.service"
           test -f "$ROOT/usr/lib/systemd/system/oaw-agent.timer"
-          systemd-analyze --root="$ROOT" verify oaw-agent.service oaw-agent.timer
+          mkdir -p "$ROOT/etc"
+          printf 'root:x:0:0:root:/root:/usr/sbin/nologin\nopenassetwatch:x:999:999:OpenAssetWatch Agent:/var/lib/openassetwatch/agent:/usr/sbin/nologin\n' > "$ROOT/etc/passwd"
+          printf 'root:x:0:\nopenassetwatch:x:999:\n' > "$ROOT/etc/group"
+          systemd-analyze --root="$ROOT" verify \
+            /usr/lib/systemd/system/oaw-agent.service \
+            /usr/lib/systemd/system/oaw-agent.timer
           sudo visudo -cf "$ROOT/etc/sudoers.d/openassetwatch-agent"
       - uses: actions/upload-artifact@v4
         with:
@@ -237,6 +247,21 @@ jobs:
           }
           trap cleanup EXIT
 
+          wait_for_backend() {
+            for _ in $(seq 1 30); do
+              if python3 - <<'PY'
+          import urllib.request
+          urllib.request.urlopen("http://127.0.0.1:18080", timeout=1).read()
+          PY
+              then
+                return 0
+              fi
+              sleep 1
+            done
+            echo "Mock backend did not become ready."
+            return 1
+          }
+
           wait_for_log() {
             pattern="$1"
             for _ in $(seq 1 90); do
@@ -275,6 +300,7 @@ jobs:
             sudo systemctl is-active --quiet oaw-agent.timer
           }
 
+          wait_for_backend
           sudo dpkg -i "$OLD_DEB"
           test -x /opt/openassetwatch/agent/bin/oaw-agent
           id openassetwatch
@@ -325,6 +351,7 @@ jobs:
           test -f /var/log/openassetwatch/agent/log-survival.txt
 
           sudo dpkg -r openassetwatch-agent
+          sudo systemctl daemon-reload
           test ! -e /opt/openassetwatch/agent/bin/oaw-agent
           test ! -e /lib/systemd/system/oaw-agent.service
           test ! -e /lib/systemd/system/oaw-agent.timer
@@ -614,7 +641,20 @@ jobs:
           '@ | Set-Content -Encoding utf8 $mock
           $env:OAW_MOCK_LOG = Join-Path $env:RUNNER_TEMP "oaw_mock_backend.jsonl"
           $backend = Start-Process python -ArgumentList $mock -PassThru
+          function Wait-MockBackend {
+            $deadline = (Get-Date).AddSeconds(30)
+            do {
+              try {
+                Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18080" -TimeoutSec 2 | Out-Null
+                return
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            } while ((Get-Date) -lt $deadline)
+            throw "Mock backend did not become ready."
+          }
           try {
+            Wait-MockBackend
             ./scripts/release/install_agent_windows_files.ps1 -WindowsInstallRoot $root
             New-Item -ItemType Directory -Force -Path "C:\ProgramData\OpenAssetWatch\Agent\config","C:\ProgramData\OpenAssetWatch\Agent\identity" | Out-Null
             '{"server_url":"http://127.0.0.1:18080","site_id":"ci-site"}' | Set-Content -Encoding utf8 "C:\ProgramData\OpenAssetWatch\Agent\config\config.json"
@@ -756,6 +796,20 @@ jobs:
               exit 1
             fi
           }
+          wait_for_backend() {
+            for _ in $(seq 1 30); do
+              if python3 - <<'PY'
+          import urllib.request
+          urllib.request.urlopen("http://127.0.0.1:18080", timeout=1).read()
+          PY
+              then
+                return 0
+              fi
+              sleep 1
+            done
+            echo "Mock backend did not become ready."
+            return 1
+          }
           trap cleanup EXIT
           sudo installer -pkg "$OLD_PKG" -target /
           sudo launchctl print "system/$LABEL" >/dev/null
@@ -811,6 +865,7 @@ jobs:
           PY
           OAW_MOCK_LOG="$MOCK_LOG" python3 "$MOCK" &
           BACKEND_PID=$!
+          wait_for_backend
           sudo launchctl kickstart -k "system/$LABEL"
           deadline=$((SECONDS + 90))
           while [ "$SECONDS" -lt "$deadline" ]; do
