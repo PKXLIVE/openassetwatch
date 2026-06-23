@@ -333,9 +333,13 @@ verify_pkg_embedded_binary_signature "$FINAL_PKG"
 PKG_SHA="$(shasum -a 256 "$FINAL_PKG" | awk '{print $1}')"
 printf '%s  %s\n' "$PKG_SHA" "$(basename "$FINAL_PKG")" > "$FINAL_PKG.sha256"
 python3 - "$FINAL_PKG.manifest.json" "$VERSION" "$PACKAGE_VERSION" "$ARCH_MODE" "$FINAL_PKG" "$PKG_SHA" "$MIN_MACOS" "$APP_IDENTITY" "$INSTALLER_IDENTITY" <<'PY'
-import json, os, sys
+import json, os, subprocess, sys
 from datetime import datetime, timezone
 manifest, version, package_version, arch_mode, pkg, sha, min_macos, app_identity, installer_identity = sys.argv[1:]
+try:
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+except Exception:
+    commit = ""
 value = {
     "package_name": os.path.basename(pkg),
     "package_identifier": "com.openassetwatch.agent",
@@ -348,6 +352,7 @@ value = {
     "package_license": "Apache-2.0",
     "path": os.path.relpath(pkg, os.getcwd()).replace(os.sep, "/"),
     "sha256": sha,
+    "git_commit": commit,
     "tested_minimum_macos_version": min_macos,
     "minimum_macos_version_enforced": False,
     "signed": bool(installer_identity),
