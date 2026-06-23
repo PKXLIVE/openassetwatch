@@ -18,6 +18,8 @@ Current state:
   exercises Rocky Linux 9 only
 - Linux TAR.GZ remains a manual fallback artifact and does not install users,
   services, or sudoers rules
+- Agent release publication CI validates unsigned PR artifacts and tagged
+  release-candidate artifacts through `.github/workflows/agent-release.yml`
 - no package-manager commands are executed from this directory
 - no package-manager commands are executed by this directory
 - service-manager commands appear only in reviewed target-install package
@@ -192,6 +194,26 @@ running as `_openassetwatch`, with config, identity, and state under
 
 Local PKG output is unsigned and is not production release-ready until the
 binary and package are signed, notarized, stapled, and verified.
+
+## Release Publication
+
+The release-publication workflow builds the full agent artifact set for pull
+requests and `v*` tags, validates checksums and manifests, and uploads
+release-candidate artifacts to the workflow run. Pull requests never publish a
+GitHub Release. Tag builds may publish only when production signing evidence is
+available and the repository variable `OAW_AGENT_RELEASE_PUBLICATION_ENABLED`
+is set to `true`.
+
+The publication manifest is validated by
+[`scripts/release/validate_agent_release_publication.py`](../../scripts/release/validate_agent_release_publication.py).
+It checks expected package coverage, SHA256 metadata, Apache-2.0 license
+metadata, signed/notarized claims, and stable or release-candidate version
+normalization. SBOM and provenance paths are reserved in the metadata contract
+and remain empty until those generators are added.
+
+Production publication remains blocked until Windows signing evidence, macOS
+notarization evidence, Linux package signing evidence, SBOM generation, and
+provenance/attestation generation are wired into the workflow.
 
 ## Related Docs
 

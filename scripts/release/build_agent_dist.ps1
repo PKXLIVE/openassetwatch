@@ -155,6 +155,7 @@ $manifest = [ordered]@{
     arch = $TargetArch
     path = Convert-ToRepoRelativePath -RepoRoot $repoRoot -PathValue $artifactPath
     sha256 = $sha256
+    license = "Apache-2.0"
     build_timestamp = $buildTimestamp
     git_commit = $gitCommit
 }

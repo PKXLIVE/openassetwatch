@@ -426,6 +426,7 @@ def write_staging(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--package-version")
     parser.add_argument("--arch-mode", choices=("universal", "arm64", "amd64"), default="universal")
     parser.add_argument("--output-dir", default="dist")
     parser.add_argument("--artifact-dir")
@@ -439,7 +440,7 @@ def main() -> int:
     manifest_display = ""
     try:
         version = validate_version(args.version)
-        package_version = normalize_package_version(version)
+        package_version = normalize_package_version(args.package_version or version)
         repo_root = get_repo_root()
         output_root = resolve_repo_path(repo_root, args.output_dir)
         if not is_inside(repo_root, output_root):

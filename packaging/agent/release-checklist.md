@@ -934,6 +934,36 @@ Future work:
 - [ ] package metadata paths reviewed
 - [ ] artifact names include OS, architecture, version, and package type
 
+## Release Publication
+
+- [ ] `.github/workflows/agent-release.yml` validates pull requests without
+      publishing releases
+- [ ] `v*` tags trigger release-candidate artifact generation
+- [ ] GitHub Release publication is gated to tag pushes and
+      `OAW_AGENT_RELEASE_PUBLICATION_ENABLED=true`
+- [ ] `scripts/release/validate_agent_release_publication.py` passes
+- [ ] stable tag normalization is verified for `v0.1.0`
+- [ ] release-candidate tag normalization is verified for `v0.1.0-rc.1`
+- [ ] Windows Installer version limits are enforced: major and minor at most
+      `255`, build at most `65535`
+- [ ] expected package coverage is validated for Windows MSI, macOS arm64 PKG,
+      macOS Intel PKG, macOS universal PKG, Linux DEB, Linux RPM, and Linux
+      TAR.GZ
+- [ ] release-publication manifest records artifact filename, package type,
+      OS, architecture, version, git commit, build timestamp, SHA256,
+      Apache-2.0 license metadata, signed state, notarized state where
+      applicable, SBOM path, and provenance path
+- [ ] checksum files match actual artifacts
+- [ ] unsigned PR validation artifacts and unsigned release-candidate artifacts
+      are clearly marked unsigned
+- [ ] signed artifacts cannot be claimed without signing evidence
+- [ ] macOS notarized artifacts cannot be claimed without notarization evidence
+- [ ] release metadata contains no secrets, tokens, credentials, passwords,
+      private keys, or API keys
+- [ ] SBOM generation is wired in or explicitly recorded as unavailable
+- [ ] provenance/attestation generation is wired in or explicitly recorded as
+      unavailable
+
 ## Lifecycle Validation
 
 - [ ] install validation planned
