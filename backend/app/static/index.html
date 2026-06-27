@@ -7,14 +7,22 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f7f9;
+      --bg: #f5f7fb;
       --panel: #ffffff;
+      --panel-soft: #f8fafc;
       --ink: #17202a;
-      --muted: #64748b;
+      --muted: #65758b;
       --line: #d8dee8;
       --accent: #0f766e;
-      --warn: #a16207;
-      --bad: #b91c1c;
+      --accent-strong: #115e59;
+      --blue: #2563eb;
+      --amber: #a16207;
+      --red: #b91c1c;
+      --green-bg: #e7f7f3;
+      --blue-bg: #eaf1ff;
+      --amber-bg: #fff5d8;
+      --red-bg: #fde8e8;
+      --shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
     }
 
     * {
@@ -26,6 +34,32 @@
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--bg);
       color: var(--ink);
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid var(--accent-strong);
+      background: var(--accent);
+      color: #ffffff;
+      border-radius: 6px;
+      padding: 0.52rem 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #ffffff;
+      color: var(--accent-strong);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.65;
     }
 
     header {
@@ -40,16 +74,97 @@
 
     h1 {
       margin: 0;
-      font-size: 1.05rem;
-      font-weight: 700;
+      font-size: 1.1rem;
+      font-weight: 800;
+    }
+
+    h2,
+    h3 {
+      margin: 0;
     }
 
     main {
       display: grid;
       gap: 1rem;
       padding: 1rem;
-      max-width: 1280px;
+      max-width: 1380px;
       margin: 0 auto;
+    }
+
+    section,
+    .metric,
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      box-shadow: var(--shadow);
+    }
+
+    section {
+      overflow: hidden;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 1.6rem;
+      border-radius: 999px;
+      padding: 0.18rem 0.58rem;
+      background: var(--blue-bg);
+      color: var(--blue);
+      font-size: 0.78rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .pill.ok {
+      background: var(--green-bg);
+      color: var(--accent-strong);
+    }
+
+    .pill.warn {
+      background: var(--amber-bg);
+      color: var(--amber);
+    }
+
+    .pill.error {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    .status-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 1rem;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      box-shadow: var(--shadow);
+    }
+
+    .status-copy {
+      display: grid;
+      gap: 0.18rem;
+      min-width: 0;
+    }
+
+    .status-copy strong {
+      font-size: 0.92rem;
+    }
+
+    .status-copy span {
+      color: var(--muted);
+      font-size: 0.82rem;
     }
 
     .summary {
@@ -58,38 +173,74 @@
       gap: 0.75rem;
     }
 
-    section,
     .metric {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 6px;
+      min-height: 5.6rem;
+      padding: 0.85rem;
+      display: grid;
+      align-content: space-between;
+      gap: 0.35rem;
+      border-top: 3px solid var(--accent);
     }
 
-    .metric {
-      padding: 0.85rem;
+    .metric:nth-child(2) {
+      border-top-color: var(--blue);
+    }
+
+    .metric:nth-child(3) {
+      border-top-color: var(--amber);
+    }
+
+    .metric:nth-child(4) {
+      border-top-color: #7c3aed;
+    }
+
+    .metric:nth-child(5) {
+      border-top-color: #c2410c;
     }
 
     .metric span {
       display: block;
       color: var(--muted);
-      font-size: 0.75rem;
+      font-size: 0.76rem;
+      font-weight: 700;
     }
 
     .metric strong {
       display: block;
-      margin-top: 0.25rem;
-      font-size: 1.35rem;
+      font-size: 1.7rem;
+      line-height: 1;
     }
 
-    section {
-      overflow: hidden;
+    .metric small {
+      color: var(--muted);
+      font-size: 0.74rem;
     }
 
-    section h2 {
-      margin: 0;
-      padding: 0.8rem 0.9rem;
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1rem;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.82rem 0.95rem;
       border-bottom: 1px solid var(--line);
-      font-size: 0.9rem;
+      background: #fbfcfe;
+    }
+
+    .section-header h2 {
+      font-size: 0.92rem;
+      font-weight: 800;
+    }
+
+    .section-header span {
+      color: var(--muted);
+      font-size: 0.76rem;
+      white-space: nowrap;
     }
 
     table {
@@ -100,7 +251,7 @@
 
     th,
     td {
-      padding: 0.65rem 0.75rem;
+      padding: 0.66rem 0.75rem;
       border-bottom: 1px solid var(--line);
       text-align: left;
       vertical-align: top;
@@ -108,40 +259,176 @@
 
     th {
       color: var(--muted);
-      font-weight: 600;
-      background: #fbfcfe;
+      font-weight: 800;
+      background: var(--panel-soft);
+      white-space: nowrap;
     }
 
-    .grid {
+    td {
+      overflow-wrap: anywhere;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .empty-state {
+      color: var(--muted);
+      line-height: 1.45;
+      padding: 1rem;
+    }
+
+    .empty-state strong {
+      display: block;
+      color: var(--ink);
+      margin-bottom: 0.25rem;
+    }
+
+    .getting-started {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
       gap: 1rem;
     }
 
-    .pill {
-      display: inline-flex;
-      align-items: center;
+    .steps {
+      display: grid;
+      gap: 0.65rem;
+      padding: 1rem;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 2rem minmax(0, 1fr);
+      gap: 0.7rem;
+      align-items: start;
+    }
+
+    .step-number {
+      width: 2rem;
+      height: 2rem;
       border-radius: 999px;
-      padding: 0.15rem 0.5rem;
-      background: #e7f7f3;
-      color: var(--accent);
+      display: inline-grid;
+      place-items: center;
+      background: var(--blue-bg);
+      color: var(--blue);
+      font-weight: 900;
+      font-size: 0.82rem;
+    }
+
+    .step strong {
+      display: block;
+      font-size: 0.88rem;
+      margin-bottom: 0.12rem;
+    }
+
+    .step span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+
+    form {
+      display: grid;
+      gap: 0.75rem;
+      padding: 1rem;
+      border-left: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+
+    label {
+      display: grid;
+      gap: 0.28rem;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 800;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.55rem 0.62rem;
+      background: #ffffff;
+      color: var(--ink);
+    }
+
+    textarea {
+      min-height: 4.5rem;
+      resize: vertical;
+    }
+
+    .form-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      flex-wrap: wrap;
+    }
+
+    .form-status {
+      min-height: 1.2rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .form-status.error {
+      color: var(--red);
+    }
+
+    .form-status.ok {
+      color: var(--accent-strong);
+    }
+
+    .release-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 0.65rem;
+      padding: 1rem;
+    }
+
+    .release-item {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.75rem;
+      background: var(--panel-soft);
+      min-width: 0;
+    }
+
+    .release-item span {
+      display: block;
+      color: var(--muted);
       font-size: 0.75rem;
-      font-weight: 700;
+      font-weight: 800;
+      margin-bottom: 0.25rem;
+    }
+
+    .release-item strong {
+      display: block;
+      font-size: 0.86rem;
+      overflow-wrap: anywhere;
     }
 
     .muted {
       color: var(--muted);
     }
 
-    .error {
-      color: var(--bad);
-      font-weight: 700;
+    .danger {
+      color: var(--red);
+      font-weight: 800;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 980px) {
       .summary,
-      .grid {
+      .grid,
+      .getting-started,
+      .release-grid {
         grid-template-columns: 1fr;
+      }
+
+      form {
+        border-left: 0;
+        border-top: 1px solid var(--line);
       }
 
       table {
@@ -149,70 +436,173 @@
         overflow-x: auto;
         white-space: nowrap;
       }
+
+      td {
+        overflow-wrap: normal;
+      }
+    }
+
+    @media (max-width: 640px) {
+      header,
+      .status-line {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .toolbar {
+        justify-content: flex-start;
+      }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>OpenAssetWatch Control Tower</h1>
-    <span id="health" class="pill">loading</span>
-  </header>
-  <main>
-    <div class="summary" aria-label="Dashboard summary">
-      <div class="metric"><span>Sites</span><strong id="site-count">0</strong></div>
-      <div class="metric"><span>Agents and Sensors</span><strong id="agent-count">0</strong></div>
-      <div class="metric"><span>Check-ins</span><strong id="checkin-count">0</strong></div>
-      <div class="metric"><span>Assets</span><strong id="asset-count">0</strong></div>
-      <div class="metric"><span>Evidence</span><strong id="evidence-count">0</strong></div>
+    <div>
+      <h1>OpenAssetWatch Control Tower</h1>
+      <div class="muted">Local MVP dashboard for sites, agents, inventory evidence, and release metadata.</div>
     </div>
+    <div class="toolbar">
+      <span id="health" class="pill">loading</span>
+      <button id="refresh" class="secondary" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="status-line" class="status-line" role="status" aria-live="polite">
+      <div class="status-copy">
+        <strong id="status-title">Loading Control Tower data</strong>
+        <span id="status-detail">Waiting for the local API to respond.</span>
+      </div>
+      <span id="last-updated" class="pill warn">not updated</span>
+    </div>
+
+    <div class="summary" aria-label="Overview metrics">
+      <div class="metric"><span>Sites</span><strong id="site-count">0</strong><small>registered locations</small></div>
+      <div class="metric"><span>Agents and Sensors</span><strong id="agent-count">0</strong><small>enrolled collectors</small></div>
+      <div class="metric"><span>Check-ins</span><strong id="checkin-count">0</strong><small>received heartbeats</small></div>
+      <div class="metric"><span>Assets</span><strong id="asset-count">0</strong><small>normalized records</small></div>
+      <div class="metric"><span>Evidence</span><strong id="evidence-count">0</strong><small>inventory observations</small></div>
+    </div>
+
+    <section>
+      <div class="section-header">
+        <h2>Getting Started</h2>
+        <span>local MVP workflow</span>
+      </div>
+      <div class="getting-started">
+        <div class="steps">
+          <div class="step">
+            <span class="step-number">1</span>
+            <div><strong>Create a site</strong><span>Use the form to register a lab, office, or environment name before enrolling collectors.</span></div>
+          </div>
+          <div class="step">
+            <span class="step-number">2</span>
+            <div><strong>Enroll an agent or sensor</strong><span>Use the enrollment API for endpoint agents or future passive sensors tied to a site.</span></div>
+          </div>
+          <div class="step">
+            <span class="step-number">3</span>
+            <div><strong>Run local inventory collection</strong><span>Submit local inventory evidence and watch assets, evidence, and check-ins populate below.</span></div>
+          </div>
+        </div>
+
+        <form id="site-form">
+          <h3>Create Site</h3>
+          <label for="site-id">Site ID
+            <input id="site-id" name="site_id" autocomplete="off" placeholder="home-lab" required>
+          </label>
+          <label for="site-name">Name
+            <input id="site-name" name="name" autocomplete="off" placeholder="Home Lab" required>
+          </label>
+          <label for="site-description">Description
+            <textarea id="site-description" name="description" placeholder="Optional local context for this site"></textarea>
+          </label>
+          <div class="form-actions">
+            <button id="create-site" type="submit">Create Site</button>
+            <span id="form-status" class="form-status"></span>
+          </div>
+        </form>
+      </div>
+    </section>
 
     <div class="grid">
       <section>
-        <h2>Sites</h2>
+        <div class="section-header">
+          <h2>Sites</h2>
+          <span id="sites-loaded">loading</span>
+        </div>
         <table>
-          <thead><tr><th>Site ID</th><th>Name</th><th>Updated</th></tr></thead>
-          <tbody id="sites"><tr><td colspan="3" class="muted">No sites loaded.</td></tr></tbody>
+          <thead><tr><th>Site ID</th><th>Name</th><th>Description</th><th>Updated</th></tr></thead>
+          <tbody id="sites"><tr><td colspan="4" class="empty-state"><strong>Loading sites</strong>Site records will appear here.</td></tr></tbody>
         </table>
       </section>
 
       <section>
-        <h2>Agents and Sensors</h2>
+        <div class="section-header">
+          <h2>Agents and Sensors</h2>
+          <span id="agents-loaded">loading</span>
+        </div>
         <table>
           <thead><tr><th>ID</th><th>Type</th><th>Platform</th><th>Last Seen</th></tr></thead>
-          <tbody id="agents"><tr><td colspan="4" class="muted">No agents loaded.</td></tr></tbody>
+          <tbody id="agents"><tr><td colspan="4" class="empty-state"><strong>Loading agents and sensors</strong>Enrolled collectors will appear here.</td></tr></tbody>
         </table>
       </section>
     </div>
 
     <section>
-      <h2>Recent Check-ins</h2>
+      <div class="section-header">
+        <h2>Recent Check-ins</h2>
+        <span id="checkins-loaded">loading</span>
+      </div>
       <table>
         <thead><tr><th>Agent ID</th><th>Site</th><th>Host</th><th>Version</th><th>Received</th></tr></thead>
-        <tbody id="checkins"><tr><td colspan="5" class="muted">No check-ins loaded.</td></tr></tbody>
+        <tbody id="checkins"><tr><td colspan="5" class="empty-state"><strong>Loading check-ins</strong>Agent heartbeat activity will appear here.</td></tr></tbody>
       </table>
     </section>
 
     <section>
-      <h2>Discovered Assets</h2>
+      <div class="section-header">
+        <h2>Discovered Assets</h2>
+        <span id="assets-loaded">loading</span>
+      </div>
       <table>
         <thead><tr><th>Asset ID</th><th>Site</th><th>Host</th><th>IP</th><th>MAC</th><th>OS</th><th>Evidence</th></tr></thead>
-        <tbody id="assets"><tr><td colspan="7" class="muted">No assets loaded.</td></tr></tbody>
+        <tbody id="assets"><tr><td colspan="7" class="empty-state"><strong>Loading assets</strong>Normalized inventory records will appear here.</td></tr></tbody>
       </table>
     </section>
 
     <section>
-      <h2>Release Status</h2>
-      <table>
-        <tbody id="release"><tr><td class="muted">Release metadata not loaded.</td></tr></tbody>
-      </table>
+      <div class="section-header">
+        <h2>Release Status</h2>
+        <span>metadata only</span>
+      </div>
+      <div id="release" class="release-grid">
+        <div class="empty-state"><strong>Loading release metadata</strong>Agent release status will appear here.</div>
+      </div>
     </section>
   </main>
 
   <script>
-    const apiBase = window.location.port === "8080" ? "http://localhost:8000" : "";
+    const apiBase = window.location.port === "8080" ? "http://127.0.0.1:8000" : "";
+    const endpoints = {
+      health: "/health",
+      summary: "/api/v1/control-tower/summary",
+      sites: "/api/v1/sites",
+      agents: "/api/v1/agents",
+      checkins: "/api/v1/control-tower/check-ins",
+      assets: "/api/v1/control-tower/assets",
+      release: "/api/v1/releases/agent"
+    };
 
-    function text(value) {
-      return value === null || value === undefined || value === "" ? "not reported" : String(value);
+    const state = {
+      loading: false
+    };
+
+    function byId(id) {
+      return document.getElementById(id);
+    }
+
+    function text(value, fallback = "not reported") {
+      return value === null || value === undefined || value === "" ? fallback : String(value);
     }
 
     function fmtDate(value) {
@@ -221,58 +611,279 @@
       return Number.isNaN(date.getTime()) ? text(value) : date.toLocaleString();
     }
 
-    function rows(target, values, render, emptyColumns, emptyText) {
-      const body = document.getElementById(target);
-      if (!values || values.length === 0) {
-        body.innerHTML = `<tr><td colspan="${emptyColumns}" class="muted">${emptyText}</td></tr>`;
-        return;
+    function clearNode(node) {
+      while (node.firstChild) {
+        node.removeChild(node.firstChild);
       }
-      body.innerHTML = values.map(render).join("");
     }
 
-    async function loadJSON(path) {
-      const response = await fetch(`${apiBase}${path}`, {headers: {"Accept": "application/json"}});
-      if (!response.ok) throw new Error(`${path} returned ${response.status}`);
-      return response.json();
+    function setStatus(kind, title, detail) {
+      const health = byId("health");
+      byId("status-title").textContent = title;
+      byId("status-detail").textContent = detail;
+      health.textContent = kind;
+      health.className = `pill ${kind === "healthy" ? "ok" : kind === "error" ? "error" : "warn"}`;
+    }
+
+    function setLoaded(id, count, noun) {
+      byId(id).textContent = `${count} ${noun}`;
+    }
+
+    function appendCell(row, value, className) {
+      const cell = document.createElement("td");
+      cell.textContent = text(value);
+      if (className) cell.className = className;
+      row.appendChild(cell);
+    }
+
+    function renderEmpty(tbody, columns, title, detail) {
+      clearNode(tbody);
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      const strong = document.createElement("strong");
+      const span = document.createElement("span");
+
+      cell.colSpan = columns;
+      cell.className = "empty-state";
+      strong.textContent = title;
+      span.textContent = detail;
+      cell.appendChild(strong);
+      cell.appendChild(span);
+      row.appendChild(cell);
+      tbody.appendChild(row);
+    }
+
+    function renderError(tbody, columns, message) {
+      clearNode(tbody);
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = columns;
+      cell.className = "empty-state danger";
+      cell.textContent = message;
+      row.appendChild(cell);
+      tbody.appendChild(row);
+    }
+
+    function renderRows(target, values, columns, emptyTitle, emptyDetail, render) {
+      const body = byId(target);
+      clearNode(body);
+      if (!values || values.length === 0) {
+        renderEmpty(body, columns, emptyTitle, emptyDetail);
+        return;
+      }
+      values.forEach(item => {
+        const row = document.createElement("tr");
+        render(row, item);
+        body.appendChild(row);
+      });
+    }
+
+    function renderRelease(release) {
+      const target = byId("release");
+      const items = [
+        ["Server Version", release.server_version],
+        ["Expected Agent", release.expected_agent_version],
+        ["Channel", release.channel],
+        ["Update Available", release.update_available ? "yes" : "no"],
+        ["Update Execution", release.update_execution],
+        ["Status", release.message]
+      ];
+
+      clearNode(target);
+      items.forEach(([label, value]) => {
+        const item = document.createElement("div");
+        const key = document.createElement("span");
+        const val = document.createElement("strong");
+        item.className = "release-item";
+        key.textContent = label;
+        val.textContent = text(value);
+        item.appendChild(key);
+        item.appendChild(val);
+        target.appendChild(item);
+      });
+    }
+
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function loadJSON(path, options) {
+      const method = options && options.method ? options.method.toUpperCase() : "GET";
+      const attempts = method === "GET" ? 3 : 1;
+      let lastError = null;
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const response = await fetch(`${apiBase}${path}`, {
+          ...options,
+          headers: {"Accept": "application/json", ...(options && options.headers ? options.headers : {})}
+        });
+        if (response.ok) {
+          return response.json();
+        }
+
+        let detail = `${path} returned ${response.status}`;
+        try {
+          const body = await response.json();
+          if (body.detail) detail = `${detail}: ${body.detail}`;
+        } catch (_) {
+          // Keep the status-only error when the body is not JSON.
+        }
+        lastError = new Error(detail);
+        if (attempt < attempts && response.status >= 500) {
+          await delay(350 * attempt);
+          continue;
+        }
+        throw lastError;
+      }
+
+      throw lastError || new Error(`${path} did not return a response`);
     }
 
     async function refresh() {
+      if (state.loading) return;
+      state.loading = true;
+      byId("refresh").disabled = true;
+      setStatus("loading", "Loading Control Tower data", "Waiting for the local API to respond.");
+
       try {
-        const [health, summary, sites, agents, checkins, assets, release] = await Promise.all([
-          loadJSON("/health"),
-          loadJSON("/api/v1/control-tower/summary"),
-          loadJSON("/api/v1/sites"),
-          loadJSON("/api/v1/agents"),
-          loadJSON("/api/v1/control-tower/check-ins"),
-          loadJSON("/api/v1/control-tower/assets"),
-          loadJSON("/api/v1/releases/agent")
-        ]);
+        const health = await loadJSON(endpoints.health);
+        const summary = await loadJSON(endpoints.summary);
+        const sites = await loadJSON(endpoints.sites);
+        const agents = await loadJSON(endpoints.agents);
+        const checkins = await loadJSON(endpoints.checkins);
+        const assets = await loadJSON(endpoints.assets);
+        const release = await loadJSON(endpoints.release);
 
-        document.getElementById("health").textContent = `${health.status} ${health.version}`;
-        document.getElementById("site-count").textContent = summary.site_count;
-        document.getElementById("agent-count").textContent = summary.agent_count;
-        document.getElementById("checkin-count").textContent = summary.checkin_count;
-        document.getElementById("asset-count").textContent = summary.asset_count;
-        document.getElementById("evidence-count").textContent = summary.evidence_count;
+        byId("site-count").textContent = summary.site_count;
+        byId("agent-count").textContent = summary.agent_count;
+        byId("checkin-count").textContent = summary.checkin_count;
+        byId("asset-count").textContent = summary.asset_count;
+        byId("evidence-count").textContent = summary.evidence_count;
 
-        rows("sites", sites.sites, site => `<tr><td>${text(site.site_id)}</td><td>${text(site.name)}</td><td>${fmtDate(site.updated_at)}</td></tr>`, 3, "No sites found.");
-        rows("agents", agents.agents, agent => `<tr><td>${text(agent.agent_id)}</td><td>${text(agent.agent_type)}</td><td>${text(agent.platform)}</td><td>${fmtDate(agent.last_seen_at)}</td></tr>`, 4, "No agents or sensors found.");
-        rows("checkins", checkins.check_ins, item => `<tr><td>${text(item.agent_id)}</td><td>${text(item.site_id)}</td><td>${text(item.hostname)}</td><td>${text(item.version)}</td><td>${fmtDate(item.received_at)}</td></tr>`, 5, "No check-ins found.");
-        rows("assets", assets.assets, asset => `<tr><td>${text(asset.asset_id)}</td><td>${text(asset.site_id)}</td><td>${text(asset.hostname)}</td><td>${text(asset.primary_ip)}</td><td>${text(asset.mac)}</td><td>${text(asset.os)}</td><td>${text(asset.evidence_count)}</td></tr>`, 7, "No assets found.");
+        renderRows(
+          "sites",
+          sites.sites,
+          4,
+          "No sites yet",
+          "Create a site to anchor future agent enrollments and inventory submissions.",
+          (row, site) => {
+            appendCell(row, site.site_id);
+            appendCell(row, site.name);
+            appendCell(row, site.description, "muted");
+            appendCell(row, fmtDate(site.updated_at));
+          }
+        );
 
-        document.getElementById("release").innerHTML = `
-          <tr><th>Server Version</th><td>${text(release.server_version)}</td></tr>
-          <tr><th>Expected Agent</th><td>${text(release.expected_agent_version)}</td></tr>
-          <tr><th>Channel</th><td>${text(release.channel)}</td></tr>
-          <tr><th>Update Execution</th><td>${text(release.update_execution)}</td></tr>
-          <tr><th>Status</th><td>${text(release.message)}</td></tr>`;
+        renderRows(
+          "agents",
+          agents.agents,
+          4,
+          "No agents or sensors yet",
+          "Enroll an endpoint agent or passive sensor to begin receiving check-ins.",
+          (row, agent) => {
+            appendCell(row, agent.agent_id);
+            appendCell(row, agent.agent_type);
+            appendCell(row, agent.platform || agent.architecture);
+            appendCell(row, fmtDate(agent.last_seen_at));
+          }
+        );
+
+        renderRows(
+          "checkins",
+          checkins.check_ins,
+          5,
+          "No check-ins yet",
+          "Agent heartbeat records will appear after enrolled agents report status.",
+          (row, item) => {
+            appendCell(row, item.agent_id);
+            appendCell(row, item.site_id);
+            appendCell(row, item.hostname);
+            appendCell(row, item.version);
+            appendCell(row, fmtDate(item.received_at));
+          }
+        );
+
+        renderRows(
+          "assets",
+          assets.assets,
+          7,
+          "No discovered assets yet",
+          "Run a local inventory collection to populate assets and evidence counts.",
+          (row, asset) => {
+            appendCell(row, asset.asset_id);
+            appendCell(row, asset.site_id);
+            appendCell(row, asset.hostname);
+            appendCell(row, asset.primary_ip);
+            appendCell(row, asset.mac);
+            appendCell(row, asset.os);
+            appendCell(row, asset.evidence_count);
+          }
+        );
+
+        renderRelease(release);
+        setLoaded("sites-loaded", sites.sites.length, "sites");
+        setLoaded("agents-loaded", agents.agents.length, "records");
+        setLoaded("checkins-loaded", checkins.check_ins.length, "check-ins");
+        setLoaded("assets-loaded", assets.assets.length, "assets");
+        setStatus("healthy", `${health.service} is ${health.status}`, `Dashboard data loaded from ${apiBase || "same-origin API"}.`);
+        byId("last-updated").textContent = `updated ${new Date().toLocaleTimeString()}`;
+        byId("last-updated").className = "pill ok";
       } catch (error) {
-        document.getElementById("health").textContent = "error";
-        document.getElementById("health").className = "pill error";
-        document.getElementById("release").innerHTML = `<tr><td class="error">${text(error.message)}</td></tr>`;
+        setStatus("error", "API data could not be loaded", text(error.message));
+        byId("last-updated").textContent = "not updated";
+        byId("last-updated").className = "pill error";
+        renderError(byId("sites"), 4, "Sites unavailable until the API responds.");
+        renderError(byId("agents"), 4, "Agents and sensors unavailable until the API responds.");
+        renderError(byId("checkins"), 5, "Check-ins unavailable until the API responds.");
+        renderError(byId("assets"), 7, "Assets unavailable until the API responds.");
+      } finally {
+        state.loading = false;
+        byId("refresh").disabled = false;
       }
     }
 
+    async function createSite(event) {
+      event.preventDefault();
+      const button = byId("create-site");
+      const status = byId("form-status");
+      const siteId = byId("site-id").value.trim();
+      const name = byId("site-name").value.trim();
+      const description = byId("site-description").value.trim();
+
+      status.className = "form-status";
+      if (!siteId || !name) {
+        status.textContent = "Site ID and name are required.";
+        status.className = "form-status error";
+        return;
+      }
+
+      button.disabled = true;
+      status.textContent = "Saving site...";
+
+      try {
+        await loadJSON(endpoints.sites, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            site_id: siteId,
+            name,
+            description: description || null
+          })
+        });
+        status.textContent = `Saved ${siteId}.`;
+        status.className = "form-status ok";
+        event.target.reset();
+        await refresh();
+      } catch (error) {
+        status.textContent = text(error.message, "Failed to save site.");
+        status.className = "form-status error";
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    byId("refresh").addEventListener("click", refresh);
+    byId("site-form").addEventListener("submit", createSite);
     refresh();
   </script>
 </body>
