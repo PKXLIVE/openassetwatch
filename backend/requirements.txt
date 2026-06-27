@@ -2,6 +2,6 @@ fastapi>=0.109.1
 uvicorn[standard]>=0.11.7
 sqlalchemy>=2.0.0
 psycopg2-binary
-pydantic>=2.4.0
+pydantic>=2.13.4
 pydantic-settings
 python-dotenv>=1.2.2
