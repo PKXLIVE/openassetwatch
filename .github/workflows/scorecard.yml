@@ -11,11 +11,12 @@ on:
 
 permissions:
   contents: read
-  security-events: write
-  id-token: write
 
 jobs:
   scorecard:
+    permissions:
+      contents: read
+      security-events: write
     name: Scorecard
     runs-on: ubuntu-latest
     if: ${{ github.event.repository.private == false }}
