@@ -2,9 +2,21 @@
 
 **OpenAssetWatch** is an open-source asset intelligence platform designed to help families, home labs, small teams, and future enterprise users understand what is on their network, what changed, and what should be fixed first.
 
-The long-term vision is to provide Armis-style visibility using open-source-friendly components: local collectors, network discovery, passive sensing, asset enrichment, risk scoring, AI-assisted guidance, and future Splunk CIM-compatible export.
+The long-term vision is to provide enterprise-grade asset visibility using open-source-friendly components: local collectors, network discovery, passive sensing, asset enrichment, risk scoring, AI-assisted guidance, and future Splunk CIM-compatible export.
 
 > Status: Early MVP / active development
+
+---
+
+## Official Project
+
+The official OpenAssetWatch source repository is:
+
+https://github.com/PKXLIVE/openassetwatch
+
+Forks are welcome under the Apache License, Version 2.0, but forks and modified builds must not represent themselves as the official OpenAssetWatch project or official OpenAssetWatch releases.
+
+Official releases, checksums, manifests, security advisories, and release notes are published from the official repository unless maintainers explicitly state otherwise.
 
 ---
 

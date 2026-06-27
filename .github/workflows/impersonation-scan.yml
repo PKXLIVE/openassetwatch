@@ -1,0 +1,21 @@
+name: Repo Impersonation Scan
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: markhinderliter/repo-impersonation-monitor@v0.1.0
+        with:
+          project-name: OpenAssetWatch
+          project-repo: PKXLIVE/openassetwatch
+          min-tier: HIGH
+          max-candidates: "100"
+          dry-run: "true"
