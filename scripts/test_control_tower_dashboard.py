@@ -35,18 +35,74 @@ class ControlTowerDashboardTests(unittest.TestCase):
 
     def test_dashboard_contains_required_mvp_sections(self) -> None:
         required_sections = (
-            "Overview metrics",
+            "Control Tower Dashboard",
+            "Dashboard",
+            "Assets",
+            "Collectors",
+            "Sites",
+            "Evidence",
+            "Findings",
+            "Policies",
+            "Reports",
+            "Settings",
+            "Total assets",
+            "Unknown assets",
+            "Unmanaged assets",
+            "Active collectors",
+            "Stale collectors",
+            "Evidence records",
             "Getting Started",
             "Create Site",
-            "Sites",
-            "Agents and Sensors",
+            "Asset Mix By Type",
+            "Collector Health",
             "Recent Check-ins",
-            "Discovered Assets",
+            "Recent Evidence",
+            "Top Findings / Attention Items",
+            "Sites Overview",
+            "Asset Inventory",
+            "Asset Detail",
+            "Endpoint Agents",
+            "Passive Sensors",
+            "Evidence Source",
+            "Policy Guardrails",
+            "Recommended Next Steps",
             "Release Status",
         )
         for section in required_sections:
             with self.subTest(section=section):
                 self.assertIn(section, self.dashboard)
+
+    def test_dashboard_contains_asset_filters_and_attention_copy(self) -> None:
+        expected_copy = (
+            'id="asset-search"',
+            'data-filter="unknown"',
+            'data-filter="iot"',
+            'data-filter="infrastructure"',
+            'data-filter="workstation"',
+            'data-filter="stale"',
+            'data-filter="missing-tooling"',
+            "Unknown device observed",
+            "Unmanaged IoT device",
+            "Missing security tooling sample",
+            "Stale collector sample",
+            "Printer inventory review",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
+    def test_dashboard_documents_safe_read_only_policy_states(self) -> None:
+        expected_copy = (
+            "Passive-first collection",
+            "Active checks disabled",
+            "SNMP disabled",
+            "Packet capture disabled",
+            "Remote commands unavailable",
+            "Release metadata only",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
 
     def test_dashboard_includes_loading_empty_and_error_states(self) -> None:
         expected_copy = (
@@ -54,7 +110,9 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "No sites yet",
             "No agents or sensors yet",
             "No check-ins yet",
-            "No discovered assets yet",
+            "No matching assets",
+            "No evidence yet",
+            "No findings yet",
             "API data could not be loaded",
             "Sites unavailable until the API responds.",
         )
@@ -99,10 +157,15 @@ class ControlTowerDashboardTests(unittest.TestCase):
         self.assertNotIn("script src=", self.dashboard)
         self.assertNotIn("link rel=\"stylesheet\"", self.dashboard)
         forbidden_terms = (
-            "remote command",
             "credential collection",
-            "active scan",
             "download and execute",
+            "exploit payload",
+            "webshell",
+            "start scan",
+            "run command",
+            "execute command",
+            "open shell",
+            "collect credentials",
         )
         lowered = self.dashboard.lower()
         for term in forbidden_terms:

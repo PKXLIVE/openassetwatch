@@ -78,10 +78,15 @@ Open the UI:
 http://localhost:8080
 ```
 
-The dashboard provides overview metrics, sites, agents and sensors, recent
-check-ins, discovered assets, and release metadata status. Empty states explain
-what will appear as agents enroll and inventory evidence arrives. A local
-create-site form uses `POST /api/v1/sites` to add site metadata only.
+The dashboard is a static Control Tower MVP UI with a left navigation shell and
+read-only views for Dashboard, Assets, Collectors, Sites, Evidence, Findings,
+Policies, Reports, and Settings. It provides overview metrics, attention items,
+asset mix, collector health, recent check-ins, recent evidence, discovered
+assets, site cards, release metadata, and policy guardrail summaries. Empty
+states explain what will appear as agents enroll and inventory evidence arrives.
+A local create-site form uses `POST /api/v1/sites` to add site metadata only.
+Asset search and quick filters run in the browser against already-loaded local
+API data.
 
 Check API health:
 
@@ -116,6 +121,10 @@ Validate the static dashboard wiring without starting Compose:
 ```powershell
 python scripts/test_control_tower_dashboard.py
 ```
+
+The dashboard test checks the expected local endpoints, navigation sections,
+empty/error states, safe policy copy, asset filters, and create-site form. It
+also verifies the static page does not load external assets.
 
 Validate the running dashboard and backing API:
 
