@@ -22,7 +22,7 @@ jobs:
           format: spdx-json
           output-file: openassetwatch-sbom.spdx.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-sbom
           path: openassetwatch-sbom.spdx.json

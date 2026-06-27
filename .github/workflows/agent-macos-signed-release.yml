@@ -134,7 +134,7 @@ jobs:
             --macos-install-root "dist/agent/${{ steps.release.outputs.version }}/macos-install" \
             --pkg "$PKG" \
             --require-signed-binary
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-agent-macos-signed
           path: |

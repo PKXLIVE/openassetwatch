@@ -143,7 +143,7 @@ jobs:
           python3 ./scripts/release/validate_agent_rpm.py --version "${{ needs.resolve-release.outputs.version }}"
           ./scripts/release/package_agent_targz.ps1 -ArtifactDir "dist/agent/${{ needs.resolve-release.outputs.version }}/linux-amd64"
           ./scripts/release/validate_agent_release.ps1 -Version "${{ needs.resolve-release.outputs.version }}" -IncludePackages
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-agent-linux-amd64-release-candidate
           path: |
@@ -173,7 +173,7 @@ jobs:
           ./scripts/release/build_agent_dist.ps1 -Version "${{ needs.resolve-release.outputs.version }}" -TargetOS windows -TargetArch amd64
           ./scripts/release/build_agent_msi.ps1 -Version "${{ needs.resolve-release.outputs.version }}" -TargetArch amd64
           python ./scripts/release/validate_agent_windows_msi.py --version "${{ needs.resolve-release.outputs.version }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-agent-windows-amd64-release-candidate
           path: |
@@ -197,7 +197,7 @@ jobs:
           python-version: "3.x"
       - name: Build unsigned arm64 PKG
         run: bash scripts/release/build_agent_macos_pkg.sh --version "${{ needs.resolve-release.outputs.version }}" --package-version "${{ needs.resolve-release.outputs.macos_package_version }}" --arch-mode arm64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-agent-macos-arm64-release-candidate
           path: |
@@ -220,7 +220,7 @@ jobs:
           python-version: "3.x"
       - name: Build unsigned Intel PKG
         run: bash scripts/release/build_agent_macos_pkg.sh --version "${{ needs.resolve-release.outputs.version }}" --package-version "${{ needs.resolve-release.outputs.macos_package_version }}" --arch-mode amd64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-agent-macos-amd64-release-candidate
           path: |
@@ -243,7 +243,7 @@ jobs:
           python-version: "3.x"
       - name: Build unsigned universal PKG
         run: bash scripts/release/build_agent_macos_pkg.sh --version "${{ needs.resolve-release.outputs.version }}" --package-version "${{ needs.resolve-release.outputs.macos_package_version }}" --arch-mode universal
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-agent-macos-universal-release-candidate
           path: |
@@ -286,7 +286,7 @@ jobs:
             --expected-package-type linux-rpm \
             --expected-package-type linux-targz \
             --write-manifest "dist/agent/${{ needs.resolve-release.outputs.version }}/release-publication-manifest.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-agent-release-candidate-bundle
           path: |

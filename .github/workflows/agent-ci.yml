@@ -125,7 +125,7 @@ jobs:
           done
           systemd-analyze --root="$EXTRACT" verify oaw-agent.service oaw-agent.timer
           sudo visudo -cf "$EXTRACT/etc/sudoers.d/openassetwatch-agent"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-agent-linux-deb-unsigned
           path: |
@@ -175,7 +175,7 @@ jobs:
           done
           systemd-analyze --root="$ROOT" verify oaw-agent.service oaw-agent.timer
           sudo visudo -cf "$ROOT/etc/sudoers.d/openassetwatch-agent"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-agent-linux-rpm-unsigned
           path: |
@@ -1050,7 +1050,7 @@ jobs:
           /usr/sbin/pkgutil --pkg-info com.openassetwatch.agent | grep "version: 0.1.102"
           sudo launchctl print system/com.openassetwatch.agent >/dev/null
           sudo bash scripts/release/uninstall_agent_macos.sh --remove-state --remove-logs --forget-receipt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openassetwatch-agent-macos-unsigned
           path: |
