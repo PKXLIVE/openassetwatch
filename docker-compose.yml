@@ -67,5 +67,21 @@ services:
       retries: 12
       start_period: 5s
 
+  demo-seed:
+    profiles: ["demo"]
+    build:
+      context: ./backend
+    image: openassetwatch-control-tower-backend:local
+    working_dir: /workspace
+    environment:
+      DATABASE_URL: postgresql+psycopg2://openassetwatch:${OAW_POSTGRES_PASSWORD:-openassetwatch_local_only_change_me}@postgres:5432/openassetwatch
+      OPENASSETWATCH_DEMO_SEED_ALLOW_COMPOSE_HOST: "1"
+    volumes:
+      - .:/workspace:ro
+    command: ["python", "scripts/seed_control_tower_demo.py", "--allow-compose-database-host"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:

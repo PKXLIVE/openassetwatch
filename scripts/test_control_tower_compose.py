@@ -56,6 +56,19 @@ class ControlTowerComposeReadinessTests(unittest.TestCase):
         requirements = (REPO_ROOT / "backend" / "requirements.txt").read_text(encoding="utf-8")
         self.assertNotRegex(requirements, r"(?m)^redis\b")
 
+    def test_demo_seed_service_uses_backend_image_and_profile(self) -> None:
+        self.assertRegex(
+            self.compose_text,
+            r"(?s)demo-seed:\s+profiles: \[\"demo\"\].*?image: openassetwatch-control-tower-backend:local",
+        )
+        self.assertIn("OPENASSETWATCH_DEMO_SEED_ALLOW_COMPOSE_HOST: \"1\"", self.compose_text)
+        self.assertIn("scripts/seed_control_tower_demo.py", self.compose_text)
+        self.assertIn("--allow-compose-database-host", self.compose_text)
+        self.assertRegex(
+            self.compose_text,
+            r"(?s)demo-seed:.*?depends_on:\s+postgres:\s+condition: service_healthy",
+        )
+
     def test_docs_match_compose_readiness(self) -> None:
         for path in DOC_FILES:
             with self.subTest(path=path):

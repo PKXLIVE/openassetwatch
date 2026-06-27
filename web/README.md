@@ -21,6 +21,11 @@ detail panel for the data already returned by the local Control Tower API. The
 Policies and Reports views are informational only; they do not execute checks,
 commands, downloads, or remediation.
 
+Sidebar navigation uses local hash routes such as `#dashboard`, `#assets`, and
+`#settings`. Refresh reloads local API data, the attention banner opens the
+read-only Findings view, Getting Started buttons navigate to safe local helper
+panels, and rows update read-only asset or collector detail panels.
+
 The Compose `web` service depends on the backend healthcheck, so local startup
 should use:
 
@@ -54,8 +59,13 @@ curl.exe http://127.0.0.1:8080
 Populate local demo data for visual dashboard testing:
 
 ```powershell
-python scripts/seed_control_tower_demo.py
+docker compose --profile demo run --rm demo-seed
 ```
+
+That Compose command uses the backend image dependencies and connects only to
+the local Compose database service. If backend Python dependencies are already
+installed locally, `python scripts/seed_control_tower_demo.py` also works
+against `127.0.0.1:5432`.
 
 The seed is local-only and idempotent for its known demo records. It creates
 synthetic demo sites, endpoint agents, a passive sensor placeholder, check-ins,

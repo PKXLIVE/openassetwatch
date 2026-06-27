@@ -79,14 +79,15 @@ http://localhost:8080
 ```
 
 The dashboard is a static Control Tower MVP UI with a left navigation shell and
-read-only views for Dashboard, Assets, Collectors, Sites, Evidence, Findings,
+client-side views for Dashboard, Assets, Collectors, Sites, Evidence, Findings,
 Policies, Reports, and Settings. It provides overview metrics, attention items,
 asset mix, collector health, recent check-ins, recent evidence, discovered
 assets, site cards, release metadata, and policy guardrail summaries. Empty
 states explain what will appear as agents enroll and inventory evidence arrives.
 A local create-site form uses `POST /api/v1/sites` to add site metadata only.
-Asset search and quick filters run in the browser against already-loaded local
-API data.
+Asset search, quick filters, row details, hash routes, and Getting Started
+actions run in the browser against already-loaded local API data. The browser
+can copy local demo commands, but it does not execute them.
 
 Check API health:
 
@@ -140,17 +141,32 @@ curl.exe http://127.0.0.1:8080
 
 A fresh local stack starts empty. To populate the dashboard with deterministic
 synthetic sample data for visual testing, run the local-only demo seed after
-Compose is healthy:
+Compose is healthy. The recommended path uses the backend Compose image so the
+required Python dependencies are already available:
+
+```powershell
+docker compose --profile demo run --rm demo-seed
+```
+
+If you already have the backend Python dependencies installed locally, the host
+Python path remains available:
 
 ```powershell
 python scripts/seed_control_tower_demo.py
 ```
 
 The script defaults to the local Compose PostgreSQL endpoint at
-`127.0.0.1:5432` and refuses non-local database hosts. It is idempotent for the
-known demo records: running it again refreshes the same demo sites, agents,
-check-ins, inventory collections, and assets without duplicating site or agent
-records.
+`127.0.0.1:5432` and refuses non-local database hosts. Inside Docker Compose,
+the service host `postgres` is allowed only by the explicit demo profile command
+or by setting `OPENASSETWATCH_DEMO_SEED_ALLOW_COMPOSE_HOST=1` with the seed
+script. Arbitrary external database hosts remain refused. The seed is
+idempotent for the known demo records: running it again refreshes the same demo
+sites, agents, check-ins, inventory collections, and assets without duplicating
+site or agent records.
+
+If local Python reports missing modules such as `sqlalchemy` or `psycopg2`, use
+the Compose seed command above or install `backend/requirements.txt` into your
+local virtual environment.
 
 Seeded records are clearly marked as demo/sample data and use documentation IP
 ranges plus locally administered synthetic MAC addresses. The seed includes:
