@@ -78,6 +78,11 @@ Open the UI:
 http://localhost:8080
 ```
 
+The dashboard provides overview metrics, sites, agents and sensors, recent
+check-ins, discovered assets, and release metadata status. Empty states explain
+what will appear as agents enroll and inventory evidence arrives. A local
+create-site form uses `POST /api/v1/sites` to add site metadata only.
+
 Check API health:
 
 ```powershell
@@ -104,6 +109,22 @@ View logs:
 
 ```powershell
 docker compose logs -f backend
+```
+
+Validate the static dashboard wiring without starting Compose:
+
+```powershell
+python scripts/test_control_tower_dashboard.py
+```
+
+Validate the running dashboard and backing API:
+
+```powershell
+curl.exe http://127.0.0.1:8000/health
+curl.exe http://127.0.0.1:8000/api/v1/control-tower/summary
+curl.exe http://127.0.0.1:8000/api/v1/sites
+curl.exe http://127.0.0.1:8000/api/v1/agents
+curl.exe http://127.0.0.1:8080
 ```
 
 Reset local development data:
