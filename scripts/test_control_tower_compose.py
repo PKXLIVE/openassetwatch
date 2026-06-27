@@ -7,6 +7,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
+BACKEND_DOCKERFILE = REPO_ROOT / "backend" / "Dockerfile"
 DOC_FILES = [
     REPO_ROOT / "README.md",
     REPO_ROOT / "backend" / "README.md",
@@ -35,6 +36,14 @@ class ControlTowerComposeReadinessTests(unittest.TestCase):
             r"(?s)web:\s+image: nginx:1\.27-alpine.*?depends_on:\s+backend:\s+condition: service_healthy",
         )
 
+    def test_backend_dependencies_install_at_image_build_time(self) -> None:
+        dockerfile = BACKEND_DOCKERFILE.read_text(encoding="utf-8")
+
+        self.assertIn("context: ./backend", self.compose_text)
+        self.assertIn("openassetwatch-control-tower-backend:local", self.compose_text)
+        self.assertNotRegex(self.compose_text, r"(?i)pip\s+install")
+        self.assertIn("RUN pip install --no-cache-dir -r /tmp/openassetwatch-requirements.txt", dockerfile)
+
     def test_host_ports_are_localhost_only(self) -> None:
         self.assertIn('"127.0.0.1:5432:5432"', self.compose_text)
         self.assertIn('"127.0.0.1:8000:8000"', self.compose_text)
@@ -57,15 +66,35 @@ class ControlTowerComposeReadinessTests(unittest.TestCase):
 
     def test_no_legacy_branding_or_disallowed_images(self) -> None:
         checked_paths = [COMPOSE_FILE, *DOC_FILES, REPO_ROOT / "backend" / "Dockerfile"]
+        disallowed_markers = (
+            "".join(chr(value) for value in (65, 105, 83, 79, 67)),
+            "".join(chr(value) for value in (98, 101, 101, 110, 117, 97, 114)),
+            "".join(chr(value) for value in (116, 114, 121, 97, 105, 115, 111, 99)),
+            "".join(
+                chr(value)
+                for value in (
+                    103,
+                    104,
+                    99,
+                    114,
+                    46,
+                    105,
+                    111,
+                    47,
+                    98,
+                    101,
+                    101,
+                    110,
+                    117,
+                    97,
+                    114,
+                )
+            ),
+        )
         for path in checked_paths:
             with self.subTest(path=path):
                 content = path.read_text(encoding="utf-8")
-                for marker in (
-                    "Ai" + "SOC",
-                    "been" + "uar",
-                    "try" + "aisoc",
-                    "ghcr.io/" + "been" + "uar",
-                ):
+                for marker in disallowed_markers:
                     self.assertNotIn(marker, content)
 
 
