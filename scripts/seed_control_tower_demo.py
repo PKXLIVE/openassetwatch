@@ -24,7 +24,9 @@ FORBIDDEN_SEED_TERMS = (
     "secret",
     "token",
     "command execution",
+    "exploit payload",
     "active scan",
+    "webshell",
     "credential collection",
 )
 
@@ -75,6 +77,7 @@ class DemoAsset:
     evidence_count: int
     last_seen_minutes_ago: int
     category: str
+    attention: str
 
 
 DEMO_SITES = (
@@ -108,7 +111,7 @@ DEMO_AGENTS = (
         12,
     ),
     DemoAgent(
-        "sensor-span-demo-01",
+        "sensor-passive-demo-01",
         "small-office",
         "Passive Sensor Demo 01",
         "network-sensor",
@@ -124,19 +127,20 @@ DEMO_AGENTS = (
 DEMO_CHECKINS = (
     DemoCheckIn("agent-win-demo-01", "home-lab", "Windows", "amd64", "0.1.0-demo", "demo-win-workstation", "healthy-demo", 5),
     DemoCheckIn("agent-macos-demo-01", "home-lab", "macOS", "arm64", "0.1.0-demo", "demo-macos-laptop", "healthy-demo", 12),
-    DemoCheckIn("sensor-span-demo-01", "small-office", "Linux", "amd64", "0.1.0-demo", "demo-passive-sensor", "passive-demo", 18),
+    DemoCheckIn("sensor-passive-demo-01", "small-office", "Linux", "amd64", "0.1.0-demo", "demo-passive-sensor", "passive-demo", 18),
     DemoCheckIn("agent-win-demo-01", "home-lab", "Windows", "amd64", "0.1.0-demo", "demo-win-workstation", "healthy-demo", 65),
-    DemoCheckIn("sensor-span-demo-01", "small-office", "Linux", "amd64", "0.1.0-demo", "demo-passive-sensor", "passive-demo", 82),
+    DemoCheckIn("sensor-passive-demo-01", "small-office", "Linux", "amd64", "0.1.0-demo", "demo-passive-sensor", "passive-demo", 82),
 )
 
 DEMO_ASSETS = (
-    DemoAsset("asset-win-workstation-demo", "home-lab", "demo-win-workstation", "192.0.2.10", "02:00:5e:10:00:10", "Windows 11 Demo", "Windows/amd64", "agent-win-demo-01", 7, 4, "workstation"),
-    DemoAsset("asset-macos-laptop-demo", "home-lab", "demo-macos-laptop", "192.0.2.20", "02:00:5e:10:00:20", "macOS Demo", "macOS/arm64", "agent-macos-demo-01", 6, 10, "laptop"),
-    DemoAsset("asset-linux-server-demo", "home-lab", "demo-linux-server", "192.0.2.30", "02:00:5e:10:00:30", "Linux Demo", "Linux/amd64", "agent-win-demo-01", 8, 14, "server"),
-    DemoAsset("asset-printer-demo", "small-office", "demo-printer", "198.51.100.25", "02:00:5e:20:00:25", "Printer Demo Firmware", "embedded-demo", "sensor-span-demo-01", 4, 16, "printer"),
-    DemoAsset("asset-switch-demo", "small-office", "demo-switch", "198.51.100.2", "02:00:5e:20:00:02", "Switch Demo Firmware", "network-device-demo", "sensor-span-demo-01", 5, 19, "network-switch"),
-    DemoAsset("asset-smart-tv-demo", "small-office", "demo-smart-tv", "203.0.113.44", "02:00:5e:30:00:44", "Smart TV Demo Firmware", "iot-demo", "sensor-span-demo-01", 3, 23, "iot"),
-    DemoAsset("asset-unknown-demo", "small-office", "demo-unknown-device", "203.0.113.88", "02:00:5e:30:00:88", "Unknown Demo Device", "unknown-demo", "sensor-span-demo-01", 2, 27, "unknown"),
+    DemoAsset("asset-win-workstation-demo", "home-lab", "demo-win-workstation", "192.0.2.10", "02:00:5e:10:00:10", "Windows 11 Demo", "Windows/amd64", "agent-win-demo-01", 7, 4, "workstation", "healthy endpoint sample"),
+    DemoAsset("asset-macos-laptop-demo", "home-lab", "demo-macos-laptop", "192.0.2.20", "02:00:5e:10:00:20", "macOS Demo", "macOS/arm64", "agent-macos-demo-01", 6, 10, "laptop", "missing security tooling sample"),
+    DemoAsset("asset-linux-server-demo", "home-lab", "demo-linux-server", "192.0.2.30", "02:00:5e:10:00:30", "Linux Demo", "Linux/amd64", "agent-win-demo-01", 8, 14, "server", "stale collector sample"),
+    DemoAsset("asset-printer-demo", "small-office", "demo-printer", "198.51.100.25", "02:00:5e:20:00:25", "Printer Demo Firmware", "embedded-demo", "sensor-passive-demo-01", 4, 16, "printer", "printer inventory sample"),
+    DemoAsset("asset-switch-demo", "small-office", "demo-switch", "198.51.100.2", "02:00:5e:20:00:02", "Switch Demo Firmware", "network-device-demo", "sensor-passive-demo-01", 5, 19, "network-switch", "network switch sample"),
+    DemoAsset("asset-smart-tv-demo", "small-office", "demo-smart-tv", "203.0.113.44", "02:00:5e:30:00:44", "Smart TV Demo Firmware", "iot-demo", "sensor-passive-demo-01", 3, 23, "iot", "unmanaged IoT device sample"),
+    DemoAsset("asset-mobile-demo", "small-office", "demo-mobile-device", "203.0.113.66", "02:00:5e:30:00:66", "Mobile Demo OS", "mobile-demo", "sensor-passive-demo-01", 3, 25, "mobile", "unmanaged mobile device sample"),
+    DemoAsset("asset-unknown-demo", "small-office", "demo-unknown-device", "203.0.113.88", "02:00:5e:30:00:88", "Unknown Demo Device", "unknown-demo", "sensor-passive-demo-01", 2, 27, "unknown", "unknown device sample"),
 )
 
 
@@ -181,6 +185,7 @@ def seed_payloads() -> list[dict[str, Any]]:
                 "os": asset.os,
                 "platform": asset.platform,
                 "source_agent_id": asset.source_agent_id,
+                "attention": asset.attention,
             }
         )
     return payloads
@@ -424,6 +429,7 @@ class SqlDemoSeedStore(DemoSeedStore):
             "demo": True,
             "sample_data": True,
             "category": asset.category,
+            "attention": asset.attention,
             "source": "control-tower-demo-seed",
         }
         with self.engine.begin() as connection:

@@ -70,7 +70,7 @@ class ControlTowerDemoSeedTests(unittest.TestCase):
         self.assertEqual([site.site_id for site in self.seed.DEMO_SITES], ["home-lab", "small-office"])
         self.assertEqual(
             [agent.agent_id for agent in self.seed.DEMO_AGENTS],
-            ["agent-win-demo-01", "agent-macos-demo-01", "sensor-span-demo-01"],
+            ["agent-win-demo-01", "agent-macos-demo-01", "sensor-passive-demo-01"],
         )
         for site in self.seed.DEMO_SITES:
             self.assertIn("Demo", site.name)
@@ -79,8 +79,11 @@ class ControlTowerDemoSeedTests(unittest.TestCase):
                 self.assertTrue(self.seed.documentation_network_ip(asset.primary_ip))
                 self.assertTrue(self.seed.locally_administered_mac(asset.mac))
                 self.assertIn("demo", asset.asset_id)
+        self.assertIn("asset-mobile-demo", [asset.asset_id for asset in self.seed.DEMO_ASSETS])
 
     def test_seed_payloads_do_not_contain_forbidden_terms(self) -> None:
+        self.assertIn("exploit payload", self.seed.FORBIDDEN_SEED_TERMS)
+        self.assertIn("webshell", self.seed.FORBIDDEN_SEED_TERMS)
         self.seed.validate_seed_payloads()
 
     def test_running_seed_twice_does_not_duplicate_records(self) -> None:
@@ -94,7 +97,7 @@ class ControlTowerDemoSeedTests(unittest.TestCase):
         self.assertEqual(len(store.agents), 3)
         self.assertEqual(len(store.checkins), len(self.seed.DEMO_CHECKINS))
         self.assertEqual(len(store.assets), len(self.seed.DEMO_ASSETS))
-        self.assertEqual(first["summary"]["evidence_count"], 35)
+        self.assertEqual(first["summary"]["evidence_count"], 38)
 
     def test_site_metadata_is_reapplied_after_agent_upserts(self) -> None:
         store = InMemoryDemoSeedStore()

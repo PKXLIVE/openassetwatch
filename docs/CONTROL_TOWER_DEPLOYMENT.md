@@ -150,7 +150,9 @@ ranges plus locally administered synthetic MAC addresses. The seed includes:
 - two endpoint agents and one passive network sensor placeholder
 - recent synthetic check-ins
 - Windows workstation, macOS laptop, Linux server, printer, network switch,
-  smart TV/IoT, and unknown-device assets
+  smart TV/IoT, unmanaged mobile, and unknown-device assets
+- safe attention themes such as stale collector, missing security tooling,
+  unmanaged IoT device, and unknown device samples
 
 The seed does not run automatically, does not add active scanning, does not
 create credentials, and does not execute remote commands or update behavior.
