@@ -1,0 +1,28 @@
+name: SBOM
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          output-file: openassetwatch-sbom.spdx.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openassetwatch-sbom
+          path: openassetwatch-sbom.spdx.json
