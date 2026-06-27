@@ -63,4 +63,4 @@ module names. Safe production config examples now live under `configs/`.
 
 The Go config loader and transitional Python collector config loader now refuse
 paths under `configs/quarantine/` so reference material cannot be accidentally
-loaded through active OAW config paths.
+loaded through active OpenAssetWatch config paths.

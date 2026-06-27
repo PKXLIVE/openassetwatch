@@ -237,6 +237,6 @@ This scaffold must not introduce:
 - Task Scheduler usage for the Windows agent
 - self-update behavior
 - credential storage
-- active scanning
+- no active scanning
 - offensive tooling
-- arbitrary shell command execution
+- no arbitrary shell command execution

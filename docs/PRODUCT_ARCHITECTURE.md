@@ -7,8 +7,9 @@ remediation-focused.
 
 OpenAssetWatch is not copying any source project wholesale. Source-project
 review material, external product inspiration, and reference architecture
-patterns are reference inputs only. OAW keeps defensive concepts that fit its
-own product direction and rejects unsafe or offensive platform behavior.
+patterns are reference inputs only. OpenAssetWatch keeps defensive concepts
+that fit its own product direction and rejects unsafe or offensive platform
+behavior.
 
 ## Hybrid Runtime
 
@@ -42,7 +43,8 @@ configuration, auditability, tenant/site boundaries, and evidence provenance.
 
 Future hosted, self-hosted, and hybrid deployments need a durable identity model
 so the control plane can distinguish tenant, site, deployment, installed agent
-or sensor instance, normalized OAW asset, and future external CMDB mappings.
+or sensor instance, normalized OpenAssetWatch asset, and future external CMDB
+mappings.
 
 The intended identity fields are:
 
@@ -103,7 +105,7 @@ product and control-plane inspiration only. They may inform planning for:
 
 These ideas must be adapted to OpenAssetWatch's purpose and safety posture.
 They do not justify copying another product wholesale, importing unsafe source
-project tools, or changing OAW into a penetration testing, exploitation,
+project tools, or changing OpenAssetWatch into an offensive testing, unsafe
 payload, credential attack, C2, terminal, or raw scanner platform.
 
 ## Current Non-Goals

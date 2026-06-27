@@ -2,7 +2,7 @@
 
 **OpenAssetWatch** is an open-source asset intelligence platform designed to help families, home labs, small teams, and future enterprise users understand what is on their network, what changed, and what should be fixed first.
 
-The long-term vision is to provide enterprise-grade asset visibility using open-source-friendly components: local collectors, network discovery, passive sensing, asset enrichment, risk scoring, AI-assisted guidance, and future Splunk CIM-compatible export.
+The long-term vision is to provide enterprise-grade asset visibility using open-source-friendly components: local collectors, passive-first network visibility, asset enrichment, risk scoring, AI-assisted guidance, and future Splunk CIM-compatible export.
 
 > Status: Early MVP / active development
 
@@ -27,7 +27,7 @@ OpenAssetWatch is being built to answer simple but important questions:
 * What devices are on my network?
 * Which devices are new or unknown?
 * Which devices look like IoT, infrastructure, servers, or workstations?
-* Which devices expose risky services?
+* Which devices have risky exposure signals?
 * Which assets are missing security tooling or vulnerability coverage?
 * Which risks should I focus on first?
 * How can this information be explained clearly to non-technical users?
@@ -91,16 +91,26 @@ OpenAssetWatch collectors are designed to run in different modes:
 
 ```text
 openassetwatch/
-├── backend/                  # FastAPI backend service
-├── collector/                # Standalone collector code
-├── database/                 # Initial database schema
-├── deployment/               # Deployment-related files
-├── docs/                     # Architecture and roadmap documentation
-├── frontend/                 # Future web UI
-├── .github/                  # GitHub Actions workflows
-├── docker-compose.yml        # Local development stack
-├── .env.example              # Environment variable example
-└── README.md
+|-- .github/                  # GitHub workflows, CODEOWNERS, and repo automation
+|-- backend/                  # FastAPI Control Tower API and static dashboard assets
+|-- cmd/                      # Go command entry points such as oaw-agent
+|-- collector/                # Python collector package and tests
+|-- configs/                  # Safe configuration examples and reserved namespaces
+|-- database/                 # PostgreSQL schema bootstrap
+|-- deployment/               # Deployment planning assets
+|-- docker/                   # Docker-related support files
+|-- docs/                     # Architecture, operations, and release documentation
+|-- frontend/                 # Reserved placeholder for future frontend experiments
+|-- installers/               # Installer scaffolds and platform helper scripts
+|-- internal/                 # Go internal packages for agent functionality
+|-- packaging/                # Agent package manifests, templates, and checklists
+|-- pkg/                      # Go package code intended for reuse
+|-- scripts/                  # Local validation, release, and utility scripts
+|-- tests/                    # Cross-cutting test assets
+|-- web/                      # Static web container documentation
+|-- docker-compose.yml        # Local Control Tower development stack
+|-- .env.example              # Local environment variable example
+`-- README.md
 ```
 
 ---
@@ -509,7 +519,7 @@ Future contribution areas may include:
 * Collector development
 * Backend API development
 * Database schema design
-* Frontend/dashboard design
+* Web dashboard design
 * Documentation
 * Testing
 * Packaging and installers

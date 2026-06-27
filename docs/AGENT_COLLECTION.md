@@ -288,7 +288,8 @@ Agent collection is passive and local-only:
 - no port checks
 - no packet injection
 - no credential use
-- no external network calls except explicit submit to the configured OAW backend
+- no external network calls except explicit submit to the configured
+  OpenAssetWatch backend
 - no active probing
 - no cloud sync
 - no raw command wrappers
