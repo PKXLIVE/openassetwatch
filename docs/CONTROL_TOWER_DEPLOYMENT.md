@@ -127,6 +127,34 @@ curl.exe http://127.0.0.1:8000/api/v1/agents
 curl.exe http://127.0.0.1:8080
 ```
 
+## Optional Local Demo Seed Data
+
+A fresh local stack starts empty. To populate the dashboard with deterministic
+synthetic sample data for visual testing, run the local-only demo seed after
+Compose is healthy:
+
+```powershell
+python scripts/seed_control_tower_demo.py
+```
+
+The script defaults to the local Compose PostgreSQL endpoint at
+`127.0.0.1:5432` and refuses non-local database hosts. It is idempotent for the
+known demo records: running it again refreshes the same demo sites, agents,
+check-ins, inventory collections, and assets without duplicating site or agent
+records.
+
+Seeded records are clearly marked as demo/sample data and use documentation IP
+ranges plus locally administered synthetic MAC addresses. The seed includes:
+
+- `home-lab` and `small-office` demo sites
+- two endpoint agents and one passive network sensor placeholder
+- recent synthetic check-ins
+- Windows workstation, macOS laptop, Linux server, printer, network switch,
+  smart TV/IoT, and unknown-device assets
+
+The seed does not run automatically, does not add active scanning, does not
+create credentials, and does not execute remote commands or update behavior.
+
 Reset local development data:
 
 ```powershell

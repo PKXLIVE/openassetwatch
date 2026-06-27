@@ -39,5 +39,17 @@ curl.exe http://127.0.0.1:8000/api/v1/control-tower/summary
 curl.exe http://127.0.0.1:8080
 ```
 
+Populate local demo data for visual dashboard testing:
+
+```powershell
+python scripts/seed_control_tower_demo.py
+```
+
+The seed is local-only and idempotent for its known demo records. It creates
+synthetic demo sites, endpoint agents, a passive sensor placeholder, check-ins,
+and discovered assets using documentation IP ranges and locally administered
+sample MAC addresses. It does not run automatically and does not perform active
+collection or update execution.
+
 Future production UI work should continue toward richer asset inventory,
 evidence, findings, remediation, and connector health views.
