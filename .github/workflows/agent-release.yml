@@ -30,9 +30,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write
-  attestations: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: agent-release-${{ github.ref }}
@@ -365,6 +363,8 @@ jobs:
 
   publish-github-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs:
       - resolve-release
       - assemble-release-candidate
