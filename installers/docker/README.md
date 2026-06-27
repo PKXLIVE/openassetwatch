@@ -1,6 +1,7 @@
 # Docker Installer Scaffold
 
-This compose file is a packaging scaffold for the future Go-based OAW server.
+This compose file is a packaging scaffold for the future Go-based
+OpenAssetWatch server.
 It does not install offensive tools, scanners, payload generators, or credential
 testing utilities.
 

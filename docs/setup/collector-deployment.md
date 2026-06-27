@@ -233,9 +233,9 @@ underlying OS-specific behavior.
 
 Future collector updates should come from the OpenAssetWatch Control Plane,
 which is the formal architecture name for the backend system collectors report
-to. The internal or working name may be OAW Control Tower, but Control Tower
-should not be the sole public-facing product name because it may be confused
-with AWS Control Tower.
+to. Control Tower is the product-facing name for the OpenAssetWatch local
+dashboard and operations surface; architecture docs should keep the broader
+control plane terminology when referring to backend services.
 
 The OpenAssetWatch Control Plane may include internal services such as:
 

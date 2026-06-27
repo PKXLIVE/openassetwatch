@@ -16,7 +16,7 @@ Options:
   --mode agent|sensor        Install agent or sensor service. Default: agent
   --service-name NAME        Override LaunchDaemon label.
   --config PATH              Config path. Default: /Library/Application Support/OpenAssetWatch/<mode>.json
-  --bin PATH                 OAW binary path. Default: /usr/local/bin/oaw-<mode>
+  --bin PATH                 OpenAssetWatch binary path. Default: /usr/local/bin/oaw-<mode>
   --user NAME                LaunchDaemon user. Default: nobody
   --version                  Print installer version and exit.
   --help                     Show this help.

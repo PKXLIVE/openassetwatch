@@ -453,8 +453,8 @@ The current service-planning foundation does not add:
 - UI work
 - credential storage
 - enrollment token storage
-- active scanning
-- offensive tooling
+- no active scanning
+- no offensive tooling
 
 ## Related Docs
 

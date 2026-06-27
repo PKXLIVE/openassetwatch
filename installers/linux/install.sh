@@ -16,7 +16,7 @@ Options:
   --mode agent|sensor        Install agent or sensor service. Default: agent
   --service-name NAME        Override service name.
   --config PATH              Config path. Default: /etc/openassetwatch/<mode>.json
-  --bin PATH                 OAW binary path. Default: /usr/local/bin/oaw-<mode>
+  --bin PATH                 OpenAssetWatch binary path. Default: /usr/local/bin/oaw-<mode>
   --user NAME                Service user. Default: openassetwatch
   --version                  Print installer version and exit.
   --help                     Show this help.

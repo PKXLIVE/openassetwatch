@@ -10,8 +10,8 @@ config namespaces.
 - `roles/`: role and permission examples.
 - `skills/`: reserved for later; Skills are intentionally out of scope in this
   pass.
-- `quarantine/`: reference-only legacy/source material. OAW loaders must refuse
-  this path.
+- `quarantine/`: reference-only legacy/source material. OpenAssetWatch loaders
+  must refuse this path.
 
 Production configs should use approved object identifiers such as `site_id`,
 `asset_id`, `connector_id`, `sensor_id`, `approved_scope_id`, and

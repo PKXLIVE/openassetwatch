@@ -8,9 +8,10 @@ concept to a Splunk Deployment Server assigning deployment apps to Universal
 Forwarders, but tailored for OpenAssetWatch collector safety, identity, and
 local-network visibility.
 
-The formal architecture name is **OpenAssetWatch Control Plane**. The internal
-or working name may be **OAW Control Tower**, but that should not be the sole
-public-facing product name because it can be confused with AWS Control Tower.
+The formal architecture name is **OpenAssetWatch Control Plane**. **Control
+Tower** is the product-facing name for the local dashboard and operations
+surface. Architecture docs should use control plane when describing backend
+services and Control Tower when describing the product UI or operator surface.
 
 The OpenAssetWatch Control Plane is the backend system that collectors report
 to for:
@@ -108,8 +109,8 @@ Example future modules:
 
 Scanner-launcher style capabilities such as Nmap or masscan are not valid
 production collector capabilities. Passive sensor behavior belongs in the
-separate OAW sensor path and must remain explicitly scoped and disabled until
-that path is implemented.
+separate OpenAssetWatch sensor path and must remain explicitly scoped and
+disabled until that path is implemented.
 
 Bundles should describe desired collector behavior using explicit schema fields.
 They should not contain arbitrary scripts or shell command strings.
