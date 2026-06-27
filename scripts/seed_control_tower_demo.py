@@ -5,7 +5,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import ParseResult, urlparse, urlunparse
@@ -17,7 +17,7 @@ LOCAL_DATABASE_URL = (
     "postgresql+psycopg2://openassetwatch:"
     "openassetwatch_local_only_change_me@127.0.0.1:5432/openassetwatch"
 )
-DEMO_BASE_TIME = datetime(2026, 1, 15, 15, 0, tzinfo=UTC)
+DEMO_BASE_TIME = datetime(2026, 1, 15, 15, 0, tzinfo=timezone.utc)
 LOCAL_DATABASE_HOSTS = {"127.0.0.1", "localhost", "::1"}
 FORBIDDEN_SEED_TERMS = (
     "password",
