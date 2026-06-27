@@ -296,6 +296,11 @@
       scroll-margin-top: 5rem;
     }
 
+    .view-section[hidden],
+    [data-dashboard-extra][hidden] {
+      display: none;
+    }
+
     .section-title {
       display: flex;
       align-items: end;
@@ -525,6 +530,16 @@
       border: 1px solid var(--line);
       border-radius: 7px;
       background: var(--panel-soft);
+    }
+
+    .list-row.interactive,
+    tr.interactive {
+      cursor: pointer;
+    }
+
+    .list-row.interactive:hover,
+    tr.interactive:hover td {
+      background: #eef8f4;
     }
 
     .list-row-main {
@@ -790,6 +805,25 @@
       font-weight: 800;
     }
 
+    .command-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      padding: 0.7rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #0f201d;
+      color: #eefaf6;
+    }
+
+    .command-box code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 0.78rem;
+      overflow-wrap: anywhere;
+    }
+
     .table-scroll {
       overflow-x: auto;
     }
@@ -943,8 +977,26 @@
               <h3>Attention items detected in demo data</h3>
               <p id="attention-summary">Synthetic demo findings will appear here when seeded data includes unknown, unmanaged, stale, or missing-tooling signals.</p>
             </div>
-            <a class="pill warn" href="#findings">Review findings</a>
+            <a class="pill warn" href="#findings" data-safe-action="review-findings">Review findings</a>
           </div>
+
+          <section id="demo-seed-cta" class="panel" hidden>
+            <div class="panel-header">
+              <h3>No demo data loaded yet</h3>
+              <span>local seed</span>
+            </div>
+            <div class="panel-body list">
+              <div class="list-row">
+                <strong>Populate safe synthetic dashboard data</strong>
+                <span>Run this from the repository after the Compose stack is healthy. The browser only copies the command; it does not execute anything.</span>
+              </div>
+              <div class="command-box">
+                <code id="demo-seed-command">docker compose --profile demo run --rm demo-seed</code>
+                <button id="copy-demo-seed" class="secondary" type="button">Copy command</button>
+              </div>
+              <span id="copy-demo-seed-status" class="form-status"></span>
+            </div>
+          </section>
 
           <section class="panel">
             <div class="panel-header">
@@ -954,18 +1006,19 @@
             <div class="panel-body">
               <div class="list">
                 <div class="list-row">
-                  <div class="list-row-main"><strong>Create a site</strong><span class="badge ok">available</span></div>
+                  <div class="list-row-main"><strong>Create a site</strong><button class="ghost" type="button" data-safe-action="create-site">Open Sites</button></div>
                   <span>Use the Sites view to add local site metadata through the existing Control Tower API.</span>
                 </div>
                 <div class="list-row">
-                  <div class="list-row-main"><strong>Enroll an agent or passive sensor</strong><span class="badge warn">next step</span></div>
+                  <div class="list-row-main"><strong>Enroll an agent or passive sensor</strong><button class="ghost" type="button" data-safe-action="enroll-collector">Show collector guidance</button></div>
                   <span>Agent and sensor enrollment records will populate collector health and recent check-in views.</span>
                 </div>
                 <div class="list-row">
-                  <div class="list-row-main"><strong>Run a local inventory collection</strong><span class="badge warn">next step</span></div>
+                  <div class="list-row-main"><strong>Run a local inventory collection</strong><button class="ghost" type="button" data-safe-action="local-inventory">Show local instructions</button></div>
                   <span>Inventory submissions create evidence-backed asset records without adding active checks or remote actions.</span>
                 </div>
               </div>
+              <span id="getting-started-status" class="form-status"></span>
             </div>
           </section>
 
@@ -1105,6 +1158,19 @@
             <span id="collectors-loaded" class="pill">loading</span>
           </div>
           <div class="collector-grid">
+            <section id="collector-helper-panel" class="panel">
+              <div class="panel-header">
+                <h3>Collector Guidance</h3>
+                <span>read-only</span>
+              </div>
+              <div class="panel-body list">
+                <div class="list-row">
+                  <strong>Enrollment is API-driven</strong>
+                  <span>Future agents and passive sensors will appear here after enrollment and check-in. This dashboard does not create collectors or run local agent commands.</span>
+                </div>
+              </div>
+            </section>
+
             <section class="panel">
               <div class="panel-header">
                 <h3>Endpoint Agents</h3>
@@ -1138,6 +1204,17 @@
               </div>
               <div id="collector-events" class="panel-body list">
                 <div class="empty-state"><strong>Loading collector events</strong>Recent collector check-ins will appear here.</div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Collector Detail</h3>
+                <span>read-only</span>
+              </div>
+              <div id="collector-detail" class="panel-body empty-state">
+                <strong>Select a collector</strong>
+                Review enrollment, platform, mode, last seen, and derived status without changing service state.
               </div>
             </section>
           </div>
@@ -1195,6 +1272,21 @@
             </div>
             <span id="evidence-summary-count" class="pill">loading</span>
           </div>
+          <section id="inventory-helper-panel" class="panel">
+            <div class="panel-header">
+              <h3>Local Inventory Guidance</h3>
+              <span>safe instructions</span>
+            </div>
+            <div class="panel-body list">
+              <div class="list-row">
+                <strong>Use the demo seed for visual testing</strong>
+                <span>For a local dashboard preview, run the Compose demo seed command from a terminal. The dashboard never launches collection from the browser.</span>
+              </div>
+              <div class="command-box">
+                <code>docker compose --profile demo run --rm demo-seed</code>
+              </div>
+            </div>
+          </section>
           <section class="panel">
             <div class="table-scroll">
               <table>
@@ -1282,15 +1374,17 @@
           </div>
           <div class="settings-grid">
             <div class="settings-card"><h3>API URL</h3><p id="settings-api-url" class="muted">loading</p></div>
+            <div class="settings-card"><h3>Backend Health</h3><p id="settings-health" class="muted">loading</p></div>
             <div class="settings-card"><h3>Dashboard Version</h3><p id="settings-dashboard-version" class="muted">local static MVP</p></div>
             <div class="settings-card"><h3>Release Metadata</h3><p id="settings-release" class="muted">loading</p></div>
             <div class="settings-card"><h3>Demo Mode</h3><p id="settings-demo-mode" class="muted">checking</p></div>
+            <div class="settings-card"><h3>Demo Seed Command</h3><p id="settings-demo-seed" class="muted">docker compose --profile demo run --rm demo-seed</p></div>
             <div class="settings-card"><h3>Local Safety</h3><p class="muted">Dashboard actions are limited to refresh and create-site metadata.</p></div>
             <div class="settings-card"><h3>Data Sources</h3><p class="muted">Health, summary, sites, agents, check-ins, assets, and release metadata endpoints.</p></div>
           </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" data-dashboard-extra>
           <div class="panel-header">
             <h3>Release Status</h3>
             <span>metadata only</span>
@@ -1315,13 +1409,16 @@
       assets: "/api/v1/control-tower/assets",
       release: "/api/v1/releases/agent"
     };
+    const DEMO_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed";
+    const VIEW_IDS = ["dashboard", "assets", "collectors", "sites", "evidence", "findings", "policies", "reports", "settings"];
 
     const state = {
       loading: false,
       data: {health: null, summary: null, sites: [], agents: [], checkins: [], assets: [], release: null},
       assetFilter: "all",
       assetSearch: "",
-      selectedAssetId: null
+      selectedAssetId: null,
+      selectedCollectorId: null
     };
 
     function byId(id) {
@@ -1500,7 +1597,7 @@
     }
 
     function derivedData() {
-      const {summary, sites, agents, checkins, assets, release} = state.data;
+      const {health, summary, sites, agents, checkins, assets, release} = state.data;
       const statuses = agents.map(agent => ({agent, status: collectorStatus(agent, checkins)}));
       const staleCollectors = statuses.filter(item => item.status.label === "stale");
       const activeCollectors = statuses.filter(item => item.status.label === "active");
@@ -1510,7 +1607,7 @@
         ? summary.evidence_count
         : assets.reduce((total, asset) => total + Number(asset.evidence_count || 0), 0);
       const findings = deriveFindings(assets, staleCollectors);
-      return {summary, sites, agents, checkins, assets, release, statuses, staleCollectors, activeCollectors, unknownAssets, unmanagedAssets, evidenceTotal, findings};
+      return {health, summary, sites, agents, checkins, assets, release, statuses, staleCollectors, activeCollectors, unknownAssets, unmanagedAssets, evidenceTotal, findings};
     }
 
     function deriveFindings(assets, staleCollectors) {
@@ -1547,10 +1644,37 @@
       return Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     }
 
+    function normalizeView(id) {
+      return VIEW_IDS.includes(id) ? id : "dashboard";
+    }
+
     function setNavActive(id) {
+      const activeId = normalizeView(id);
       document.querySelectorAll("[data-nav]").forEach(link => {
-        link.classList.toggle("active", link.dataset.nav === id);
+        link.classList.toggle("active", link.dataset.nav === activeId);
       });
+      document.querySelectorAll(".view-section").forEach(section => {
+        section.hidden = section.id !== activeId;
+      });
+      document.querySelectorAll("[data-dashboard-extra]").forEach(section => {
+        section.hidden = activeId !== "dashboard";
+      });
+    }
+
+    function navigateTo(id, focusId) {
+      const activeId = normalizeView(id);
+      if (window.location.hash !== `#${activeId}`) {
+        window.location.hash = activeId;
+      } else {
+        setNavActive(activeId);
+      }
+      window.scrollTo({top: 0, behavior: "smooth"});
+      if (focusId) {
+        window.setTimeout(() => {
+          const target = byId(focusId);
+          if (target) target.focus();
+        }, 120);
+      }
     }
 
     function renderMetrics(data) {
@@ -1579,6 +1703,16 @@
       byId("attention-summary").textContent = attentionTypes.length
         ? `Synthetic demo results include ${attentionTypes.join(", ")} signals. Review read-only findings and asset details before deciding next steps.`
         : "No attention items detected in the currently loaded data.";
+    }
+
+    function isZeroData(data) {
+      return !data.sites.length && !data.agents.length && !data.checkins.length && !data.assets.length && !data.evidenceTotal;
+    }
+
+    function renderDemoSeedCta(data) {
+      const panel = byId("demo-seed-cta");
+      panel.hidden = !isZeroData(data);
+      byId("demo-seed-command").textContent = DEMO_SEED_COMMAND;
     }
 
     function renderAssetMix(data) {
@@ -1794,6 +1928,15 @@
       } else {
         filtered.forEach(asset => {
           const row = document.createElement("tr");
+          row.className = "interactive";
+          row.tabIndex = 0;
+          row.addEventListener("click", () => selectAsset(asset.asset_id));
+          row.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              selectAsset(asset.asset_id);
+            }
+          });
           appendCell(row, asset.asset_id);
           appendCell(row, asset.hostname);
           appendCell(row, asset.site_id);
@@ -1811,7 +1954,10 @@
           button.className = "ghost";
           button.type = "button";
           button.textContent = "Details";
-          button.addEventListener("click", () => selectAsset(asset.asset_id));
+          button.addEventListener("click", event => {
+            event.stopPropagation();
+            selectAsset(asset.asset_id);
+          });
           actionCell.appendChild(button);
           row.appendChild(actionCell);
           table.appendChild(row);
@@ -1868,6 +2014,8 @@
       byId("sensor-count").textContent = `${sensors.length} passive sensors`;
       byId("collectors-loaded").textContent = `${data.agents.length} collectors`;
       renderListRows("collector-events", data.checkins.slice(0, 5), "No collector events yet", "Collector check-ins will appear here.", checkinRow);
+      const selected = data.agents.find(agent => agent.agent_id === state.selectedCollectorId) || data.agents[0] || null;
+      renderCollectorDetail(selected, data.checkins);
     }
 
     function renderCollectorTable(targetId, values, checkins) {
@@ -1881,6 +2029,15 @@
       values.forEach(agent => {
         const status = collectorStatus(agent, checkins);
         const row = document.createElement("tr");
+        row.className = "interactive";
+        row.tabIndex = 0;
+        row.addEventListener("click", () => selectCollector(agent.agent_id));
+        row.addEventListener("keydown", event => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectCollector(agent.agent_id);
+          }
+        });
         appendCell(row, agent.agent_id);
         appendCell(row, agent.site_id);
         appendCell(row, `${text(agent.platform)} / ${text(agent.architecture)}`);
@@ -1892,6 +2049,45 @@
         row.appendChild(statusCell);
         body.appendChild(row);
       });
+    }
+
+    function selectCollector(agentId) {
+      state.selectedCollectorId = agentId;
+      renderCollectorDetail(state.data.agents.find(agent => agent.agent_id === agentId), state.data.checkins);
+    }
+
+    function renderCollectorDetail(agent, checkins) {
+      const target = byId("collector-detail");
+      clearNode(target);
+      if (!agent) {
+        target.className = "panel-body empty-state";
+        const strong = document.createElement("strong");
+        strong.textContent = "Select a collector";
+        target.append(strong, "Review enrollment, platform, mode, last seen, and derived status without changing service state.");
+        return;
+      }
+      target.className = "panel-body";
+      const status = collectorStatus(agent, checkins);
+      const dl = document.createElement("dl");
+      const details = [
+        ["Collector", agent.agent_id],
+        ["Display name", agent.display_name],
+        ["Type", agent.agent_type],
+        ["Site", agent.site_id],
+        ["Platform", `${text(agent.platform)} / ${text(agent.architecture)}`],
+        ["Mode", agent.mode],
+        ["Version", agent.version],
+        ["Last seen", fmtDate(status.latest ? status.latest.received_at : agent.last_seen_at)],
+        ["Derived status", status.label]
+      ];
+      details.forEach(([label, value]) => {
+        const dt = document.createElement("dt");
+        const dd = document.createElement("dd");
+        dt.textContent = label;
+        dd.textContent = text(value);
+        dl.append(dt, dd);
+      });
+      target.appendChild(dl);
     }
 
     function renderEvidence(data) {
@@ -1972,11 +2168,15 @@
 
     function renderSettings(data) {
       byId("settings-api-url").textContent = apiBase || "same-origin API";
+      byId("settings-health").textContent = data.health
+        ? `${data.health.status || "unknown"}; ${data.health.service || "service"} ${data.health.version || "version not reported"}`
+        : "not loaded";
       byId("settings-dashboard-version").textContent = DASHBOARD_VERSION;
       const demo = data.assets.some(asset => metadata(asset).demo || metadata(asset).sample_data);
       byId("demo-mode").textContent = demo ? "local demo data" : "live local data";
       byId("demo-mode").className = `pill ${demo ? "ok" : "warn"}`;
       byId("settings-demo-mode").textContent = demo ? "Local-only synthetic demo data detected." : "No demo metadata detected in loaded assets.";
+      byId("settings-demo-seed").textContent = DEMO_SEED_COMMAND;
       byId("settings-loaded").textContent = "loaded";
     }
 
@@ -1984,6 +2184,7 @@
       const data = derivedData();
       renderMetrics(data);
       renderAttention(data);
+      renderDemoSeedCta(data);
       renderAssetMix(data);
       renderCollectorHealth(data);
       renderRecentPanels(data);
@@ -2126,7 +2327,10 @@
 
     function setupNavigation() {
       document.querySelectorAll("[data-nav]").forEach(link => {
-        link.addEventListener("click", () => setNavActive(link.dataset.nav));
+        link.addEventListener("click", event => {
+          event.preventDefault();
+          navigateTo(link.dataset.nav);
+        });
       });
       window.addEventListener("hashchange", () => {
         const id = window.location.hash.replace("#", "") || "dashboard";
@@ -2135,10 +2339,61 @@
       setNavActive(window.location.hash.replace("#", "") || "dashboard");
     }
 
+    async function copyDemoSeedCommand() {
+      const status = byId("copy-demo-seed-status");
+      status.textContent = "";
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(DEMO_SEED_COMMAND);
+        } else {
+          const area = document.createElement("textarea");
+          area.value = DEMO_SEED_COMMAND;
+          area.setAttribute("readonly", "readonly");
+          area.style.position = "fixed";
+          area.style.left = "-9999px";
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand("copy");
+          document.body.removeChild(area);
+        }
+        status.textContent = "Command copied. Paste it into a terminal after Compose is healthy.";
+        status.className = "form-status ok";
+      } catch (error) {
+        status.textContent = "Copy was unavailable. Select the command text and copy it manually.";
+        status.className = "form-status error";
+      }
+    }
+
+    function setupSafeActions() {
+      document.querySelectorAll("[data-safe-action]").forEach(control => {
+        control.addEventListener("click", event => {
+          const action = control.dataset.safeAction;
+          if (action === "review-findings") {
+            event.preventDefault();
+            navigateTo("findings");
+          } else if (action === "create-site") {
+            navigateTo("sites", "site-id");
+            byId("getting-started-status").textContent = "Sites view opened. Add local site metadata only.";
+            byId("getting-started-status").className = "form-status ok";
+          } else if (action === "enroll-collector") {
+            navigateTo("collectors");
+            byId("getting-started-status").textContent = "Collectors view opened with read-only enrollment guidance.";
+            byId("getting-started-status").className = "form-status ok";
+          } else if (action === "local-inventory") {
+            navigateTo("evidence");
+            byId("getting-started-status").textContent = "Evidence view opened with safe local demo seed instructions.";
+            byId("getting-started-status").className = "form-status ok";
+          }
+        });
+      });
+      byId("copy-demo-seed").addEventListener("click", copyDemoSeedCommand);
+    }
+
     byId("refresh").addEventListener("click", refresh);
     byId("site-form").addEventListener("submit", createSite);
     setupAssetControls();
     setupNavigation();
+    setupSafeActions();
     refresh();
   </script>
 </body>

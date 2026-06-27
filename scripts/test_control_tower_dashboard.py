@@ -67,6 +67,12 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Policy Guardrails",
             "Recommended Next Steps",
             "Release Status",
+            "No demo data loaded yet",
+            "Demo Seed Command",
+            "Backend Health",
+            "Collector Guidance",
+            "Collector Detail",
+            "Local Inventory Guidance",
         )
         for section in required_sections:
             with self.subTest(section=section):
@@ -81,6 +87,10 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'data-filter="workstation"',
             'data-filter="stale"',
             'data-filter="missing-tooling"',
+            'data-safe-action="review-findings"',
+            'data-safe-action="create-site"',
+            'data-safe-action="enroll-collector"',
+            'data-safe-action="local-inventory"',
             "Unknown device observed",
             "Unmanaged IoT device",
             "Missing security tooling sample",
@@ -99,6 +109,7 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Packet capture disabled",
             "Remote commands unavailable",
             "Release metadata only",
+            "docker compose --profile demo run --rm demo-seed",
         )
         for copy in expected_copy:
             with self.subTest(copy=copy):
@@ -128,6 +139,43 @@ class ControlTowerDashboardTests(unittest.TestCase):
         self.assertIn('method: "POST"', self.dashboard)
         self.assertIn("JSON.stringify", self.dashboard)
         self.assertRegex(self.dashboard, r"loadJSON\(endpoints\.sites,\s*\{")
+
+    def test_navigation_and_controls_are_wired_to_safe_client_side_behavior(self) -> None:
+        expected_code = (
+            "const VIEW_IDS =",
+            "function normalizeView",
+            "function setNavActive",
+            "function navigateTo",
+            "window.addEventListener(\"hashchange\"",
+            "section.hidden = section.id !== activeId",
+            "data-dashboard-extra",
+            "byId(\"refresh\").addEventListener(\"click\", refresh)",
+            "setupSafeActions()",
+            "copyDemoSeedCommand",
+            "navigator.clipboard.writeText(DEMO_SEED_COMMAND)",
+            "const {health, summary, sites, agents, checkins, assets, release} = state.data;",
+            "return {health, summary, sites, agents, checkins, assets, release",
+            "navigateTo(\"findings\")",
+            "navigateTo(\"sites\", \"site-id\")",
+            "navigateTo(\"collectors\")",
+            "navigateTo(\"evidence\")",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+
+    def test_asset_and_collector_rows_update_read_only_detail(self) -> None:
+        expected_code = (
+            "row.addEventListener(\"click\", () => selectAsset(asset.asset_id))",
+            "row.addEventListener(\"click\", () => selectCollector(agent.agent_id))",
+            "function renderAssetDetail",
+            "function renderCollectorDetail",
+            'id="asset-detail"',
+            'id="collector-detail"',
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
 
     def test_read_only_api_loads_retry_transient_startup_errors(self) -> None:
         self.assertIn("const attempts = method === \"GET\" ? 3 : 1;", self.dashboard)

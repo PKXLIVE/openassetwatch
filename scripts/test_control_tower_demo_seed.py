@@ -117,6 +117,32 @@ class ControlTowerDemoSeedTests(unittest.TestCase):
         )
         self.assertTrue(self.seed.local_database_url(self.seed.LOCAL_DATABASE_URL))
 
+    def test_datetime_usage_is_python_310_compatible(self) -> None:
+        source = SEED_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("timezone.utc", source)
+        self.assertNotIn("from datetime import UTC", source)
+        self.assertEqual(self.seed.DEMO_BASE_TIME.tzinfo, self.seed.timezone.utc)
+
+    def test_compose_database_host_requires_explicit_allow(self) -> None:
+        compose_url = (
+            "postgresql+psycopg2://openassetwatch:"
+            "example@postgres:5432/openassetwatch"
+        )
+
+        self.assertFalse(self.seed.local_database_url(compose_url))
+        self.assertTrue(self.seed.local_database_url(compose_url, allow_compose_host=True))
+        self.assertTrue(self.seed.compose_host_allowed("1"))
+        self.assertTrue(self.seed.compose_host_allowed("true"))
+        self.assertFalse(self.seed.compose_host_allowed(""))
+
+    def test_missing_dependency_error_points_to_compose_seed(self) -> None:
+        message = self.seed.dependency_error_message("sqlalchemy")
+
+        self.assertIn("sqlalchemy", message)
+        self.assertIn("docker compose --profile demo run --rm demo-seed", message)
+        self.assertIn("backend requirements", message)
+
 
 if __name__ == "__main__":
     unittest.main()

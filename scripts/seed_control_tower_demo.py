@@ -19,6 +19,9 @@ LOCAL_DATABASE_URL = (
 )
 DEMO_BASE_TIME = datetime(2026, 1, 15, 15, 0, tzinfo=timezone.utc)
 LOCAL_DATABASE_HOSTS = {"127.0.0.1", "localhost", "::1"}
+COMPOSE_DATABASE_HOSTS = {"postgres"}
+COMPOSE_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed"
+ALLOW_COMPOSE_HOST_ENV = "OPENASSETWATCH_DEMO_SEED_ALLOW_COMPOSE_HOST"
 FORBIDDEN_SEED_TERMS = (
     "password",
     "secret",
@@ -548,9 +551,22 @@ def database_url_from_args(value: str | None) -> str:
     return value or os.getenv("DATABASE_URL") or LOCAL_DATABASE_URL
 
 
-def local_database_url(value: str) -> bool:
+def compose_host_allowed(value: str | None = None) -> bool:
+    return (value if value is not None else os.getenv(ALLOW_COMPOSE_HOST_ENV, "")).strip().lower() in {"1", "true", "yes"}
+
+
+def local_database_url(value: str, *, allow_compose_host: bool = False) -> bool:
     parsed = urlparse(value)
-    return parsed.hostname in LOCAL_DATABASE_HOSTS
+    if parsed.hostname in LOCAL_DATABASE_HOSTS:
+        return True
+    return allow_compose_host and parsed.hostname in COMPOSE_DATABASE_HOSTS
+
+
+def dependency_error_message(module_name: str) -> str:
+    return (
+        f"missing Python dependency {module_name!r}; run the Compose seed path with "
+        f"`{COMPOSE_SEED_COMMAND}` or install backend requirements in your local Python environment"
+    )
 
 
 def sanitized_database_url(value: str) -> str:
@@ -568,6 +584,11 @@ def sanitized_database_url(value: str) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Seed safe local OpenAssetWatch Control Tower demo data.")
     parser.add_argument("--database-url", help="Local PostgreSQL SQLAlchemy URL. Defaults to the local Compose database.")
+    parser.add_argument(
+        "--allow-compose-database-host",
+        action="store_true",
+        help="Allow the Docker Compose-only PostgreSQL service host name 'postgres'. External hosts remain refused.",
+    )
     return parser.parse_args()
 
 
@@ -578,12 +599,18 @@ def main() -> int:
         "ok": False,
         "database_url": sanitized_database_url(database_url),
         "seeded": None,
+        "next_steps": [COMPOSE_SEED_COMMAND],
         "warnings": [],
         "errors": [],
     }
+    allow_compose_host = args.allow_compose_database_host or compose_host_allowed()
 
-    if not local_database_url(database_url):
-        output["errors"].append("refusing to seed a non-local database host")
+    if not local_database_url(database_url, allow_compose_host=allow_compose_host):
+        output["errors"].append(
+            "refusing to seed a non-local database host; only localhost is allowed by default, "
+            "and the Compose host 'postgres' requires --allow-compose-database-host or "
+            f"{ALLOW_COMPOSE_HOST_ENV}=1"
+        )
         print(json.dumps(output, sort_keys=True))
         return 2
 
@@ -591,6 +618,10 @@ def main() -> int:
         store = SqlDemoSeedStore(database_url)
         output["seeded"] = seed_demo_data(store)
         output["ok"] = True
+    except ModuleNotFoundError as exc:
+        output["errors"].append(dependency_error_message(exc.name or "unknown"))
+        print(json.dumps(output, sort_keys=True, default=str))
+        return 1
     except Exception as exc:  # noqa: BLE001 - script must return JSON diagnostics.
         output["errors"].append(str(exc))
         print(json.dumps(output, sort_keys=True, default=str))
