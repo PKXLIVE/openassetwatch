@@ -1,0 +1,44 @@
+version: 2
+updates:
+- package-ecosystem: gomod
+  directory: /
+  schedule:
+    interval: weekly
+    day: monday
+    time: 07:00
+  open-pull-requests-limit: 5
+  labels:
+  - dependencies
+  - go
+  ignore:
+  - dependency-name: '*'
+    update-types:
+    - version-update:semver-major
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: weekly
+    day: monday
+    time: 07:30
+  open-pull-requests-limit: 5
+  labels:
+  - dependencies
+  - github-actions
+  ignore:
+  - dependency-name: '*'
+    update-types:
+    - version-update:semver-major
+- package-ecosystem: pip
+  directory: /backend
+  schedule:
+    interval: weekly
+    day: monday
+    time: 08:00
+  open-pull-requests-limit: 5
+  labels:
+  - dependencies
+  - python
+  ignore:
+  - dependency-name: '*'
+    update-types:
+    - version-update:semver-major

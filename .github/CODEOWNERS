@@ -1,0 +1,11 @@
+* @PKXLIVE
+
+/.github/ @PKXLIVE
+/scripts/release/ @PKXLIVE
+/packaging/ @PKXLIVE
+/installers/ @PKXLIVE
+/SECURITY.md @PKXLIVE
+/TRADEMARKS.md @PKXLIVE
+/GOVERNANCE.md @PKXLIVE
+/LICENSE @PKXLIVE
+/NOTICE @PKXLIVE

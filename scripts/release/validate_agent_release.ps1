@@ -167,7 +167,21 @@ function Test-ForbiddenArchiveContent {
         $tarPath = $tarCommand.Path
     }
 
-    $listing = @(& $tarPath -tzf $PackagePath 2>&1)
+    $tarArgs = @("-tzf", $PackagePath)
+    if ($PackagePath -match '^[A-Za-z]:[\\/]') {
+        $tarHelp = ""
+        try {
+            $tarHelp = (& $tarPath --help 2>&1 | Out-String)
+        }
+        catch {
+            $tarHelp = ""
+        }
+        if ($tarHelp -match '--force-local') {
+            $tarArgs = @("--force-local", "-tzf", $PackagePath)
+        }
+    }
+
+    $listing = @(& $tarPath @tarArgs 2>&1)
     if ($LASTEXITCODE -ne 0) {
         Add-Check -Name "$Context archive listing" -Ok $false -Message "$Context archive could not be listed."
         return
