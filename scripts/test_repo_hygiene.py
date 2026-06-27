@@ -62,6 +62,7 @@ APPROVED_POLICY_OR_TEST_PATHS = (
     "docs/SECURITY_TOOL_POLICY.md",
     "docs/legacy-source-review/",
     "collector/openassetwatch_collector/main.py",
+    "scripts/seed_control_tower_demo.py",
     "scripts/test_",
     "backend/tests/",
     "collector/tests/",

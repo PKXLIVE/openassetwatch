@@ -4,14 +4,22 @@ Reserved for the OpenAssetWatch web application.
 
 The Control Tower MVP dashboard is served from `backend/app/static/index.html`
 through the local Compose `web` service at `http://localhost:8080`. It focuses
-on overview metrics, sites, agents/sensors, recent check-ins, discovered
-assets, and metadata-only release status.
+on a compact app shell with Dashboard, Assets, Collectors, Sites, Evidence,
+Findings, Policies, Reports, and Settings views. The dashboard shows overview
+metrics, attention items, asset mix, collector health, recent check-ins, recent
+evidence, discovered assets, site cards, policy guardrails, and metadata-only
+release status.
 
 The dashboard calls the local API at `http://127.0.0.1:8000` when served by the
 Compose web container. It also includes a small create-site form that uses the
 existing `POST /api/v1/sites` endpoint. The form creates only site metadata; it
 does not enroll agents, run collection, execute updates, or perform any
 credential or remote-command workflow.
+
+The Assets view includes browser-side search, quick filters, and a read-only
+detail panel for the data already returned by the local Control Tower API. The
+Policies and Reports views are informational only; they do not execute checks,
+commands, downloads, or remediation.
 
 The Compose `web` service depends on the backend healthcheck, so local startup
 should use:
@@ -30,6 +38,10 @@ Validate the static dashboard wiring without starting Compose:
 ```powershell
 python scripts/test_control_tower_dashboard.py
 ```
+
+The smoke test verifies the expected sections, local API endpoints, safe
+empty/error states, create-site form wiring, asset filters, and lack of external
+static assets.
 
 Validate it against the running local stack:
 
