@@ -19,6 +19,9 @@ on:
     tags:
       - "agent-macos-v*"
 
+permissions:
+  contents: read
+
 jobs:
   signed-macos-pkg:
     runs-on: macos-15
