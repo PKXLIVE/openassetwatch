@@ -45,12 +45,21 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Policies",
             "Reports",
             "Settings",
+            "Environment Overview",
             "Total assets",
             "Unknown assets",
             "Unmanaged assets",
             "Active collectors",
             "Stale collectors",
+            "Findings requiring review",
             "Evidence records",
+            "Operating Systems / Platforms",
+            "Site Health",
+            "Unknown &amp; Unmanaged Assets",
+            "Top Assets Needing Review",
+            "Recently Discovered Assets",
+            "Stale Collectors / Sensors",
+            "Site Cards",
             "Getting Started",
             "Create Site",
             "Asset Mix By Type",
@@ -77,6 +86,49 @@ class ControlTowerDashboardTests(unittest.TestCase):
         for section in required_sections:
             with self.subTest(section=section):
                 self.assertIn(section, self.dashboard)
+
+    def test_dashboard_overview_command_center_sections_are_present(self) -> None:
+        expected_markup = (
+            'aria-label="Environment summary"',
+            'id="environment-summary"',
+            'id="overview-last-refreshed"',
+            'id="overview-data-posture"',
+            'id="findings-review-count"',
+            'id="site-count"',
+            'id="platform-mix"',
+            'id="platform-mix-count"',
+            'id="site-health"',
+            'id="site-health-count"',
+            'id="review-assets"',
+            'id="review-assets-count"',
+            'id="assets-needing-review"',
+            'id="assets-review-loaded"',
+            'id="recent-assets"',
+            'id="recent-assets-loaded"',
+            'id="stale-collectors-panel"',
+            'id="stale-collectors-loaded"',
+        )
+        for markup in expected_markup:
+            with self.subTest(markup=markup):
+                self.assertIn(markup, self.dashboard)
+
+    def test_dashboard_overview_visual_helpers_are_client_side(self) -> None:
+        expected_code = (
+            "function renderEnvironmentSummary",
+            "function renderPlatformMix",
+            "function renderSiteHealth",
+            "function renderOverviewPreviews",
+            "function platformGroup",
+            "function siteBuckets",
+            "function compactRow",
+            "className = \"donut\"",
+            "className = \"segmented-bar\"",
+            "local synthetic demo data",
+            "not measured production performance",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
 
     def test_dashboard_contains_asset_filters_and_attention_copy(self) -> None:
         expected_copy = (

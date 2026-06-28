@@ -287,7 +287,7 @@
       display: grid;
       gap: 1rem;
       width: 100%;
-      max-width: 1480px;
+      max-width: 1560px;
       margin: 0 auto;
       padding: 1rem;
     }
@@ -415,6 +415,69 @@
       box-shadow: var(--shadow);
     }
 
+    .overview-hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(16rem, 0.45fr);
+      gap: 1rem;
+      align-items: stretch;
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(135deg, rgba(15, 118, 110, 0.10), rgba(37, 99, 235, 0.07)),
+        var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .overview-hero h2 {
+      font-size: 1.22rem;
+      font-weight: 950;
+    }
+
+    .overview-summary {
+      margin: 0.42rem 0 0;
+      max-width: 58rem;
+      color: #33443e;
+      font-size: 0.95rem;
+      font-weight: 750;
+      line-height: 1.5;
+    }
+
+    .overview-helper {
+      margin: 0.5rem 0 0;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.45;
+    }
+
+    .overview-meta {
+      display: grid;
+      gap: 0.65rem;
+      align-content: start;
+    }
+
+    .overview-meta-card {
+      display: grid;
+      gap: 0.18rem;
+      padding: 0.72rem;
+      border: 1px solid rgba(15, 118, 110, 0.18);
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .overview-meta-card span {
+      color: var(--muted);
+      font-size: 0.7rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .overview-meta-card strong {
+      font-size: 0.88rem;
+      overflow-wrap: anywhere;
+    }
+
     .status-copy {
       display: grid;
       gap: 0.18rem;
@@ -432,7 +495,7 @@
 
     .metrics-grid {
       display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(8, minmax(0, 1fr));
       gap: 0.72rem;
     }
 
@@ -463,6 +526,14 @@
 
     .metric:nth-child(6) {
       border-top-color: #c2410c;
+    }
+
+    .metric:nth-child(7) {
+      border-top-color: var(--accent-strong);
+    }
+
+    .metric:nth-child(8) {
+      border-top-color: #475569;
     }
 
     .metric span {
@@ -506,16 +577,46 @@
       line-height: 1.4;
     }
 
-    .summary-grid {
+    .overview-grid-4 {
       display: grid;
-      grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 1rem;
     }
 
-    .dashboard-panels {
+    .overview-grid-3 {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 1rem;
+    }
+
+    .overview-panel .panel-header {
+      min-height: 3.45rem;
+    }
+
+    .overview-panel .panel-body {
+      min-height: 10.2rem;
+    }
+
+    .panel-kicker {
+      display: block;
+      margin-top: 0.12rem;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 650;
+      line-height: 1.35;
+      text-transform: none;
+      letter-spacing: 0;
+      white-space: normal;
+    }
+
+    .overview-panel .site-grid {
+      grid-template-columns: 1fr;
+      gap: 0.55rem;
+    }
+
+    .overview-panel .site-card {
+      box-shadow: none;
+      padding: 0.65rem;
     }
 
     .list {
@@ -593,6 +694,115 @@
       height: 100%;
       border-radius: inherit;
       background: var(--accent);
+    }
+
+    .donut-summary {
+      display: grid;
+      grid-template-columns: 7rem minmax(0, 1fr);
+      gap: 0.85rem;
+      align-items: center;
+    }
+
+    .donut {
+      width: 6.8rem;
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: conic-gradient(var(--accent) 0deg, var(--line) 0deg);
+      box-shadow: inset 0 0 0 1px rgba(15, 35, 31, 0.08);
+    }
+
+    .donut::after {
+      content: "";
+      width: 4.1rem;
+      aspect-ratio: 1;
+      border-radius: inherit;
+      background: var(--panel);
+      box-shadow: inset 0 0 0 1px var(--line);
+    }
+
+    .donut-label {
+      position: absolute;
+      display: grid;
+      place-items: center;
+      width: 4.1rem;
+      height: 4.1rem;
+      color: var(--ink);
+      font-size: 1rem;
+      font-weight: 950;
+      pointer-events: none;
+    }
+
+    .donut-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+    }
+
+    .segmented-bar {
+      display: flex;
+      height: 0.7rem;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e5ece9;
+    }
+
+    .segment {
+      min-width: 0.25rem;
+      height: 100%;
+    }
+
+    .compact-list {
+      display: grid;
+      gap: 0.48rem;
+    }
+
+    .compact-row {
+      display: grid;
+      gap: 0.22rem;
+      padding: 0.58rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .compact-row-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.55rem;
+    }
+
+    .compact-row strong {
+      font-size: 0.8rem;
+    }
+
+    .compact-row span {
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.35;
+    }
+
+    .site-health-row {
+      display: grid;
+      gap: 0.42rem;
+      padding: 0.62rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .site-health-row header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+    }
+
+    .site-health-row h4 {
+      margin: 0;
+      font-size: 0.82rem;
     }
 
     .split {
@@ -834,7 +1044,8 @@
 
     @media (max-width: 1180px) {
       .metrics-grid,
-      .dashboard-panels,
+      .overview-grid-4,
+      .overview-grid-3,
       .collector-grid,
       .site-grid,
       .policy-grid,
@@ -844,7 +1055,7 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .summary-grid,
+      .overview-hero,
       .split,
       .asset-layout {
         grid-template-columns: 1fr;
@@ -876,7 +1087,8 @@
       }
 
       .metrics-grid,
-      .dashboard-panels,
+      .overview-grid-4,
+      .overview-grid-3,
       .collector-grid,
       .site-grid,
       .policy-grid,
@@ -963,13 +1175,33 @@
             <span id="last-updated" class="pill warn">not updated</span>
           </div>
 
+          <section class="overview-hero" aria-label="Environment summary">
+            <div>
+              <h2>Environment Overview</h2>
+              <p id="environment-summary" class="overview-summary">Loading local Control Tower environment summary.</p>
+              <p class="overview-helper">Demo metrics are derived from the loaded local API datasets and synthetic seed records. They are for visual validation, not measured production performance.</p>
+            </div>
+            <div class="overview-meta">
+              <div class="overview-meta-card">
+                <span>Last refreshed</span>
+                <strong id="overview-last-refreshed">not updated</strong>
+              </div>
+              <div class="overview-meta-card">
+                <span>Data posture</span>
+                <strong id="overview-data-posture">waiting for local API</strong>
+              </div>
+            </div>
+          </section>
+
           <div class="metrics-grid" aria-label="Overview metrics">
             <div class="metric"><span>Total assets</span><strong id="total-assets">0</strong><small>normalized inventory records</small></div>
             <div class="metric"><span>Unknown assets</span><strong id="unknown-assets">0</strong><small>need owner or type review</small></div>
             <div class="metric"><span>Unmanaged assets</span><strong id="unmanaged-assets">0</strong><small>sample devices without managed coverage</small></div>
             <div class="metric"><span>Active collectors</span><strong id="active-collectors">0</strong><small>recent endpoint agents and sensors</small></div>
             <div class="metric"><span>Stale collectors</span><strong id="stale-collectors">0</strong><small>synthetic delayed check-in examples</small></div>
+            <div class="metric"><span>Findings requiring review</span><strong id="findings-review-count">0</strong><small>safe attention items</small></div>
             <div class="metric"><span>Evidence records</span><strong id="evidence-records">0</strong><small>asset evidence observations</small></div>
+            <div class="metric"><span>Sites</span><strong id="site-count">0</strong><small>local environment groups</small></div>
           </div>
 
           <div id="attention-banner" class="attention-banner" hidden>
@@ -998,6 +1230,132 @@
             </div>
           </section>
 
+          <div class="overview-grid-4" aria-label="Environment visual summaries">
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Asset Mix By Type <span class="panel-kicker">what exists</span></h3>
+                <span id="asset-mix-count">loading</span>
+              </div>
+              <div id="asset-mix" class="panel-body bar-list">
+                <div class="empty-state"><strong>Loading asset mix</strong>Device categories will appear after assets load.</div>
+              </div>
+            </section>
+
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Operating Systems / Platforms <span class="panel-kicker">where coverage lands</span></h3>
+                <span id="platform-mix-count">loading</span>
+              </div>
+              <div id="platform-mix" class="panel-body bar-list">
+                <div class="empty-state"><strong>Loading platforms</strong>Operating system and platform mix will appear after assets load.</div>
+              </div>
+            </section>
+
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Collector Health <span class="panel-kicker">agent and sensor freshness</span></h3>
+                <span id="collector-health-count">loading</span>
+              </div>
+              <div id="collector-health" class="panel-body list">
+                <div class="empty-state"><strong>Loading collector health</strong>Endpoint agent and passive sensor status will appear here.</div>
+              </div>
+            </section>
+
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Site Health <span class="panel-kicker">attention by environment</span></h3>
+                <span id="site-health-count">loading</span>
+              </div>
+              <div id="site-health" class="panel-body compact-list">
+                <div class="empty-state"><strong>Loading site health</strong>Site-level asset and collector attention will appear here.</div>
+              </div>
+            </section>
+          </div>
+
+          <div class="overview-grid-4" aria-label="Operational focus">
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Top Findings / Attention Items <span class="panel-kicker">highest review signals</span></h3>
+                <span id="findings-loaded">loading</span>
+              </div>
+              <div id="top-findings" class="panel-body compact-list">
+                <div class="empty-state"><strong>Loading findings</strong>Safe demo attention items will appear here.</div>
+              </div>
+            </section>
+
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Unknown &amp; Unmanaged Assets <span class="panel-kicker">coverage queue</span></h3>
+                <span id="review-assets-count">loading</span>
+              </div>
+              <div id="review-assets" class="panel-body compact-list">
+                <div class="empty-state"><strong>Loading review queue</strong>Unknown, unmanaged, stale, or missing-tooling assets will appear here.</div>
+              </div>
+            </section>
+
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Recent Check-ins <span class="panel-kicker">collector activity</span></h3>
+                <span id="checkins-loaded">loading</span>
+              </div>
+              <div id="checkins-panel" class="panel-body compact-list">
+                <div class="empty-state"><strong>Loading check-ins</strong>Agent heartbeat activity will appear here.</div>
+              </div>
+            </section>
+
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Recent Evidence <span class="panel-kicker">proof behind inventory</span></h3>
+                <span id="evidence-loaded">loading</span>
+              </div>
+              <div id="recent-evidence" class="panel-body compact-list">
+                <div class="empty-state"><strong>Loading evidence</strong>Asset evidence summaries will appear here.</div>
+              </div>
+            </section>
+          </div>
+
+          <div class="overview-grid-4" aria-label="Overview drilldown previews">
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Top Assets Needing Review <span class="panel-kicker">unknown, unmanaged, stale</span></h3>
+                <span id="assets-review-loaded">loading</span>
+              </div>
+              <div id="assets-needing-review" class="panel-body compact-list">
+                <div class="empty-state"><strong>Loading assets</strong>Assets needing review will appear here.</div>
+              </div>
+            </section>
+
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Recently Discovered Assets <span class="panel-kicker">freshest evidence</span></h3>
+                <span id="recent-assets-loaded">loading</span>
+              </div>
+              <div id="recent-assets" class="panel-body compact-list">
+                <div class="empty-state"><strong>Loading recent assets</strong>Recently seen assets will appear here.</div>
+              </div>
+            </section>
+
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Stale Collectors / Sensors <span class="panel-kicker">freshness watch</span></h3>
+                <span id="stale-collectors-loaded">loading</span>
+              </div>
+              <div id="stale-collectors-panel" class="panel-body compact-list">
+                <div class="empty-state"><strong>Loading stale collectors</strong>Collectors with delayed synthetic timing will appear here.</div>
+              </div>
+            </section>
+
+            <section class="panel overview-panel">
+              <div class="panel-header">
+                <h3>Sites Overview <span class="panel-kicker">Site Cards by environment</span></h3>
+                <span id="sites-overview-loaded">loading</span>
+              </div>
+              <div id="sites-overview" class="panel-body site-grid">
+                <div class="empty-state"><strong>Loading site overview</strong>Site-level asset and collector counts will appear here.</div>
+              </div>
+            </section>
+          </div>
+
           <section class="panel">
             <div class="panel-header">
               <h3>Getting Started</h3>
@@ -1019,70 +1377,6 @@
                 </div>
               </div>
               <span id="getting-started-status" class="form-status"></span>
-            </div>
-          </section>
-
-          <div class="summary-grid">
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Asset Mix By Type</h3>
-                <span id="asset-mix-count">loading</span>
-              </div>
-              <div id="asset-mix" class="panel-body bar-list">
-                <div class="empty-state"><strong>Loading asset mix</strong>Device categories will appear after assets load.</div>
-              </div>
-            </section>
-
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Collector Health</h3>
-                <span id="collector-health-count">loading</span>
-              </div>
-              <div id="collector-health" class="panel-body list">
-                <div class="empty-state"><strong>Loading collector health</strong>Endpoint agent and passive sensor status will appear here.</div>
-              </div>
-            </section>
-          </div>
-
-          <div class="dashboard-panels">
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Recent Check-ins</h3>
-                <span id="checkins-loaded">loading</span>
-              </div>
-              <div id="checkins-panel" class="panel-body list">
-                <div class="empty-state"><strong>Loading check-ins</strong>Agent heartbeat activity will appear here.</div>
-              </div>
-            </section>
-
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Recent Evidence</h3>
-                <span id="evidence-loaded">loading</span>
-              </div>
-              <div id="recent-evidence" class="panel-body list">
-                <div class="empty-state"><strong>Loading evidence</strong>Asset evidence summaries will appear here.</div>
-              </div>
-            </section>
-
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Top Findings / Attention Items</h3>
-                <span id="findings-loaded">loading</span>
-              </div>
-              <div id="top-findings" class="panel-body list">
-                <div class="empty-state"><strong>Loading findings</strong>Safe demo attention items will appear here.</div>
-              </div>
-            </section>
-          </div>
-
-          <section class="panel">
-            <div class="panel-header">
-              <h3>Sites Overview</h3>
-              <span id="sites-overview-loaded">loading</span>
-            </div>
-            <div id="sites-overview" class="panel-body site-grid">
-              <div class="empty-state"><strong>Loading site overview</strong>Site-level asset and collector counts will appear here.</div>
             </div>
           </section>
         </section>
@@ -1644,6 +1938,81 @@
       return Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     }
 
+    function platformGroup(asset) {
+      const value = `${text(asset.os, "")} ${text(asset.platform, "")}`.toLowerCase();
+      if (value.includes("windows")) return "Windows";
+      if (value.includes("macos")) return "macOS";
+      if (value.includes("linux")) return "Linux";
+      if (value.includes("printer")) return "Printer firmware";
+      if (value.includes("switch") || value.includes("network-device")) return "Network device";
+      if (value.includes("smart") || value.includes("iot")) return "IoT";
+      if (value.includes("mobile")) return "Mobile";
+      if (value.includes("unknown")) return "Unknown";
+      return text(asset.platform || asset.os, "unknown");
+    }
+
+    function badgeKindForAsset(asset) {
+      if (isUnknown(asset) || isStaleAsset(asset)) return "warn";
+      if (isUnmanaged(asset) || isMissingTooling(asset)) return "violet";
+      return "ok";
+    }
+
+    function findingKind(finding) {
+      if (!finding) return "warn";
+      if (finding.severity === "Coverage") return "violet";
+      if (finding.severity === "Freshness") return "warn";
+      return "warn";
+    }
+
+    function siteBuckets(data) {
+      const bySite = new Map();
+      data.sites.forEach(site => {
+        bySite.set(site.site_id, {site, assets: [], agents: [], checkins: [], findings: []});
+      });
+      data.assets.forEach(asset => {
+        if (!bySite.has(asset.site_id)) bySite.set(asset.site_id, {site: {site_id: asset.site_id, name: asset.site_id}, assets: [], agents: [], checkins: [], findings: []});
+        bySite.get(asset.site_id).assets.push(asset);
+      });
+      data.agents.forEach(agent => {
+        if (!bySite.has(agent.site_id)) bySite.set(agent.site_id, {site: {site_id: agent.site_id, name: agent.site_id}, assets: [], agents: [], checkins: [], findings: []});
+        bySite.get(agent.site_id).agents.push(agent);
+      });
+      data.checkins.forEach(checkin => {
+        if (!bySite.has(checkin.site_id)) bySite.set(checkin.site_id, {site: {site_id: checkin.site_id, name: checkin.site_id}, assets: [], agents: [], checkins: [], findings: []});
+        bySite.get(checkin.site_id).checkins.push(checkin);
+      });
+      data.findings.forEach(finding => {
+        if (!bySite.has(finding.site_id)) bySite.set(finding.site_id, {site: {site_id: finding.site_id, name: finding.site_id}, assets: [], agents: [], checkins: [], findings: []});
+        bySite.get(finding.site_id).findings.push(finding);
+      });
+      return Array.from(bySite.values()).sort((a, b) => a.site.site_id.localeCompare(b.site.site_id));
+    }
+
+    function compactRow(title, detail, badgeLabel, badgeKind = "") {
+      const row = document.createElement("div");
+      const main = document.createElement("div");
+      const strong = document.createElement("strong");
+      const span = document.createElement("span");
+      row.className = "compact-row";
+      main.className = "compact-row-main";
+      strong.textContent = title;
+      main.appendChild(strong);
+      if (badgeLabel) main.appendChild(makeBadge(badgeLabel, badgeKind));
+      span.textContent = detail;
+      row.append(main, span);
+      return row;
+    }
+
+    function renderCompactRows(targetId, values, emptyTitle, emptyDetail, render) {
+      const target = byId(targetId);
+      clearNode(target);
+      if (!values.length) {
+        renderEmpty(target, emptyTitle, emptyDetail);
+        return;
+      }
+      values.forEach(value => target.appendChild(render(value)));
+    }
+
     function normalizeView(id) {
       return VIEW_IDS.includes(id) ? id : "dashboard";
     }
@@ -1683,13 +2052,30 @@
       setText("unmanaged-assets", data.unmanagedAssets.length);
       setText("active-collectors", data.activeCollectors.length);
       setText("stale-collectors", data.staleCollectors.length);
+      setText("findings-review-count", data.findings.length);
       setText("evidence-records", data.evidenceTotal);
+      setText("site-count", siteBuckets(data).length);
       setText("report-assets", data.assets.length);
       setText("report-unknown", data.unknownAssets.length);
       setText("report-stale", data.staleCollectors.length);
       setText("report-unmanaged", data.unmanagedAssets.length);
       setText("report-collectors", data.agents.length);
       setText("report-evidence", data.evidenceTotal);
+    }
+
+    function renderEnvironmentSummary(data) {
+      const sites = siteBuckets(data).length;
+      const plural = (count, singular, pluralLabel = `${singular}s`) => `${count} ${count === 1 ? singular : pluralLabel}`;
+      const summary = byId("environment-summary");
+      const posture = byId("overview-data-posture");
+      if (isZeroData(data)) {
+        summary.textContent = "No assets, sites, collectors, or evidence are loaded yet. Seed safe demo data or create a site to begin visual validation.";
+        posture.textContent = "empty local environment";
+        return;
+      }
+      summary.textContent = `${plural(data.assets.length, "asset")} across ${plural(sites, "site")}, ${plural(data.activeCollectors.length, "collector")} active, ${plural(data.unknownAssets.length, "unknown asset")}, and ${plural(data.unmanagedAssets.length, "unmanaged asset")} need review. ${plural(data.findings.length, "finding")} are ready for read-only triage.`;
+      const demo = data.assets.some(asset => metadata(asset).demo || metadata(asset).sample_data);
+      posture.textContent = demo ? "local synthetic demo data" : "local API data";
     }
 
     function renderAttention(data) {
@@ -1744,6 +2130,46 @@
       byId("asset-mix-count").textContent = `${counts.length} categories`;
     }
 
+    function renderPlatformMix(data) {
+      const target = byId("platform-mix");
+      clearNode(target);
+      if (!data.assets.length) {
+        renderEmpty(target, "No platform mix yet", "Operating system and platform categories appear after assets load.");
+        byId("platform-mix-count").textContent = "0 platforms";
+        return;
+      }
+      const counts = countBy(data.assets, platformGroup);
+      const total = data.assets.length || 1;
+      const segment = document.createElement("div");
+      segment.className = "segmented-bar";
+      counts.forEach(([, value], index) => {
+        const item = document.createElement("span");
+        item.className = "segment";
+        item.style.width = `${Math.max(5, Math.round((value / total) * 100))}%`;
+        item.style.background = ["var(--blue)", "var(--accent)", "var(--amber)", "var(--violet)", "#475569", "#c2410c"][index % 6];
+        segment.appendChild(item);
+      });
+      target.appendChild(segment);
+      const max = Math.max(...counts.map(([, value]) => value));
+      counts.forEach(([name, value], index) => {
+        const row = document.createElement("div");
+        const label = document.createElement("div");
+        const track = document.createElement("div");
+        const fill = document.createElement("span");
+        row.className = "bar-row";
+        label.className = "bar-label";
+        track.className = "bar-track";
+        fill.className = "bar-fill";
+        fill.style.width = `${Math.max(8, Math.round((value / max) * 100))}%`;
+        fill.style.background = ["var(--blue)", "var(--accent)", "var(--amber)", "var(--violet)", "#475569", "#c2410c"][index % 6];
+        label.append(name, `${value}`);
+        track.appendChild(fill);
+        row.append(label, track);
+        target.appendChild(row);
+      });
+      byId("platform-mix-count").textContent = `${counts.length} platforms`;
+    }
+
     function renderCollectorHealth(data) {
       const target = byId("collector-health");
       clearNode(target);
@@ -1752,19 +2178,27 @@
         byId("collector-health-count").textContent = "0 collectors";
         return;
       }
+      const total = data.agents.length;
+      const active = data.activeCollectors.length;
+      const activeDegrees = Math.round((active / total) * 360);
+      const summary = document.createElement("div");
+      const donutWrap = document.createElement("div");
+      const donut = document.createElement("div");
+      const donutLabel = document.createElement("div");
+      const list = document.createElement("div");
+      summary.className = "donut-summary";
+      donutWrap.className = "donut-wrap";
+      donut.className = "donut";
+      donut.style.background = `conic-gradient(var(--accent) 0deg ${activeDegrees}deg, var(--amber) ${activeDegrees}deg 360deg)`;
+      donutLabel.className = "donut-label";
+      donutLabel.textContent = `${active}/${total}`;
+      list.className = "compact-list";
+      donutWrap.append(donut, donutLabel);
       data.statuses.forEach(({agent, status}) => {
-        const row = document.createElement("div");
-        const main = document.createElement("div");
-        const info = document.createElement("span");
-        row.className = "list-row";
-        main.className = "list-row-main";
-        const title = document.createElement("strong");
-        title.textContent = agent.display_name || agent.agent_id;
-        main.append(title, makeBadge(status.label, status.kind));
-        info.textContent = `${agent.agent_type} - ${agent.platform || "platform unknown"} - ${agent.site_id}`;
-        row.append(main, info);
-        target.appendChild(row);
+        list.appendChild(compactRow(agent.display_name || agent.agent_id, `${agent.agent_type} - ${agent.platform || "platform unknown"} - ${agent.site_id}`, status.label, status.kind));
       });
+      summary.append(donutWrap, list);
+      target.appendChild(summary);
       byId("collector-health-count").textContent = `${data.activeCollectors.length} active / ${data.staleCollectors.length} stale`;
     }
 
@@ -1805,26 +2239,20 @@
 
     function renderRecentPanels(data) {
       const sortedCheckins = [...data.checkins].sort((a, b) => (parseDate(b.received_at)?.getTime() || 0) - (parseDate(a.received_at)?.getTime() || 0));
-      renderListRows("checkins-panel", sortedCheckins.slice(0, 5), "No check-ins yet", "Agent heartbeat records will appear after collectors report status.", checkinRow);
+      renderCompactRows("checkins-panel", sortedCheckins.slice(0, 4), "No check-ins yet", "Agent heartbeat records will appear after collectors report status.", item => {
+        return compactRow(item.agent_id, `${item.site_id} - ${item.hostname || "host unknown"} - ${fmtDate(item.received_at)}`, item.mode || "check-in", item.mode === "passive-demo" ? "violet" : "ok");
+      });
       byId("checkins-loaded").textContent = `${data.checkins.length} check-ins`;
 
       const evidence = data.assets.map(evidenceFromAsset).sort((a, b) => (parseDate(b.timestamp)?.getTime() || 0) - (parseDate(a.timestamp)?.getTime() || 0));
-      renderListRows("recent-evidence", evidence.slice(0, 5), "No evidence yet", "Evidence summaries appear after asset records load.", item => {
-        const row = document.createElement("div");
-        const main = document.createElement("div");
-        const title = document.createElement("strong");
-        const meta = document.createElement("span");
-        row.className = "list-row";
-        main.className = "list-row-main";
-        title.textContent = item.asset_id;
-        main.append(title, makeBadge(item.category));
-        meta.textContent = `${item.source} - ${fmtDate(item.timestamp)} - ${item.notes}`;
-        row.append(main, meta);
-        return row;
+      renderCompactRows("recent-evidence", evidence.slice(0, 4), "No evidence yet", "Evidence summaries appear after asset records load.", item => {
+        return compactRow(item.asset_id, `${item.source} - ${fmtDate(item.timestamp)} - ${item.notes}`, item.category);
       });
       byId("evidence-loaded").textContent = `${evidence.length} records`;
 
-      renderListRows("top-findings", data.findings.slice(0, 5), "No findings yet", "Demo findings are derived from synthetic attention labels.", findingCard);
+      renderCompactRows("top-findings", data.findings.slice(0, 4), "No findings yet", "Demo findings are derived from synthetic attention labels.", finding => {
+        return compactRow(finding.title, `${finding.site_id} - ${finding.detail}`, finding.severity, findingKind(finding));
+      });
       byId("findings-loaded").textContent = `${data.findings.length} items`;
     }
 
@@ -1843,29 +2271,68 @@
     }
 
     function renderSites(data) {
-      const bySite = new Map();
-      data.sites.forEach(site => {
-        bySite.set(site.site_id, {site, assets: [], agents: [], checkins: []});
-      });
-      data.assets.forEach(asset => {
-        if (!bySite.has(asset.site_id)) bySite.set(asset.site_id, {site: {site_id: asset.site_id, name: asset.site_id}, assets: [], agents: [], checkins: []});
-        bySite.get(asset.site_id).assets.push(asset);
-      });
-      data.agents.forEach(agent => {
-        if (!bySite.has(agent.site_id)) bySite.set(agent.site_id, {site: {site_id: agent.site_id, name: agent.site_id}, assets: [], agents: [], checkins: []});
-        bySite.get(agent.site_id).agents.push(agent);
-      });
-      data.checkins.forEach(checkin => {
-        if (!bySite.has(checkin.site_id)) bySite.set(checkin.site_id, {site: {site_id: checkin.site_id, name: checkin.site_id}, assets: [], agents: [], checkins: []});
-        bySite.get(checkin.site_id).checkins.push(checkin);
-      });
-
-      const cards = Array.from(bySite.values()).sort((a, b) => a.site.site_id.localeCompare(b.site.site_id));
+      const cards = siteBuckets(data);
       renderSiteCards("sites-overview", cards);
       renderSiteCards("site-cards", cards);
       byId("sites-overview-loaded").textContent = `${cards.length} sites`;
       byId("sites-loaded").textContent = `${cards.length} sites`;
       byId("site-card-count").textContent = `${cards.length} sites`;
+    }
+
+    function renderSiteHealth(data) {
+      const target = byId("site-health");
+      const buckets = siteBuckets(data);
+      clearNode(target);
+      if (!buckets.length) {
+        renderEmpty(target, "No site health yet", "Create a site or seed demo data to show site-level attention.");
+        byId("site-health-count").textContent = "0 sites";
+        return;
+      }
+      buckets.forEach(({site, assets, agents, checkins, findings}) => {
+        const row = document.createElement("article");
+        const header = document.createElement("header");
+        const title = document.createElement("h4");
+        const stats = document.createElement("div");
+        const latest = checkins.map(item => parseDate(item.received_at)).filter(Boolean).sort((a, b) => b - a)[0];
+        const needsReview = findings.length || assets.some(asset => isUnknown(asset) || isUnmanaged(asset) || isStaleAsset(asset));
+        row.className = "site-health-row";
+        title.textContent = site.name || site.site_id;
+        header.append(title, makeBadge(needsReview ? "Needs Review" : "Healthy", needsReview ? "warn" : "ok"));
+        stats.className = "mini-stats";
+        stats.append(miniStat("Assets", assets.length), miniStat("Collectors", agents.length), miniStat("Latest", latest ? fmtDate(latest) : "none"));
+        row.append(header, stats);
+        target.appendChild(row);
+      });
+      byId("site-health-count").textContent = `${buckets.length} sites`;
+    }
+
+    function reviewAssets(data) {
+      return data.assets.filter(asset => isUnknown(asset) || isUnmanaged(asset) || isStaleAsset(asset) || isMissingTooling(asset));
+    }
+
+    function renderOverviewPreviews(data) {
+      const review = reviewAssets(data);
+      renderCompactRows("review-assets", review.slice(0, 4), "No review queue yet", "Unknown, unmanaged, stale, or missing-tooling assets will appear here.", asset => {
+        const label = isUnknown(asset) ? "Unknown" : isStaleAsset(asset) ? "Stale" : isUnmanaged(asset) ? "Unmanaged" : "Needs Review";
+        return compactRow(asset.hostname || asset.asset_id, `${asset.site_id} - ${platformGroup(asset)} - ${attention(asset) || "observed"}`, label, badgeKindForAsset(asset));
+      });
+      byId("review-assets-count").textContent = `${review.length} assets`;
+
+      renderCompactRows("assets-needing-review", review.slice(0, 4), "No assets needing review", "Loaded assets currently look covered in the local demo view.", asset => {
+        return compactRow(asset.asset_id, `${asset.hostname || "host unknown"} - ${asset.site_id} - ${attention(asset) || "observed"}`, isUnknown(asset) ? "Unknown" : "Needs Review", badgeKindForAsset(asset));
+      });
+      byId("assets-review-loaded").textContent = `${review.length} assets`;
+
+      const recentAssets = [...data.assets].sort((a, b) => (parseDate(b.last_seen_at)?.getTime() || 0) - (parseDate(a.last_seen_at)?.getTime() || 0));
+      renderCompactRows("recent-assets", recentAssets.slice(0, 4), "No recent assets yet", "Recently observed assets will appear after inventory evidence loads.", asset => {
+        return compactRow(asset.hostname || asset.asset_id, `${asset.site_id} - ${platformGroup(asset)} - ${fmtDate(asset.last_seen_at)}`, "Demo", "ok");
+      });
+      byId("recent-assets-loaded").textContent = `${recentAssets.length} assets`;
+
+      renderCompactRows("stale-collectors-panel", data.staleCollectors.slice(0, 4), "No stale collectors", "Collector and sensor freshness looks healthy in the loaded local data.", ({agent, status}) => {
+        return compactRow(agent.agent_id, `${agent.site_id} - ${agent.agent_type} - ${status.minutes === null ? "no recent timing" : `${status.minutes} synthetic minutes behind`}`, "Stale", "warn");
+      });
+      byId("stale-collectors-loaded").textContent = `${data.staleCollectors.length} stale`;
     }
 
     function renderSiteCards(targetId, cards) {
@@ -2182,13 +2649,17 @@
 
     function renderAll() {
       const data = derivedData();
+      renderEnvironmentSummary(data);
       renderMetrics(data);
       renderAttention(data);
       renderDemoSeedCta(data);
       renderAssetMix(data);
+      renderPlatformMix(data);
       renderCollectorHealth(data);
+      renderSiteHealth(data);
       renderRecentPanels(data);
       renderSites(data);
+      renderOverviewPreviews(data);
       renderAssets(data);
       renderCollectors(data);
       renderEvidence(data);
@@ -2257,7 +2728,9 @@
         };
         renderAll();
         setStatus("healthy", `${health.service} is ${health.status}`, `Dashboard data loaded from ${apiBase || "same-origin API"}.`);
-        byId("last-updated").textContent = `updated ${new Date().toLocaleTimeString()}`;
+        const refreshedAt = new Date().toLocaleTimeString();
+        byId("last-updated").textContent = `updated ${refreshedAt}`;
+        byId("overview-last-refreshed").textContent = refreshedAt;
         byId("last-updated").className = "pill ok";
       } catch (error) {
         setStatus("error", "API data could not be loaded", text(error.message));

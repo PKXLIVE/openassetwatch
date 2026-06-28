@@ -5,10 +5,12 @@ Reserved for the OpenAssetWatch web application.
 The Control Tower MVP dashboard is served from `backend/app/static/index.html`
 through the local Compose `web` service at `http://localhost:8080`. It focuses
 on a compact app shell with Dashboard, Assets, Collectors, Sites, Evidence,
-Findings, Policies, Reports, and Settings views. The dashboard shows overview
-metrics, attention items, asset mix, collector health, recent check-ins, recent
-evidence, discovered assets, site cards, policy guardrails, and metadata-only
-release status.
+Findings, Policies, Reports, and Settings views. The Dashboard view is a
+command-center overview with an environment summary sentence, eight KPI cards,
+asset mix, operating system/platform mix, collector health, site health, top
+findings, unknown/unmanaged assets, recent check-ins, recent evidence, assets
+needing review, recently discovered assets, stale collectors/sensors, site
+cards, and metadata-only release status.
 
 The dashboard calls the local API at `http://127.0.0.1:8000` when served by the
 Compose web container. It also includes a small create-site form that uses the
