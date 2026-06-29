@@ -93,6 +93,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
         expected_markup = (
             'class="view-section dashboard-canvas"',
             'class="view-section asset-canvas"',
+            'id="dashboard" class="view-section dashboard-canvas" data-canvas-contract="full"',
+            'id="assets" class="view-section asset-canvas" data-canvas-contract="full"',
             'aria-label="Environment summary"',
             'id="environment-summary"',
             'id="overview-last-refreshed"',
@@ -116,7 +118,7 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'class="topbar-controls"',
             'id="global-dashboard-search"',
             'class="select-like"',
-            'class="dashboard-visual-grid"',
+            'class="dashboard-grid"',
             'span-12',
         )
         for markup in expected_markup:
@@ -126,9 +128,22 @@ class ControlTowerDashboardTests(unittest.TestCase):
     def test_dashboard_and_assets_use_full_canvas_layout(self) -> None:
         self.assertIn("max-width: none;", self.dashboard)
         self.assertIn(".dashboard-canvas,\n    .asset-canvas", self.dashboard)
+        self.assertIn(".dashboard-grid {", self.dashboard)
         self.assertIn("grid-template-columns: repeat(12, minmax(0, 1fr));", self.dashboard)
         self.assertIn("grid-template-columns: repeat(8, minmax(8.5rem, 1fr));", self.dashboard)
         self.assertNotIn("max-width: 1560px", self.dashboard)
+        self.assertNotRegex(self.dashboard, r"\.page\s*\{[^}]*margin:\s*0 auto")
+        full_canvas_rule = re.search(r"\.dashboard-canvas,\s*\.asset-canvas\s*\{(?P<body>[^}]+)\}", self.dashboard)
+        self.assertIsNotNone(full_canvas_rule)
+        full_canvas_body = full_canvas_rule.group("body") if full_canvas_rule else ""
+        for declaration in (
+            "width: 100%;",
+            "min-width: 0;",
+            "max-width: none;",
+            "justify-self: stretch;",
+        ):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, full_canvas_body)
 
     def test_setup_and_release_content_live_in_settings_not_dashboard(self) -> None:
         dashboard_section = self.dashboard.split('<section id="dashboard"', 1)[1].split('<section id="assets"', 1)[0]
@@ -139,6 +154,41 @@ class ControlTowerDashboardTests(unittest.TestCase):
         self.assertIn("Getting Started", settings_section)
         self.assertIn("Release Status", settings_section)
         self.assertIn('id="demo-seed-cta"', settings_section)
+        self.assertIn("Demo Seed Command", settings_section)
+        self.assertIn("Backend Health", settings_section)
+        self.assertIn("API URL", settings_section)
+        self.assertIn("Release Metadata", settings_section)
+        self.assertIn("Copy command", settings_section)
+
+    def test_dashboard_command_center_inventory_is_present(self) -> None:
+        dashboard_section = self.dashboard.split('<section id="dashboard"', 1)[1].split('<section id="assets"', 1)[0]
+        self.assertEqual(dashboard_section.count('class="metric"'), 8)
+        expected_dashboard_targets = (
+            'id="asset-mix"',
+            'id="device-type-mix"',
+            'id="platform-mix"',
+            'id="collector-health"',
+            'id="site-health"',
+            'id="top-findings"',
+            'id="review-assets"',
+            'id="checkins-panel"',
+            'id="recent-evidence"',
+        )
+        for target in expected_dashboard_targets:
+            with self.subTest(target=target):
+                self.assertIn(target, dashboard_section)
+
+    def test_asset_catalog_grouped_inventory_sections_are_present(self) -> None:
+        expected_groups = (
+            '{id: "device-type", title: "Device Type / Category"',
+            '{id: "site", title: "Site"',
+            '{id: "platform", title: "Platform / OS"',
+            '{id: "source", title: "Evidence Source / Data Source"',
+            '{id: "attention", title: "Attention State"',
+        )
+        for group in expected_groups:
+            with self.subTest(group=group):
+                self.assertIn(group, self.dashboard)
 
     def test_dashboard_overview_visual_helpers_are_client_side(self) -> None:
         expected_code = (
@@ -187,9 +237,14 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'id="back-to-catalog"',
             "dataset.catalogSection",
             'catalog-section-grid',
+            "Device Type / Category",
+            "Evidence Source / Data Source",
+            "Attention State",
             'className = "catalog-icon-tile"',
             'className = "catalog-card-copy"',
             'className = "catalog-action"',
+            'action.textContent = "View Assets"',
+            "white-space: nowrap",
             'data-safe-action="review-findings"',
             'data-safe-action="create-site"',
             'data-safe-action="enroll-collector"',
@@ -221,8 +276,12 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "function resetAssetCatalog",
             "function drilldownToAsset",
             "function setupGlobalControls",
+            ".asset-layout.catalog-mode",
+            ".asset-layout.catalog-mode .detail-panel",
             'state.assetMode = "inventory"',
             'state.assetDrilldown = group.scope || null',
+            'assetLayout.classList.toggle("catalog-mode", state.assetMode === "catalog")',
+            'assetLayout.classList.toggle("inventory-mode", state.assetMode === "inventory")',
             'button.addEventListener("click", () => setAssetMode(button.dataset.assetMode))',
             'button.addEventListener("click", () => setAssetFilter(button.dataset.filter))',
             'byId("back-to-catalog").addEventListener("click", resetAssetCatalog)',

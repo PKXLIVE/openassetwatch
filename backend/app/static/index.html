@@ -141,6 +141,7 @@
     .app-shell {
       display: grid;
       grid-template-columns: 15.5rem minmax(0, 1fr);
+      width: 100%;
       min-height: 100vh;
       min-width: 0;
     }
@@ -240,6 +241,7 @@
     }
 
     .content {
+      width: 100%;
       min-width: 0;
       overflow-x: visible;
     }
@@ -370,19 +372,25 @@
       display: grid;
       gap: clamp(0.9rem, 1vw, 1.35rem);
       width: 100%;
+      min-width: 0;
       max-width: none;
       margin: 0;
       padding: clamp(0.9rem, 1.1vw, 1.5rem);
+      justify-self: stretch;
     }
 
     .view-section {
       scroll-margin-top: 5rem;
+      width: 100%;
+      min-width: 0;
     }
 
     .dashboard-canvas,
     .asset-canvas {
       width: 100%;
+      min-width: 0;
       max-width: none;
+      justify-self: stretch;
     }
 
     .view-section[hidden] {
@@ -665,31 +673,11 @@
       line-height: 1.4;
     }
 
-    .dashboard-visual-grid,
-    .overview-grid-4,
-    .overview-chart-grid,
-    .overview-focus-grid,
-    .overview-activity-grid {
+    .dashboard-grid {
       display: grid;
       gap: clamp(0.9rem, 1vw, 1.35rem);
-    }
-
-    .dashboard-visual-grid {
       grid-template-columns: repeat(12, minmax(0, 1fr));
       align-items: stretch;
-    }
-
-    .overview-grid-4 {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-
-    .overview-chart-grid,
-    .overview-focus-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .overview-activity-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .span-3 {
@@ -838,23 +826,24 @@
 
     .chart-summary-grid {
       display: grid;
-      grid-template-columns: minmax(15rem, 0.48fr) minmax(0, 1fr);
+      grid-template-columns: 1fr;
       gap: clamp(1rem, 1vw, 1.35rem);
       align-items: center;
     }
 
     .svg-chart {
       width: 100%;
-      max-width: 20rem;
+      max-width: min(28rem, 100%);
       aspect-ratio: 1;
       display: block;
-      margin: 0 auto;
+      margin: 0;
       overflow: visible;
+      justify-self: center;
     }
 
     .svg-bar-chart {
       width: 100%;
-      min-height: 17rem;
+      min-height: clamp(18rem, 19vw, 25rem);
       display: block;
       overflow: visible;
     }
@@ -1143,6 +1132,14 @@
       grid-template-columns: minmax(0, 1fr) minmax(18rem, 21rem);
       gap: clamp(0.9rem, 1vw, 1.3rem);
       align-items: start;
+    }
+
+    .asset-layout.catalog-mode {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .asset-layout.catalog-mode .detail-panel {
+      display: none;
     }
 
     .asset-catalog {
@@ -1506,11 +1503,7 @@
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
-      .dashboard-visual-grid,
-      .overview-grid-4,
-      .overview-chart-grid,
-      .overview-focus-grid,
-      .overview-activity-grid,
+      .dashboard-grid,
       .collector-grid,
       .site-grid,
       .policy-grid,
@@ -1566,11 +1559,7 @@
       }
 
       .metrics-grid,
-      .dashboard-visual-grid,
-      .overview-grid-4,
-      .overview-chart-grid,
-      .overview-focus-grid,
-      .overview-activity-grid,
+      .dashboard-grid,
       .chart-summary-grid,
       .collector-grid,
       .site-grid,
@@ -1666,7 +1655,7 @@
       </header>
 
       <main class="page">
-        <section id="dashboard" class="view-section dashboard-canvas">
+        <section id="dashboard" class="view-section dashboard-canvas" data-canvas-contract="full">
           <div class="status-line" role="status" aria-live="polite">
             <div class="status-copy">
               <strong id="status-title">Loading Control Tower data</strong>
@@ -1712,7 +1701,7 @@
             <a class="pill warn" href="#findings" data-safe-action="review-findings">Review findings</a>
           </div>
 
-          <div class="dashboard-visual-grid" aria-label="Environment visual summaries">
+          <div class="dashboard-grid" aria-label="Environment visual summaries">
             <section class="panel overview-panel overview-chart-panel span-4">
               <div class="panel-header">
                 <h3>Asset Mix By Type <span class="panel-kicker">larger category drilldown</span></h3>
@@ -1845,7 +1834,7 @@
           </div>
         </section>
 
-        <section id="assets" class="view-section asset-canvas">
+        <section id="assets" class="view-section asset-canvas" data-canvas-contract="full">
           <div class="section-title">
             <div>
               <h2>Asset Inventory</h2>
@@ -3351,6 +3340,11 @@
       const filtered = filteredAssets(data);
       const activeScope = activeAssetScopeLabel();
       updateAssetModeControls();
+      const assetLayout = document.querySelector("#assets .asset-layout");
+      if (assetLayout) {
+        assetLayout.classList.toggle("catalog-mode", state.assetMode === "catalog");
+        assetLayout.classList.toggle("inventory-mode", state.assetMode === "inventory");
+      }
       renderAssetCatalog(data);
       clearNode(table);
       if (!filtered.length) {
