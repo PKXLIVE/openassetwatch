@@ -6,11 +6,12 @@ The Control Tower MVP dashboard is served from `backend/app/static/index.html`
 through the local Compose `web` service at `http://localhost:8080`. It focuses
 on a compact app shell with Dashboard, Assets, Collectors, Sites, Evidence,
 Findings, Policies, Reports, and Settings views. The Dashboard view is a
-command-center overview with an environment summary sentence, eight KPI cards,
-larger local SVG charts for asset mix and operating system/platform coverage,
-collector health, site health, top findings, unknown/unmanaged assets, recent
-check-ins, recent evidence, assets needing review, recently discovered assets,
-stale collectors/sensors, site cards, and metadata-only release status.
+command-center overview with a top search/scope strip, an environment summary
+sentence, eight KPI cards, larger local SVG charts for asset mix and operating
+system/platform coverage, collector health, site health, top findings,
+unknown/unmanaged assets, recent check-ins, recent evidence, assets needing
+review, recently discovered assets, stale collectors/sensors, site cards, and
+metadata-only release status.
 
 The dashboard calls the local API at `http://127.0.0.1:8000` when served by the
 Compose web container. It also includes a small create-site form that uses the
@@ -19,12 +20,12 @@ does not enroll agents, run collection, execute updates, or perform any
 credential or remote-command workflow.
 
 The Assets view includes browser-side Catalog and Detailed Inventory modes.
-Catalog mode groups loaded assets by safe local categories, while Detailed
-Inventory preserves the searchable/filterable table and read-only detail panel
-for the data already returned by the local Control Tower API. Chart, catalog,
-and review-queue drilldowns update local UI state only. The Policies and Reports
-views are informational only; they do not execute checks, commands, downloads,
-or remediation.
+Catalog mode presents device-type tiles with local SVG icons and safe category
+drilldowns, while Detailed Inventory preserves the searchable/filterable table
+and read-only detail panel for the data already returned by the local Control
+Tower API. Top search, chart, catalog, and review-queue drilldowns update local
+UI state only. The Policies and Reports views are informational only; they do
+not execute checks, commands, downloads, or remediation.
 
 Sidebar navigation uses local hash routes such as `#dashboard`, `#assets`, and
 `#settings`. Refresh reloads local API data, the attention banner opens the
@@ -50,8 +51,8 @@ python scripts/test_control_tower_dashboard.py
 ```
 
 The smoke test verifies the expected sections, local API endpoints, safe
-empty/error states, create-site form wiring, asset filters, and lack of external
-static assets.
+empty/error states, top search controls, Catalog/Inventory asset modes,
+create-site form wiring, asset filters, and lack of external static assets.
 
 Validate it against the running local stack:
 

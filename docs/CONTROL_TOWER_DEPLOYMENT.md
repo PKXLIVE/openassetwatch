@@ -78,20 +78,21 @@ Open the UI:
 http://localhost:8080
 ```
 
-The dashboard is a static Control Tower MVP UI with a left navigation shell and
-client-side views for Dashboard, Assets, Collectors, Sites, Evidence, Findings,
-Policies, Reports, and Settings. The Dashboard view is the overview command
-center: it summarizes the environment in one sentence, shows eight KPI cards,
-uses larger local SVG charts for asset category and operating system/platform
-mix, and groups collector health, site health, findings, review queues, recent
-activity, and site cards into fewer clearer panels. Empty states explain what
-will appear as agents enroll and inventory evidence arrives. A local create-site
-form uses `POST /api/v1/sites` to add site metadata only. The Assets view has a
-Catalog mode for category drilldown and a Detailed Inventory mode that preserves
-the searchable table and read-only detail panel. Asset search, quick filters,
-category drilldowns, row details, hash routes, and Getting Started actions run
-in the browser against already-loaded local API data. The browser can copy local
-demo commands, but it does not execute them.
+The dashboard is a static Control Tower MVP UI with a left navigation shell, a
+compact top search/scope strip, and client-side views for Dashboard, Assets,
+Collectors, Sites, Evidence, Findings, Policies, Reports, and Settings. The
+Dashboard view is the overview command center: it summarizes the environment in
+one sentence, shows eight KPI cards, uses larger local SVG charts for asset
+category and operating system/platform mix, and groups collector health, site
+health, findings, review queues, recent activity, and site cards into fewer
+clearer panels. Empty states explain what will appear as agents enroll and
+inventory evidence arrives. A local create-site form uses `POST /api/v1/sites`
+to add site metadata only. The Assets view has a Catalog mode with device-type
+tiles and local SVG icons for category drilldown, plus a Detailed Inventory mode
+that preserves the searchable table and read-only detail panel. Top search,
+asset search, quick filters, category drilldowns, row details, hash routes, and
+Getting Started actions run in the browser against already-loaded local API
+data. The browser can copy local demo commands, but it does not execute them.
 
 Check API health:
 
@@ -128,6 +129,7 @@ python scripts/test_control_tower_dashboard.py
 ```
 
 The dashboard test checks the expected local endpoints, navigation sections,
+overview chart helpers, top search controls, asset Catalog/Inventory modes,
 empty/error states, safe policy copy, asset filters, and create-site form. It
 also verifies the static page does not load external assets.
 
