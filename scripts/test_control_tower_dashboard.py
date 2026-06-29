@@ -91,12 +91,16 @@ class ControlTowerDashboardTests(unittest.TestCase):
 
     def test_dashboard_overview_command_center_sections_are_present(self) -> None:
         expected_markup = (
+            'class="view-section dashboard-canvas"',
+            'class="view-section asset-canvas"',
             'aria-label="Environment summary"',
             'id="environment-summary"',
             'id="overview-last-refreshed"',
             'id="overview-data-posture"',
             'id="findings-review-count"',
             'id="site-count"',
+            'id="device-type-mix"',
+            'id="device-type-mix-count"',
             'id="platform-mix"',
             'id="platform-mix-count"',
             'id="site-health"',
@@ -112,17 +116,34 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'class="topbar-controls"',
             'id="global-dashboard-search"',
             'class="select-like"',
-            'class="overview-chart-grid"',
-            'class="overview-focus-grid"',
-            'class="overview-activity-grid"',
+            'class="dashboard-visual-grid"',
+            'span-12',
         )
         for markup in expected_markup:
             with self.subTest(markup=markup):
                 self.assertIn(markup, self.dashboard)
 
+    def test_dashboard_and_assets_use_full_canvas_layout(self) -> None:
+        self.assertIn("max-width: none;", self.dashboard)
+        self.assertIn(".dashboard-canvas,\n    .asset-canvas", self.dashboard)
+        self.assertIn("grid-template-columns: repeat(12, minmax(0, 1fr));", self.dashboard)
+        self.assertIn("grid-template-columns: repeat(8, minmax(8.5rem, 1fr));", self.dashboard)
+        self.assertNotIn("max-width: 1560px", self.dashboard)
+
+    def test_setup_and_release_content_live_in_settings_not_dashboard(self) -> None:
+        dashboard_section = self.dashboard.split('<section id="dashboard"', 1)[1].split('<section id="assets"', 1)[0]
+        settings_section = self.dashboard.split('<section id="settings"', 1)[1].split("</main>", 1)[0]
+        self.assertNotIn("Getting Started", dashboard_section)
+        self.assertNotIn("Release Status", dashboard_section)
+        self.assertNotIn('id="demo-seed-cta"', dashboard_section)
+        self.assertIn("Getting Started", settings_section)
+        self.assertIn("Release Status", settings_section)
+        self.assertIn('id="demo-seed-cta"', settings_section)
+
     def test_dashboard_overview_visual_helpers_are_client_side(self) -> None:
         expected_code = (
             "function renderEnvironmentSummary",
+            "function renderDeviceTypeMix",
             "function renderPlatformMix",
             "function renderSiteHealth",
             "function renderOverviewPreviews",
@@ -134,6 +155,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "function platformGroup",
             "function siteBuckets",
             "function compactRow",
+            "function assetCatalogSections",
+            "function drilldownAssetGroup",
             "document.createElementNS(SVG_NS",
             "classList.add(\"svg-chart\")",
             "classList.add(\"svg-bar-chart\")",
@@ -160,6 +183,10 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'id="asset-catalog"',
             'id="asset-inventory-wrap"',
             'id="asset-drilldown-status"',
+            'id="asset-breadcrumb"',
+            'id="back-to-catalog"',
+            "dataset.catalogSection",
+            'catalog-section-grid',
             'className = "catalog-icon-tile"',
             'className = "catalog-card-copy"',
             'className = "catalog-action"',
@@ -180,17 +207,25 @@ class ControlTowerDashboardTests(unittest.TestCase):
     def test_asset_catalog_modes_and_drilldowns_are_client_side(self) -> None:
         expected_code = (
             'assetMode: "catalog"',
+            'assetDrilldown: null',
             "function assetCategoryDefinitions",
+            "function deviceTypeDefinitions",
+            "function assetCatalogSections",
+            "function activeAssetScopeLabel",
             "function filteredAssets",
             "function renderAssetCatalog",
             "function setAssetMode",
             "function setAssetFilter",
             "function drilldownAssets",
+            "function drilldownAssetGroup",
+            "function resetAssetCatalog",
             "function drilldownToAsset",
             "function setupGlobalControls",
             'state.assetMode = "inventory"',
+            'state.assetDrilldown = group.scope || null',
             'button.addEventListener("click", () => setAssetMode(button.dataset.assetMode))',
             'button.addEventListener("click", () => setAssetFilter(button.dataset.filter))',
+            'byId("back-to-catalog").addEventListener("click", resetAssetCatalog)',
             'navigateTo("assets")',
             'state.assetFilter = filter || "all"',
             'state.assetMode = mode === "inventory" ? "inventory" : "catalog"',
@@ -247,7 +282,6 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "function navigateTo",
             "window.addEventListener(\"hashchange\"",
             "section.hidden = section.id !== activeId",
-            "data-dashboard-extra",
             "byId(\"refresh\").addEventListener(\"click\", refresh)",
             "setupSafeActions()",
             "copyDemoSeedCommand",

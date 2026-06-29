@@ -368,19 +368,24 @@
 
     .page {
       display: grid;
-      gap: 1rem;
+      gap: clamp(0.9rem, 1vw, 1.35rem);
       width: 100%;
-      max-width: 1560px;
-      margin: 0 auto;
-      padding: 1rem;
+      max-width: none;
+      margin: 0;
+      padding: clamp(0.9rem, 1.1vw, 1.5rem);
     }
 
     .view-section {
       scroll-margin-top: 5rem;
     }
 
-    .view-section[hidden],
-    [data-dashboard-extra][hidden] {
+    .dashboard-canvas,
+    .asset-canvas {
+      width: 100%;
+      max-width: none;
+    }
+
+    .view-section[hidden] {
       display: none;
     }
 
@@ -578,16 +583,16 @@
 
     .metrics-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 0.72rem;
+      grid-template-columns: repeat(8, minmax(8.5rem, 1fr));
+      gap: clamp(0.68rem, 0.8vw, 1rem);
     }
 
     .metric {
-      min-height: 6rem;
+      min-height: 7.1rem;
       display: grid;
       align-content: space-between;
       gap: 0.45rem;
-      padding: 0.78rem;
+      padding: clamp(0.8rem, 0.82vw, 1rem);
       border-top: 3px solid var(--accent);
     }
 
@@ -660,23 +665,59 @@
       line-height: 1.4;
     }
 
-    .overview-grid-4 {
+    .dashboard-visual-grid,
+    .overview-grid-4,
+    .overview-chart-grid,
+    .overview-focus-grid,
+    .overview-activity-grid {
       display: grid;
+      gap: clamp(0.9rem, 1vw, 1.35rem);
+    }
+
+    .dashboard-visual-grid {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      align-items: stretch;
+    }
+
+    .overview-grid-4 {
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 1rem;
     }
 
     .overview-chart-grid,
     .overview-focus-grid {
-      display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 1rem;
     }
 
     .overview-activity-grid {
-      display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 1rem;
+    }
+
+    .span-3 {
+      grid-column: span 3;
+    }
+
+    .span-4 {
+      grid-column: span 4;
+    }
+
+    .span-5 {
+      grid-column: span 5;
+    }
+
+    .span-6 {
+      grid-column: span 6;
+    }
+
+    .span-7 {
+      grid-column: span 7;
+    }
+
+    .span-8 {
+      grid-column: span 8;
+    }
+
+    .span-12 {
+      grid-column: 1 / -1;
     }
 
     .overview-panel .panel-header {
@@ -688,7 +729,7 @@
     }
 
     .overview-chart-panel .panel-body {
-      min-height: 19rem;
+      min-height: clamp(23rem, 23vw, 31rem);
     }
 
     .panel-kicker {
@@ -792,19 +833,19 @@
 
     .chart-shell {
       display: grid;
-      gap: 0.9rem;
+      gap: 1rem;
     }
 
     .chart-summary-grid {
       display: grid;
-      grid-template-columns: minmax(11rem, 0.45fr) minmax(0, 1fr);
-      gap: 1rem;
+      grid-template-columns: minmax(15rem, 0.48fr) minmax(0, 1fr);
+      gap: clamp(1rem, 1vw, 1.35rem);
       align-items: center;
     }
 
     .svg-chart {
       width: 100%;
-      max-width: 15.5rem;
+      max-width: 20rem;
       aspect-ratio: 1;
       display: block;
       margin: 0 auto;
@@ -813,7 +854,7 @@
 
     .svg-bar-chart {
       width: 100%;
-      min-height: 14rem;
+      min-height: 17rem;
       display: block;
       overflow: visible;
     }
@@ -1099,16 +1140,15 @@
 
     .asset-layout {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 19rem;
-      gap: 1rem;
+      grid-template-columns: minmax(0, 1fr) minmax(18rem, 21rem);
+      gap: clamp(0.9rem, 1vw, 1.3rem);
       align-items: start;
     }
 
     .asset-catalog {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 0.95rem;
-      padding: 0.9rem;
+      gap: clamp(1rem, 1.1vw, 1.45rem);
+      padding: clamp(0.95rem, 1vw, 1.25rem);
     }
 
     .asset-catalog[hidden],
@@ -1116,10 +1156,51 @@
       display: none;
     }
 
+    .catalog-section {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .catalog-section-header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .catalog-section-header span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .catalog-section-header h3 {
+      margin: 0.12rem 0 0;
+      font-size: 1.08rem;
+      font-weight: 950;
+    }
+
+    .catalog-section-header p {
+      max-width: 52rem;
+      margin: 0.2rem 0 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.45;
+    }
+
+    .catalog-section-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+      gap: clamp(0.75rem, 0.85vw, 1rem);
+    }
+
     .catalog-card {
       display: grid;
-      grid-template-columns: 5.4rem minmax(0, 1fr);
-      min-height: 7.35rem;
+      grid-template-columns: 6.1rem minmax(0, 1fr);
+      min-height: 8.4rem;
       padding: 0;
       border: 1px solid var(--line);
       border-radius: 0.44rem;
@@ -1159,8 +1240,8 @@
     }
 
     .catalog-icon {
-      width: 3.25rem;
-      height: 3.25rem;
+      width: 3.65rem;
+      height: 3.65rem;
       stroke: currentColor;
       fill: none;
       stroke-width: 2.6;
@@ -1171,8 +1252,8 @@
     .catalog-card-copy {
       display: grid;
       align-content: center;
-      gap: 0.4rem;
-      padding: 0.82rem 0.95rem;
+      gap: 0.45rem;
+      padding: 0.9rem 1rem;
       min-width: 0;
     }
 
@@ -1185,7 +1266,7 @@
 
     .catalog-card h3 {
       margin: 0;
-      font-size: 0.95rem;
+      font-size: 1rem;
       font-weight: 950;
     }
 
@@ -1199,7 +1280,7 @@
     .catalog-card p {
       margin: 0;
       color: var(--muted);
-      font-size: 0.76rem;
+      font-size: 0.78rem;
       line-height: 1.4;
     }
 
@@ -1214,6 +1295,26 @@
       background: #ffffff;
       font-size: 0.66rem;
       font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .asset-breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 850;
+    }
+
+    .asset-breadcrumb strong {
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+
+    .back-to-catalog[hidden] {
+      display: none;
     }
 
     .detail-panel {
@@ -1401,12 +1502,15 @@
     }
 
     @media (max-width: 1180px) {
-      .metrics-grid,
+      .metrics-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .dashboard-visual-grid,
       .overview-grid-4,
       .overview-chart-grid,
       .overview-focus-grid,
       .overview-activity-grid,
-      .asset-catalog,
       .collector-grid,
       .site-grid,
       .policy-grid,
@@ -1414,6 +1518,15 @@
       .settings-grid,
       .release-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .span-3,
+      .span-4,
+      .span-5,
+      .span-6,
+      .span-7,
+      .span-8 {
+        grid-column: span 1;
       }
 
       .overview-hero,
@@ -1453,12 +1566,12 @@
       }
 
       .metrics-grid,
+      .dashboard-visual-grid,
       .overview-grid-4,
       .overview-chart-grid,
       .overview-focus-grid,
       .overview-activity-grid,
       .chart-summary-grid,
-      .asset-catalog,
       .collector-grid,
       .site-grid,
       .policy-grid,
@@ -1474,12 +1587,16 @@
         align-items: stretch;
         flex-direction: column;
       }
+
+      .catalog-section-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
     }
 
     @media (max-width: 560px) {
       .page {
         padding: 0.75rem;
-        max-width: 100%;
       }
 
       .nav-list {
@@ -1549,7 +1666,7 @@
       </header>
 
       <main class="page">
-        <section id="dashboard" class="view-section">
+        <section id="dashboard" class="view-section dashboard-canvas">
           <div class="status-line" role="status" aria-live="polite">
             <div class="status-copy">
               <strong id="status-title">Loading Control Tower data</strong>
@@ -1595,26 +1712,8 @@
             <a class="pill warn" href="#findings" data-safe-action="review-findings">Review findings</a>
           </div>
 
-          <section id="demo-seed-cta" class="panel" hidden>
-            <div class="panel-header">
-              <h3>No demo data loaded yet</h3>
-              <span>local seed</span>
-            </div>
-            <div class="panel-body list">
-              <div class="list-row">
-                <strong>Populate safe synthetic dashboard data</strong>
-                <span>Run this from the repository after the Compose stack is healthy. The browser only copies the command; it does not execute anything.</span>
-              </div>
-              <div class="command-box">
-                <code id="demo-seed-command">docker compose --profile demo run --rm demo-seed</code>
-                <button id="copy-demo-seed" class="secondary" type="button">Copy command</button>
-              </div>
-              <span id="copy-demo-seed-status" class="form-status"></span>
-            </div>
-          </section>
-
-          <div class="overview-chart-grid" aria-label="Environment visual summaries">
-            <section class="panel overview-panel overview-chart-panel">
+          <div class="dashboard-visual-grid" aria-label="Environment visual summaries">
+            <section class="panel overview-panel overview-chart-panel span-4">
               <div class="panel-header">
                 <h3>Asset Mix By Type <span class="panel-kicker">larger category drilldown</span></h3>
                 <span id="asset-mix-count">loading</span>
@@ -1624,7 +1723,17 @@
               </div>
             </section>
 
-            <section class="panel overview-panel overview-chart-panel">
+            <section class="panel overview-panel overview-chart-panel span-4">
+              <div class="panel-header">
+                <h3>Device Type / Category <span class="panel-kicker">catalog distribution</span></h3>
+                <span id="device-type-mix-count">loading</span>
+              </div>
+              <div id="device-type-mix" class="panel-body chart-shell">
+                <div class="empty-state"><strong>Loading device categories</strong>Catalog groups will appear after assets load.</div>
+              </div>
+            </section>
+
+            <section class="panel overview-panel overview-chart-panel span-4">
               <div class="panel-header">
                 <h3>Operating Systems / Platforms <span class="panel-kicker">coverage distribution</span></h3>
                 <span id="platform-mix-count">loading</span>
@@ -1633,10 +1742,8 @@
                 <div class="empty-state"><strong>Loading platforms</strong>Operating system and platform mix will appear after assets load.</div>
               </div>
             </section>
-          </div>
 
-          <div class="overview-focus-grid" aria-label="Health and attention summaries">
-            <section class="panel overview-panel">
+            <section class="panel overview-panel span-4">
               <div class="panel-header">
                 <h3>Collector Health <span class="panel-kicker">agent and sensor freshness</span></h3>
                 <span id="collector-health-count">loading</span>
@@ -1646,7 +1753,7 @@
               </div>
             </section>
 
-            <section class="panel overview-panel">
+            <section class="panel overview-panel span-4">
               <div class="panel-header">
                 <h3>Site Health <span class="panel-kicker">attention by environment</span></h3>
                 <span id="site-health-count">loading</span>
@@ -1655,10 +1762,8 @@
                 <div class="empty-state"><strong>Loading site health</strong>Site-level asset and collector attention will appear here.</div>
               </div>
             </section>
-          </div>
 
-          <div class="overview-activity-grid" aria-label="Operational focus">
-            <section class="panel overview-panel">
+            <section class="panel overview-panel span-4">
               <div class="panel-header">
                 <h3>Top Findings / Attention Items <span class="panel-kicker">highest review signals</span></h3>
                 <span id="findings-loaded">loading</span>
@@ -1668,7 +1773,7 @@
               </div>
             </section>
 
-            <section class="panel overview-panel">
+            <section class="panel overview-panel span-4">
               <div class="panel-header">
                 <h3>Unknown &amp; Unmanaged Assets <span class="panel-kicker">coverage queue</span></h3>
                 <span id="review-assets-count">loading</span>
@@ -1678,7 +1783,7 @@
               </div>
             </section>
 
-            <section class="panel overview-panel">
+            <section class="panel overview-panel span-4">
               <div class="panel-header">
                 <h3>Recent Check-ins <span class="panel-kicker">collector activity</span></h3>
                 <span id="checkins-loaded">loading</span>
@@ -1687,10 +1792,8 @@
                 <div class="empty-state"><strong>Loading check-ins</strong>Agent heartbeat activity will appear here.</div>
               </div>
             </section>
-          </div>
 
-          <div class="overview-grid-4" aria-label="Review queues and recent activity">
-            <section class="panel overview-panel">
+            <section class="panel overview-panel span-3">
               <div class="panel-header">
                 <h3>Recent Evidence <span class="panel-kicker">proof behind inventory</span></h3>
                 <span id="evidence-loaded">loading</span>
@@ -1700,7 +1803,7 @@
               </div>
             </section>
 
-            <section class="panel overview-panel">
+            <section class="panel overview-panel span-3">
               <div class="panel-header">
                 <h3>Top Assets Needing Review <span class="panel-kicker">unknown, unmanaged, stale</span></h3>
                 <span id="assets-review-loaded">loading</span>
@@ -1710,7 +1813,7 @@
               </div>
             </section>
 
-            <section class="panel overview-panel">
+            <section class="panel overview-panel span-3">
               <div class="panel-header">
                 <h3>Recently Discovered Assets <span class="panel-kicker">freshest evidence</span></h3>
                 <span id="recent-assets-loaded">loading</span>
@@ -1720,7 +1823,7 @@
               </div>
             </section>
 
-            <section class="panel overview-panel">
+            <section class="panel overview-panel span-3">
               <div class="panel-header">
                 <h3>Stale Collectors / Sensors <span class="panel-kicker">freshness watch</span></h3>
                 <span id="stale-collectors-loaded">loading</span>
@@ -1730,7 +1833,7 @@
               </div>
             </section>
 
-            <section class="panel overview-panel">
+            <section class="panel overview-panel span-12">
               <div class="panel-header">
                 <h3>Sites Overview <span class="panel-kicker">Site Cards by environment</span></h3>
                 <span id="sites-overview-loaded">loading</span>
@@ -1740,33 +1843,9 @@
               </div>
             </section>
           </div>
-
-          <section class="panel">
-            <div class="panel-header">
-              <h3>Getting Started</h3>
-              <span>local MVP</span>
-            </div>
-            <div class="panel-body">
-              <div class="list">
-                <div class="list-row">
-                  <div class="list-row-main"><strong>Create a site</strong><button class="ghost" type="button" data-safe-action="create-site">Open Sites</button></div>
-                  <span>Use the Sites view to add local site metadata through the existing Control Tower API.</span>
-                </div>
-                <div class="list-row">
-                  <div class="list-row-main"><strong>Enroll an agent or passive sensor</strong><button class="ghost" type="button" data-safe-action="enroll-collector">Show collector guidance</button></div>
-                  <span>Agent and sensor enrollment records will populate collector health and recent check-in views.</span>
-                </div>
-                <div class="list-row">
-                  <div class="list-row-main"><strong>Run a local inventory collection</strong><button class="ghost" type="button" data-safe-action="local-inventory">Show local instructions</button></div>
-                  <span>Inventory submissions create evidence-backed asset records without adding active checks or remote actions.</span>
-                </div>
-              </div>
-              <span id="getting-started-status" class="form-status"></span>
-            </div>
-          </section>
         </section>
 
-        <section id="assets" class="view-section">
+        <section id="assets" class="view-section asset-canvas">
           <div class="section-title">
             <div>
               <h2>Asset Inventory</h2>
@@ -1783,6 +1862,11 @@
                   <button type="button" data-asset-mode="inventory">Detailed Inventory</button>
                 </div>
                 <span id="asset-drilldown-status" class="asset-status-line">Catalog groups loaded asset records by safe local categories.</span>
+                <button id="back-to-catalog" class="secondary back-to-catalog" type="button" hidden>Back to Catalog</button>
+              </div>
+              <div id="asset-breadcrumb" class="asset-breadcrumb">
+                <span>Assets</span>
+                <strong>Catalog</strong>
               </div>
               <div class="search-row">
                 <label for="asset-search">Search assets
@@ -2072,16 +2156,58 @@
             <div class="settings-card"><h3>Local Safety</h3><p class="muted">Dashboard actions are limited to refresh and create-site metadata.</p></div>
             <div class="settings-card"><h3>Data Sources</h3><p class="muted">Health, summary, sites, agents, check-ins, assets, and release metadata endpoints.</p></div>
           </div>
-        </section>
 
-        <section class="panel" data-dashboard-extra>
-          <div class="panel-header">
-            <h3>Release Status</h3>
-            <span>metadata only</span>
-          </div>
-          <div id="release" class="release-grid">
-            <div class="empty-state"><strong>Loading release metadata</strong>Agent release status will appear here.</div>
-          </div>
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Getting Started</h3>
+              <span>local MVP</span>
+            </div>
+            <div class="panel-body">
+              <div class="list">
+                <div class="list-row">
+                  <div class="list-row-main"><strong>Create a site</strong><button class="ghost" type="button" data-safe-action="create-site">Open Sites</button></div>
+                  <span>Use the Sites view to add local site metadata through the existing Control Tower API.</span>
+                </div>
+                <div class="list-row">
+                  <div class="list-row-main"><strong>Enroll an agent or passive sensor</strong><button class="ghost" type="button" data-safe-action="enroll-collector">Show collector guidance</button></div>
+                  <span>Agent and sensor enrollment records will populate collector health and recent check-in views.</span>
+                </div>
+                <div class="list-row">
+                  <div class="list-row-main"><strong>Run a local inventory collection</strong><button class="ghost" type="button" data-safe-action="local-inventory">Show local instructions</button></div>
+                  <span>Inventory submissions create evidence-backed asset records without adding active checks or remote actions.</span>
+                </div>
+              </div>
+              <span id="getting-started-status" class="form-status"></span>
+            </div>
+          </section>
+
+          <section id="demo-seed-cta" class="panel" hidden>
+            <div class="panel-header">
+              <h3>No demo data loaded yet</h3>
+              <span>local seed</span>
+            </div>
+            <div class="panel-body list">
+              <div class="list-row">
+                <strong>Populate safe synthetic dashboard data</strong>
+                <span>Run this from the repository after the Compose stack is healthy. The browser only copies the command; it does not execute anything.</span>
+              </div>
+              <div class="command-box">
+                <code id="demo-seed-command">docker compose --profile demo run --rm demo-seed</code>
+                <button id="copy-demo-seed" class="secondary" type="button">Copy command</button>
+              </div>
+              <span id="copy-demo-seed-status" class="form-status"></span>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Release Status</h3>
+              <span>metadata only</span>
+            </div>
+            <div id="release" class="release-grid">
+              <div class="empty-state"><strong>Loading release metadata</strong>Agent release status will appear here.</div>
+            </div>
+          </section>
         </section>
       </main>
     </div>
@@ -2107,6 +2233,7 @@
       data: {health: null, summary: null, sites: [], agents: [], checkins: [], assets: [], release: null},
       assetMode: "catalog",
       assetFilter: "all",
+      assetDrilldown: null,
       assetSearch: "",
       selectedAssetId: null,
       selectedCollectorId: null
@@ -2253,6 +2380,18 @@
       } else if (filter === "missing-tooling") {
         addIconShape(svg, "path", {d: "M40 13a12 12 0 0 0 11 16L32 48 19 35l19-19a12 12 0 0 0 2-3z"});
         addIconShape(svg, "path", {d: "M17 37l10 10"});
+      } else if (filter === "site") {
+        addIconShape(svg, "path", {d: "M32 54s16-15 16-29a16 16 0 0 0-32 0c0 14 16 29 16 29z"});
+        addIconShape(svg, "circle", {cx: 32, cy: 25, r: 6});
+      } else if (filter === "platform") {
+        addIconShape(svg, "rect", {x: 11, y: 15, width: 42, height: 28, rx: 4});
+        addIconShape(svg, "path", {d: "M22 51h20M28 43v8M36 43v8"});
+      } else if (filter === "source") {
+        addIconShape(svg, "path", {d: "M16 18h32v28H16z"});
+        addIconShape(svg, "path", {d: "M22 25h20M22 32h20M22 39h12"});
+      } else if (filter === "attention") {
+        addIconShape(svg, "path", {d: "M32 10l22 40H10L32 10z"});
+        addIconShape(svg, "path", {d: "M32 24v12M32 44h.01"});
       } else {
         addIconShape(svg, "rect", {x: 12, y: 12, width: 16, height: 16, rx: 3});
         addIconShape(svg, "rect", {x: 36, y: 12, width: 16, height: 16, rx: 3});
@@ -2371,6 +2510,24 @@
       return text(metadata(asset).attention, "");
     }
 
+    function siteLabel(data, siteId) {
+      const site = data.sites.find(item => item.site_id === siteId);
+      return site ? site.name || site.site_id : text(siteId, "Unassigned site");
+    }
+
+    function evidenceSource(asset) {
+      const value = metadata(asset).source || metadata(asset).evidence_source || asset.source_agent_id || "inventory evidence";
+      return text(value, "inventory evidence");
+    }
+
+    function attentionState(asset) {
+      if (isUnknown(asset)) return "Unknown";
+      if (isStaleAsset(asset)) return "Stale";
+      if (isMissingTooling(asset)) return "Missing Tooling";
+      if (isUnmanaged(asset)) return "Unmanaged";
+      return "Observed";
+    }
+
     function isUnknown(asset) {
       return category(asset).includes("unknown") || attention(asset).toLowerCase().includes("unknown");
     }
@@ -2418,6 +2575,11 @@
         {filter: "stale", label: "Stale", description: "Records with stale collector or inventory freshness signals.", predicate: isStaleAsset, kind: "warn"},
         {filter: "missing-tooling", label: "Missing Tooling", description: "Assets with demo metadata indicating coverage gaps.", predicate: isMissingTooling, kind: "violet"}
       ];
+    }
+
+    function deviceTypeDefinitions() {
+      const filters = ["workstation", "infrastructure", "iot", "mobile", "unknown"];
+      return assetCategoryDefinitions().filter(definition => filters.includes(definition.filter));
     }
 
     function assetMatchesFilter(asset, filter) {
@@ -2602,9 +2764,6 @@
       document.querySelectorAll(".view-section").forEach(section => {
         section.hidden = section.id !== activeId;
       });
-      document.querySelectorAll("[data-dashboard-extra]").forEach(section => {
-        section.hidden = activeId !== "dashboard";
-      });
     }
 
     function navigateTo(id, focusId) {
@@ -2686,8 +2845,7 @@
         byId("asset-mix-count").textContent = "0 categories";
         return;
       }
-      const items = assetCategoryDefinitions()
-        .filter(definition => definition.filter !== "all")
+      const items = deviceTypeDefinitions()
         .map((definition, index) => ({
           label: definition.label,
           value: data.assets.filter(definition.predicate).length,
@@ -2699,9 +2857,32 @@
         label: "Asset category mix",
         centerValue: data.assets.length,
         centerCaption: "assets",
-        onSelect: item => drilldownAssets(item.filter, "catalog")
+        onSelect: item => drilldownAssets(item.filter, "inventory")
       }));
       byId("asset-mix-count").textContent = `${items.length} categories`;
+    }
+
+    function renderDeviceTypeMix(data) {
+      const target = byId("device-type-mix");
+      clearNode(target);
+      if (!data.assets.length) {
+        renderEmpty(target, "No device categories yet", "Device catalog groups appear after assets load.");
+        byId("device-type-mix-count").textContent = "0 categories";
+        return;
+      }
+      const items = deviceTypeDefinitions()
+        .map((definition, index) => ({
+          label: definition.label,
+          value: data.assets.filter(definition.predicate).length,
+          filter: definition.filter,
+          color: chartColor(index)
+        }))
+        .filter(item => item.value > 0);
+      target.appendChild(renderBarChart(items, {
+        label: "Device type and category distribution",
+        onSelect: item => drilldownAssets(item.filter, "inventory")
+      }));
+      byId("device-type-mix-count").textContent = `${items.length} groups`;
     }
 
     function renderPlatformMix(data) {
@@ -2719,7 +2900,7 @@
       }));
       target.appendChild(renderBarChart(items, {
         label: "Operating system and platform mix",
-        onSelect: item => drilldownAssets("all", "inventory", item.label)
+        onSelect: item => drilldownAssetGroup({type: "platform", label: item.label, value: item.label})
       }));
       byId("platform-mix-count").textContent = `${items.length} platforms`;
     }
@@ -2808,7 +2989,7 @@
       renderCompactRows("top-findings", data.findings.slice(0, 4), "No findings yet", "Demo findings are derived from synthetic attention labels.", finding => {
         return compactRow(finding.title, `${finding.site_id} - ${finding.detail}`, finding.severity, findingKind(finding), () => {
           if (finding.asset) drilldownToAsset(finding.asset);
-          else drilldownAssets("stale", "catalog");
+          else drilldownAssets("stale", "inventory");
         });
       });
       byId("findings-loaded").textContent = `${data.findings.length} items`;
@@ -2958,14 +3139,32 @@
         asset.mac,
         asset.os,
         asset.platform,
-        attention(asset)
+        evidenceSource(asset),
+        attention(asset),
+        attentionState(asset)
       ].join(" ").toLowerCase();
       return haystack.includes(query);
     }
 
+    function assetMatchesDrilldown(asset) {
+      if (!state.assetDrilldown) return true;
+      const scope = state.assetDrilldown;
+      if (scope.type === "site") return asset.site_id === scope.value;
+      if (scope.type === "platform") return platformGroup(asset) === scope.value;
+      if (scope.type === "source") return evidenceSource(asset) === scope.value;
+      if (scope.type === "attention") return attentionState(asset) === scope.value;
+      return true;
+    }
+
     function filteredAssets(data) {
       const query = state.assetSearch.trim().toLowerCase();
-      return data.assets.filter(asset => assetMatchesFilter(asset, state.assetFilter) && assetMatchesSearch(asset, query));
+      return data.assets.filter(asset => assetMatchesFilter(asset, state.assetFilter) && assetMatchesDrilldown(asset) && assetMatchesSearch(asset, query));
+    }
+
+    function activeAssetScopeLabel() {
+      if (state.assetDrilldown) return state.assetDrilldown.label;
+      const activeDefinition = assetCategoryDefinitions().find(item => item.filter === state.assetFilter) || assetCategoryDefinitions()[0];
+      return activeDefinition.label;
     }
 
     function updateAssetModeControls() {
@@ -2973,86 +3172,186 @@
         button.classList.toggle("active", button.dataset.assetMode === state.assetMode);
       });
       document.querySelectorAll("[data-filter]").forEach(button => {
-        button.classList.toggle("active", button.dataset.filter === state.assetFilter);
+        button.classList.toggle("active", !state.assetDrilldown && button.dataset.filter === state.assetFilter);
       });
       byId("asset-catalog").hidden = state.assetMode !== "catalog";
       byId("asset-inventory-wrap").hidden = state.assetMode !== "inventory";
+      byId("back-to-catalog").hidden = state.assetMode !== "inventory";
     }
 
     function setAssetMode(mode) {
       state.assetMode = mode === "inventory" ? "inventory" : "catalog";
+      if (state.assetMode === "catalog") state.assetDrilldown = null;
       renderAssets(derivedData());
     }
 
     function setAssetFilter(filter) {
       state.assetFilter = filter || "all";
+      state.assetDrilldown = null;
       renderAssets(derivedData());
     }
 
     function drilldownAssets(filter, mode = "catalog", search = "") {
       state.assetMode = mode === "inventory" ? "inventory" : "catalog";
       state.assetFilter = filter || "all";
+      state.assetDrilldown = null;
       state.assetSearch = search || "";
       byId("asset-search").value = state.assetSearch;
       navigateTo("assets");
       renderAssets(derivedData());
     }
 
-    function renderAssetCatalog(data, filtered) {
+    function drilldownAssetGroup(group) {
+      state.assetMode = "inventory";
+      state.assetFilter = group.filter || "all";
+      state.assetDrilldown = group.scope || null;
+      state.assetSearch = "";
+      byId("asset-search").value = "";
+      state.selectedAssetId = group.assets[0] ? group.assets[0].asset_id : null;
+      navigateTo("assets");
+      renderAssets(derivedData());
+    }
+
+    function resetAssetCatalog() {
+      state.assetMode = "catalog";
+      state.assetFilter = "all";
+      state.assetDrilldown = null;
+      state.assetSearch = "";
+      byId("asset-search").value = "";
+      byId("global-dashboard-search").value = "";
+      renderAssets(derivedData());
+    }
+
+    function scopedGroup(type, label, value, assets, description, icon = type, kind = "ok") {
+      return {
+        type,
+        label,
+        value,
+        assets,
+        description,
+        icon,
+        kind,
+        filter: "all",
+        scope: {type, label, value}
+      };
+    }
+
+    function assetCatalogSections(data) {
+      const query = state.assetSearch.trim().toLowerCase();
+      const searchedAssets = data.assets.filter(asset => assetMatchesSearch(asset, query));
+      const categoryGroups = deviceTypeDefinitions().map(definition => ({
+        type: "category",
+        label: definition.label,
+        value: definition.filter,
+        assets: searchedAssets.filter(definition.predicate),
+        description: definition.description,
+        icon: definition.filter,
+        kind: definition.kind,
+        filter: definition.filter,
+        scope: null
+      }));
+      const siteGroups = countBy(searchedAssets, asset => asset.site_id).map(([siteId]) => {
+        const assets = searchedAssets.filter(asset => asset.site_id === siteId);
+        return scopedGroup("site", siteLabel(data, siteId), siteId, assets, "Assets currently associated with this Control Tower site.", "site", "violet");
+      });
+      const platformGroups = countBy(searchedAssets, platformGroup).map(([label]) => {
+        const assets = searchedAssets.filter(asset => platformGroup(asset) === label);
+        return scopedGroup("platform", label, label, assets, "Operating system or platform family reported by loaded evidence.", "platform", "ok");
+      });
+      const sourceGroups = countBy(searchedAssets, evidenceSource).map(([label]) => {
+        const assets = searchedAssets.filter(asset => evidenceSource(asset) === label);
+        return scopedGroup("source", label, label, assets, "Evidence or data source associated with loaded inventory records.", "source", "violet");
+      });
+      const attentionGroups = countBy(searchedAssets, attentionState).map(([label]) => {
+        const assets = searchedAssets.filter(asset => attentionState(asset) === label);
+        const kind = label === "Observed" ? "ok" : "warn";
+        return scopedGroup("attention", label, label, assets, "Attention state derived from safe local metadata and freshness signals.", "attention", kind);
+      });
+      return [
+        {id: "device-type", title: "Device Type / Category", description: "Endpoint, infrastructure, IoT, mobile, and unknown asset families.", groups: categoryGroups},
+        {id: "site", title: "Site", description: "Environment grouping from Control Tower site metadata.", groups: siteGroups},
+        {id: "platform", title: "Platform / OS", description: "Operating system and platform distribution from inventory evidence.", groups: platformGroups},
+        {id: "source", title: "Evidence Source / Data Source", description: "Where the current asset observation came from when derivable.", groups: sourceGroups},
+        {id: "attention", title: "Attention State", description: "Review queues for unknown, unmanaged, stale, missing-tooling, and observed assets.", groups: attentionGroups}
+      ];
+    }
+
+    function createCatalogCard(group) {
+      const selected = group.filter === state.assetFilter && (!group.scope || (state.assetDrilldown && state.assetDrilldown.type === group.scope.type && state.assetDrilldown.value === group.scope.value));
+      const card = document.createElement("button");
+      const iconTile = document.createElement("span");
+      const copy = document.createElement("span");
+      const header = document.createElement("header");
+      const title = document.createElement("h3");
+      const count = document.createElement("strong");
+      const detail = document.createElement("p");
+      const action = document.createElement("span");
+      card.className = `catalog-card ${selected ? "active" : ""}`.trim();
+      card.type = "button";
+      card.addEventListener("click", () => drilldownAssetGroup(group));
+      iconTile.className = "catalog-icon-tile";
+      iconTile.appendChild(assetCatalogIcon(group.icon || "all"));
+      copy.className = "catalog-card-copy";
+      title.textContent = group.label;
+      count.textContent = plural(group.assets.length, "asset");
+      header.append(title, makeBadge(selected ? "Selected" : "View", group.kind));
+      detail.textContent = group.description;
+      action.className = "catalog-action";
+      action.textContent = "View Assets";
+      copy.append(header, count, detail, action);
+      card.append(iconTile, copy);
+      return card;
+    }
+
+    function renderAssetCatalogSection(target, section) {
+      const sectionNode = document.createElement("section");
+      const header = document.createElement("header");
+      const headingWrap = document.createElement("div");
+      const kicker = document.createElement("span");
+      const title = document.createElement("h3");
+      const desc = document.createElement("p");
+      const count = document.createElement("strong");
+      const grid = document.createElement("div");
+      sectionNode.className = "catalog-section";
+      sectionNode.dataset.catalogSection = section.id;
+      header.className = "catalog-section-header";
+      kicker.textContent = "Grouped by";
+      title.textContent = section.title;
+      desc.textContent = section.description;
+      count.className = "pill";
+      count.textContent = plural(section.groups.length, "group");
+      headingWrap.append(kicker, title, desc);
+      header.append(headingWrap, count);
+      grid.className = "catalog-section-grid";
+      section.groups.filter(group => group.assets.length > 0).forEach(group => grid.appendChild(createCatalogCard(group)));
+      if (!grid.children.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        const strong = document.createElement("strong");
+        strong.textContent = `No ${section.title.toLowerCase()} groups match`;
+        empty.append(strong, "Adjust search or load more inventory evidence.");
+        grid.appendChild(empty);
+      }
+      sectionNode.append(header, grid);
+      target.appendChild(sectionNode);
+    }
+
+    function renderAssetCatalog(data) {
       const target = byId("asset-catalog");
       clearNode(target);
       if (!data.assets.length) {
-        renderEmpty(target, "No asset catalog yet", "Seed demo data or submit inventory to populate category groups.");
+        renderEmpty(target, "No asset catalog yet", "Seed demo data or submit inventory to populate category, site, platform, evidence source, and attention groups.");
         return;
       }
-      assetCategoryDefinitions().forEach(definition => {
-        const values = data.assets.filter(asset => definition.predicate(asset) && assetMatchesSearch(asset, state.assetSearch.trim().toLowerCase()));
-        const selected = definition.filter === state.assetFilter;
-        const card = document.createElement("button");
-        const iconTile = document.createElement("span");
-        const copy = document.createElement("span");
-        const header = document.createElement("header");
-        const title = document.createElement("h3");
-        const count = document.createElement("strong");
-        const detail = document.createElement("p");
-        const action = document.createElement("span");
-        card.className = `catalog-card ${selected ? "active" : ""}`.trim();
-        card.type = "button";
-        card.addEventListener("click", () => {
-          state.assetFilter = definition.filter;
-          const first = data.assets.find(asset => assetMatchesFilter(asset, state.assetFilter) && assetMatchesSearch(asset, state.assetSearch.trim().toLowerCase()));
-          state.selectedAssetId = first ? first.asset_id : null;
-          renderAssets(derivedData());
-        });
-        iconTile.className = "catalog-icon-tile";
-        iconTile.appendChild(assetCatalogIcon(definition.filter));
-        copy.className = "catalog-card-copy";
-        title.textContent = definition.label;
-        count.textContent = plural(values.length, "asset");
-        header.append(title, makeBadge(selected ? "Selected" : "View", definition.kind));
-        detail.textContent = definition.description;
-        action.className = "catalog-action";
-        action.textContent = "Show details";
-        copy.append(header, count, detail, action);
-        card.append(iconTile, copy);
-        target.appendChild(card);
-      });
-      if (!filtered.length) {
-        const note = document.createElement("div");
-        note.className = "empty-state";
-        const strong = document.createElement("strong");
-        strong.textContent = "No assets match this catalog selection";
-        note.append(strong, "Adjust search or choose another category.");
-        target.appendChild(note);
-      }
+      assetCatalogSections(data).forEach(section => renderAssetCatalogSection(target, section));
     }
 
     function renderAssets(data) {
       const table = byId("assets-table");
       const filtered = filteredAssets(data);
-      const activeDefinition = assetCategoryDefinitions().find(item => item.filter === state.assetFilter) || assetCategoryDefinitions()[0];
+      const activeScope = activeAssetScopeLabel();
       updateAssetModeControls();
-      renderAssetCatalog(data, filtered);
+      renderAssetCatalog(data);
       clearNode(table);
       if (!filtered.length) {
         renderTableEmpty(table, 11, "No matching assets", "Adjust search or quick filters to view loaded records.");
@@ -3095,8 +3394,17 @@
         });
       }
       byId("assets-loaded").textContent = `${filtered.length} of ${data.assets.length} assets`;
-      byId("asset-drilldown-status").textContent = `${state.assetMode === "catalog" ? "Catalog" : "Detailed Inventory"} mode: ${plural(filtered.length, "asset")} in ${activeDefinition.label}.`;
-      const selected = data.assets.find(asset => asset.asset_id === state.selectedAssetId) || filtered[0] || null;
+      byId("asset-drilldown-status").textContent = state.assetMode === "catalog"
+        ? `Catalog mode: grouped sections for ${plural(data.assets.length, "asset")}.`
+        : `Detailed Inventory: ${plural(filtered.length, "asset")} in ${activeScope}.`;
+      const breadcrumb = byId("asset-breadcrumb");
+      clearNode(breadcrumb);
+      const root = document.createElement("span");
+      const current = document.createElement("strong");
+      root.textContent = "Assets";
+      current.textContent = state.assetMode === "catalog" ? "Catalog" : `Detailed Inventory / ${activeScope}`;
+      breadcrumb.append(root, current);
+      const selected = filtered.find(asset => asset.asset_id === state.selectedAssetId) || filtered[0] || null;
       renderAssetDetail(selected);
     }
 
@@ -3319,6 +3627,7 @@
       renderAttention(data);
       renderDemoSeedCta(data);
       renderAssetMix(data);
+      renderDeviceTypeMix(data);
       renderPlatformMix(data);
       renderCollectorHealth(data);
       renderSiteHealth(data);
@@ -3456,6 +3765,7 @@
         event.preventDefault();
         state.assetSearch = globalSearch.value.trim();
         state.assetFilter = "all";
+        state.assetDrilldown = null;
         state.assetMode = "inventory";
         byId("asset-search").value = state.assetSearch;
         navigateTo("assets");
@@ -3475,6 +3785,7 @@
       document.querySelectorAll("[data-filter]").forEach(button => {
         button.addEventListener("click", () => setAssetFilter(button.dataset.filter));
       });
+      byId("back-to-catalog").addEventListener("click", resetAssetCatalog);
     }
 
     function setupNavigation() {
