@@ -5,11 +5,10 @@ assets exist, explains what they are doing, identifies risk, and guides
 remediation. It remains asset-first, passive-first, evidence-first, and
 remediation-focused.
 
-OpenAssetWatch is not copying any source project wholesale. Source-project
-review material, external product inspiration, and reference architecture
-patterns are reference inputs only. OpenAssetWatch keeps defensive concepts
-that fit its own product direction and rejects unsafe or offensive platform
-behavior.
+OpenAssetWatch is not copying any external project wholesale. Private research
+material and reference architecture patterns are inputs only. OpenAssetWatch
+keeps defensive concepts that fit its own product direction and rejects unsafe
+or offensive platform behavior.
 
 ## Hybrid Runtime
 
@@ -18,7 +17,7 @@ OpenAssetWatch is intentionally hybrid:
 - Go is used for agent, sensor, collector, CLI, local inventory, network
   observations, service wrappers, installers, and safe diagnostics.
 - Python is used for AI Advisor, enrichment, scoring, reporting,
-  Splunk/export experiments, evaluation harness, and LLM workflows.
+  SIEM/export experiments, evaluation harness, and LLM workflows.
 
 This split keeps local endpoint and sensor collection small, portable, and easy
 to package while preserving Python for analysis, reporting, evaluation, and AI
@@ -61,8 +60,7 @@ The intended identity fields are:
 - `asset_id`: OpenAssetWatch asset identity after normalization and matching.
 - `external_ci_id`: optional external CMDB CI identifier for future
   reconciliation.
-- `external_ci_source`: optional CMDB source name such as `ServiceNow`,
-  `Jira Assets`, or `Device42`.
+- `external_ci_source`: optional external CMDB source name.
 
 Signed binaries and installers should remain generic where possible. Enrollment
 tokens, license keys, signing keys, and customer secrets must be represented as
@@ -90,8 +88,10 @@ references and deployment-specific secret stores.
 
 ## Product Inspiration Boundaries
 
-External product inspiration and reference architecture patterns are future
-product and control-plane inspiration only. They may inform planning for:
+External products may be reviewed privately for general inspiration, but
+OpenAssetWatch documentation must describe vendor-neutral design principles and
+original project direction. Private research and reference architecture
+patterns may inform planning for:
 
 - Advisor Run Ledger
 - Evidence Ledger
@@ -102,10 +102,18 @@ product and control-plane inspiration only. They may inform planning for:
 - audit integrity
 - prompt-injection defense
 - self-hosted/privacy-first posture
+- MCP toolset design and vendor-neutral telemetry
+
+For the SMB/personal asset intelligence product direction, see
+`docs/architecture/smb-asset-intelligence-product-direction.md`.
+
+For the AI/MCP toolset, gateway, and OpenTelemetry/OTLP integration direction,
+see
+`docs/architecture/ai-mcp-and-telemetry-integration-direction.md`.
 
 These ideas must be adapted to OpenAssetWatch's purpose and safety posture.
-They do not justify copying another product wholesale, importing unsafe source
-project tools, or changing OpenAssetWatch into an offensive testing, unsafe
+They do not justify copying another product wholesale, importing unsafe
+external tools, or changing OpenAssetWatch into an offensive testing, unsafe
 payload, credential attack, C2, terminal, or raw scanner platform.
 
 ## Current Non-Goals
