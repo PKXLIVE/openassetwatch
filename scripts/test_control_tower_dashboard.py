@@ -68,6 +68,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Recent Evidence",
             "Top Findings / Attention Items",
             "Sites Overview",
+            "Catalog",
+            "Detailed Inventory",
             "Asset Inventory",
             "Asset Detail",
             "Endpoint Agents",
@@ -107,6 +109,9 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'id="recent-assets-loaded"',
             'id="stale-collectors-panel"',
             'id="stale-collectors-loaded"',
+            'class="overview-chart-grid"',
+            'class="overview-focus-grid"',
+            'class="overview-activity-grid"',
         )
         for markup in expected_markup:
             with self.subTest(markup=markup):
@@ -118,11 +123,16 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "function renderPlatformMix",
             "function renderSiteHealth",
             "function renderOverviewPreviews",
+            "function renderDonutChart",
+            "function renderBarChart",
+            "function renderLegend",
             "function platformGroup",
             "function siteBuckets",
             "function compactRow",
+            "document.createElementNS(SVG_NS",
+            "classList.add(\"svg-chart\")",
+            "classList.add(\"svg-bar-chart\")",
             "className = \"donut\"",
-            "className = \"segmented-bar\"",
             "local synthetic demo data",
             "not measured production performance",
         )
@@ -135,10 +145,16 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'id="asset-search"',
             'data-filter="unknown"',
             'data-filter="iot"',
+            'data-filter="mobile"',
             'data-filter="infrastructure"',
             'data-filter="workstation"',
             'data-filter="stale"',
             'data-filter="missing-tooling"',
+            'data-asset-mode="catalog"',
+            'data-asset-mode="inventory"',
+            'id="asset-catalog"',
+            'id="asset-inventory-wrap"',
+            'id="asset-drilldown-status"',
             'data-safe-action="review-findings"',
             'data-safe-action="create-site"',
             'data-safe-action="enroll-collector"',
@@ -152,6 +168,27 @@ class ControlTowerDashboardTests(unittest.TestCase):
         for copy in expected_copy:
             with self.subTest(copy=copy):
                 self.assertIn(copy, self.dashboard)
+
+    def test_asset_catalog_modes_and_drilldowns_are_client_side(self) -> None:
+        expected_code = (
+            'assetMode: "catalog"',
+            "function assetCategoryDefinitions",
+            "function filteredAssets",
+            "function renderAssetCatalog",
+            "function setAssetMode",
+            "function setAssetFilter",
+            "function drilldownAssets",
+            "function drilldownToAsset",
+            'button.addEventListener("click", () => setAssetMode(button.dataset.assetMode))',
+            'button.addEventListener("click", () => setAssetFilter(button.dataset.filter))',
+            'navigateTo("assets")',
+            'state.assetFilter = filter || "all"',
+            'state.assetMode = mode === "inventory" ? "inventory" : "catalog"',
+            'state.assetSearch = search || ""',
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
 
     def test_dashboard_documents_safe_read_only_policy_states(self) -> None:
         expected_copy = (

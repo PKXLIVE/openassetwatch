@@ -495,7 +495,7 @@
 
     .metrics-grid {
       display: grid;
-      grid-template-columns: repeat(8, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 0.72rem;
     }
 
@@ -547,7 +547,7 @@
 
     .metric strong {
       display: block;
-      font-size: 1.75rem;
+      font-size: 2rem;
       line-height: 1;
     }
 
@@ -583,7 +583,14 @@
       gap: 1rem;
     }
 
-    .overview-grid-3 {
+    .overview-chart-grid,
+    .overview-focus-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
+    .overview-activity-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 1rem;
@@ -595,6 +602,10 @@
 
     .overview-panel .panel-body {
       min-height: 10.2rem;
+    }
+
+    .overview-chart-panel .panel-body {
+      min-height: 19rem;
     }
 
     .panel-kicker {
@@ -696,6 +707,104 @@
       background: var(--accent);
     }
 
+    .chart-shell {
+      display: grid;
+      gap: 0.9rem;
+    }
+
+    .chart-summary-grid {
+      display: grid;
+      grid-template-columns: minmax(11rem, 0.45fr) minmax(0, 1fr);
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .svg-chart {
+      width: 100%;
+      max-width: 15.5rem;
+      aspect-ratio: 1;
+      display: block;
+      margin: 0 auto;
+      overflow: visible;
+    }
+
+    .svg-bar-chart {
+      width: 100%;
+      min-height: 14rem;
+      display: block;
+      overflow: visible;
+    }
+
+    .chart-center-label {
+      display: grid;
+      gap: 0.12rem;
+      text-align: center;
+    }
+
+    .donut-wrap .chart-center-label {
+      position: absolute;
+      inset: 0;
+      place-content: center;
+      pointer-events: none;
+    }
+
+    .chart-center-label strong {
+      font-size: 2rem;
+      line-height: 1;
+    }
+
+    .chart-center-label span {
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .chart-legend {
+      display: grid;
+      gap: 0.45rem;
+      align-content: start;
+    }
+
+    .legend-row {
+      display: grid;
+      grid-template-columns: 0.72rem minmax(0, 1fr) auto;
+      gap: 0.45rem;
+      align-items: center;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 800;
+    }
+
+    .chart-legend button.legend-row {
+      min-height: auto;
+      border: 0;
+      background: transparent;
+      padding: 0.15rem 0;
+      color: var(--muted);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .chart-legend button.legend-row:hover {
+      color: var(--accent-strong);
+    }
+
+    .legend-swatch {
+      width: 0.72rem;
+      height: 0.72rem;
+      border-radius: 2px;
+    }
+
+    .chart-action {
+      justify-self: start;
+      min-height: 2rem;
+      border-color: var(--line);
+      background: #ffffff;
+      color: var(--accent-strong);
+    }
+
     .donut-summary {
       display: grid;
       grid-template-columns: 7rem minmax(0, 1fr);
@@ -767,6 +876,21 @@
       background: var(--panel-soft);
     }
 
+    .compact-row.interactive {
+      cursor: pointer;
+    }
+
+    .compact-row.interactive:hover,
+    .catalog-card:hover {
+      border-color: rgba(15, 118, 110, 0.38);
+      background: #eef8f4;
+    }
+
+    .catalog-card.active {
+      border-color: var(--accent);
+      background: var(--green-bg);
+    }
+
     .compact-row-main {
       display: flex;
       align-items: center;
@@ -828,6 +952,45 @@
       background: var(--panel-soft);
     }
 
+    .asset-mode-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.8rem 0.9rem;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .segmented-control {
+      display: inline-flex;
+      gap: 0.2rem;
+      padding: 0.18rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .segmented-control button {
+      min-height: 2rem;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding-inline: 0.7rem;
+    }
+
+    .segmented-control button.active {
+      background: #ffffff;
+      color: var(--accent-strong);
+      box-shadow: 0 1px 4px rgba(15, 35, 31, 0.08);
+    }
+
+    .asset-status-line {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 800;
+    }
+
     label {
       display: grid;
       gap: 0.28rem;
@@ -856,6 +1019,56 @@
       grid-template-columns: minmax(0, 1fr) 19rem;
       gap: 1rem;
       align-items: start;
+    }
+
+    .asset-catalog {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.8rem;
+      padding: 0.9rem;
+    }
+
+    .asset-catalog[hidden],
+    .inventory-wrap[hidden] {
+      display: none;
+    }
+
+    .catalog-card {
+      display: grid;
+      gap: 0.55rem;
+      min-height: 9.4rem;
+      padding: 0.82rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel-soft);
+      text-align: left;
+      color: var(--ink);
+      cursor: pointer;
+    }
+
+    .catalog-card header {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 0.6rem;
+    }
+
+    .catalog-card h3 {
+      margin: 0;
+      font-size: 0.9rem;
+      font-weight: 950;
+    }
+
+    .catalog-card strong {
+      font-size: 1.9rem;
+      line-height: 1;
+    }
+
+    .catalog-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.4;
     }
 
     .detail-panel {
@@ -1045,7 +1258,10 @@
     @media (max-width: 1180px) {
       .metrics-grid,
       .overview-grid-4,
-      .overview-grid-3,
+      .overview-chart-grid,
+      .overview-focus-grid,
+      .overview-activity-grid,
+      .asset-catalog,
       .collector-grid,
       .site-grid,
       .policy-grid,
@@ -1088,15 +1304,25 @@
 
       .metrics-grid,
       .overview-grid-4,
-      .overview-grid-3,
+      .overview-chart-grid,
+      .overview-focus-grid,
+      .overview-activity-grid,
+      .chart-summary-grid,
+      .asset-catalog,
       .collector-grid,
       .site-grid,
       .policy-grid,
       .report-grid,
       .settings-grid,
       .release-grid,
-      .search-row {
+      .search-row,
+      .asset-mode-row {
         grid-template-columns: 1fr;
+      }
+
+      .asset-mode-row {
+        align-items: stretch;
+        flex-direction: column;
       }
     }
 
@@ -1230,27 +1456,29 @@
             </div>
           </section>
 
-          <div class="overview-grid-4" aria-label="Environment visual summaries">
-            <section class="panel overview-panel">
+          <div class="overview-chart-grid" aria-label="Environment visual summaries">
+            <section class="panel overview-panel overview-chart-panel">
               <div class="panel-header">
-                <h3>Asset Mix By Type <span class="panel-kicker">what exists</span></h3>
+                <h3>Asset Mix By Type <span class="panel-kicker">larger category drilldown</span></h3>
                 <span id="asset-mix-count">loading</span>
               </div>
-              <div id="asset-mix" class="panel-body bar-list">
+              <div id="asset-mix" class="panel-body chart-shell">
                 <div class="empty-state"><strong>Loading asset mix</strong>Device categories will appear after assets load.</div>
               </div>
             </section>
 
-            <section class="panel overview-panel">
+            <section class="panel overview-panel overview-chart-panel">
               <div class="panel-header">
-                <h3>Operating Systems / Platforms <span class="panel-kicker">where coverage lands</span></h3>
+                <h3>Operating Systems / Platforms <span class="panel-kicker">coverage distribution</span></h3>
                 <span id="platform-mix-count">loading</span>
               </div>
-              <div id="platform-mix" class="panel-body bar-list">
+              <div id="platform-mix" class="panel-body chart-shell">
                 <div class="empty-state"><strong>Loading platforms</strong>Operating system and platform mix will appear after assets load.</div>
               </div>
             </section>
+          </div>
 
+          <div class="overview-focus-grid" aria-label="Health and attention summaries">
             <section class="panel overview-panel">
               <div class="panel-header">
                 <h3>Collector Health <span class="panel-kicker">agent and sensor freshness</span></h3>
@@ -1272,7 +1500,7 @@
             </section>
           </div>
 
-          <div class="overview-grid-4" aria-label="Operational focus">
+          <div class="overview-activity-grid" aria-label="Operational focus">
             <section class="panel overview-panel">
               <div class="panel-header">
                 <h3>Top Findings / Attention Items <span class="panel-kicker">highest review signals</span></h3>
@@ -1302,7 +1530,9 @@
                 <div class="empty-state"><strong>Loading check-ins</strong>Agent heartbeat activity will appear here.</div>
               </div>
             </section>
+          </div>
 
+          <div class="overview-grid-4" aria-label="Review queues and recent activity">
             <section class="panel overview-panel">
               <div class="panel-header">
                 <h3>Recent Evidence <span class="panel-kicker">proof behind inventory</span></h3>
@@ -1312,9 +1542,7 @@
                 <div class="empty-state"><strong>Loading evidence</strong>Asset evidence summaries will appear here.</div>
               </div>
             </section>
-          </div>
 
-          <div class="overview-grid-4" aria-label="Overview drilldown previews">
             <section class="panel overview-panel">
               <div class="panel-header">
                 <h3>Top Assets Needing Review <span class="panel-kicker">unknown, unmanaged, stale</span></h3>
@@ -1392,6 +1620,13 @@
 
           <div class="asset-layout">
             <section class="panel">
+              <div class="asset-mode-row">
+                <div class="segmented-control" aria-label="Asset view mode">
+                  <button class="active" type="button" data-asset-mode="catalog">Catalog</button>
+                  <button type="button" data-asset-mode="inventory">Detailed Inventory</button>
+                </div>
+                <span id="asset-drilldown-status" class="asset-status-line">Catalog groups loaded asset records by safe local categories.</span>
+              </div>
               <div class="search-row">
                 <label for="asset-search">Search assets
                   <input id="asset-search" type="search" autocomplete="off" placeholder="Search asset ID, host, site, IP, MAC, OS, or attention label">
@@ -1400,13 +1635,17 @@
                   <button class="filter active" type="button" data-filter="all">All</button>
                   <button class="filter" type="button" data-filter="unknown">Unknown</button>
                   <button class="filter" type="button" data-filter="iot">IoT</button>
+                  <button class="filter" type="button" data-filter="mobile">Mobile</button>
                   <button class="filter" type="button" data-filter="infrastructure">Infrastructure</button>
                   <button class="filter" type="button" data-filter="workstation">Workstation/Laptop</button>
                   <button class="filter" type="button" data-filter="stale">Stale</button>
                   <button class="filter" type="button" data-filter="missing-tooling">Missing tooling</button>
                 </div>
               </div>
-              <div class="table-scroll">
+              <div id="asset-catalog" class="asset-catalog">
+                <div class="empty-state"><strong>Loading catalog</strong>Asset category groups will appear here.</div>
+              </div>
+              <div id="asset-inventory-wrap" class="inventory-wrap table-scroll" hidden>
                 <table>
                   <thead>
                     <tr>
@@ -1709,6 +1948,7 @@
     const state = {
       loading: false,
       data: {health: null, summary: null, sites: [], agents: [], checkins: [], assets: [], release: null},
+      assetMode: "catalog",
       assetFilter: "all",
       assetSearch: "",
       selectedAssetId: null,
@@ -1721,6 +1961,10 @@
 
     function text(value, fallback = "not reported") {
       return value === null || value === undefined || value === "" ? fallback : String(value);
+    }
+
+    function plural(count, singular, pluralLabel = `${singular}s`) {
+      return `${count} ${count === 1 ? singular : pluralLabel}`;
     }
 
     function fmtDate(value) {
@@ -1806,6 +2050,116 @@
       tbody.appendChild(row);
     }
 
+    const SVG_NS = "http" + "://www.w3.org/2000/svg";
+    const CHART_COLORS = ["#0f766e", "#2563eb", "#a16207", "#6d28d9", "#475569", "#c2410c", "#0891b2", "#65a30d"];
+
+    function chartColor(index) {
+      return CHART_COLORS[index % CHART_COLORS.length];
+    }
+
+    function svgEl(name, attrs = {}) {
+      const node = document.createElementNS(SVG_NS, name);
+      Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
+      return node;
+    }
+
+    function renderLegend(items, onSelect) {
+      const legend = document.createElement("div");
+      legend.className = "chart-legend";
+      items.forEach((item, index) => {
+        const row = document.createElement(onSelect ? "button" : "div");
+        const swatch = document.createElement("span");
+        const label = document.createElement("span");
+        const value = document.createElement("strong");
+        row.className = "legend-row";
+        if (onSelect) {
+          row.type = "button";
+          row.addEventListener("click", () => onSelect(item));
+        }
+        swatch.className = "legend-swatch";
+        swatch.style.background = item.color || chartColor(index);
+        label.textContent = item.label;
+        value.textContent = text(item.value);
+        row.append(swatch, label, value);
+        legend.appendChild(row);
+      });
+      return legend;
+    }
+
+    function renderDonutChart(items, options = {}) {
+      const total = items.reduce((sum, item) => sum + item.value, 0);
+      const chart = document.createElement("div");
+      const visual = document.createElement("div");
+      const svg = svgEl("svg", {viewBox: "0 0 160 160", role: "img", "aria-label": options.label || "Donut chart"});
+      const center = document.createElement("div");
+      const centerValue = document.createElement("strong");
+      const centerCaption = document.createElement("span");
+      let offset = 0;
+      const radius = 58;
+      const circumference = 2 * Math.PI * radius;
+      chart.className = "chart-summary-grid";
+      visual.className = "donut-wrap";
+      svg.classList.add("svg-chart");
+      svg.appendChild(svgEl("circle", {cx: 80, cy: 80, r: radius, fill: "none", stroke: "#e5ece9", "stroke-width": 20}));
+      items.forEach((item, index) => {
+        if (!total || item.value <= 0) return;
+        const length = (item.value / total) * circumference;
+        const segment = svgEl("circle", {
+          cx: 80,
+          cy: 80,
+          r: radius,
+          fill: "none",
+          stroke: item.color || chartColor(index),
+          "stroke-width": 20,
+          "stroke-linecap": "butt",
+          "stroke-dasharray": `${length} ${circumference - length}`,
+          "stroke-dashoffset": -offset,
+          transform: "rotate(-90 80 80)"
+        });
+        segment.style.cursor = options.onSelect ? "pointer" : "default";
+        if (options.onSelect) segment.addEventListener("click", () => options.onSelect(item));
+        const title = svgEl("title");
+        title.textContent = `${item.label}: ${item.value}`;
+        segment.appendChild(title);
+        svg.appendChild(segment);
+        offset += length;
+      });
+      center.className = "chart-center-label";
+      centerValue.textContent = options.centerValue || total;
+      centerCaption.textContent = options.centerCaption || "records";
+      center.append(centerValue, centerCaption);
+      visual.append(svg, center);
+      chart.append(visual, renderLegend(items, options.onSelect));
+      return chart;
+    }
+
+    function renderBarChart(items, options = {}) {
+      const chart = document.createElement("div");
+      const svg = svgEl("svg", {viewBox: `0 0 460 ${Math.max(150, items.length * 34 + 22)}`, role: "img", "aria-label": options.label || "Bar chart"});
+      const max = Math.max(1, ...items.map(item => item.value));
+      chart.className = "chart-shell";
+      svg.classList.add("svg-bar-chart");
+      items.forEach((item, index) => {
+        const y = 18 + index * 34;
+        const width = Math.max(8, Math.round((item.value / max) * 250));
+        const group = svgEl("g", {});
+        const title = svgEl("title");
+        group.style.cursor = options.onSelect ? "pointer" : "default";
+        if (options.onSelect) group.addEventListener("click", () => options.onSelect(item));
+        title.textContent = `${item.label}: ${item.value}`;
+        group.appendChild(title);
+        group.appendChild(svgEl("text", {x: 0, y: y + 13, fill: "#15231f", "font-size": 12, "font-weight": 800}));
+        group.lastChild.textContent = item.label;
+        group.appendChild(svgEl("rect", {x: 150, y, width: 260, height: 16, rx: 8, fill: "#e5ece9"}));
+        group.appendChild(svgEl("rect", {x: 150, y, width, height: 16, rx: 8, fill: item.color || chartColor(index)}));
+        group.appendChild(svgEl("text", {x: 424, y: y + 13, fill: "#607269", "font-size": 12, "font-weight": 900}));
+        group.lastChild.textContent = item.value;
+        svg.appendChild(group);
+      });
+      chart.append(svg, renderLegend(items, options.onSelect));
+      return chart;
+    }
+
     function metadata(asset) {
       return asset && typeof asset.metadata === "object" && asset.metadata ? asset.metadata : {};
     }
@@ -1841,6 +2195,10 @@
       return value.includes("workstation") || value.includes("laptop");
     }
 
+    function isMobile(asset) {
+      return category(asset).includes("mobile") || attention(asset).toLowerCase().includes("mobile");
+    }
+
     function isMissingTooling(asset) {
       return attention(asset).toLowerCase().includes("missing security tooling");
     }
@@ -1849,15 +2207,24 @@
       return attention(asset).toLowerCase().includes("stale");
     }
 
+    function assetCategoryDefinitions() {
+      return [
+        {filter: "all", label: "All Assets", description: "Every loaded normalized inventory record.", predicate: () => true, kind: "ok"},
+        {filter: "workstation", label: "Workstations / Laptops", description: "Endpoint-style devices that should usually have direct agent coverage.", predicate: isWorkstationLaptop, kind: "ok"},
+        {filter: "infrastructure", label: "Infrastructure", description: "Servers, printers, switches, and other shared environment assets.", predicate: isInfrastructure, kind: "violet"},
+        {filter: "iot", label: "IoT", description: "Passive-first IoT and embedded device examples.", predicate: isIot, kind: "violet"},
+        {filter: "mobile", label: "Mobile", description: "Mobile device records that may need ownership review.", predicate: isMobile, kind: "violet"},
+        {filter: "unknown", label: "Unknown", description: "Records missing enough context to confirm owner or role.", predicate: isUnknown, kind: "warn"},
+        {filter: "unmanaged", label: "Unmanaged", description: "Assets that appear outside expected endpoint coverage.", predicate: isUnmanaged, kind: "warn"},
+        {filter: "stale", label: "Stale", description: "Records with stale collector or inventory freshness signals.", predicate: isStaleAsset, kind: "warn"},
+        {filter: "missing-tooling", label: "Missing Tooling", description: "Assets with demo metadata indicating coverage gaps.", predicate: isMissingTooling, kind: "violet"}
+      ];
+    }
+
     function assetMatchesFilter(asset, filter) {
       if (filter === "all") return true;
-      if (filter === "unknown") return isUnknown(asset);
-      if (filter === "iot") return isIot(asset);
-      if (filter === "infrastructure") return isInfrastructure(asset);
-      if (filter === "workstation") return isWorkstationLaptop(asset);
-      if (filter === "stale") return isStaleAsset(asset);
-      if (filter === "missing-tooling") return isMissingTooling(asset);
-      return true;
+      const definition = assetCategoryDefinitions().find(item => item.filter === filter);
+      return definition ? definition.predicate(asset) : true;
     }
 
     function latestCheckinByAgent(checkins) {
@@ -1988,12 +2355,23 @@
       return Array.from(bySite.values()).sort((a, b) => a.site.site_id.localeCompare(b.site.site_id));
     }
 
-    function compactRow(title, detail, badgeLabel, badgeKind = "") {
+    function compactRow(title, detail, badgeLabel, badgeKind = "", onSelect = null) {
       const row = document.createElement("div");
       const main = document.createElement("div");
       const strong = document.createElement("strong");
       const span = document.createElement("span");
       row.className = "compact-row";
+      if (onSelect) {
+        row.classList.add("interactive");
+        row.tabIndex = 0;
+        row.addEventListener("click", onSelect);
+        row.addEventListener("keydown", event => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect();
+          }
+        });
+      }
       main.className = "compact-row-main";
       strong.textContent = title;
       main.appendChild(strong);
@@ -2109,25 +2487,22 @@
         byId("asset-mix-count").textContent = "0 categories";
         return;
       }
-      const counts = countBy(data.assets, asset => category(asset));
-      const max = Math.max(...counts.map(([, value]) => value));
-      counts.forEach(([name, value], index) => {
-        const row = document.createElement("div");
-        const label = document.createElement("div");
-        const track = document.createElement("div");
-        const fill = document.createElement("span");
-        row.className = "bar-row";
-        label.className = "bar-label";
-        track.className = "bar-track";
-        fill.className = "bar-fill";
-        fill.style.width = `${Math.max(8, Math.round((value / max) * 100))}%`;
-        fill.style.background = ["var(--accent)", "var(--blue)", "var(--amber)", "var(--violet)", "#c2410c"][index % 5];
-        label.append(`${name}`, `${value}`);
-        track.appendChild(fill);
-        row.append(label, track);
-        target.appendChild(row);
-      });
-      byId("asset-mix-count").textContent = `${counts.length} categories`;
+      const items = assetCategoryDefinitions()
+        .filter(definition => definition.filter !== "all")
+        .map((definition, index) => ({
+          label: definition.label,
+          value: data.assets.filter(definition.predicate).length,
+          filter: definition.filter,
+          color: chartColor(index)
+        }))
+        .filter(item => item.value > 0);
+      target.appendChild(renderDonutChart(items, {
+        label: "Asset category mix",
+        centerValue: data.assets.length,
+        centerCaption: "assets",
+        onSelect: item => drilldownAssets(item.filter, "catalog")
+      }));
+      byId("asset-mix-count").textContent = `${items.length} categories`;
     }
 
     function renderPlatformMix(data) {
@@ -2138,36 +2513,16 @@
         byId("platform-mix-count").textContent = "0 platforms";
         return;
       }
-      const counts = countBy(data.assets, platformGroup);
-      const total = data.assets.length || 1;
-      const segment = document.createElement("div");
-      segment.className = "segmented-bar";
-      counts.forEach(([, value], index) => {
-        const item = document.createElement("span");
-        item.className = "segment";
-        item.style.width = `${Math.max(5, Math.round((value / total) * 100))}%`;
-        item.style.background = ["var(--blue)", "var(--accent)", "var(--amber)", "var(--violet)", "#475569", "#c2410c"][index % 6];
-        segment.appendChild(item);
-      });
-      target.appendChild(segment);
-      const max = Math.max(...counts.map(([, value]) => value));
-      counts.forEach(([name, value], index) => {
-        const row = document.createElement("div");
-        const label = document.createElement("div");
-        const track = document.createElement("div");
-        const fill = document.createElement("span");
-        row.className = "bar-row";
-        label.className = "bar-label";
-        track.className = "bar-track";
-        fill.className = "bar-fill";
-        fill.style.width = `${Math.max(8, Math.round((value / max) * 100))}%`;
-        fill.style.background = ["var(--blue)", "var(--accent)", "var(--amber)", "var(--violet)", "#475569", "#c2410c"][index % 6];
-        label.append(name, `${value}`);
-        track.appendChild(fill);
-        row.append(label, track);
-        target.appendChild(row);
-      });
-      byId("platform-mix-count").textContent = `${counts.length} platforms`;
+      const items = countBy(data.assets, platformGroup).map(([name, value], index) => ({
+        label: name,
+        value,
+        color: chartColor(index)
+      }));
+      target.appendChild(renderBarChart(items, {
+        label: "Operating system and platform mix",
+        onSelect: item => drilldownAssets("all", "inventory", item.label)
+      }));
+      byId("platform-mix-count").textContent = `${items.length} platforms`;
     }
 
     function renderCollectorHealth(data) {
@@ -2246,12 +2601,16 @@
 
       const evidence = data.assets.map(evidenceFromAsset).sort((a, b) => (parseDate(b.timestamp)?.getTime() || 0) - (parseDate(a.timestamp)?.getTime() || 0));
       renderCompactRows("recent-evidence", evidence.slice(0, 4), "No evidence yet", "Evidence summaries appear after asset records load.", item => {
-        return compactRow(item.asset_id, `${item.source} - ${fmtDate(item.timestamp)} - ${item.notes}`, item.category);
+        const asset = data.assets.find(value => value.asset_id === item.asset_id);
+        return compactRow(item.asset_id, `${item.source} - ${fmtDate(item.timestamp)} - ${item.notes}`, item.category, "", () => drilldownToAsset(asset));
       });
       byId("evidence-loaded").textContent = `${evidence.length} records`;
 
       renderCompactRows("top-findings", data.findings.slice(0, 4), "No findings yet", "Demo findings are derived from synthetic attention labels.", finding => {
-        return compactRow(finding.title, `${finding.site_id} - ${finding.detail}`, finding.severity, findingKind(finding));
+        return compactRow(finding.title, `${finding.site_id} - ${finding.detail}`, finding.severity, findingKind(finding), () => {
+          if (finding.asset) drilldownToAsset(finding.asset);
+          else drilldownAssets("stale", "catalog");
+        });
       });
       byId("findings-loaded").textContent = `${data.findings.length} items`;
     }
@@ -2310,22 +2669,41 @@
       return data.assets.filter(asset => isUnknown(asset) || isUnmanaged(asset) || isStaleAsset(asset) || isMissingTooling(asset));
     }
 
+    function filterForAsset(asset) {
+      if (!asset) return "all";
+      if (isUnknown(asset)) return "unknown";
+      if (isStaleAsset(asset)) return "stale";
+      if (isMissingTooling(asset)) return "missing-tooling";
+      if (isUnmanaged(asset)) return "unmanaged";
+      if (isIot(asset)) return "iot";
+      if (isMobile(asset)) return "mobile";
+      if (isInfrastructure(asset)) return "infrastructure";
+      if (isWorkstationLaptop(asset)) return "workstation";
+      return "all";
+    }
+
+    function drilldownToAsset(asset) {
+      if (!asset) return;
+      state.selectedAssetId = asset.asset_id;
+      drilldownAssets(filterForAsset(asset), "inventory");
+    }
+
     function renderOverviewPreviews(data) {
       const review = reviewAssets(data);
       renderCompactRows("review-assets", review.slice(0, 4), "No review queue yet", "Unknown, unmanaged, stale, or missing-tooling assets will appear here.", asset => {
         const label = isUnknown(asset) ? "Unknown" : isStaleAsset(asset) ? "Stale" : isUnmanaged(asset) ? "Unmanaged" : "Needs Review";
-        return compactRow(asset.hostname || asset.asset_id, `${asset.site_id} - ${platformGroup(asset)} - ${attention(asset) || "observed"}`, label, badgeKindForAsset(asset));
+        return compactRow(asset.hostname || asset.asset_id, `${asset.site_id} - ${platformGroup(asset)} - ${attention(asset) || "observed"}`, label, badgeKindForAsset(asset), () => drilldownToAsset(asset));
       });
       byId("review-assets-count").textContent = `${review.length} assets`;
 
       renderCompactRows("assets-needing-review", review.slice(0, 4), "No assets needing review", "Loaded assets currently look covered in the local demo view.", asset => {
-        return compactRow(asset.asset_id, `${asset.hostname || "host unknown"} - ${asset.site_id} - ${attention(asset) || "observed"}`, isUnknown(asset) ? "Unknown" : "Needs Review", badgeKindForAsset(asset));
+        return compactRow(asset.asset_id, `${asset.hostname || "host unknown"} - ${asset.site_id} - ${attention(asset) || "observed"}`, isUnknown(asset) ? "Unknown" : "Needs Review", badgeKindForAsset(asset), () => drilldownToAsset(asset));
       });
       byId("assets-review-loaded").textContent = `${review.length} assets`;
 
       const recentAssets = [...data.assets].sort((a, b) => (parseDate(b.last_seen_at)?.getTime() || 0) - (parseDate(a.last_seen_at)?.getTime() || 0));
       renderCompactRows("recent-assets", recentAssets.slice(0, 4), "No recent assets yet", "Recently observed assets will appear after inventory evidence loads.", asset => {
-        return compactRow(asset.hostname || asset.asset_id, `${asset.site_id} - ${platformGroup(asset)} - ${fmtDate(asset.last_seen_at)}`, "Demo", "ok");
+        return compactRow(asset.hostname || asset.asset_id, `${asset.site_id} - ${platformGroup(asset)} - ${fmtDate(asset.last_seen_at)}`, "Demo", "ok", () => drilldownToAsset(asset));
       });
       byId("recent-assets-loaded").textContent = `${recentAssets.length} assets`;
 
@@ -2370,25 +2748,103 @@
       return item;
     }
 
+    function assetMatchesSearch(asset, query) {
+      if (!query) return true;
+      const haystack = [
+        asset.asset_id,
+        asset.hostname,
+        asset.site_id,
+        category(asset),
+        asset.primary_ip,
+        asset.mac,
+        asset.os,
+        asset.platform,
+        attention(asset)
+      ].join(" ").toLowerCase();
+      return haystack.includes(query);
+    }
+
+    function filteredAssets(data) {
+      const query = state.assetSearch.trim().toLowerCase();
+      return data.assets.filter(asset => assetMatchesFilter(asset, state.assetFilter) && assetMatchesSearch(asset, query));
+    }
+
+    function updateAssetModeControls() {
+      document.querySelectorAll("[data-asset-mode]").forEach(button => {
+        button.classList.toggle("active", button.dataset.assetMode === state.assetMode);
+      });
+      document.querySelectorAll("[data-filter]").forEach(button => {
+        button.classList.toggle("active", button.dataset.filter === state.assetFilter);
+      });
+      byId("asset-catalog").hidden = state.assetMode !== "catalog";
+      byId("asset-inventory-wrap").hidden = state.assetMode !== "inventory";
+    }
+
+    function setAssetMode(mode) {
+      state.assetMode = mode === "inventory" ? "inventory" : "catalog";
+      renderAssets(derivedData());
+    }
+
+    function setAssetFilter(filter) {
+      state.assetFilter = filter || "all";
+      renderAssets(derivedData());
+    }
+
+    function drilldownAssets(filter, mode = "catalog", search = "") {
+      state.assetMode = mode === "inventory" ? "inventory" : "catalog";
+      state.assetFilter = filter || "all";
+      state.assetSearch = search || "";
+      byId("asset-search").value = state.assetSearch;
+      navigateTo("assets");
+      renderAssets(derivedData());
+    }
+
+    function renderAssetCatalog(data, filtered) {
+      const target = byId("asset-catalog");
+      clearNode(target);
+      if (!data.assets.length) {
+        renderEmpty(target, "No asset catalog yet", "Seed demo data or submit inventory to populate category groups.");
+        return;
+      }
+      assetCategoryDefinitions().forEach(definition => {
+        const values = data.assets.filter(asset => definition.predicate(asset) && assetMatchesSearch(asset, state.assetSearch.trim().toLowerCase()));
+        const selected = definition.filter === state.assetFilter;
+        const card = document.createElement("button");
+        const header = document.createElement("header");
+        const title = document.createElement("h3");
+        const count = document.createElement("strong");
+        const detail = document.createElement("p");
+        card.className = `catalog-card ${selected ? "active" : ""}`.trim();
+        card.type = "button";
+        card.addEventListener("click", () => {
+          state.assetFilter = definition.filter;
+          const first = data.assets.find(asset => assetMatchesFilter(asset, state.assetFilter) && assetMatchesSearch(asset, state.assetSearch.trim().toLowerCase()));
+          state.selectedAssetId = first ? first.asset_id : null;
+          renderAssets(derivedData());
+        });
+        title.textContent = definition.label;
+        count.textContent = values.length;
+        header.append(title, makeBadge(selected ? "Selected" : "View", definition.kind));
+        detail.textContent = definition.description;
+        card.append(header, count, detail);
+        target.appendChild(card);
+      });
+      if (!filtered.length) {
+        const note = document.createElement("div");
+        note.className = "empty-state";
+        const strong = document.createElement("strong");
+        strong.textContent = "No assets match this catalog selection";
+        note.append(strong, "Adjust search or choose another category.");
+        target.appendChild(note);
+      }
+    }
+
     function renderAssets(data) {
       const table = byId("assets-table");
-      const query = state.assetSearch.trim().toLowerCase();
-      const filtered = data.assets.filter(asset => {
-        if (!assetMatchesFilter(asset, state.assetFilter)) return false;
-        if (!query) return true;
-        const haystack = [
-          asset.asset_id,
-          asset.hostname,
-          asset.site_id,
-          category(asset),
-          asset.primary_ip,
-          asset.mac,
-          asset.os,
-          asset.platform,
-          attention(asset)
-        ].join(" ").toLowerCase();
-        return haystack.includes(query);
-      });
+      const filtered = filteredAssets(data);
+      const activeDefinition = assetCategoryDefinitions().find(item => item.filter === state.assetFilter) || assetCategoryDefinitions()[0];
+      updateAssetModeControls();
+      renderAssetCatalog(data, filtered);
       clearNode(table);
       if (!filtered.length) {
         renderTableEmpty(table, 11, "No matching assets", "Adjust search or quick filters to view loaded records.");
@@ -2431,6 +2887,7 @@
         });
       }
       byId("assets-loaded").textContent = `${filtered.length} of ${data.assets.length} assets`;
+      byId("asset-drilldown-status").textContent = `${state.assetMode === "catalog" ? "Catalog" : "Detailed Inventory"} mode: ${plural(filtered.length, "asset")} in ${activeDefinition.label}.`;
       const selected = data.assets.find(asset => asset.asset_id === state.selectedAssetId) || filtered[0] || null;
       renderAssetDetail(selected);
     }
@@ -2789,12 +3246,11 @@
         state.assetSearch = event.target.value;
         renderAssets(derivedData());
       });
+      document.querySelectorAll("[data-asset-mode]").forEach(button => {
+        button.addEventListener("click", () => setAssetMode(button.dataset.assetMode));
+      });
       document.querySelectorAll("[data-filter]").forEach(button => {
-        button.addEventListener("click", () => {
-          state.assetFilter = button.dataset.filter;
-          document.querySelectorAll("[data-filter]").forEach(item => item.classList.toggle("active", item === button));
-          renderAssets(derivedData());
-        });
+        button.addEventListener("click", () => setAssetFilter(button.dataset.filter));
       });
     }
 

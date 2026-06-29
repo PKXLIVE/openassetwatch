@@ -82,15 +82,16 @@ The dashboard is a static Control Tower MVP UI with a left navigation shell and
 client-side views for Dashboard, Assets, Collectors, Sites, Evidence, Findings,
 Policies, Reports, and Settings. The Dashboard view is the overview command
 center: it summarizes the environment in one sentence, shows eight KPI cards,
-visualizes asset mix, operating systems/platforms, collector health, and site
-health, then previews top findings, unknown/unmanaged assets, recent check-ins,
-recent evidence, assets needing review, recently discovered assets, stale
-collectors/sensors, and site cards. Empty states explain what will appear as
-agents enroll and inventory evidence arrives. A local create-site form uses
-`POST /api/v1/sites` to add site metadata only. Asset search, quick filters, row
-details, hash routes, and Getting Started actions run in the browser against
-already-loaded local API data. The browser can copy local demo commands, but it
-does not execute them.
+uses larger local SVG charts for asset category and operating system/platform
+mix, and groups collector health, site health, findings, review queues, recent
+activity, and site cards into fewer clearer panels. Empty states explain what
+will appear as agents enroll and inventory evidence arrives. A local create-site
+form uses `POST /api/v1/sites` to add site metadata only. The Assets view has a
+Catalog mode for category drilldown and a Detailed Inventory mode that preserves
+the searchable table and read-only detail panel. Asset search, quick filters,
+category drilldowns, row details, hash routes, and Getting Started actions run
+in the browser against already-loaded local API data. The browser can copy local
+demo commands, but it does not execute them.
 
 Check API health:
 

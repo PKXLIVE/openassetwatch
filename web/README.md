@@ -7,10 +7,10 @@ through the local Compose `web` service at `http://localhost:8080`. It focuses
 on a compact app shell with Dashboard, Assets, Collectors, Sites, Evidence,
 Findings, Policies, Reports, and Settings views. The Dashboard view is a
 command-center overview with an environment summary sentence, eight KPI cards,
-asset mix, operating system/platform mix, collector health, site health, top
-findings, unknown/unmanaged assets, recent check-ins, recent evidence, assets
-needing review, recently discovered assets, stale collectors/sensors, site
-cards, and metadata-only release status.
+larger local SVG charts for asset mix and operating system/platform coverage,
+collector health, site health, top findings, unknown/unmanaged assets, recent
+check-ins, recent evidence, assets needing review, recently discovered assets,
+stale collectors/sensors, site cards, and metadata-only release status.
 
 The dashboard calls the local API at `http://127.0.0.1:8000` when served by the
 Compose web container. It also includes a small create-site form that uses the
@@ -18,10 +18,13 @@ existing `POST /api/v1/sites` endpoint. The form creates only site metadata; it
 does not enroll agents, run collection, execute updates, or perform any
 credential or remote-command workflow.
 
-The Assets view includes browser-side search, quick filters, and a read-only
-detail panel for the data already returned by the local Control Tower API. The
-Policies and Reports views are informational only; they do not execute checks,
-commands, downloads, or remediation.
+The Assets view includes browser-side Catalog and Detailed Inventory modes.
+Catalog mode groups loaded assets by safe local categories, while Detailed
+Inventory preserves the searchable/filterable table and read-only detail panel
+for the data already returned by the local Control Tower API. Chart, catalog,
+and review-queue drilldowns update local UI state only. The Policies and Reports
+views are informational only; they do not execute checks, commands, downloads,
+or remediation.
 
 Sidebar navigation uses local hash routes such as `#dashboard`, `#assets`, and
 `#settings`. Refresh reloads local API data, the attention banner opens the
