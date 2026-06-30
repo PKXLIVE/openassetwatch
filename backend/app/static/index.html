@@ -516,7 +516,7 @@
       grid-template-columns: minmax(0, 1.55fr) minmax(16rem, 0.45fr);
       gap: 1rem;
       align-items: stretch;
-      padding: 1rem;
+      padding: clamp(0.82rem, 0.9vw, 1.05rem);
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background:
@@ -531,16 +531,16 @@
     }
 
     .overview-summary {
-      margin: 0.42rem 0 0;
+      margin: 0.34rem 0 0;
       max-width: 58rem;
       color: #33443e;
-      font-size: 0.95rem;
+      font-size: 0.92rem;
       font-weight: 750;
       line-height: 1.5;
     }
 
     .overview-helper {
-      margin: 0.5rem 0 0;
+      margin: 0.38rem 0 0;
       color: var(--muted);
       font-size: 0.8rem;
       line-height: 1.45;
@@ -596,7 +596,7 @@
     }
 
     .metric {
-      min-height: 7.1rem;
+      min-height: 6.25rem;
       display: grid;
       align-content: space-between;
       gap: 0.45rem;
@@ -643,7 +643,7 @@
 
     .metric strong {
       display: block;
-      font-size: 2rem;
+      font-size: clamp(1.58rem, 1.35vw, 2rem);
       line-height: 1;
     }
 
@@ -713,11 +713,12 @@
     }
 
     .overview-panel .panel-body {
-      min-height: 10.2rem;
+      min-height: 8.6rem;
     }
 
     .overview-chart-panel .panel-body {
-      min-height: clamp(23rem, 23vw, 31rem);
+      min-height: 0;
+      padding: clamp(0.78rem, 0.78vw, 1rem);
     }
 
     .panel-kicker {
@@ -821,29 +822,32 @@
 
     .chart-shell {
       display: grid;
-      gap: 1rem;
+      gap: 0.78rem;
+      align-content: stretch;
     }
 
     .chart-summary-grid {
       display: grid;
-      grid-template-columns: 1fr;
-      gap: clamp(1rem, 1vw, 1.35rem);
+      grid-template-columns: minmax(13.5rem, 1.05fr) minmax(11.5rem, 0.95fr);
+      gap: clamp(0.85rem, 0.9vw, 1.15rem);
       align-items: center;
+      justify-content: stretch;
     }
 
     .svg-chart {
       width: 100%;
-      max-width: min(28rem, 100%);
+      max-width: none;
       aspect-ratio: 1;
       display: block;
       margin: 0;
       overflow: visible;
-      justify-self: center;
+      justify-self: stretch;
     }
 
     .svg-bar-chart {
       width: 100%;
-      min-height: clamp(18rem, 19vw, 25rem);
+      height: clamp(13.25rem, 15.5vw, 20rem);
+      min-height: 0;
       display: block;
       overflow: visible;
     }
@@ -876,8 +880,9 @@
 
     .chart-legend {
       display: grid;
-      gap: 0.45rem;
+      gap: 0.38rem;
       align-content: start;
+      min-width: 0;
     }
 
     .legend-row {
@@ -886,7 +891,8 @@
       gap: 0.45rem;
       align-items: center;
       color: var(--muted);
-      font-size: 0.78rem;
+      min-height: 1.72rem;
+      font-size: 0.8rem;
       font-weight: 800;
     }
 
@@ -910,6 +916,35 @@
       border-radius: 2px;
     }
 
+    .chart-sidecar {
+      display: grid;
+      gap: 0.7rem;
+      align-content: center;
+      min-width: 0;
+    }
+
+    .chart-sidecar-summary {
+      display: grid;
+      gap: 0.16rem;
+      padding: 0.68rem 0.75rem;
+      border: 1px solid rgba(15, 118, 110, 0.18);
+      border-radius: 7px;
+      background: linear-gradient(180deg, #f7fcfa 0%, #ffffff 100%);
+    }
+
+    .chart-sidecar-summary span {
+      color: var(--muted);
+      font-size: 0.7rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .chart-sidecar-summary strong {
+      font-size: 1.45rem;
+      line-height: 1;
+    }
+
     .chart-action {
       justify-self: start;
       min-height: 2rem;
@@ -920,13 +955,13 @@
 
     .donut-summary {
       display: grid;
-      grid-template-columns: 7rem minmax(0, 1fr);
+      grid-template-columns: minmax(7.5rem, 0.42fr) minmax(0, 1fr);
       gap: 0.85rem;
       align-items: center;
     }
 
     .donut {
-      width: 6.8rem;
+      width: clamp(7rem, 8.5vw, 10rem);
       aspect-ratio: 1;
       display: grid;
       place-items: center;
@@ -958,8 +993,37 @@
 
     .donut-wrap {
       position: relative;
-      display: inline-grid;
-      place-items: center;
+      display: grid;
+      align-items: center;
+      justify-items: stretch;
+      min-width: 0;
+    }
+
+    .attention-summary-visual {
+      display: grid;
+      gap: 0.65rem;
+    }
+
+    .attention-summary-row {
+      display: grid;
+      grid-template-columns: minmax(8rem, 1fr) minmax(12rem, 2.2fr) auto;
+      gap: 0.7rem;
+      align-items: center;
+      padding: 0.52rem 0.6rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+      color: var(--ink);
+      text-align: left;
+    }
+
+    .attention-summary-row strong {
+      font-size: 0.82rem;
+      overflow-wrap: anywhere;
+    }
+
+    .attention-summary-row .bar-track {
+      height: 0.72rem;
     }
 
     .segmented-bar {
@@ -1134,6 +1198,54 @@
       align-items: start;
     }
 
+    .asset-summary-stats {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(8.4rem, 1fr));
+      gap: clamp(0.65rem, 0.75vw, 0.95rem);
+      margin-bottom: clamp(0.85rem, 0.85vw, 1.1rem);
+    }
+
+    .asset-summary-stat {
+      display: grid;
+      gap: 0.2rem;
+      min-height: 5.25rem;
+      padding: 0.75rem 0.85rem;
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--accent);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .asset-summary-stat:nth-child(2) {
+      border-top-color: var(--amber);
+    }
+
+    .asset-summary-stat:nth-child(3) {
+      border-top-color: var(--violet);
+    }
+
+    .asset-summary-stat:nth-child(4) {
+      border-top-color: #c2410c;
+    }
+
+    .asset-summary-stat:nth-child(5) {
+      border-top-color: var(--red);
+    }
+
+    .asset-summary-stat span {
+      color: var(--muted);
+      font-size: 0.7rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .asset-summary-stat strong {
+      font-size: 1.72rem;
+      line-height: 1;
+    }
+
     .asset-layout.catalog-mode {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -1155,7 +1267,11 @@
 
     .catalog-section {
       display: grid;
-      gap: 0.75rem;
+      gap: 0.82rem;
+      padding: clamp(0.82rem, 0.78vw, 1.05rem);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
     }
 
     .catalog-section-header {
@@ -1176,7 +1292,7 @@
 
     .catalog-section-header h3 {
       margin: 0.12rem 0 0;
-      font-size: 1.08rem;
+      font-size: 1.18rem;
       font-weight: 950;
     }
 
@@ -1190,14 +1306,14 @@
 
     .catalog-section-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(21rem, 1fr));
       gap: clamp(0.75rem, 0.85vw, 1rem);
     }
 
     .catalog-card {
       display: grid;
-      grid-template-columns: 6.1rem minmax(0, 1fr);
-      min-height: 8.4rem;
+      grid-template-columns: 7rem minmax(0, 1fr);
+      min-height: 10.2rem;
       padding: 0;
       border: 1px solid var(--line);
       border-radius: 0.44rem;
@@ -1206,7 +1322,7 @@
       color: var(--ink);
       cursor: pointer;
       overflow: hidden;
-      box-shadow: 0 1px 0 rgba(7, 22, 18, 0.02);
+      box-shadow: 0 5px 18px rgba(7, 22, 18, 0.045);
       transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
     }
 
@@ -1227,8 +1343,8 @@
       place-items: center;
       min-height: 100%;
       border-right: 1px solid var(--line);
-      background: linear-gradient(180deg, #f8fafb 0%, #f1f5f6 100%);
-      color: #66736e;
+      background: linear-gradient(160deg, #f1fbf7 0%, #eef4ff 100%);
+      color: #0f766e;
     }
 
     .catalog-card.active .catalog-icon-tile {
@@ -1237,8 +1353,8 @@
     }
 
     .catalog-icon {
-      width: 3.65rem;
-      height: 3.65rem;
+      width: 4.35rem;
+      height: 4.35rem;
       stroke: currentColor;
       fill: none;
       stroke-width: 2.6;
@@ -1249,8 +1365,8 @@
     .catalog-card-copy {
       display: grid;
       align-content: center;
-      gap: 0.45rem;
-      padding: 0.9rem 1rem;
+      gap: 0.52rem;
+      padding: 1rem 1.05rem;
       min-width: 0;
     }
 
@@ -1263,13 +1379,13 @@
 
     .catalog-card h3 {
       margin: 0;
-      font-size: 1rem;
+      font-size: 1.08rem;
       font-weight: 950;
     }
 
     .catalog-card strong {
       color: #4c9ed2;
-      font-size: 0.9rem;
+      font-size: 1rem;
       font-weight: 950;
       line-height: 1.2;
     }
@@ -1285,12 +1401,12 @@
       justify-self: start;
       width: fit-content;
       margin-top: 0.1rem;
-      padding: 0.16rem 0.5rem;
+      padding: 0.24rem 0.6rem;
       border: 1px solid #b9c2bf;
       border-radius: 0.28rem;
       color: var(--ink);
       background: #ffffff;
-      font-size: 0.66rem;
+      font-size: 0.72rem;
       font-weight: 900;
       white-space: nowrap;
     }
@@ -1503,6 +1619,10 @@
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
+      .asset-summary-stats {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
       .dashboard-grid,
       .collector-grid,
       .site-grid,
@@ -1523,6 +1643,7 @@
       }
 
       .overview-hero,
+      .chart-summary-grid,
       .split,
       .asset-layout {
         grid-template-columns: 1fr;
@@ -1559,6 +1680,7 @@
       }
 
       .metrics-grid,
+      .asset-summary-stats,
       .dashboard-grid,
       .chart-summary-grid,
       .collector-grid,
@@ -1575,6 +1697,10 @@
       .asset-mode-row {
         align-items: stretch;
         flex-direction: column;
+      }
+
+      .attention-summary-row {
+        grid-template-columns: 1fr;
       }
 
       .catalog-section-header {
@@ -1693,14 +1819,6 @@
             <div class="metric"><span>Sites</span><strong id="site-count">0</strong><small>local environment groups</small></div>
           </div>
 
-          <div id="attention-banner" class="attention-banner" hidden>
-            <div>
-              <h3>Attention items detected in demo data</h3>
-              <p id="attention-summary">Synthetic demo findings will appear here when seeded data includes unknown, unmanaged, stale, or missing-tooling signals.</p>
-            </div>
-            <a class="pill warn" href="#findings" data-safe-action="review-findings">Review findings</a>
-          </div>
-
           <div class="dashboard-grid" aria-label="Environment visual summaries">
             <section class="panel overview-panel overview-chart-panel span-4">
               <div class="panel-header">
@@ -1731,6 +1849,14 @@
                 <div class="empty-state"><strong>Loading platforms</strong>Operating system and platform mix will appear after assets load.</div>
               </div>
             </section>
+
+            <div id="attention-banner" class="attention-banner span-12" hidden>
+              <div>
+                <h3>Attention items detected in demo data</h3>
+                <p id="attention-summary">Synthetic demo findings will appear here when seeded data includes unknown, unmanaged, stale, or missing-tooling signals.</p>
+              </div>
+              <a class="pill warn" href="#findings" data-safe-action="review-findings">Review findings</a>
+            </div>
 
             <section class="panel overview-panel span-4">
               <div class="panel-header">
@@ -1841,6 +1967,14 @@
               <p>Search and filter normalized asset records. Detail panels are read-only and derived from loaded evidence.</p>
             </div>
             <span id="assets-loaded" class="pill">loading</span>
+          </div>
+
+          <div class="asset-summary-stats" aria-label="Asset catalog summary">
+            <div class="asset-summary-stat"><span>Total assets</span><strong id="asset-summary-total">0</strong></div>
+            <div class="asset-summary-stat"><span>Unknown</span><strong id="asset-summary-unknown">0</strong></div>
+            <div class="asset-summary-stat"><span>Unmanaged</span><strong id="asset-summary-unmanaged">0</strong></div>
+            <div class="asset-summary-stat"><span>Missing tooling</span><strong id="asset-summary-missing-tooling">0</strong></div>
+            <div class="asset-summary-stat"><span>Stale</span><strong id="asset-summary-stale">0</strong></div>
           </div>
 
           <div class="asset-layout">
@@ -2203,7 +2337,7 @@
   </div>
 
   <script>
-    const DASHBOARD_VERSION = "control-tower-static-mvp";
+    const DASHBOARD_VERSION = "control-tower-visual-composition-v5";
     const apiBase = window.location.port === "8080" ? "http://127.0.0.1:8000" : "";
     const endpoints = {
       health: "/health",
@@ -2417,6 +2551,10 @@
       const total = items.reduce((sum, item) => sum + item.value, 0);
       const chart = document.createElement("div");
       const visual = document.createElement("div");
+      const sidecar = document.createElement("div");
+      const summary = document.createElement("div");
+      const summaryLabel = document.createElement("span");
+      const summaryValue = document.createElement("strong");
       const svg = svgEl("svg", {viewBox: "0 0 160 160", role: "img", "aria-label": options.label || "Donut chart"});
       const center = document.createElement("div");
       const centerValue = document.createElement("strong");
@@ -2426,6 +2564,10 @@
       const circumference = 2 * Math.PI * radius;
       chart.className = "chart-summary-grid";
       visual.className = "donut-wrap";
+      sidecar.className = "chart-sidecar";
+      summary.className = "chart-sidecar-summary";
+      summaryLabel.textContent = options.centerCaption || "records";
+      summaryValue.textContent = options.centerValue || total;
       svg.classList.add("svg-chart");
       svg.appendChild(svgEl("circle", {cx: 80, cy: 80, r: radius, fill: "none", stroke: "#e5ece9", "stroke-width": 20}));
       items.forEach((item, index) => {
@@ -2456,34 +2598,36 @@
       centerCaption.textContent = options.centerCaption || "records";
       center.append(centerValue, centerCaption);
       visual.append(svg, center);
-      chart.append(visual, renderLegend(items, options.onSelect));
+      summary.append(summaryLabel, summaryValue);
+      sidecar.append(summary, renderLegend(items, options.onSelect));
+      chart.append(visual, sidecar);
       return chart;
     }
 
     function renderBarChart(items, options = {}) {
       const chart = document.createElement("div");
-      const svg = svgEl("svg", {viewBox: `0 0 460 ${Math.max(150, items.length * 34 + 22)}`, role: "img", "aria-label": options.label || "Bar chart"});
+      const svg = svgEl("svg", {viewBox: `0 0 640 ${Math.max(190, items.length * 44 + 28)}`, role: "img", "aria-label": options.label || "Bar chart"});
       const max = Math.max(1, ...items.map(item => item.value));
-      chart.className = "chart-shell";
+      chart.className = "chart-shell bar-chart-shell";
       svg.classList.add("svg-bar-chart");
       items.forEach((item, index) => {
-        const y = 18 + index * 34;
-        const width = Math.max(8, Math.round((item.value / max) * 250));
+        const y = 20 + index * 44;
+        const width = Math.max(12, Math.round((item.value / max) * 320));
         const group = svgEl("g", {});
         const title = svgEl("title");
         group.style.cursor = options.onSelect ? "pointer" : "default";
         if (options.onSelect) group.addEventListener("click", () => options.onSelect(item));
         title.textContent = `${item.label}: ${item.value}`;
         group.appendChild(title);
-        group.appendChild(svgEl("text", {x: 0, y: y + 13, fill: "#15231f", "font-size": 12, "font-weight": 800}));
+        group.appendChild(svgEl("text", {x: 0, y: y + 16, fill: "#15231f", "font-size": 16, "font-weight": 850}));
         group.lastChild.textContent = item.label;
-        group.appendChild(svgEl("rect", {x: 150, y, width: 260, height: 16, rx: 8, fill: "#e5ece9"}));
-        group.appendChild(svgEl("rect", {x: 150, y, width, height: 16, rx: 8, fill: item.color || chartColor(index)}));
-        group.appendChild(svgEl("text", {x: 424, y: y + 13, fill: "#607269", "font-size": 12, "font-weight": 900}));
+        group.appendChild(svgEl("rect", {x: 220, y, width: 340, height: 20, rx: 10, fill: "#e5ece9"}));
+        group.appendChild(svgEl("rect", {x: 220, y, width, height: 20, rx: 10, fill: item.color || chartColor(index)}));
+        group.appendChild(svgEl("text", {x: 585, y: y + 16, fill: "#607269", "font-size": 16, "font-weight": 900, "text-anchor": "end"}));
         group.lastChild.textContent = item.value;
         svg.appendChild(group);
       });
-      chart.append(svg, renderLegend(items, options.onSelect));
+      chart.append(svg);
       return chart;
     }
 
@@ -2975,11 +3119,49 @@
       });
       byId("evidence-loaded").textContent = `${evidence.length} records`;
 
-      renderCompactRows("top-findings", data.findings.slice(0, 4), "No findings yet", "Demo findings are derived from synthetic attention labels.", finding => {
-        return compactRow(finding.title, `${finding.site_id} - ${finding.detail}`, finding.severity, findingKind(finding), () => {
+      renderAttentionSummaryVisual(data);
+    }
+
+    function renderAttentionSummaryVisual(data) {
+      const target = byId("top-findings");
+      const total = Math.max(1, data.assets.length);
+      const groups = [
+        {label: "Unknown", value: data.unknownAssets.length, filter: "unknown", kind: "warn"},
+        {label: "Unmanaged", value: data.unmanagedAssets.length, filter: "unmanaged", kind: "violet"},
+        {label: "Missing tooling", value: data.assets.filter(isMissingTooling).length, filter: "missing-tooling", kind: "violet"},
+        {label: "Stale", value: data.assets.filter(isStaleAsset).length + data.staleCollectors.length, filter: "stale", kind: "warn"}
+      ];
+      clearNode(target);
+      if (!data.findings.length && groups.every(group => group.value === 0)) {
+        renderEmpty(target, "No findings yet", "Demo findings are derived from synthetic attention labels.");
+        byId("findings-loaded").textContent = "0 items";
+        return;
+      }
+      const summary = document.createElement("div");
+      summary.className = "attention-summary-visual";
+      groups.forEach((group, index) => {
+        const row = document.createElement("button");
+        const label = document.createElement("strong");
+        const track = document.createElement("span");
+        const fill = document.createElement("span");
+        row.className = "attention-summary-row";
+        row.type = "button";
+        row.addEventListener("click", () => drilldownAssets(group.filter, "inventory"));
+        label.textContent = group.label;
+        track.className = "bar-track";
+        fill.className = "bar-fill";
+        fill.style.width = `${Math.min(100, Math.round((group.value / total) * 100))}%`;
+        fill.style.background = chartColor(index + 2);
+        track.appendChild(fill);
+        row.append(label, track, makeBadge(plural(group.value, "item"), group.kind));
+        summary.appendChild(row);
+      });
+      target.appendChild(summary);
+      data.findings.slice(0, 2).forEach(finding => {
+        target.appendChild(compactRow(finding.title, `${finding.site_id} - ${finding.detail}`, finding.severity, findingKind(finding), () => {
           if (finding.asset) drilldownToAsset(finding.asset);
           else drilldownAssets("stale", "inventory");
-        });
+        }));
       });
       byId("findings-loaded").textContent = `${data.findings.length} items`;
     }
@@ -3340,6 +3522,11 @@
       const filtered = filteredAssets(data);
       const activeScope = activeAssetScopeLabel();
       updateAssetModeControls();
+      byId("asset-summary-total").textContent = data.assets.length;
+      byId("asset-summary-unknown").textContent = data.unknownAssets.length;
+      byId("asset-summary-unmanaged").textContent = data.unmanagedAssets.length;
+      byId("asset-summary-missing-tooling").textContent = data.assets.filter(isMissingTooling).length;
+      byId("asset-summary-stale").textContent = data.assets.filter(isStaleAsset).length;
       const assetLayout = document.querySelector("#assets .asset-layout");
       if (assetLayout) {
         assetLayout.classList.toggle("catalog-mode", state.assetMode === "catalog");

@@ -89,6 +89,10 @@ class ControlTowerDashboardTests(unittest.TestCase):
             with self.subTest(section=section):
                 self.assertIn(section, self.dashboard)
 
+    def test_dashboard_version_marks_visual_composition_pass(self) -> None:
+        self.assertIn('const DASHBOARD_VERSION = "control-tower-visual-composition-v5";', self.dashboard)
+        self.assertIn("control-tower-visual-composition-v5", self.dashboard)
+
     def test_dashboard_overview_command_center_sections_are_present(self) -> None:
         expected_markup = (
             'class="view-section dashboard-canvas"',
@@ -145,6 +149,18 @@ class ControlTowerDashboardTests(unittest.TestCase):
             with self.subTest(declaration=declaration):
                 self.assertIn(declaration, full_canvas_body)
 
+    def test_chart_panels_use_filled_internal_visual_layouts(self) -> None:
+        self.assertIn("grid-template-columns: minmax(13.5rem, 1.05fr) minmax(11.5rem, 0.95fr);", self.dashboard)
+        self.assertIn("justify-content: stretch;", self.dashboard)
+        self.assertIn("max-width: none;", self.dashboard)
+        self.assertIn("className = \"chart-sidecar\"", self.dashboard)
+        self.assertIn("className = \"chart-sidecar-summary\"", self.dashboard)
+        self.assertIn('chart.className = "chart-shell bar-chart-shell"', self.dashboard)
+        self.assertIn("viewBox: `0 0 640", self.dashboard)
+        self.assertIn('"font-size": 16', self.dashboard)
+        self.assertNotIn("max-width: min(28rem, 100%)", self.dashboard)
+        self.assertNotIn("grid-template-columns: 1fr;\n      gap: clamp(1rem, 1vw, 1.35rem);\n      align-items: center;", self.dashboard)
+
     def test_setup_and_release_content_live_in_settings_not_dashboard(self) -> None:
         dashboard_section = self.dashboard.split('<section id="dashboard"', 1)[1].split('<section id="assets"', 1)[0]
         settings_section = self.dashboard.split('<section id="settings"', 1)[1].split("</main>", 1)[0]
@@ -170,6 +186,7 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'id="collector-health"',
             'id="site-health"',
             'id="top-findings"',
+            'id="attention-banner" class="attention-banner span-12"',
             'id="review-assets"',
             'id="checkins-panel"',
             'id="recent-evidence"',
@@ -190,6 +207,24 @@ class ControlTowerDashboardTests(unittest.TestCase):
             with self.subTest(group=group):
                 self.assertIn(group, self.dashboard)
 
+    def test_asset_catalog_summary_stats_are_present(self) -> None:
+        expected_stats = (
+            'class="asset-summary-stats"',
+            'id="asset-summary-total"',
+            'id="asset-summary-unknown"',
+            'id="asset-summary-unmanaged"',
+            'id="asset-summary-missing-tooling"',
+            'id="asset-summary-stale"',
+            'byId("asset-summary-total").textContent = data.assets.length',
+            'byId("asset-summary-unknown").textContent = data.unknownAssets.length',
+            'byId("asset-summary-unmanaged").textContent = data.unmanagedAssets.length',
+            'byId("asset-summary-missing-tooling").textContent = data.assets.filter(isMissingTooling).length',
+            'byId("asset-summary-stale").textContent = data.assets.filter(isStaleAsset).length',
+        )
+        for stat in expected_stats:
+            with self.subTest(stat=stat):
+                self.assertIn(stat, self.dashboard)
+
     def test_dashboard_overview_visual_helpers_are_client_side(self) -> None:
         expected_code = (
             "function renderEnvironmentSummary",
@@ -200,6 +235,7 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "function renderDonutChart",
             "function renderBarChart",
             "function renderLegend",
+            "function renderAttentionSummaryVisual",
             "function assetCatalogIcon",
             "function addIconShape",
             "function platformGroup",
@@ -211,6 +247,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "classList.add(\"svg-chart\")",
             "classList.add(\"svg-bar-chart\")",
             "className = \"donut\"",
+            "className = \"attention-summary-visual\"",
+            "className = \"attention-summary-row\"",
             "local synthetic demo data",
             "not measured production performance",
         )
