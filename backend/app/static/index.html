@@ -460,8 +460,10 @@
     }
 
     .panel,
-    .metric,
-    .attention-banner {
+    .dashboard-kpi-card,
+    .dashboard-chart-card,
+    .dashboard-insight-card,
+    .dashboard-operational-card {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: var(--radius);
@@ -499,6 +501,59 @@
       padding: 0.9rem;
     }
 
+    .dashboard-command-grid {
+      display: grid;
+      grid-template-areas:
+        "status"
+        "hero"
+        "kpis"
+        "primary"
+        "secondary"
+        "operational";
+      gap: clamp(0.78rem, 0.82vw, 1.05rem);
+      width: 100%;
+      min-width: 0;
+    }
+
+    .dashboard-status-area {
+      grid-area: status;
+    }
+
+    .dashboard-hero-area {
+      grid-area: hero;
+    }
+
+    .dashboard-kpi-strip {
+      grid-area: kpis;
+      display: grid;
+      grid-template-columns: repeat(8, minmax(8rem, 1fr));
+      gap: clamp(0.55rem, 0.65vw, 0.8rem);
+    }
+
+    .dashboard-primary-visuals {
+      grid-area: primary;
+      display: grid;
+      grid-template-columns: minmax(27rem, 1.08fr) minmax(25rem, 1fr) minmax(25rem, 1fr);
+      gap: clamp(0.78rem, 0.82vw, 1.05rem);
+      align-items: stretch;
+    }
+
+    .dashboard-secondary-insights {
+      grid-area: secondary;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: clamp(0.78rem, 0.82vw, 1.05rem);
+      align-items: stretch;
+    }
+
+    .dashboard-operational-row {
+      grid-area: operational;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: clamp(0.78rem, 0.82vw, 1.05rem);
+      align-items: stretch;
+    }
+
     .status-line {
       display: flex;
       align-items: center;
@@ -513,10 +568,10 @@
 
     .overview-hero {
       display: grid;
-      grid-template-columns: minmax(0, 1.55fr) minmax(16rem, 0.45fr);
-      gap: 1rem;
+      grid-template-columns: minmax(0, 1.45fr) minmax(21rem, 0.55fr);
+      gap: clamp(0.85rem, 0.9vw, 1.1rem);
       align-items: stretch;
-      padding: clamp(0.82rem, 0.9vw, 1.05rem);
+      padding: clamp(0.9rem, 0.95vw, 1.15rem);
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background:
@@ -589,50 +644,44 @@
       font-size: 0.78rem;
     }
 
-    .metrics-grid {
-      display: grid;
-      grid-template-columns: repeat(8, minmax(8.5rem, 1fr));
-      gap: clamp(0.68rem, 0.8vw, 1rem);
-    }
-
-    .metric {
-      min-height: 6.25rem;
+    .dashboard-kpi-card {
+      min-height: 5.8rem;
       display: grid;
       align-content: space-between;
-      gap: 0.45rem;
-      padding: clamp(0.8rem, 0.82vw, 1rem);
+      gap: 0.38rem;
+      padding: clamp(0.7rem, 0.76vw, 0.92rem);
       border-top: 3px solid var(--accent);
     }
 
-    .metric:nth-child(2) {
+    .dashboard-kpi-card:nth-child(2) {
       border-top-color: var(--amber);
     }
 
-    .metric:nth-child(3) {
+    .dashboard-kpi-card:nth-child(3) {
       border-top-color: var(--violet);
     }
 
-    .metric:nth-child(4) {
+    .dashboard-kpi-card:nth-child(4) {
       border-top-color: var(--blue);
     }
 
-    .metric:nth-child(5) {
+    .dashboard-kpi-card:nth-child(5) {
       border-top-color: var(--red);
     }
 
-    .metric:nth-child(6) {
+    .dashboard-kpi-card:nth-child(6) {
       border-top-color: #c2410c;
     }
 
-    .metric:nth-child(7) {
+    .dashboard-kpi-card:nth-child(7) {
       border-top-color: var(--accent-strong);
     }
 
-    .metric:nth-child(8) {
+    .dashboard-kpi-card:nth-child(8) {
       border-top-color: #475569;
     }
 
-    .metric span {
+    .dashboard-kpi-card span {
       display: block;
       color: var(--muted);
       font-size: 0.72rem;
@@ -641,82 +690,31 @@
       letter-spacing: 0.04em;
     }
 
-    .metric strong {
+    .dashboard-kpi-card strong {
       display: block;
-      font-size: clamp(1.58rem, 1.35vw, 2rem);
+      font-size: clamp(1.55rem, 1.28vw, 1.95rem);
       line-height: 1;
     }
 
-    .metric small {
+    .dashboard-kpi-card small {
       color: var(--muted);
       font-size: 0.73rem;
       line-height: 1.35;
     }
 
-    .attention-banner {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 1rem;
-      align-items: center;
-      padding: 0.92rem 1rem;
-      border-left: 4px solid var(--amber);
-    }
-
-    .attention-banner h3 {
-      font-size: 0.92rem;
-    }
-
-    .attention-banner p {
-      margin: 0.2rem 0 0;
-      color: var(--muted);
-      font-size: 0.8rem;
-      line-height: 1.4;
-    }
-
-    .dashboard-grid {
-      display: grid;
-      gap: clamp(0.9rem, 1vw, 1.35rem);
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      align-items: stretch;
-    }
-
-    .span-3 {
-      grid-column: span 3;
-    }
-
-    .span-4 {
-      grid-column: span 4;
-    }
-
-    .span-5 {
-      grid-column: span 5;
-    }
-
-    .span-6 {
-      grid-column: span 6;
-    }
-
-    .span-7 {
-      grid-column: span 7;
-    }
-
-    .span-8 {
-      grid-column: span 8;
-    }
-
-    .span-12 {
-      grid-column: 1 / -1;
-    }
-
-    .overview-panel .panel-header {
+    .dashboard-chart-card .panel-header,
+    .dashboard-insight-card .panel-header,
+    .dashboard-operational-card .panel-header {
       min-height: 3.45rem;
     }
 
-    .overview-panel .panel-body {
-      min-height: 8.6rem;
+    .dashboard-chart-card .panel-body,
+    .dashboard-insight-card .panel-body,
+    .dashboard-operational-card .panel-body {
+      min-height: 0;
     }
 
-    .overview-chart-panel .panel-body {
+    .dashboard-chart-card .panel-body {
       min-height: 0;
       padding: clamp(0.78rem, 0.78vw, 1rem);
     }
@@ -731,16 +729,6 @@
       text-transform: none;
       letter-spacing: 0;
       white-space: normal;
-    }
-
-    .overview-panel .site-grid {
-      grid-template-columns: 1fr;
-      gap: 0.55rem;
-    }
-
-    .overview-panel .site-card {
-      box-shadow: none;
-      padding: 0.65rem;
     }
 
     .list {
@@ -820,18 +808,26 @@
       background: var(--accent);
     }
 
-    .chart-shell {
+    .dashboard-chart-body {
       display: grid;
       gap: 0.78rem;
-      align-content: stretch;
+      align-content: center;
+      min-height: clamp(17rem, 18vw, 23rem);
     }
 
-    .chart-summary-grid {
+    .donut-card-layout {
       display: grid;
-      grid-template-columns: minmax(13.5rem, 1.05fr) minmax(11.5rem, 0.95fr);
-      gap: clamp(0.85rem, 0.9vw, 1.15rem);
+      grid-template-columns: minmax(15rem, 0.96fr) minmax(13rem, 0.86fr);
+      gap: clamp(1rem, 1.1vw, 1.35rem);
       align-items: center;
       justify-content: stretch;
+      min-height: clamp(16rem, 17vw, 22rem);
+    }
+
+    .bar-card-layout {
+      display: grid;
+      align-content: center;
+      min-height: clamp(16rem, 17vw, 22rem);
     }
 
     .svg-chart {
@@ -846,7 +842,7 @@
 
     .svg-bar-chart {
       width: 100%;
-      height: clamp(13.25rem, 15.5vw, 20rem);
+      height: clamp(14.5rem, 16.5vw, 21.5rem);
       min-height: 0;
       display: block;
       overflow: visible;
@@ -1257,7 +1253,7 @@
     .asset-catalog {
       display: grid;
       gap: clamp(1rem, 1.1vw, 1.45rem);
-      padding: clamp(0.95rem, 1vw, 1.25rem);
+      padding: clamp(1rem, 1.08vw, 1.35rem);
     }
 
     .asset-catalog[hidden],
@@ -1267,9 +1263,10 @@
 
     .catalog-section {
       display: grid;
-      gap: 0.82rem;
-      padding: clamp(0.82rem, 0.78vw, 1.05rem);
+      gap: clamp(0.9rem, 0.9vw, 1.15rem);
+      padding: clamp(1rem, 0.95vw, 1.25rem);
       border: 1px solid var(--line);
+      border-top: 3px solid rgba(12, 123, 115, 0.42);
       border-radius: var(--radius);
       background: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
     }
@@ -1306,14 +1303,14 @@
 
     .catalog-section-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(21rem, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
       gap: clamp(0.75rem, 0.85vw, 1rem);
     }
 
     .catalog-card {
       display: grid;
-      grid-template-columns: 7rem minmax(0, 1fr);
-      min-height: 10.2rem;
+      grid-template-columns: 8rem minmax(0, 1fr);
+      min-height: 11.25rem;
       padding: 0;
       border: 1px solid var(--line);
       border-radius: 0.44rem;
@@ -1353,8 +1350,8 @@
     }
 
     .catalog-icon {
-      width: 4.35rem;
-      height: 4.35rem;
+      width: 4.85rem;
+      height: 4.85rem;
       stroke: currentColor;
       fill: none;
       stroke-width: 2.6;
@@ -1365,8 +1362,8 @@
     .catalog-card-copy {
       display: grid;
       align-content: center;
-      gap: 0.52rem;
-      padding: 1rem 1.05rem;
+      gap: 0.58rem;
+      padding: 1.05rem 1.15rem;
       min-width: 0;
     }
 
@@ -1615,7 +1612,7 @@
     }
 
     @media (max-width: 1180px) {
-      .metrics-grid {
+      .dashboard-kpi-strip {
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
@@ -1623,7 +1620,9 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
-      .dashboard-grid,
+      .dashboard-primary-visuals,
+      .dashboard-secondary-insights,
+      .dashboard-operational-row,
       .collector-grid,
       .site-grid,
       .policy-grid,
@@ -1633,17 +1632,8 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .span-3,
-      .span-4,
-      .span-5,
-      .span-6,
-      .span-7,
-      .span-8 {
-        grid-column: span 1;
-      }
-
       .overview-hero,
-      .chart-summary-grid,
+      .donut-card-layout,
       .split,
       .asset-layout {
         grid-template-columns: 1fr;
@@ -1679,10 +1669,12 @@
         grid-template-columns: 1fr;
       }
 
-      .metrics-grid,
+      .dashboard-kpi-strip,
       .asset-summary-stats,
-      .dashboard-grid,
-      .chart-summary-grid,
+      .dashboard-primary-visuals,
+      .dashboard-secondary-insights,
+      .dashboard-operational-row,
+      .donut-card-layout,
       .collector-grid,
       .site-grid,
       .policy-grid,
@@ -1719,7 +1711,6 @@
       }
 
       .status-line,
-      .attention-banner,
       .section-title {
         align-items: flex-start;
         grid-template-columns: 1fr;
@@ -1782,181 +1773,164 @@
 
       <main class="page">
         <section id="dashboard" class="view-section dashboard-canvas" data-canvas-contract="full">
-          <div class="status-line" role="status" aria-live="polite">
-            <div class="status-copy">
-              <strong id="status-title">Loading Control Tower data</strong>
-              <span id="status-detail">Waiting for the local API to respond.</span>
+          <div class="dashboard-command-grid">
+            <div class="status-line dashboard-status-area" role="status" aria-live="polite">
+              <div class="status-copy">
+                <strong id="status-title">Loading Control Tower data</strong>
+                <span id="status-detail">Waiting for the local API to respond.</span>
+              </div>
+              <span id="last-updated" class="pill warn">not updated</span>
             </div>
-            <span id="last-updated" class="pill warn">not updated</span>
-          </div>
 
-          <section class="overview-hero" aria-label="Environment summary">
-            <div>
-              <h2>Environment Overview</h2>
-              <p id="environment-summary" class="overview-summary">Loading local Control Tower environment summary.</p>
-              <p class="overview-helper">Demo metrics are derived from the loaded local API datasets and synthetic seed records. They are for visual validation, not measured production performance.</p>
-            </div>
-            <div class="overview-meta">
-              <div class="overview-meta-card">
-                <span>Last refreshed</span>
-                <strong id="overview-last-refreshed">not updated</strong>
-              </div>
-              <div class="overview-meta-card">
-                <span>Data posture</span>
-                <strong id="overview-data-posture">waiting for local API</strong>
-              </div>
-            </div>
-          </section>
-
-          <div class="metrics-grid" aria-label="Overview metrics">
-            <div class="metric"><span>Total assets</span><strong id="total-assets">0</strong><small>normalized inventory records</small></div>
-            <div class="metric"><span>Unknown assets</span><strong id="unknown-assets">0</strong><small>need owner or type review</small></div>
-            <div class="metric"><span>Unmanaged assets</span><strong id="unmanaged-assets">0</strong><small>sample devices without managed coverage</small></div>
-            <div class="metric"><span>Active collectors</span><strong id="active-collectors">0</strong><small>recent endpoint agents and sensors</small></div>
-            <div class="metric"><span>Stale collectors</span><strong id="stale-collectors">0</strong><small>synthetic delayed check-in examples</small></div>
-            <div class="metric"><span>Findings requiring review</span><strong id="findings-review-count">0</strong><small>safe attention items</small></div>
-            <div class="metric"><span>Evidence records</span><strong id="evidence-records">0</strong><small>asset evidence observations</small></div>
-            <div class="metric"><span>Sites</span><strong id="site-count">0</strong><small>local environment groups</small></div>
-          </div>
-
-          <div class="dashboard-grid" aria-label="Environment visual summaries">
-            <section class="panel overview-panel overview-chart-panel span-4">
-              <div class="panel-header">
-                <h3>Asset Mix By Type <span class="panel-kicker">larger category drilldown</span></h3>
-                <span id="asset-mix-count">loading</span>
-              </div>
-              <div id="asset-mix" class="panel-body chart-shell">
-                <div class="empty-state"><strong>Loading asset mix</strong>Device categories will appear after assets load.</div>
-              </div>
-            </section>
-
-            <section class="panel overview-panel overview-chart-panel span-4">
-              <div class="panel-header">
-                <h3>Device Type / Category <span class="panel-kicker">catalog distribution</span></h3>
-                <span id="device-type-mix-count">loading</span>
-              </div>
-              <div id="device-type-mix" class="panel-body chart-shell">
-                <div class="empty-state"><strong>Loading device categories</strong>Catalog groups will appear after assets load.</div>
-              </div>
-            </section>
-
-            <section class="panel overview-panel overview-chart-panel span-4">
-              <div class="panel-header">
-                <h3>Operating Systems / Platforms <span class="panel-kicker">coverage distribution</span></h3>
-                <span id="platform-mix-count">loading</span>
-              </div>
-              <div id="platform-mix" class="panel-body chart-shell">
-                <div class="empty-state"><strong>Loading platforms</strong>Operating system and platform mix will appear after assets load.</div>
-              </div>
-            </section>
-
-            <div id="attention-banner" class="attention-banner span-12" hidden>
+            <section class="overview-hero dashboard-hero-area" aria-label="Environment summary">
               <div>
-                <h3>Attention items detected in demo data</h3>
-                <p id="attention-summary">Synthetic demo findings will appear here when seeded data includes unknown, unmanaged, stale, or missing-tooling signals.</p>
+                <h2>Environment Overview</h2>
+                <p id="environment-summary" class="overview-summary">Loading local Control Tower environment summary.</p>
+                <p class="overview-helper">Command-center metrics are derived from local API datasets and synthetic seed records. They are for visual validation, not measured production performance.</p>
               </div>
-              <a class="pill warn" href="#findings" data-safe-action="review-findings">Review findings</a>
+              <div class="overview-meta">
+                <div class="overview-meta-card">
+                  <span>Last refreshed</span>
+                  <strong id="overview-last-refreshed">not updated</strong>
+                </div>
+                <div class="overview-meta-card">
+                  <span>Data posture</span>
+                  <strong id="overview-data-posture">waiting for local API</strong>
+                </div>
+                <div class="overview-meta-card">
+                  <span>Attention state</span>
+                  <strong id="attention-signal-summary">waiting for local data</strong>
+                </div>
+              </div>
+            </section>
+
+            <div class="dashboard-kpi-strip" aria-label="Overview metrics">
+              <div class="dashboard-kpi-card"><span>Total assets</span><strong id="total-assets">0</strong><small>normalized inventory records</small></div>
+              <div class="dashboard-kpi-card"><span>Unknown assets</span><strong id="unknown-assets">0</strong><small>need owner or type review</small></div>
+              <div class="dashboard-kpi-card"><span>Unmanaged assets</span><strong id="unmanaged-assets">0</strong><small>sample devices without managed coverage</small></div>
+              <div class="dashboard-kpi-card"><span>Active collectors</span><strong id="active-collectors">0</strong><small>recent endpoint agents and sensors</small></div>
+              <div class="dashboard-kpi-card"><span>Stale collectors</span><strong id="stale-collectors">0</strong><small>delayed check-in examples</small></div>
+              <div class="dashboard-kpi-card"><span>Findings requiring review</span><strong id="findings-review-count">0</strong><small>safe attention items</small></div>
+              <div class="dashboard-kpi-card"><span>Evidence records</span><strong id="evidence-records">0</strong><small>asset evidence observations</small></div>
+              <div class="dashboard-kpi-card"><span>Sites</span><strong id="site-count">0</strong><small>local environment groups</small></div>
             </div>
 
-            <section class="panel overview-panel span-4">
-              <div class="panel-header">
-                <h3>Collector Health <span class="panel-kicker">agent and sensor freshness</span></h3>
-                <span id="collector-health-count">loading</span>
-              </div>
-              <div id="collector-health" class="panel-body list">
-                <div class="empty-state"><strong>Loading collector health</strong>Endpoint agent and passive sensor status will appear here.</div>
-              </div>
-            </section>
+            <div class="dashboard-primary-visuals" aria-label="Primary environment visuals">
+              <section class="panel dashboard-chart-card">
+                <div class="panel-header">
+                  <h3>Asset Mix <span class="panel-kicker">category drilldown</span></h3>
+                  <span id="asset-mix-count">loading</span>
+                </div>
+                <div id="asset-mix" class="panel-body dashboard-chart-body">
+                  <div class="empty-state"><strong>Loading asset mix</strong>Device categories will appear after assets load.</div>
+                </div>
+              </section>
 
-            <section class="panel overview-panel span-4">
-              <div class="panel-header">
-                <h3>Site Health <span class="panel-kicker">attention by environment</span></h3>
-                <span id="site-health-count">loading</span>
-              </div>
-              <div id="site-health" class="panel-body compact-list">
-                <div class="empty-state"><strong>Loading site health</strong>Site-level asset and collector attention will appear here.</div>
-              </div>
-            </section>
+              <section class="panel dashboard-chart-card">
+                <div class="panel-header">
+                  <h3>Device Type / Category <span class="panel-kicker">catalog distribution</span></h3>
+                  <span id="device-type-mix-count">loading</span>
+                </div>
+                <div id="device-type-mix" class="panel-body dashboard-chart-body">
+                  <div class="empty-state"><strong>Loading device categories</strong>Catalog groups will appear after assets load.</div>
+                </div>
+              </section>
 
-            <section class="panel overview-panel span-4">
-              <div class="panel-header">
-                <h3>Top Findings / Attention Items <span class="panel-kicker">highest review signals</span></h3>
-                <span id="findings-loaded">loading</span>
-              </div>
-              <div id="top-findings" class="panel-body compact-list">
-                <div class="empty-state"><strong>Loading findings</strong>Safe demo attention items will appear here.</div>
-              </div>
-            </section>
+              <section class="panel dashboard-chart-card">
+                <div class="panel-header">
+                  <h3>OS / Platform <span class="panel-kicker">coverage distribution</span></h3>
+                  <span id="platform-mix-count">loading</span>
+                </div>
+                <div id="platform-mix" class="panel-body dashboard-chart-body">
+                  <div class="empty-state"><strong>Loading platforms</strong>Operating system and platform mix will appear after assets load.</div>
+                </div>
+              </section>
+            </div>
 
-            <section class="panel overview-panel span-4">
-              <div class="panel-header">
-                <h3>Unknown &amp; Unmanaged Assets <span class="panel-kicker">coverage queue</span></h3>
-                <span id="review-assets-count">loading</span>
-              </div>
-              <div id="review-assets" class="panel-body compact-list">
-                <div class="empty-state"><strong>Loading review queue</strong>Unknown, unmanaged, stale, or missing-tooling assets will appear here.</div>
-              </div>
-            </section>
+            <div class="dashboard-secondary-insights" aria-label="Health and attention insights">
+              <section class="panel dashboard-insight-card">
+                <div class="panel-header">
+                  <h3>Collector Health <span class="panel-kicker">agent and sensor freshness</span></h3>
+                  <span id="collector-health-count">loading</span>
+                </div>
+                <div id="collector-health" class="panel-body list">
+                  <div class="empty-state"><strong>Loading collector health</strong>Endpoint agent and passive sensor status will appear here.</div>
+                </div>
+              </section>
 
-            <section class="panel overview-panel span-4">
-              <div class="panel-header">
-                <h3>Recent Check-ins <span class="panel-kicker">collector activity</span></h3>
-                <span id="checkins-loaded">loading</span>
-              </div>
-              <div id="checkins-panel" class="panel-body compact-list">
-                <div class="empty-state"><strong>Loading check-ins</strong>Agent heartbeat activity will appear here.</div>
-              </div>
-            </section>
+              <section class="panel dashboard-insight-card">
+                <div class="panel-header">
+                  <h3>Site Health <span class="panel-kicker">attention by environment</span></h3>
+                  <span id="site-health-count">loading</span>
+                </div>
+                <div id="site-health" class="panel-body compact-list">
+                  <div class="empty-state"><strong>Loading site health</strong>Site-level asset and collector attention will appear here.</div>
+                </div>
+              </section>
 
-            <section class="panel overview-panel span-3">
-              <div class="panel-header">
-                <h3>Recent Evidence <span class="panel-kicker">proof behind inventory</span></h3>
-                <span id="evidence-loaded">loading</span>
-              </div>
-              <div id="recent-evidence" class="panel-body compact-list">
-                <div class="empty-state"><strong>Loading evidence</strong>Asset evidence summaries will appear here.</div>
-              </div>
-            </section>
+              <section class="panel dashboard-insight-card">
+                <div class="panel-header">
+                  <h3>Findings / Attention <span class="panel-kicker">highest review signals</span></h3>
+                  <span id="findings-loaded">loading</span>
+                  <button class="ghost" type="button" data-safe-action="review-findings">Review findings</button>
+                </div>
+                <div id="top-findings" class="panel-body compact-list">
+                  <div class="empty-state"><strong>Loading findings</strong>Safe demo attention items will appear here.</div>
+                </div>
+              </section>
 
-            <section class="panel overview-panel span-3">
-              <div class="panel-header">
-                <h3>Top Assets Needing Review <span class="panel-kicker">unknown, unmanaged, stale</span></h3>
-                <span id="assets-review-loaded">loading</span>
-              </div>
-              <div id="assets-needing-review" class="panel-body compact-list">
-                <div class="empty-state"><strong>Loading assets</strong>Assets needing review will appear here.</div>
-              </div>
-            </section>
+              <section class="panel dashboard-insight-card">
+                <div class="panel-header">
+                  <h3>Coverage Queue <span class="panel-kicker">unknown, unmanaged, stale</span></h3>
+                  <span id="review-assets-count">loading</span>
+                </div>
+                <div id="review-assets" class="panel-body compact-list">
+                  <div class="empty-state"><strong>Loading review queue</strong>Unknown, unmanaged, stale, or missing-tooling assets will appear here.</div>
+                </div>
+              </section>
+            </div>
 
-            <section class="panel overview-panel span-3">
-              <div class="panel-header">
-                <h3>Recently Discovered Assets <span class="panel-kicker">freshest evidence</span></h3>
-                <span id="recent-assets-loaded">loading</span>
-              </div>
-              <div id="recent-assets" class="panel-body compact-list">
-                <div class="empty-state"><strong>Loading recent assets</strong>Recently seen assets will appear here.</div>
-              </div>
-            </section>
+            <div class="dashboard-operational-row" aria-label="Operational activity summaries">
+              <section class="panel dashboard-operational-card">
+                <div class="panel-header">
+                  <h3>Recent Check-ins <span class="panel-kicker">collector activity</span></h3>
+                  <span id="checkins-loaded">loading</span>
+                </div>
+                <div id="checkins-panel" class="panel-body compact-list">
+                  <div class="empty-state"><strong>Loading check-ins</strong>Agent heartbeat activity will appear here.</div>
+                </div>
+              </section>
 
-            <section class="panel overview-panel span-3">
-              <div class="panel-header">
-                <h3>Stale Collectors / Sensors <span class="panel-kicker">freshness watch</span></h3>
-                <span id="stale-collectors-loaded">loading</span>
-              </div>
-              <div id="stale-collectors-panel" class="panel-body compact-list">
-                <div class="empty-state"><strong>Loading stale collectors</strong>Collectors with delayed synthetic timing will appear here.</div>
-              </div>
-            </section>
+              <section class="panel dashboard-operational-card">
+                <div class="panel-header">
+                  <h3>Recent Evidence <span class="panel-kicker">proof behind inventory</span></h3>
+                  <span id="evidence-loaded">loading</span>
+                </div>
+                <div id="recent-evidence" class="panel-body compact-list">
+                  <div class="empty-state"><strong>Loading evidence</strong>Asset evidence summaries will appear here.</div>
+                </div>
+              </section>
 
-            <section class="panel overview-panel span-12">
-              <div class="panel-header">
-                <h3>Sites Overview <span class="panel-kicker">Site Cards by environment</span></h3>
-                <span id="sites-overview-loaded">loading</span>
-              </div>
-              <div id="sites-overview" class="panel-body site-grid">
-                <div class="empty-state"><strong>Loading site overview</strong>Site-level asset and collector counts will appear here.</div>
-              </div>
-            </section>
+              <section class="panel dashboard-operational-card">
+                <div class="panel-header">
+                  <h3>Top Assets Needing Review <span class="panel-kicker">unknown, unmanaged, stale</span></h3>
+                  <span id="assets-review-loaded">loading</span>
+                </div>
+                <div id="assets-needing-review" class="panel-body compact-list">
+                  <div class="empty-state"><strong>Loading assets</strong>Assets needing review will appear here.</div>
+                </div>
+              </section>
+
+              <section class="panel dashboard-operational-card">
+                <div class="panel-header">
+                  <h3>Recently Discovered Assets <span class="panel-kicker">freshest evidence</span></h3>
+                  <span id="recent-assets-loaded">loading</span>
+                </div>
+                <div id="recent-assets" class="panel-body compact-list">
+                  <div class="empty-state"><strong>Loading recent assets</strong>Recently seen assets will appear here.</div>
+                </div>
+              </section>
+            </div>
           </div>
         </section>
 
@@ -2337,7 +2311,7 @@
   </div>
 
   <script>
-    const DASHBOARD_VERSION = "control-tower-visual-composition-v5";
+    const DASHBOARD_VERSION = "control-tower-command-center-v6";
     const apiBase = window.location.port === "8080" ? "http://127.0.0.1:8000" : "";
     const endpoints = {
       health: "/health",
@@ -2562,7 +2536,7 @@
       let offset = 0;
       const radius = 58;
       const circumference = 2 * Math.PI * radius;
-      chart.className = "chart-summary-grid";
+      chart.className = "donut-card-layout";
       visual.className = "donut-wrap";
       sidecar.className = "chart-sidecar";
       summary.className = "chart-sidecar-summary";
@@ -2606,24 +2580,24 @@
 
     function renderBarChart(items, options = {}) {
       const chart = document.createElement("div");
-      const svg = svgEl("svg", {viewBox: `0 0 640 ${Math.max(190, items.length * 44 + 28)}`, role: "img", "aria-label": options.label || "Bar chart"});
+      const svg = svgEl("svg", {viewBox: `0 0 720 ${Math.max(210, items.length * 48 + 32)}`, role: "img", "aria-label": options.label || "Bar chart"});
       const max = Math.max(1, ...items.map(item => item.value));
-      chart.className = "chart-shell bar-chart-shell";
+      chart.className = "bar-card-layout";
       svg.classList.add("svg-bar-chart");
       items.forEach((item, index) => {
-        const y = 20 + index * 44;
-        const width = Math.max(12, Math.round((item.value / max) * 320));
+        const y = 22 + index * 48;
+        const width = Math.max(14, Math.round((item.value / max) * 380));
         const group = svgEl("g", {});
         const title = svgEl("title");
         group.style.cursor = options.onSelect ? "pointer" : "default";
         if (options.onSelect) group.addEventListener("click", () => options.onSelect(item));
         title.textContent = `${item.label}: ${item.value}`;
         group.appendChild(title);
-        group.appendChild(svgEl("text", {x: 0, y: y + 16, fill: "#15231f", "font-size": 16, "font-weight": 850}));
+        group.appendChild(svgEl("text", {x: 0, y: y + 18, fill: "#15231f", "font-size": 16, "font-weight": 850}));
         group.lastChild.textContent = item.label;
-        group.appendChild(svgEl("rect", {x: 220, y, width: 340, height: 20, rx: 10, fill: "#e5ece9"}));
-        group.appendChild(svgEl("rect", {x: 220, y, width, height: 20, rx: 10, fill: item.color || chartColor(index)}));
-        group.appendChild(svgEl("text", {x: 585, y: y + 16, fill: "#607269", "font-size": 16, "font-weight": 900, "text-anchor": "end"}));
+        group.appendChild(svgEl("rect", {x: 260, y, width: 400, height: 22, rx: 11, fill: "#e5ece9"}));
+        group.appendChild(svgEl("rect", {x: 260, y, width, height: 22, rx: 11, fill: item.color || chartColor(index)}));
+        group.appendChild(svgEl("text", {x: 700, y: y + 18, fill: "#607269", "font-size": 16, "font-weight": 900, "text-anchor": "end"}));
         group.lastChild.textContent = item.value;
         svg.appendChild(group);
       });
@@ -2948,15 +2922,14 @@
     }
 
     function renderAttention(data) {
-      const banner = byId("attention-banner");
+      const summary = byId("attention-signal-summary");
       const attentionTypes = [];
       if (data.unknownAssets.length) attentionTypes.push("unknown device");
       if (data.assets.some(asset => attention(asset).toLowerCase().includes("unmanaged iot"))) attentionTypes.push("unmanaged IoT");
       if (data.staleCollectors.length || data.assets.some(isStaleAsset)) attentionTypes.push("stale collector");
       if (data.assets.some(isMissingTooling)) attentionTypes.push("missing security tooling");
-      banner.hidden = attentionTypes.length === 0;
-      byId("attention-summary").textContent = attentionTypes.length
-        ? `Synthetic demo results include ${attentionTypes.join(", ")} signals. Review read-only findings and asset details before deciding next steps.`
+      summary.textContent = attentionTypes.length
+        ? `${attentionTypes.length} read-only signal${attentionTypes.length === 1 ? "" : "s"}: ${attentionTypes.join(", ")}`
         : "No attention items detected in the currently loaded data.";
     }
 
@@ -3184,7 +3157,7 @@
       const cards = siteBuckets(data);
       renderSiteCards("sites-overview", cards);
       renderSiteCards("site-cards", cards);
-      byId("sites-overview-loaded").textContent = `${cards.length} sites`;
+      if (byId("sites-overview-loaded")) byId("sites-overview-loaded").textContent = `${cards.length} sites`;
       byId("sites-loaded").textContent = `${cards.length} sites`;
       byId("site-card-count").textContent = `${cards.length} sites`;
     }
@@ -3258,14 +3231,17 @@
       });
       byId("recent-assets-loaded").textContent = `${recentAssets.length} assets`;
 
-      renderCompactRows("stale-collectors-panel", data.staleCollectors.slice(0, 4), "No stale collectors", "Collector and sensor freshness looks healthy in the loaded local data.", ({agent, status}) => {
-        return compactRow(agent.agent_id, `${agent.site_id} - ${agent.agent_type} - ${status.minutes === null ? "no recent timing" : `${status.minutes} synthetic minutes behind`}`, "Stale", "warn");
-      });
-      byId("stale-collectors-loaded").textContent = `${data.staleCollectors.length} stale`;
+      if (byId("stale-collectors-panel")) {
+        renderCompactRows("stale-collectors-panel", data.staleCollectors.slice(0, 4), "No stale collectors", "Collector and sensor freshness looks healthy in the loaded local data.", ({agent, status}) => {
+          return compactRow(agent.agent_id, `${agent.site_id} - ${agent.agent_type} - ${status.minutes === null ? "no recent timing" : `${status.minutes} synthetic minutes behind`}`, "Stale", "warn");
+        });
+        byId("stale-collectors-loaded").textContent = `${data.staleCollectors.length} stale`;
+      }
     }
 
     function renderSiteCards(targetId, cards) {
       const target = byId(targetId);
+      if (!target) return;
       clearNode(target);
       if (!cards.length) {
         renderEmpty(target, "No sites yet", "Create a site to anchor future collector enrollment and inventory submissions.");
@@ -3895,7 +3871,7 @@
         renderTableError(byId("endpoint-agents"), 7, "Endpoint agents unavailable until the API responds.");
         renderTableError(byId("passive-sensors"), 7, "Passive sensors unavailable until the API responds.");
         renderTableError(byId("evidence-table"), 6, "Evidence unavailable until the API responds.");
-        renderEmpty(byId("sites-overview"), "Sites unavailable until the API responds.", "Retry after the local backend is healthy.");
+        if (byId("sites-overview")) renderEmpty(byId("sites-overview"), "Sites unavailable until the API responds.", "Retry after the local backend is healthy.");
         renderEmpty(byId("site-cards"), "Sites unavailable until the API responds.", "Retry after the local backend is healthy.");
       } finally {
         state.loading = false;

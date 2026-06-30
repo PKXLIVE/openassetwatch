@@ -53,21 +53,19 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Stale collectors",
             "Findings requiring review",
             "Evidence records",
-            "Operating Systems / Platforms",
+            "OS / Platform",
             "Site Health",
-            "Unknown &amp; Unmanaged Assets",
+            "Findings / Attention",
+            "Coverage Queue",
             "Top Assets Needing Review",
             "Recently Discovered Assets",
-            "Stale Collectors / Sensors",
             "Site Cards",
             "Getting Started",
             "Create Site",
-            "Asset Mix By Type",
+            "Asset Mix",
             "Collector Health",
             "Recent Check-ins",
             "Recent Evidence",
-            "Top Findings / Attention Items",
-            "Sites Overview",
             "Catalog",
             "Detailed Inventory",
             "Asset Inventory",
@@ -90,8 +88,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
                 self.assertIn(section, self.dashboard)
 
     def test_dashboard_version_marks_visual_composition_pass(self) -> None:
-        self.assertIn('const DASHBOARD_VERSION = "control-tower-visual-composition-v5";', self.dashboard)
-        self.assertIn("control-tower-visual-composition-v5", self.dashboard)
+        self.assertIn('const DASHBOARD_VERSION = "control-tower-command-center-v6";', self.dashboard)
+        self.assertIn("control-tower-command-center-v6", self.dashboard)
 
     def test_dashboard_overview_command_center_sections_are_present(self) -> None:
         expected_markup = (
@@ -103,6 +101,7 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'id="environment-summary"',
             'id="overview-last-refreshed"',
             'id="overview-data-posture"',
+            'id="attention-signal-summary"',
             'id="findings-review-count"',
             'id="site-count"',
             'id="device-type-mix"',
@@ -117,24 +116,42 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'id="assets-review-loaded"',
             'id="recent-assets"',
             'id="recent-assets-loaded"',
-            'id="stale-collectors-panel"',
-            'id="stale-collectors-loaded"',
+            'class="dashboard-command-grid"',
+            'class="dashboard-kpi-strip"',
+            'class="dashboard-primary-visuals"',
+            'class="dashboard-secondary-insights"',
+            'class="dashboard-operational-row"',
+            'class="panel dashboard-chart-card"',
+            'class="panel dashboard-insight-card"',
+            'class="panel dashboard-operational-card"',
             'class="topbar-controls"',
             'id="global-dashboard-search"',
             'class="select-like"',
-            'class="dashboard-grid"',
-            'span-12',
         )
         for markup in expected_markup:
             with self.subTest(markup=markup):
                 self.assertIn(markup, self.dashboard)
+        for removed in (
+            'class="dashboard-grid"',
+            'class="metrics-grid"',
+            'class="metric"',
+            "span-12",
+            "attention-banner",
+            "overview-panel",
+            "overview-chart-panel",
+            "Sites Overview",
+            "Stale Collectors / Sensors",
+        ):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, self.dashboard)
 
     def test_dashboard_and_assets_use_full_canvas_layout(self) -> None:
         self.assertIn("max-width: none;", self.dashboard)
         self.assertIn(".dashboard-canvas,\n    .asset-canvas", self.dashboard)
-        self.assertIn(".dashboard-grid {", self.dashboard)
-        self.assertIn("grid-template-columns: repeat(12, minmax(0, 1fr));", self.dashboard)
-        self.assertIn("grid-template-columns: repeat(8, minmax(8.5rem, 1fr));", self.dashboard)
+        self.assertIn(".dashboard-command-grid {", self.dashboard)
+        self.assertIn(".dashboard-kpi-strip {", self.dashboard)
+        self.assertIn(".dashboard-primary-visuals {", self.dashboard)
+        self.assertIn("grid-template-columns: repeat(8, minmax(8rem, 1fr));", self.dashboard)
         self.assertNotIn("max-width: 1560px", self.dashboard)
         self.assertNotRegex(self.dashboard, r"\.page\s*\{[^}]*margin:\s*0 auto")
         full_canvas_rule = re.search(r"\.dashboard-canvas,\s*\.asset-canvas\s*\{(?P<body>[^}]+)\}", self.dashboard)
@@ -150,15 +167,18 @@ class ControlTowerDashboardTests(unittest.TestCase):
                 self.assertIn(declaration, full_canvas_body)
 
     def test_chart_panels_use_filled_internal_visual_layouts(self) -> None:
-        self.assertIn("grid-template-columns: minmax(13.5rem, 1.05fr) minmax(11.5rem, 0.95fr);", self.dashboard)
+        self.assertIn("grid-template-columns: minmax(15rem, 0.96fr) minmax(13rem, 0.86fr);", self.dashboard)
         self.assertIn("justify-content: stretch;", self.dashboard)
         self.assertIn("max-width: none;", self.dashboard)
         self.assertIn("className = \"chart-sidecar\"", self.dashboard)
         self.assertIn("className = \"chart-sidecar-summary\"", self.dashboard)
-        self.assertIn('chart.className = "chart-shell bar-chart-shell"', self.dashboard)
-        self.assertIn("viewBox: `0 0 640", self.dashboard)
+        self.assertIn('chart.className = "donut-card-layout"', self.dashboard)
+        self.assertIn('chart.className = "bar-card-layout"', self.dashboard)
+        self.assertIn("viewBox: `0 0 720", self.dashboard)
         self.assertIn('"font-size": 16', self.dashboard)
         self.assertNotIn("max-width: min(28rem, 100%)", self.dashboard)
+        self.assertNotIn("chart-summary-grid", self.dashboard)
+        self.assertNotIn("chart-shell", self.dashboard)
         self.assertNotIn("grid-template-columns: 1fr;\n      gap: clamp(1rem, 1vw, 1.35rem);\n      align-items: center;", self.dashboard)
 
     def test_setup_and_release_content_live_in_settings_not_dashboard(self) -> None:
@@ -178,7 +198,7 @@ class ControlTowerDashboardTests(unittest.TestCase):
 
     def test_dashboard_command_center_inventory_is_present(self) -> None:
         dashboard_section = self.dashboard.split('<section id="dashboard"', 1)[1].split('<section id="assets"', 1)[0]
-        self.assertEqual(dashboard_section.count('class="metric"'), 8)
+        self.assertEqual(dashboard_section.count('class="dashboard-kpi-card"'), 8)
         expected_dashboard_targets = (
             'id="asset-mix"',
             'id="device-type-mix"',
@@ -186,7 +206,7 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'id="collector-health"',
             'id="site-health"',
             'id="top-findings"',
-            'id="attention-banner" class="attention-banner span-12"',
+            'id="attention-signal-summary"',
             'id="review-assets"',
             'id="checkins-panel"',
             'id="recent-evidence"',
@@ -236,6 +256,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "function renderBarChart",
             "function renderLegend",
             "function renderAttentionSummaryVisual",
+            'className = "donut-card-layout"',
+            'className = "bar-card-layout"',
             "function assetCatalogIcon",
             "function addIconShape",
             "function platformGroup",
