@@ -298,6 +298,10 @@ The AI Advisor may help users:
 
 AI should be advisory only. It should not automatically make network, firewall, cloud, identity, PAM, or endpoint changes.
 
+See [docs/architecture/ai-advisor.md](docs/architecture/ai-advisor.md) for
+the AI Advisor architecture index, including the canonical architecture plan
+and visual artifact.
+
 Future deployment options may include:
 
 * Local/self-hosted AI using Qwen, Ollama, llama.cpp, or similar tools
