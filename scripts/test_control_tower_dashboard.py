@@ -45,20 +45,29 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Policies",
             "Reports",
             "Settings",
+            "Environment Overview",
             "Total assets",
             "Unknown assets",
             "Unmanaged assets",
             "Active collectors",
             "Stale collectors",
+            "Findings requiring review",
             "Evidence records",
+            "OS / Platform",
+            "Site Health",
+            "Findings / Attention",
+            "Coverage Queue",
+            "Top Assets Needing Review",
+            "Recently Discovered Assets",
+            "Site Cards",
             "Getting Started",
             "Create Site",
-            "Asset Mix By Type",
+            "Asset Mix",
             "Collector Health",
             "Recent Check-ins",
             "Recent Evidence",
-            "Top Findings / Attention Items",
-            "Sites Overview",
+            "Catalog",
+            "Detailed Inventory",
             "Asset Inventory",
             "Asset Detail",
             "Endpoint Agents",
@@ -78,15 +87,224 @@ class ControlTowerDashboardTests(unittest.TestCase):
             with self.subTest(section=section):
                 self.assertIn(section, self.dashboard)
 
+    def test_dashboard_version_marks_visual_composition_pass(self) -> None:
+        self.assertIn('const DASHBOARD_VERSION = "control-tower-command-center-v6";', self.dashboard)
+        self.assertIn("control-tower-command-center-v6", self.dashboard)
+
+    def test_dashboard_overview_command_center_sections_are_present(self) -> None:
+        expected_markup = (
+            'class="view-section dashboard-canvas"',
+            'class="view-section asset-canvas"',
+            'id="dashboard" class="view-section dashboard-canvas" data-canvas-contract="full"',
+            'id="assets" class="view-section asset-canvas" data-canvas-contract="full"',
+            'aria-label="Environment summary"',
+            'id="environment-summary"',
+            'id="overview-last-refreshed"',
+            'id="overview-data-posture"',
+            'id="attention-signal-summary"',
+            'id="findings-review-count"',
+            'id="site-count"',
+            'id="device-type-mix"',
+            'id="device-type-mix-count"',
+            'id="platform-mix"',
+            'id="platform-mix-count"',
+            'id="site-health"',
+            'id="site-health-count"',
+            'id="review-assets"',
+            'id="review-assets-count"',
+            'id="assets-needing-review"',
+            'id="assets-review-loaded"',
+            'id="recent-assets"',
+            'id="recent-assets-loaded"',
+            'class="dashboard-command-grid"',
+            'class="dashboard-kpi-strip"',
+            'class="dashboard-primary-visuals"',
+            'class="dashboard-secondary-insights"',
+            'class="dashboard-operational-row"',
+            'class="panel dashboard-chart-card"',
+            'class="panel dashboard-insight-card"',
+            'class="panel dashboard-operational-card"',
+            'class="topbar-controls"',
+            'id="global-dashboard-search"',
+            'class="select-like"',
+        )
+        for markup in expected_markup:
+            with self.subTest(markup=markup):
+                self.assertIn(markup, self.dashboard)
+        for removed in (
+            'class="dashboard-grid"',
+            'class="metrics-grid"',
+            'class="metric"',
+            "span-12",
+            "attention-banner",
+            "overview-panel",
+            "overview-chart-panel",
+            "Sites Overview",
+            "Stale Collectors / Sensors",
+        ):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, self.dashboard)
+
+    def test_dashboard_and_assets_use_full_canvas_layout(self) -> None:
+        self.assertIn("max-width: none;", self.dashboard)
+        self.assertIn(".dashboard-canvas,\n    .asset-canvas", self.dashboard)
+        self.assertIn(".dashboard-command-grid {", self.dashboard)
+        self.assertIn(".dashboard-kpi-strip {", self.dashboard)
+        self.assertIn(".dashboard-primary-visuals {", self.dashboard)
+        self.assertIn("grid-template-columns: repeat(8, minmax(8rem, 1fr));", self.dashboard)
+        self.assertNotIn("max-width: 1560px", self.dashboard)
+        self.assertNotRegex(self.dashboard, r"\.page\s*\{[^}]*margin:\s*0 auto")
+        full_canvas_rule = re.search(r"\.dashboard-canvas,\s*\.asset-canvas\s*\{(?P<body>[^}]+)\}", self.dashboard)
+        self.assertIsNotNone(full_canvas_rule)
+        full_canvas_body = full_canvas_rule.group("body") if full_canvas_rule else ""
+        for declaration in (
+            "width: 100%;",
+            "min-width: 0;",
+            "max-width: none;",
+            "justify-self: stretch;",
+        ):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, full_canvas_body)
+
+    def test_chart_panels_use_filled_internal_visual_layouts(self) -> None:
+        self.assertIn("grid-template-columns: minmax(15rem, 0.96fr) minmax(13rem, 0.86fr);", self.dashboard)
+        self.assertIn("justify-content: stretch;", self.dashboard)
+        self.assertIn("max-width: none;", self.dashboard)
+        self.assertIn("className = \"chart-sidecar\"", self.dashboard)
+        self.assertIn("className = \"chart-sidecar-summary\"", self.dashboard)
+        self.assertIn('chart.className = "donut-card-layout"', self.dashboard)
+        self.assertIn('chart.className = "bar-card-layout"', self.dashboard)
+        self.assertIn("viewBox: `0 0 720", self.dashboard)
+        self.assertIn('"font-size": 16', self.dashboard)
+        self.assertNotIn("max-width: min(28rem, 100%)", self.dashboard)
+        self.assertNotIn("chart-summary-grid", self.dashboard)
+        self.assertNotIn("chart-shell", self.dashboard)
+        self.assertNotIn("grid-template-columns: 1fr;\n      gap: clamp(1rem, 1vw, 1.35rem);\n      align-items: center;", self.dashboard)
+
+    def test_setup_and_release_content_live_in_settings_not_dashboard(self) -> None:
+        dashboard_section = self.dashboard.split('<section id="dashboard"', 1)[1].split('<section id="assets"', 1)[0]
+        settings_section = self.dashboard.split('<section id="settings"', 1)[1].split("</main>", 1)[0]
+        self.assertNotIn("Getting Started", dashboard_section)
+        self.assertNotIn("Release Status", dashboard_section)
+        self.assertNotIn('id="demo-seed-cta"', dashboard_section)
+        self.assertIn("Getting Started", settings_section)
+        self.assertIn("Release Status", settings_section)
+        self.assertIn('id="demo-seed-cta"', settings_section)
+        self.assertIn("Demo Seed Command", settings_section)
+        self.assertIn("Backend Health", settings_section)
+        self.assertIn("API URL", settings_section)
+        self.assertIn("Release Metadata", settings_section)
+        self.assertIn("Copy command", settings_section)
+
+    def test_dashboard_command_center_inventory_is_present(self) -> None:
+        dashboard_section = self.dashboard.split('<section id="dashboard"', 1)[1].split('<section id="assets"', 1)[0]
+        self.assertEqual(dashboard_section.count('class="dashboard-kpi-card"'), 8)
+        expected_dashboard_targets = (
+            'id="asset-mix"',
+            'id="device-type-mix"',
+            'id="platform-mix"',
+            'id="collector-health"',
+            'id="site-health"',
+            'id="top-findings"',
+            'id="attention-signal-summary"',
+            'id="review-assets"',
+            'id="checkins-panel"',
+            'id="recent-evidence"',
+        )
+        for target in expected_dashboard_targets:
+            with self.subTest(target=target):
+                self.assertIn(target, dashboard_section)
+
+    def test_asset_catalog_grouped_inventory_sections_are_present(self) -> None:
+        expected_groups = (
+            '{id: "device-type", title: "Device Type / Category"',
+            '{id: "site", title: "Site"',
+            '{id: "platform", title: "Platform / OS"',
+            '{id: "source", title: "Evidence Source / Data Source"',
+            '{id: "attention", title: "Attention State"',
+        )
+        for group in expected_groups:
+            with self.subTest(group=group):
+                self.assertIn(group, self.dashboard)
+
+    def test_asset_catalog_summary_stats_are_present(self) -> None:
+        expected_stats = (
+            'class="asset-summary-stats"',
+            'id="asset-summary-total"',
+            'id="asset-summary-unknown"',
+            'id="asset-summary-unmanaged"',
+            'id="asset-summary-missing-tooling"',
+            'id="asset-summary-stale"',
+            'byId("asset-summary-total").textContent = data.assets.length',
+            'byId("asset-summary-unknown").textContent = data.unknownAssets.length',
+            'byId("asset-summary-unmanaged").textContent = data.unmanagedAssets.length',
+            'byId("asset-summary-missing-tooling").textContent = data.assets.filter(isMissingTooling).length',
+            'byId("asset-summary-stale").textContent = data.assets.filter(isStaleAsset).length',
+        )
+        for stat in expected_stats:
+            with self.subTest(stat=stat):
+                self.assertIn(stat, self.dashboard)
+
+    def test_dashboard_overview_visual_helpers_are_client_side(self) -> None:
+        expected_code = (
+            "function renderEnvironmentSummary",
+            "function renderDeviceTypeMix",
+            "function renderPlatformMix",
+            "function renderSiteHealth",
+            "function renderOverviewPreviews",
+            "function renderDonutChart",
+            "function renderBarChart",
+            "function renderLegend",
+            "function renderAttentionSummaryVisual",
+            'className = "donut-card-layout"',
+            'className = "bar-card-layout"',
+            "function assetCatalogIcon",
+            "function addIconShape",
+            "function platformGroup",
+            "function siteBuckets",
+            "function compactRow",
+            "function assetCatalogSections",
+            "function drilldownAssetGroup",
+            "document.createElementNS(SVG_NS",
+            "classList.add(\"svg-chart\")",
+            "classList.add(\"svg-bar-chart\")",
+            "className = \"donut\"",
+            "className = \"attention-summary-visual\"",
+            "className = \"attention-summary-row\"",
+            "local synthetic demo data",
+            "not measured production performance",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+
     def test_dashboard_contains_asset_filters_and_attention_copy(self) -> None:
         expected_copy = (
             'id="asset-search"',
             'data-filter="unknown"',
             'data-filter="iot"',
+            'data-filter="mobile"',
             'data-filter="infrastructure"',
             'data-filter="workstation"',
             'data-filter="stale"',
             'data-filter="missing-tooling"',
+            'data-asset-mode="catalog"',
+            'data-asset-mode="inventory"',
+            'id="asset-catalog"',
+            'id="asset-inventory-wrap"',
+            'id="asset-drilldown-status"',
+            'id="asset-breadcrumb"',
+            'id="back-to-catalog"',
+            "dataset.catalogSection",
+            'catalog-section-grid',
+            "Device Type / Category",
+            "Evidence Source / Data Source",
+            "Attention State",
+            'className = "catalog-icon-tile"',
+            'className = "catalog-card-copy"',
+            'className = "catalog-action"',
+            'action.textContent = "View Assets"',
+            "white-space: nowrap",
             'data-safe-action="review-findings"',
             'data-safe-action="create-site"',
             'data-safe-action="enroll-collector"',
@@ -100,6 +318,41 @@ class ControlTowerDashboardTests(unittest.TestCase):
         for copy in expected_copy:
             with self.subTest(copy=copy):
                 self.assertIn(copy, self.dashboard)
+
+    def test_asset_catalog_modes_and_drilldowns_are_client_side(self) -> None:
+        expected_code = (
+            'assetMode: "catalog"',
+            'assetDrilldown: null',
+            "function assetCategoryDefinitions",
+            "function deviceTypeDefinitions",
+            "function assetCatalogSections",
+            "function activeAssetScopeLabel",
+            "function filteredAssets",
+            "function renderAssetCatalog",
+            "function setAssetMode",
+            "function setAssetFilter",
+            "function drilldownAssets",
+            "function drilldownAssetGroup",
+            "function resetAssetCatalog",
+            "function drilldownToAsset",
+            "function setupGlobalControls",
+            ".asset-layout.catalog-mode",
+            ".asset-layout.catalog-mode .detail-panel",
+            'state.assetMode = "inventory"',
+            'state.assetDrilldown = group.scope || null',
+            'assetLayout.classList.toggle("catalog-mode", state.assetMode === "catalog")',
+            'assetLayout.classList.toggle("inventory-mode", state.assetMode === "inventory")',
+            'button.addEventListener("click", () => setAssetMode(button.dataset.assetMode))',
+            'button.addEventListener("click", () => setAssetFilter(button.dataset.filter))',
+            'byId("back-to-catalog").addEventListener("click", resetAssetCatalog)',
+            'navigateTo("assets")',
+            'state.assetFilter = filter || "all"',
+            'state.assetMode = mode === "inventory" ? "inventory" : "catalog"',
+            'state.assetSearch = search || ""',
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
 
     def test_dashboard_documents_safe_read_only_policy_states(self) -> None:
         expected_copy = (
@@ -148,7 +401,6 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "function navigateTo",
             "window.addEventListener(\"hashchange\"",
             "section.hidden = section.id !== activeId",
-            "data-dashboard-extra",
             "byId(\"refresh\").addEventListener(\"click\", refresh)",
             "setupSafeActions()",
             "copyDemoSeedCommand",
