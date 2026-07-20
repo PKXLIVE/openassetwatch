@@ -5,6 +5,7 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import Body, Header, HTTPException, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,18 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
+
+from .ai_advisor import (
+    AdvisorQueryRequest,
+    AdvisorResponse,
+    ProviderOutputError,
+    ProviderStatusResponse,
+    ProviderUnavailableError,
+    ReadOnlyHubTools,
+    provider_status,
+    run_advisor,
+    select_tools,
+)
 
 from .database import (
     control_tower_summary,
@@ -30,10 +43,18 @@ from .database import (
     list_sites,
     normalize_inventory_submission,
     record_agent_checkin,
+    record_ai_advisor_run,
     record_local_inventory_collection,
+    record_observation_batch,
     save_inventory_submission,
     upsert_collector_policy,
     upsert_collector_metadata,
+)
+from .hub_contracts import (
+    ObservationBatchRequest,
+    ObservationBatchResponse,
+    SensorSummaryResponse,
+    SiteIntelligenceSummaryResponse,
 )
 
 app = FastAPI(
@@ -61,7 +82,7 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-OpenAssetWatch-Collector-Token"],
+    allow_headers=["Content-Type", "X-OpenAssetWatch-Collector-Token", "X-OpenAssetWatch-Admin-Token"],
 )
 
 if UI_STATIC_DIR.exists():
@@ -70,6 +91,8 @@ if UI_STATIC_DIR.exists():
 
 COLLECTOR_TOKEN_ENV = "OPENASSETWATCH_COLLECTOR_TOKEN"
 COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
+ADMIN_TOKEN_ENV = "OPENASSETWATCH_ADMIN_TOKEN"
+ADMIN_TOKEN_HEADER = "X-OpenAssetWatch-Admin-Token"
 
 
 def require_collector_token(provided_token: str | None) -> None:
@@ -81,6 +104,17 @@ def require_collector_token(provided_token: str | None) -> None:
     if provided_token and secrets.compare_digest(provided_token, expected_token):
         return
     raise HTTPException(status_code=401, detail="valid collector token required")
+
+
+def require_admin_token(provided_token: str | None) -> None:
+    expected_token = os.getenv(ADMIN_TOKEN_ENV)
+    if not expected_token:
+        return
+    if not isinstance(provided_token, str):
+        provided_token = None
+    if provided_token and secrets.compare_digest(provided_token, expected_token):
+        return
+    raise HTTPException(status_code=401, detail="valid admin token required")
 
 
 class CollectorCheckInRequest(BaseModel):
@@ -358,6 +392,123 @@ def api_control_tower_assets():
         return {"assets": list_control_tower_assets()}
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to load control tower assets") from exc
+
+
+def build_read_only_hub_tools() -> ReadOnlyHubTools:
+    return ReadOnlyHubTools(
+        sites=list_sites(),
+        sensors=list_agent_enrollments(),
+        assets=list_control_tower_assets(),
+    )
+
+
+@app.get("/api/v1/hub/sites/summary", response_model=SiteIntelligenceSummaryResponse)
+def api_hub_site_summaries(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        tools = build_read_only_hub_tools()
+        return {
+            "sites": tools.run("site_summary")["items"],
+            "data_as_of": tools.data_as_of(),
+        }
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load site intelligence summary") from exc
+
+
+@app.get("/api/v1/hub/sensors", response_model=SensorSummaryResponse)
+def api_hub_sensors(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        tools = build_read_only_hub_tools()
+        return {"sensors": tools.run("sensor_health")["items"], "data_as_of": tools.data_as_of()}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sensor intelligence summary") from exc
+
+
+@app.get("/api/v1/ai/status", response_model=ProviderStatusResponse)
+def api_ai_provider_status(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    return provider_status()
+
+
+def _record_advisor_audit(
+    *,
+    run_id: str,
+    request: AdvisorQueryRequest,
+    provider: str,
+    mode: str,
+    tool_names: list[str],
+    evidence_count: int,
+    status: str,
+) -> None:
+    record_ai_advisor_run(
+        run_id=run_id,
+        question_sha256=hashlib.sha256(request.question.encode("utf-8")).hexdigest(),
+        site_id=request.site_id,
+        provider=provider,
+        mode=mode,
+        tool_names=tool_names,
+        evidence_count=evidence_count,
+        status=status,
+    )
+
+
+@app.post("/api/v1/ai/advisor/query", response_model=AdvisorResponse)
+def api_ai_advisor_query(
+    payload: AdvisorQueryRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    status = provider_status()
+    try:
+        tools = build_read_only_hub_tools()
+        response = run_advisor(request=payload, tools=tools)
+        _record_advisor_audit(
+            run_id=response.run_id,
+            request=payload,
+            provider=response.provider,
+            mode=response.mode,
+            tool_names=response.tools_used,
+            evidence_count=len(response.evidence),
+            status="completed",
+        )
+        return response
+    except ProviderUnavailableError as exc:
+        try:
+            _record_advisor_audit(
+                run_id=str(uuid4()),
+                request=payload,
+                provider=status.provider,
+                mode=status.mode,
+                tool_names=select_tools(payload.question),
+                evidence_count=0,
+                status="provider-unavailable",
+            )
+        except SQLAlchemyError:
+            pass
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ProviderOutputError as exc:
+        try:
+            _record_advisor_audit(
+                run_id=str(uuid4()),
+                request=payload,
+                provider=status.provider,
+                mode=status.mode,
+                tool_names=select_tools(payload.question),
+                evidence_count=0,
+                status="invalid-provider-output",
+            )
+        except SQLAlchemyError:
+            pass
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load or audit AI Advisor evidence") from exc
 
 
 @app.get("/api/v1/releases/agent", response_model=ReleaseStatusResponse)
@@ -854,6 +1005,36 @@ def local_inventory_collection(raw_payload: Any = Body(...)):
         observed_asset_count=observed_asset_count,
         normalized_asset_count=collection_result["normalized_asset_count"],
         message="local inventory collection accepted as passive observations",
+    )
+
+
+@app.post("/api/v1/observations/batches", response_model=ObservationBatchResponse)
+def observation_batch(
+    payload: ObservationBatchRequest,
+    collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
+):
+    require_collector_token(collector_token)
+    received_at = datetime.now(timezone.utc)
+    stored_payload = payload.model_dump(mode="json")
+    try:
+        result = record_observation_batch(payload=stored_payload, received_at=received_at)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to persist observation batch") from exc
+    duplicate = bool(result.get("duplicate"))
+    return ObservationBatchResponse(
+        status="duplicate" if duplicate else "accepted",
+        observation_batch_id=payload.observation_batch_id,
+        storage_id=int(result["collection_id"]),
+        site_id=payload.site_id,
+        sensor_id=payload.sensor_id,
+        received_at=received_at,
+        observed_asset_count=len(payload.assets),
+        normalized_asset_count=int(result["normalized_asset_count"]),
+        message=(
+            "observation batch was already stored; no duplicate asset evidence was added"
+            if duplicate
+            else "normalized outbound observation batch accepted"
+        ),
     )
 
 
