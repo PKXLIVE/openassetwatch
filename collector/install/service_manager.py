@@ -12,6 +12,7 @@ WINDOWS_TASK_NAME = "OpenAssetWatch Collector"
 WINDOWS_LOG_DIR = r"C:\ProgramData\OpenAssetWatch\Collector\logs"
 LINUX_SERVICE_NAME = "openassetwatch-collector"
 LINUX_LOG_DIR = "/var/log/openassetwatch"
+LINUX_INSTALLER_LOG = "/var/log/openassetwatch-installer/collector-install.log"
 MACOS_LABEL = "com.openassetwatch.collector"
 MACOS_PLIST = "/Library/LaunchDaemons/com.openassetwatch.collector.plist"
 MACOS_LOG_DIR = "/Library/Logs/OpenAssetWatch"
@@ -129,7 +130,10 @@ def build_linux_plan(action: str) -> ServicePlan:
         ),
         "logs": (
             ManagedCommand(("journalctl", "-u", LINUX_SERVICE_NAME, "-n", "100", "--no-pager")),
-            (f"Collector log directory: {LINUX_LOG_DIR}",),
+            (
+                f"Collector log directory: {LINUX_LOG_DIR}",
+                f"Root-only installer log: {LINUX_INSTALLER_LOG}",
+            ),
         ),
         "uninstall-info": (
             (),

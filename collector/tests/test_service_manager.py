@@ -48,6 +48,19 @@ class ServiceManagerPlanTests(unittest.TestCase):
             ("systemctl", "restart", "openassetwatch-collector"),
         )
 
+    def test_linux_logs_separate_runtime_and_root_installer_logs(self) -> None:
+        manager = load_service_manager_module()
+
+        plan = manager.build_service_plan("logs", "linux")
+
+        self.assertTrue(any("/var/log/openassetwatch" in note for note in plan.notes))
+        self.assertTrue(
+            any(
+                "/var/log/openassetwatch-installer/collector-install.log" in note
+                for note in plan.notes
+            )
+        )
+
     def test_macos_start_uses_launchctl_bootstrap(self) -> None:
         manager = load_service_manager_module()
 
