@@ -11,6 +11,26 @@ patterns are reference inputs only. OpenAssetWatch keeps defensive concepts
 that fit its own product direction and rejects unsafe or offensive platform
 behavior.
 
+The first implemented hub-and-spoke AI showcase, its normalized observation
+batch contract, provider boundary, and current limitations are documented in
+`docs/architecture/hub-spoke-ai-showcase.md`.
+
+## Hub-And-Spoke Control Plane
+
+The Control Tower hub owns the API, PostgreSQL evidence store, site and sensor
+identity, health/freshness, risk and findings projection, AI Advisor, controlled
+tool gateway, authentication boundary, audit metadata, and cross-site views.
+
+Endpoint collectors, passive network sensors, and future SNMP, cloud,
+vulnerability, identity, and SIEM connectors are spokes. A spoke belongs to a
+site, keeps a stable identity, and sends authenticated outbound observations.
+Spokes should cache bounded observations during outages and retry idempotently;
+they should expose no inbound management port by default.
+
+The AI primarily runs at the hub over normalized evidence. It receives no
+arbitrary shell, SQL, filesystem, operating-system, packet-capture, or spoke
+management access.
+
 ## Hybrid Runtime
 
 OpenAssetWatch is intentionally hybrid:

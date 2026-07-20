@@ -1,8 +1,8 @@
 # Ingestion API
 
-This document records the first OpenAssetWatch backend ingestion endpoint for
-Go local inventory collection JSON, plus the identity model needed for future
-tenant, deployment, and CMDB reconciliation.
+This document records the transitional Go local inventory endpoint, the first
+normalized outbound observation-batch contract for future spokes, and the
+identity model needed for future tenant, deployment, and CMDB reconciliation.
 
 This pass implements backend import only. The Go agent does not call the
 server yet, and this endpoint does not implement cloud sync, licensing
@@ -218,6 +218,32 @@ This is still MVP normalization. Tenant authorization, enrollment-token
 issuance, full asset reconciliation, richer audit records, findings, and CMDB
 matching remain future backend workstreams.
 
+## Normalized Spoke Observation Batch
+
+`POST /api/v1/observations/batches` is the versioned hub-side contract for a
+future passive sensor or other outbound spoke. It requires stable site, sensor,
+and client batch identity; sensor name/type/version; observation time/source;
+delivery state; confidence; and up to 500 strict normalized asset records.
+
+When `OPENASSETWATCH_COLLECTOR_TOKEN` is configured, the request must include
+`X-OpenAssetWatch-Collector-Token`. The batch identifier is idempotent within a
+site and sensor, so a cached retry does not add the same evidence twice.
+
+The contract accepts `live` and `cached-retry` delivery states. A future spoke
+can therefore retain an observation during a hub outage and submit it later
+without changing `observed_at`. The first hub implementation updates sensor
+last-seen health at receive time while retaining the evidence observation time
+for freshness analysis.
+
+The strict asset shape includes observation identity, hostname, IP/MAC,
+OS/platform, and category. Risk, management posture, and findings remain
+hub-owned decisions and are rejected when supplied by a spoke. The transitional
+local-inventory normalizer also strips reserved hub metadata fields before
+storage. The strict shape has no raw packet, PCAP, command, credential, script,
+or arbitrary attribute field. Unknown fields are rejected. See
+`docs/architecture/hub-spoke-ai-showcase.md` for the full example and trust
+boundary.
+
 ## Passive Observation Safety Model
 
 Backend ingestion does not perform active collection. It does not run network
@@ -379,6 +405,6 @@ OpenAssetWatch's own `asset_id` normalization and matching process.
 - no cloud sync
 - no licensing enforcement
 - no CMDB connector
-- no durable observation storage or asset matching migration
+- no full passive network sensor, packet collection, or spoke-side offline queue
 - no secrets in docs or config examples
 - no change to quarantine policy
