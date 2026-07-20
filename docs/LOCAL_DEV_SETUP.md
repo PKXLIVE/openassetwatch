@@ -76,8 +76,12 @@ Activate it:
 Install backend dependencies:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+.\.venv\Scripts\python.exe -m pip install --require-hashes -r backend\requirements.txt
 ```
+
+Edit direct backend constraints in `backend/requirements.in`, not the generated
+lock. The regeneration command and pinned `pip-tools` version are documented in
+`backend/README.md`.
 
 The collector currently has `collector/pyproject.toml` and no additional
 runtime dependency file.

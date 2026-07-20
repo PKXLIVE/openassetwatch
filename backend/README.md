@@ -62,7 +62,35 @@ docker compose down -v --remove-orphans
 
 The backend image installs Python dependencies at build time through
 `backend/Dockerfile`; the source tree remains bind-mounted into `/app` for
-local development reloads.
+local development reloads. The image uses pip hash-checking mode against the
+fully resolved `backend/requirements.txt` lock.
+
+## Dependency Inputs And Lock
+
+`backend/requirements.in` is the readable direct-dependency manifest and the
+file maintainers should edit. `backend/requirements.txt` is generated with
+Python 3.12 on Linux by `pip-tools==7.5.3`; it pins the complete runtime graph
+and includes package hashes. Dependabot's `/backend` pip configuration uses the
+standard pip-compile input/lock pair and increases the source constraint when
+an accepted release requires it.
+
+From the repository root, regenerate the lock in the same Python environment
+as the backend image:
+
+```powershell
+$CompileCommand = "python -m piptools compile --upgrade --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in"
+docker run --rm --volume "${PWD}:/workspace" --workdir /workspace `
+  --env "CUSTOM_COMPILE_COMMAND=$CompileCommand" python:3.12-slim `
+  sh -c 'python -m pip install --disable-pip-version-check --no-cache-dir pip-tools==7.5.3 && python -m piptools compile --upgrade --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in'
+```
+
+Review both files together. Then verify the locked set before committing:
+
+```powershell
+python -m pip install --require-hashes -r backend/requirements.txt
+python -m pip check
+python -m pip_audit --require-hashes --disable-pip -r backend/requirements.txt
+```
 
 ## Database
 
