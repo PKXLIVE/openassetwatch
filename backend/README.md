@@ -84,12 +84,15 @@ docker run --rm --volume "${PWD}:/workspace" --workdir /workspace `
   sh -c 'python -m pip install --disable-pip-version-check --no-cache-dir pip-tools==7.5.3 && python -m piptools compile --upgrade --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in'
 ```
 
-Review both files together. Then verify the locked set before committing:
+Review both files together. The lock targets Linux, so verify it in the same
+container environment rather than installing it into a Windows virtual
+environment:
 
 ```powershell
-python -m pip install --require-hashes -r backend/requirements.txt
-python -m pip check
-python -m pip_audit --require-hashes --disable-pip -r backend/requirements.txt
+docker build --tag openassetwatch-backend-lock-check backend
+docker run --rm openassetwatch-backend-lock-check python -m pip check
+docker run --rm --entrypoint sh openassetwatch-backend-lock-check `
+  -c 'python -m pip install --disable-pip-version-check --no-cache-dir pip-audit==2.10.1 && python -m pip_audit --require-hashes --disable-pip -r /tmp/openassetwatch-requirements.txt'
 ```
 
 ## Database
