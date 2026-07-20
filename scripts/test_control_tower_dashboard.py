@@ -27,6 +27,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "/api/v1/control-tower/check-ins",
             "/api/v1/control-tower/assets",
             "/api/v1/releases/agent",
+            "/api/v1/ai/status",
+            "/api/v1/ai/advisor/query",
         )
         self.assertIn('http://127.0.0.1:8000', self.dashboard)
         for endpoint in expected_endpoints:
@@ -42,6 +44,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Sites",
             "Evidence",
             "Findings",
+            "AI Advisor",
+            "Ask OpenAssetWatch",
             "Policies",
             "Reports",
             "Settings",
@@ -73,6 +77,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Collector Guidance",
             "Collector Detail",
             "Local Inventory Guidance",
+            "Structured answer",
+            "Provider and data state",
         )
         for section in required_sections:
             with self.subTest(section=section):
@@ -110,6 +116,50 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Remote commands unavailable",
             "Release metadata only",
             "docker compose --profile demo run --rm demo-seed",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
+    def test_ai_advisor_showcase_has_scoped_questions_and_structured_output(self) -> None:
+        expected_copy = (
+            'id="ai-advisor"',
+            'id="advisor-form"',
+            'id="advisor-question"',
+            'maxlength="500"',
+            'id="advisor-site"',
+            'id="advisor-provider-pill"',
+            'id="advisor-data-state"',
+            'id="advisor-confidence"',
+            'id="advisor-evidence"',
+            'id="advisor-actions"',
+            'id="advisor-limitations"',
+            "What needs my attention first?",
+            "Which site has the highest risk?",
+            "Which sensors have stopped checking in?",
+            "Compare security posture across sites.",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
+    def test_ai_advisor_uses_session_only_token_and_text_safe_rendering(self) -> None:
+        self.assertIn('id="advisor-token" type="password" autocomplete="off"', self.dashboard)
+        self.assertIn('headers["X-OpenAssetWatch-Admin-Token"] = token', self.dashboard)
+        self.assertIn("strong.textContent = item.evidence_type", self.dashboard)
+        self.assertIn("summary.textContent = item.summary", self.dashboard)
+        self.assertNotIn("localStorage", self.dashboard)
+        self.assertNotIn("sessionStorage", self.dashboard)
+        self.assertNotIn(".innerHTML", self.dashboard)
+
+    def test_ai_advisor_has_loading_error_and_unsupported_claim_states(self) -> None:
+        expected_copy = (
+            "Gathering bounded evidence and preparing a read-only answer...",
+            "AI Advisor request failed safely.",
+            "No supporting evidence",
+            "Treat this answer as unverified",
+            "no action was taken",
+            "Read-only tools:",
         )
         for copy in expected_copy:
             with self.subTest(copy=copy):

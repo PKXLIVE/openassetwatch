@@ -67,19 +67,34 @@ class ControlTowerDemoSeedTests(unittest.TestCase):
         cls.seed = load_seed_module()
 
     def test_sample_identifiers_are_stable_and_synthetic(self) -> None:
-        self.assertEqual([site.site_id for site in self.seed.DEMO_SITES], ["home-lab", "small-office"])
+        self.assertEqual([site.site_id for site in self.seed.DEMO_SITES], ["demo-home", "demo-office", "demo-lab"])
         self.assertEqual(
             [agent.agent_id for agent in self.seed.DEMO_AGENTS],
-            ["agent-win-demo-01", "agent-macos-demo-01", "sensor-passive-demo-01"],
+            [
+                "sensor-home-demo-01",
+                "sensor-office-demo-01",
+                "sensor-lab-demo-01",
+                "agent-win-home-demo-01",
+                "agent-macos-office-demo-01",
+                "agent-linux-lab-demo-01",
+            ],
         )
         for site in self.seed.DEMO_SITES:
+            self.assertTrue(site.site_id.startswith("demo-"))
             self.assertIn("Demo", site.name)
         for asset in self.seed.DEMO_ASSETS:
             with self.subTest(asset=asset.asset_id):
                 self.assertTrue(self.seed.documentation_network_ip(asset.primary_ip))
                 self.assertTrue(self.seed.locally_administered_mac(asset.mac))
                 self.assertIn("demo", asset.asset_id)
-        self.assertIn("asset-mobile-demo", [asset.asset_id for asset in self.seed.DEMO_ASSETS])
+        self.assertIn("asset-home-mobile-demo", [asset.asset_id for asset in self.seed.DEMO_ASSETS])
+        for site in self.seed.DEMO_SITES:
+            sensors = [
+                agent
+                for agent in self.seed.DEMO_AGENTS
+                if agent.site_id == site.site_id and agent.agent_type == "network-sensor"
+            ]
+            self.assertEqual(len(sensors), 1)
 
     def test_seed_payloads_do_not_contain_forbidden_terms(self) -> None:
         self.assertIn("exploit payload", self.seed.FORBIDDEN_SEED_TERMS)
@@ -93,21 +108,35 @@ class ControlTowerDemoSeedTests(unittest.TestCase):
         second = self.seed.seed_demo_data(store)
 
         self.assertEqual(first["summary"], second["summary"])
-        self.assertEqual(len(store.sites), 2)
-        self.assertEqual(len(store.agents), 3)
+        self.assertEqual(len(store.sites), 3)
+        self.assertEqual(len(store.agents), 6)
         self.assertEqual(len(store.checkins), len(self.seed.DEMO_CHECKINS))
         self.assertEqual(len(store.assets), len(self.seed.DEMO_ASSETS))
-        self.assertEqual(first["summary"]["evidence_count"], 38)
+        self.assertEqual(first["summary"]["evidence_count"], 57)
 
     def test_site_metadata_is_reapplied_after_agent_upserts(self) -> None:
         store = InMemoryDemoSeedStore()
 
         self.seed.seed_demo_data(store)
 
-        last_site_operations = store.operations[5:7]
-        self.assertEqual(last_site_operations, [("site", "home-lab"), ("site", "small-office")])
-        self.assertEqual(store.sites["home-lab"].name, "Home Lab Demo")
-        self.assertEqual(store.sites["small-office"].name, "Small Office Demo")
+        last_site_operations = store.operations[9:12]
+        self.assertEqual(
+            last_site_operations,
+            [("site", "demo-home"), ("site", "demo-office"), ("site", "demo-lab")],
+        )
+        self.assertEqual(store.sites["demo-home"].name, "Home Demo")
+        self.assertEqual(store.sites["demo-office"].name, "Office Demo")
+        self.assertEqual(store.sites["demo-lab"].name, "Lab Demo")
+
+    def test_demo_assets_include_cross_site_findings_and_risk(self) -> None:
+        risky_sites = {
+            asset.site_id
+            for asset in self.seed.DEMO_ASSETS
+            if asset.risk_score >= 70 and asset.finding_id
+        }
+
+        self.assertEqual(risky_sites, {"demo-home", "demo-office", "demo-lab"})
+        self.assertTrue(any(agent.last_seen_minutes_ago > 90 for agent in self.seed.DEMO_AGENTS))
 
     def test_non_local_database_url_is_rejected(self) -> None:
         self.assertFalse(

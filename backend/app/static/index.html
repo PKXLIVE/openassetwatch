@@ -49,6 +49,7 @@
 
     button,
     input,
+    select,
     textarea {
       font: inherit;
     }
@@ -627,6 +628,7 @@
     }
 
     input,
+    select,
     textarea {
       width: 100%;
       border: 1px solid var(--line);
@@ -824,6 +826,68 @@
       overflow-wrap: anywhere;
     }
 
+    .advisor-layout {
+      display: grid;
+      grid-template-columns: minmax(18rem, 0.75fr) minmax(0, 1.25fr);
+      gap: 1rem;
+      align-items: start;
+    }
+
+    .advisor-form,
+    .advisor-result,
+    .advisor-context {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .advisor-prompts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+
+    .advisor-prompts button {
+      min-height: 2rem;
+      border-color: var(--line);
+      background: var(--panel-soft);
+      color: var(--ink);
+      font-weight: 750;
+    }
+
+    .advisor-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+
+    .advisor-answer {
+      border-left: 4px solid var(--violet);
+      border-radius: 6px;
+      padding: 0.85rem;
+      background: var(--violet-bg);
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .advisor-evidence {
+      display: grid;
+      gap: 0.55rem;
+    }
+
+    .advisor-evidence article {
+      display: grid;
+      gap: 0.28rem;
+      padding: 0.7rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .advisor-evidence small {
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
     .table-scroll {
       overflow-x: auto;
     }
@@ -846,7 +910,8 @@
 
       .summary-grid,
       .split,
-      .asset-layout {
+      .asset-layout,
+      .advisor-layout {
         grid-template-columns: 1fr;
       }
 
@@ -930,6 +995,7 @@
         <a class="nav-link" href="#sites" data-nav="sites">Sites <span class="nav-dot"></span></a>
         <a class="nav-link" href="#evidence" data-nav="evidence">Evidence <span class="nav-dot"></span></a>
         <a class="nav-link" href="#findings" data-nav="findings">Findings <span class="nav-dot"></span></a>
+        <a class="nav-link" href="#ai-advisor" data-nav="ai-advisor">AI Advisor <span class="nav-dot"></span></a>
         <a class="nav-link" href="#policies" data-nav="policies">Policies <span class="nav-dot"></span></a>
         <a class="nav-link" href="#reports" data-nav="reports">Reports <span class="nav-dot"></span></a>
         <a class="nav-link" href="#settings" data-nav="settings">Settings <span class="nav-dot"></span></a>
@@ -1312,6 +1378,103 @@
           </section>
         </section>
 
+        <section id="ai-advisor" class="view-section">
+          <div class="section-title">
+            <div>
+              <h2>Ask OpenAssetWatch</h2>
+              <p>Read-only, evidence-backed analysis across normalized hub data. Collected text is treated as untrusted data, never instructions.</p>
+            </div>
+            <span id="advisor-provider-pill" class="pill warn">checking provider</span>
+          </div>
+
+          <div class="advisor-layout">
+            <section class="panel">
+              <div class="panel-header">
+                <h3>AI Advisor question</h3>
+                <span>bounded read-only tools</span>
+              </div>
+              <form id="advisor-form" class="panel-body advisor-form">
+                <div class="advisor-prompts" aria-label="Example AI Advisor questions">
+                  <button type="button" data-advisor-prompt="What needs my attention first?">Attention first</button>
+                  <button type="button" data-advisor-prompt="Summarize my entire environment.">Environment summary</button>
+                  <button type="button" data-advisor-prompt="Which site has the highest risk?">Highest-risk site</button>
+                  <button type="button" data-advisor-prompt="Which sensors have stopped checking in?">Stale sensors</button>
+                  <button type="button" data-advisor-prompt="Compare security posture across sites.">Compare sites</button>
+                </div>
+                <label for="advisor-site">Site scope
+                  <select id="advisor-site">
+                    <option value="">All sites</option>
+                  </select>
+                </label>
+                <label for="advisor-question">Question
+                  <textarea id="advisor-question" maxlength="500" required placeholder="Ask about sites, sensors, assets, findings, changes, or data freshness."></textarea>
+                </label>
+                <label for="advisor-token">Admin token (only if configured)
+                  <input id="advisor-token" type="password" autocomplete="off" placeholder="Kept only in this page; never stored">
+                </label>
+                <div class="form-actions">
+                  <button id="advisor-submit" type="submit">Ask OpenAssetWatch</button>
+                  <button id="advisor-status-refresh" class="secondary" type="button">Refresh provider status</button>
+                </div>
+                <span id="advisor-form-status" class="form-status" role="status" aria-live="polite">Ready for a read-only question.</span>
+                <p class="muted">The showcase exposes no terminal or OS process controls, configuration changes, packet capture, or remediation.</p>
+              </form>
+            </section>
+
+            <div class="advisor-result">
+              <section class="panel">
+                <div class="panel-header">
+                  <h3>Provider and data state</h3>
+                  <span id="advisor-provider-mode">not loaded</span>
+                </div>
+                <div class="panel-body advisor-context">
+                  <div class="advisor-meta">
+                    <span id="advisor-provider" class="badge">provider unknown</span>
+                    <span id="advisor-data-state" class="badge">data state unknown</span>
+                    <span id="advisor-freshness" class="badge">data as of unknown</span>
+                    <span id="advisor-confidence" class="badge">confidence unknown</span>
+                  </div>
+                  <p id="advisor-provider-message" class="muted">Provider status has not loaded.</p>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-header">
+                  <h3>Structured answer</h3>
+                  <span id="advisor-run-id">no run</span>
+                </div>
+                <div class="panel-body advisor-result">
+                  <div id="advisor-answer" class="advisor-answer">Ask a question to generate a deterministic, evidence-backed demo answer.</div>
+                  <div>
+                    <h3>Site, sensor, and asset context</h3>
+                    <div id="advisor-affected" class="list">
+                      <div class="empty-state"><strong>No affected records yet</strong>Context will appear only when supported by cited evidence.</div>
+                    </div>
+                  </div>
+                  <div>
+                    <h3>Evidence</h3>
+                    <div id="advisor-evidence" class="advisor-evidence">
+                      <div class="empty-state"><strong>No evidence yet</strong>The Advisor will not present unsupported claims as verified facts.</div>
+                    </div>
+                  </div>
+                  <div>
+                    <h3>Recommended actions</h3>
+                    <div id="advisor-actions" class="list">
+                      <div class="empty-state"><strong>No recommendations yet</strong>Recommendations remain advisory and read-only.</div>
+                    </div>
+                  </div>
+                  <div>
+                    <h3>Warnings and limitations</h3>
+                    <div id="advisor-limitations" class="list">
+                      <div class="list-row"><span>Demo mode uses deterministic logic and normalized synthetic evidence.</span></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+
         <section id="policies" class="view-section">
           <div class="section-title">
             <div>
@@ -1407,10 +1570,12 @@
       agents: "/api/v1/agents",
       checkins: "/api/v1/control-tower/check-ins",
       assets: "/api/v1/control-tower/assets",
-      release: "/api/v1/releases/agent"
+      release: "/api/v1/releases/agent",
+      advisorStatus: "/api/v1/ai/status",
+      advisorQuery: "/api/v1/ai/advisor/query"
     };
     const DEMO_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed";
-    const VIEW_IDS = ["dashboard", "assets", "collectors", "sites", "evidence", "findings", "policies", "reports", "settings"];
+    const VIEW_IDS = ["dashboard", "assets", "collectors", "sites", "evidence", "findings", "ai-advisor", "policies", "reports", "settings"];
 
     const state = {
       loading: false,
@@ -1418,7 +1583,8 @@
       assetFilter: "all",
       assetSearch: "",
       selectedAssetId: null,
-      selectedCollectorId: null
+      selectedCollectorId: null,
+      advisorStatus: null
     };
 
     function byId(id) {
@@ -2166,6 +2332,159 @@
       byId("settings-release").textContent = `${release.channel || "local"} channel; update execution ${release.update_execution || "not reported"}`;
     }
 
+    function advisorHeaders(includeContentType = false) {
+      const headers = {};
+      const token = byId("advisor-token").value;
+      if (token) headers["X-OpenAssetWatch-Admin-Token"] = token;
+      if (includeContentType) headers["Content-Type"] = "application/json";
+      return headers;
+    }
+
+    function renderAdvisorSiteOptions(sites) {
+      const select = byId("advisor-site");
+      const selected = select.value;
+      clearNode(select);
+      const all = document.createElement("option");
+      all.value = "";
+      all.textContent = "All sites";
+      select.appendChild(all);
+      sites.forEach(site => {
+        const option = document.createElement("option");
+        option.value = text(site.site_id, "");
+        option.textContent = `${text(site.name, site.site_id)} (${text(site.site_id)})`;
+        select.appendChild(option);
+      });
+      select.value = Array.from(select.options).some(option => option.value === selected) ? selected : "";
+    }
+
+    function renderAdvisorProvider(status) {
+      state.advisorStatus = status;
+      byId("advisor-provider-pill").textContent = status.available ? `${status.provider} ready` : `${status.provider} unavailable`;
+      byId("advisor-provider-pill").className = `pill ${status.available ? "ok" : "warn"}`;
+      byId("advisor-provider").textContent = `${status.provider} / ${status.mode}`;
+      byId("advisor-provider").className = `badge ${status.available ? "ok" : "warn"}`;
+      byId("advisor-provider-mode").textContent = status.external_data_sharing ? "external sharing enabled" : "local processing";
+      byId("advisor-provider-message").textContent = status.message;
+    }
+
+    async function loadAdvisorStatus() {
+      try {
+        const status = await loadJSON(endpoints.advisorStatus, {headers: advisorHeaders()});
+        renderAdvisorProvider(status);
+        return status;
+      } catch (error) {
+        byId("advisor-provider-pill").textContent = "authentication required";
+        byId("advisor-provider-pill").className = "pill warn";
+        byId("advisor-provider-mode").textContent = "status unavailable";
+        byId("advisor-provider-message").textContent = text(error.message);
+        return null;
+      }
+    }
+
+    function renderAdvisorRows(targetId, values, emptyTitle, emptyDetail) {
+      const target = byId(targetId);
+      clearNode(target);
+      if (!values.length) {
+        renderEmpty(target, emptyTitle, emptyDetail);
+        return;
+      }
+      values.forEach(value => {
+        const row = document.createElement("div");
+        const span = document.createElement("span");
+        row.className = "list-row";
+        span.textContent = value;
+        row.appendChild(span);
+        target.appendChild(row);
+      });
+    }
+
+    function renderAdvisorResponse(response) {
+      byId("advisor-answer").textContent = response.answer;
+      byId("advisor-run-id").textContent = `run ${text(response.run_id)}`;
+      byId("advisor-data-state").textContent = `${response.data_state} data`;
+      byId("advisor-data-state").className = `badge ${response.data_state === "live" ? "ok" : "warn"}`;
+      byId("advisor-freshness").textContent = `data as of ${fmtDate(response.data_as_of)}`;
+      byId("advisor-confidence").textContent = `${Math.round(Number(response.confidence || 0) * 100)}% confidence`;
+      byId("advisor-confidence").className = `badge ${Number(response.confidence || 0) >= 0.7 ? "ok" : "warn"}`;
+      const affected = [];
+      if (response.affected_sites.length) affected.push(`Sites: ${response.affected_sites.join(", ")}`);
+      if (response.affected_sensors.length) affected.push(`Sensors: ${response.affected_sensors.join(", ")}`);
+      if (response.affected_assets.length) affected.push(`Assets: ${response.affected_assets.join(", ")}`);
+      affected.push(`Read-only tools: ${response.tools_used.join(", ")}`);
+      renderAdvisorRows("advisor-affected", affected, "No affected records", "The answer did not include supported site, sensor, or asset evidence.");
+
+      const evidenceTarget = byId("advisor-evidence");
+      clearNode(evidenceTarget);
+      if (!response.evidence.length) {
+        renderEmpty(evidenceTarget, "No supporting evidence", "Treat this answer as unverified; the service has capped its confidence.");
+      } else {
+        response.evidence.forEach(item => {
+          const article = document.createElement("article");
+          const strong = document.createElement("strong");
+          const summary = document.createElement("span");
+          const details = document.createElement("small");
+          strong.textContent = item.evidence_type;
+          summary.textContent = item.summary;
+          details.textContent = `${item.evidence_id} | ${text(item.site_id, "no site")} | ${text(item.source)} | ${item.freshness} | ${Math.round(Number(item.confidence || 0) * 100)}% confidence`;
+          article.append(strong, summary, details);
+          evidenceTarget.appendChild(article);
+        });
+      }
+      renderAdvisorRows("advisor-actions", response.recommended_actions, "No recommended actions", "The Advisor did not return a supported next step.");
+      renderAdvisorRows(
+        "advisor-limitations",
+        [...response.warnings.map(value => `Warning: ${value}`), ...response.limitations],
+        "No limitations reported",
+        "Always validate AI output against current OpenAssetWatch evidence."
+      );
+    }
+
+    async function askAdvisor(event) {
+      event.preventDefault();
+      const question = byId("advisor-question").value.trim();
+      const siteId = byId("advisor-site").value;
+      const status = byId("advisor-form-status");
+      const submit = byId("advisor-submit");
+      if (question.length < 3) {
+        status.textContent = "Enter a question with at least three characters.";
+        status.className = "form-status error";
+        return;
+      }
+      submit.disabled = true;
+      status.textContent = "Gathering bounded evidence and preparing a read-only answer...";
+      status.className = "form-status";
+      try {
+        const body = {question};
+        if (siteId) body.site_id = siteId;
+        const response = await loadJSON(endpoints.advisorQuery, {
+          method: "POST",
+          headers: advisorHeaders(true),
+          body: JSON.stringify(body)
+        });
+        renderAdvisorResponse(response);
+        status.textContent = `Answer ready with ${response.evidence.length} cited evidence item(s).`;
+        status.className = "form-status ok";
+        await loadAdvisorStatus();
+      } catch (error) {
+        status.textContent = text(error.message, "AI Advisor request failed safely.");
+        status.className = "form-status error";
+        byId("advisor-answer").textContent = "No answer was produced. Check provider status, authentication, and backend health; no action was taken.";
+      } finally {
+        submit.disabled = false;
+      }
+    }
+
+    function setupAdvisor() {
+      byId("advisor-form").addEventListener("submit", askAdvisor);
+      byId("advisor-status-refresh").addEventListener("click", loadAdvisorStatus);
+      document.querySelectorAll("[data-advisor-prompt]").forEach(button => {
+        button.addEventListener("click", () => {
+          byId("advisor-question").value = button.dataset.advisorPrompt;
+          byId("advisor-form").requestSubmit();
+        });
+      });
+    }
+
     function renderSettings(data) {
       byId("settings-api-url").textContent = apiBase || "same-origin API";
       byId("settings-health").textContent = data.health
@@ -2182,6 +2501,7 @@
 
     function renderAll() {
       const data = derivedData();
+      renderAdvisorSiteOptions(data.sites);
       renderMetrics(data);
       renderAttention(data);
       renderDemoSeedCta(data);
@@ -2259,6 +2579,7 @@
         setStatus("healthy", `${health.service} is ${health.status}`, `Dashboard data loaded from ${apiBase || "same-origin API"}.`);
         byId("last-updated").textContent = `updated ${new Date().toLocaleTimeString()}`;
         byId("last-updated").className = "pill ok";
+        await loadAdvisorStatus();
       } catch (error) {
         setStatus("error", "API data could not be loaded", text(error.message));
         byId("last-updated").textContent = "not updated";
@@ -2394,6 +2715,7 @@
     setupAssetControls();
     setupNavigation();
     setupSafeActions();
+    setupAdvisor();
     refresh();
   </script>
 </body>

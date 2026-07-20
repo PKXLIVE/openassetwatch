@@ -81,69 +81,126 @@ class DemoAsset:
     last_seen_minutes_ago: int
     category: str
     attention: str
+    management_status: str = "managed"
+    risk_score: int = 20
+    finding_id: str | None = None
+    finding_title: str | None = None
+    finding_severity: str | None = None
+    confidence: float = 0.9
 
 
 DEMO_SITES = (
-    DemoSite("home-lab", "Home Lab Demo", "Synthetic local demo site for dashboard visual testing."),
-    DemoSite("small-office", "Small Office Demo", "Synthetic small office demo site for dashboard visual testing."),
+    DemoSite("demo-home", "Home Demo", "Synthetic home location for cross-site AI showcase testing."),
+    DemoSite("demo-office", "Office Demo", "Synthetic office location with a deliberately stale sensor."),
+    DemoSite("demo-lab", "Lab Demo", "Synthetic lab location with server and unmanaged device evidence."),
 )
 
 DEMO_AGENTS = (
     DemoAgent(
-        "agent-win-demo-01",
-        "home-lab",
-        "Windows Demo Agent 01",
-        "endpoint-agent",
-        "Windows",
-        "amd64",
-        "0.1.0-demo",
-        "demo-win-workstation",
-        "healthy-demo",
-        5,
-    ),
-    DemoAgent(
-        "agent-macos-demo-01",
-        "home-lab",
-        "macOS Demo Agent 01",
-        "endpoint-agent",
-        "macOS",
-        "arm64",
-        "0.1.0-demo",
-        "demo-macos-laptop",
-        "healthy-demo",
-        12,
-    ),
-    DemoAgent(
-        "sensor-passive-demo-01",
-        "small-office",
-        "Passive Sensor Demo 01",
+        "sensor-home-demo-01",
+        "demo-home",
+        "Home Passive Sensor",
         "network-sensor",
         "Linux",
         "amd64",
         "0.1.0-demo",
-        "demo-passive-sensor",
-        "passive-demo",
-        18,
+        "demo-home-sensor",
+        "passive-network-demo",
+        4,
+    ),
+    DemoAgent(
+        "sensor-office-demo-01",
+        "demo-office",
+        "Office Passive Sensor",
+        "network-sensor",
+        "Linux",
+        "amd64",
+        "0.1.0-demo",
+        "demo-office-sensor",
+        "passive-network-demo",
+        190,
+    ),
+    DemoAgent(
+        "sensor-lab-demo-01",
+        "demo-lab",
+        "Lab Passive Sensor",
+        "network-sensor",
+        "Linux",
+        "amd64",
+        "0.1.0-demo",
+        "demo-lab-sensor",
+        "passive-network-demo",
+        42,
+    ),
+    DemoAgent(
+        "agent-win-home-demo-01",
+        "demo-home",
+        "Home Windows Collector",
+        "endpoint-agent",
+        "Windows",
+        "amd64",
+        "0.1.0-demo",
+        "demo-home-workstation",
+        "local-inventory-demo",
+        7,
+    ),
+    DemoAgent(
+        "agent-macos-office-demo-01",
+        "demo-office",
+        "Office macOS Collector",
+        "endpoint-agent",
+        "macOS",
+        "arm64",
+        "0.1.0-demo",
+        "demo-office-laptop",
+        "local-inventory-demo",
+        15,
+    ),
+    DemoAgent(
+        "agent-linux-lab-demo-01",
+        "demo-lab",
+        "Lab Linux Collector",
+        "endpoint-agent",
+        "Linux",
+        "amd64",
+        "0.1.0-demo",
+        "demo-lab-server",
+        "local-inventory-demo",
+        12,
     ),
 )
 
-DEMO_CHECKINS = (
-    DemoCheckIn("agent-win-demo-01", "home-lab", "Windows", "amd64", "0.1.0-demo", "demo-win-workstation", "healthy-demo", 5),
-    DemoCheckIn("agent-macos-demo-01", "home-lab", "macOS", "arm64", "0.1.0-demo", "demo-macos-laptop", "healthy-demo", 12),
-    DemoCheckIn("sensor-passive-demo-01", "small-office", "Linux", "amd64", "0.1.0-demo", "demo-passive-sensor", "passive-demo", 18),
-    DemoCheckIn("agent-win-demo-01", "home-lab", "Windows", "amd64", "0.1.0-demo", "demo-win-workstation", "healthy-demo", 65),
-    DemoCheckIn("sensor-passive-demo-01", "small-office", "Linux", "amd64", "0.1.0-demo", "demo-passive-sensor", "passive-demo", 82),
+DEMO_CHECKINS = tuple(
+    DemoCheckIn(agent.agent_id, agent.site_id, agent.platform, agent.architecture, agent.version, agent.hostname, agent.mode, agent.last_seen_minutes_ago)
+    for agent in DEMO_AGENTS
 )
 
 DEMO_ASSETS = (
-    DemoAsset("asset-win-workstation-demo", "home-lab", "demo-win-workstation", "192.0.2.10", "02:00:5e:10:00:10", "Windows 11 Demo", "Windows/amd64", "agent-win-demo-01", 7, 4, "workstation", "healthy endpoint sample"),
-    DemoAsset("asset-macos-laptop-demo", "home-lab", "demo-macos-laptop", "192.0.2.20", "02:00:5e:10:00:20", "macOS Demo", "macOS/arm64", "agent-macos-demo-01", 6, 10, "laptop", "missing security tooling sample"),
-    DemoAsset("asset-linux-server-demo", "home-lab", "demo-linux-server", "192.0.2.30", "02:00:5e:10:00:30", "Linux Demo", "Linux/amd64", "agent-win-demo-01", 8, 14, "server", "stale collector sample"),
-    DemoAsset("asset-printer-demo", "small-office", "demo-printer", "198.51.100.25", "02:00:5e:20:00:25", "Printer Demo Firmware", "embedded-demo", "sensor-passive-demo-01", 4, 16, "printer", "printer inventory sample"),
-    DemoAsset("asset-switch-demo", "small-office", "demo-switch", "198.51.100.2", "02:00:5e:20:00:02", "Switch Demo Firmware", "network-device-demo", "sensor-passive-demo-01", 5, 19, "network-switch", "network switch sample"),
-    DemoAsset("asset-smart-tv-demo", "small-office", "demo-smart-tv", "203.0.113.44", "02:00:5e:30:00:44", "Smart TV Demo Firmware", "iot-demo", "sensor-passive-demo-01", 3, 23, "iot", "unmanaged IoT device sample"),
-    DemoAsset("asset-mobile-demo", "small-office", "demo-mobile-device", "203.0.113.66", "02:00:5e:30:00:66", "Mobile Demo OS", "mobile-demo", "sensor-passive-demo-01", 3, 25, "mobile", "unmanaged mobile device sample"),
-    DemoAsset("asset-unknown-demo", "small-office", "demo-unknown-device", "203.0.113.88", "02:00:5e:30:00:88", "Unknown Demo Device", "unknown-demo", "sensor-passive-demo-01", 2, 27, "unknown", "unknown device sample"),
+    DemoAsset("asset-home-workstation-demo", "demo-home", "demo-home-workstation", "192.0.2.10", "02:00:5e:10:00:10", "Windows 11 Demo", "Windows/amd64", "agent-win-home-demo-01", 7, 4, "workstation", "healthy endpoint sample", "managed", 20),
+    DemoAsset("asset-home-smart-tv-demo", "demo-home", "demo-home-smart-tv", "192.0.2.44", "02:00:5e:10:00:44", "Smart TV Demo Firmware", "iot-demo", "sensor-home-demo-01", 3, 8, "iot", "unmanaged IoT device sample", "unmanaged", 76, "demo-home-unmanaged-iot", "Unmanaged smart TV observed", "high"),
+    DemoAsset("asset-home-mobile-demo", "demo-home", "demo-home-mobile", "192.0.2.66", "02:00:5e:10:00:66", "Mobile Demo OS", "mobile-demo", "sensor-home-demo-01", 3, 11, "mobile", "unmanaged mobile device sample", "weakly-managed", 58, "demo-home-mobile-coverage", "Mobile device has weak management coverage", "medium"),
+    DemoAsset("asset-home-router-demo", "demo-home", "demo-home-router", "192.0.2.1", "02:00:5e:10:00:01", "Router Demo Firmware", "network-device-demo", "sensor-home-demo-01", 5, 6, "router", "router inventory sample", "managed", 35),
+    DemoAsset("asset-office-laptop-demo", "demo-office", "demo-office-laptop", "198.51.100.20", "02:00:5e:20:00:20", "macOS Demo", "macOS/arm64", "agent-macos-office-demo-01", 6, 13, "laptop", "healthy endpoint sample", "managed", 24),
+    DemoAsset("asset-office-printer-demo", "demo-office", "demo-office-printer", "198.51.100.25", "02:00:5e:20:00:25", "Printer Demo Firmware", "embedded-demo", "sensor-office-demo-01", 4, 120, "printer", "printer inventory sample", "weakly-managed", 62, "demo-office-printer-review", "Printer ownership and firmware need review", "medium"),
+    DemoAsset("asset-office-switch-demo", "demo-office", "demo-office-switch", "198.51.100.2", "02:00:5e:20:00:02", "Switch Demo Firmware", "network-device-demo", "sensor-office-demo-01", 5, 130, "network-switch", "network switch sample", "managed", 30),
+    DemoAsset("asset-office-unknown-demo", "demo-office", "demo-office-unknown", "198.51.100.88", "02:00:5e:20:00:88", "Unknown Demo Device", "unknown-demo", "sensor-office-demo-01", 2, 125, "unknown", "unknown device sample", "unmanaged", 91, "demo-office-unknown-device", "Unknown device observed at Office", "critical"),
+    DemoAsset("asset-lab-server-demo", "demo-lab", "demo-lab-server", "203.0.113.30", "02:00:5e:30:00:30", "Linux Demo", "Linux/amd64", "agent-linux-lab-demo-01", 8, 10, "server", "missing security tooling sample", "weakly-managed", 72, "demo-lab-security-coverage", "Lab server is missing expected security tooling", "high"),
+    DemoAsset("asset-lab-runner-demo", "demo-lab", "demo-lab-runner", "203.0.113.31", "02:00:5e:30:00:31", "Linux Demo", "Linux/amd64", "sensor-lab-demo-01", 6, 18, "build-runner", "new asset sample", "managed", 48, "demo-lab-new-runner", "New build runner needs ownership validation", "medium"),
+    DemoAsset("asset-lab-nas-demo", "demo-lab", "demo-lab-nas", "203.0.113.40", "02:00:5e:30:00:40", "NAS Demo Firmware", "storage-demo", "sensor-lab-demo-01", 5, 50, "storage", "stale inventory sample", "managed", 55, "demo-lab-stale-inventory", "NAS evidence is aging", "medium"),
+    DemoAsset("asset-lab-camera-demo", "demo-lab", "demo-lab-camera", "203.0.113.55", "02:00:5e:30:00:55", "Camera Demo Firmware", "iot-demo", "sensor-lab-demo-01", 3, 34, "camera", "unmanaged IoT device sample", "unmanaged", 80, "demo-lab-unmanaged-camera", "Unmanaged camera observed in Lab", "high"),
+)
+
+LEGACY_DEMO_SITE_IDS = ("home-lab", "small-office")
+LEGACY_DEMO_AGENT_IDS = ("agent-win-demo-01", "agent-macos-demo-01", "sensor-passive-demo-01")
+LEGACY_DEMO_ASSET_IDS = (
+    "asset-win-workstation-demo",
+    "asset-macos-laptop-demo",
+    "asset-linux-server-demo",
+    "asset-printer-demo",
+    "asset-switch-demo",
+    "asset-smart-tv-demo",
+    "asset-mobile-demo",
+    "asset-unknown-demo",
 )
 
 
@@ -189,6 +246,20 @@ def seed_payloads() -> list[dict[str, Any]]:
                 "platform": asset.platform,
                 "source_agent_id": asset.source_agent_id,
                 "attention": asset.attention,
+                "management_status": asset.management_status,
+                "risk_score": asset.risk_score,
+                "confidence": asset.confidence,
+                "findings": (
+                    [
+                        {
+                            "finding_id": asset.finding_id,
+                            "title": asset.finding_title,
+                            "severity": asset.finding_severity,
+                        }
+                    ]
+                    if asset.finding_id
+                    else []
+                ),
             }
         )
     return payloads
@@ -254,9 +325,9 @@ class SqlDemoSeedStore(DemoSeedStore):
         self.ensure_database_schema()
 
     def clear_demo_records(self) -> None:
-        site_ids = [site.site_id for site in DEMO_SITES]
-        agent_ids = [agent.agent_id for agent in DEMO_AGENTS]
-        asset_ids = [asset.asset_id for asset in DEMO_ASSETS]
+        site_ids = [site.site_id for site in DEMO_SITES] + list(LEGACY_DEMO_SITE_IDS)
+        agent_ids = [agent.agent_id for agent in DEMO_AGENTS] + list(LEGACY_DEMO_AGENT_IDS)
+        asset_ids = [asset.asset_id for asset in DEMO_ASSETS] + list(LEGACY_DEMO_ASSET_IDS)
         with self.engine.begin() as connection:
             connection.execute(
                 self.text(
@@ -293,6 +364,19 @@ class SqlDemoSeedStore(DemoSeedStore):
                     self.bindparam("asset_ids", expanding=True),
                 ),
                 {"site_ids": site_ids, "asset_ids": asset_ids},
+            )
+            connection.execute(
+                self.text("DELETE FROM agent_enrollments WHERE site_id IN :site_ids OR agent_id IN :agent_ids").bindparams(
+                    self.bindparam("site_ids", expanding=True),
+                    self.bindparam("agent_ids", expanding=True),
+                ),
+                {"site_ids": site_ids, "agent_ids": agent_ids},
+            )
+            connection.execute(
+                self.text("DELETE FROM sites WHERE site_id IN :site_ids").bindparams(
+                    self.bindparam("site_ids", expanding=True),
+                ),
+                {"site_ids": site_ids},
             )
 
     def upsert_site(self, site: DemoSite) -> None:
@@ -372,10 +456,18 @@ class SqlDemoSeedStore(DemoSeedStore):
         payload = {
             "demo": True,
             "sample_data": True,
-            "schema_version": "openassetwatch.demo.inventory.v1",
+            "schema_version": "oaw.observation-batch.v1",
+            "observation_batch_id": f"demo-batch-{site_id}",
             "site_id": site_id,
-            "agent_id": source_agent_id,
+            "sensor_id": source_agent_id,
+            "sensor_name": source_agent_id,
+            "sensor_type": "passive-network-sensor",
+            "sensor_version": "0.1.0-demo",
             "collected_at": received_at.isoformat(),
+            "observed_at": received_at.isoformat(),
+            "observation_source": "control-tower-demo-seed",
+            "delivery_state": "cached-retry" if site_id == "demo-office" else "live",
+            "confidence": 0.9,
             "assets": [
                 {
                     "asset_id": asset.asset_id,
@@ -401,6 +493,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                         received_at,
                         observed_asset_count,
                         normalized_asset_count,
+                        observation_batch_id,
+                        observation_source,
+                        observed_at,
+                        delivery_state,
+                        confidence,
                         payload_json
                     )
                     VALUES (
@@ -411,6 +508,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                         :received_at,
                         :observed_asset_count,
                         :normalized_asset_count,
+                        :observation_batch_id,
+                        :observation_source,
+                        :observed_at,
+                        :delivery_state,
+                        :confidence,
                         CAST(:payload_json AS JSONB)
                     )
                     """
@@ -423,6 +525,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                     "received_at": received_at,
                     "observed_asset_count": len(assets),
                     "normalized_asset_count": len(assets),
+                    "observation_batch_id": payload["observation_batch_id"],
+                    "observation_source": payload["observation_source"],
+                    "observed_at": received_at,
+                    "delivery_state": payload["delivery_state"],
+                    "confidence": payload["confidence"],
                     "payload_json": json.dumps(payload, sort_keys=True),
                 },
             )
@@ -433,6 +540,20 @@ class SqlDemoSeedStore(DemoSeedStore):
             "sample_data": True,
             "category": asset.category,
             "attention": asset.attention,
+            "management_status": asset.management_status,
+            "risk_score": asset.risk_score,
+            "confidence": asset.confidence,
+            "findings": (
+                [
+                    {
+                        "finding_id": asset.finding_id,
+                        "title": asset.finding_title,
+                        "severity": asset.finding_severity,
+                    }
+                ]
+                if asset.finding_id
+                else []
+            ),
             "source": "control-tower-demo-seed",
         }
         with self.engine.begin() as connection:
@@ -452,6 +573,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                         first_seen_at,
                         last_seen_at,
                         evidence_count,
+                        observation_batch_id,
+                        observation_source,
+                        observed_at,
+                        delivery_state,
+                        confidence,
                         metadata_json
                     )
                     VALUES (
@@ -467,6 +593,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                         :first_seen_at,
                         :last_seen_at,
                         :evidence_count,
+                        :observation_batch_id,
+                        :observation_source,
+                        :observed_at,
+                        :delivery_state,
+                        :confidence,
                         CAST(:metadata_json AS JSONB)
                     )
                     ON CONFLICT (asset_key) DO UPDATE SET
@@ -478,6 +609,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                         source_agent_id = EXCLUDED.source_agent_id,
                         last_seen_at = EXCLUDED.last_seen_at,
                         evidence_count = EXCLUDED.evidence_count,
+                        observation_batch_id = EXCLUDED.observation_batch_id,
+                        observation_source = EXCLUDED.observation_source,
+                        observed_at = EXCLUDED.observed_at,
+                        delivery_state = EXCLUDED.delivery_state,
+                        confidence = EXCLUDED.confidence,
                         metadata_json = EXCLUDED.metadata_json,
                         updated_at = NOW()
                     """
@@ -495,6 +631,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                     "first_seen_at": seen_at,
                     "last_seen_at": seen_at,
                     "evidence_count": asset.evidence_count,
+                    "observation_batch_id": f"demo-batch-{asset.site_id}",
+                    "observation_source": "control-tower-demo-seed",
+                    "observed_at": seen_at,
+                    "delivery_state": "cached-retry" if asset.site_id == "demo-office" else "live",
+                    "confidence": asset.confidence,
                     "metadata_json": json.dumps(metadata, sort_keys=True),
                 },
             )
@@ -509,7 +650,7 @@ def assets_for_site(site_id: str) -> list[DemoAsset]:
 
 def primary_agent_for_site(site_id: str) -> str:
     for agent in DEMO_AGENTS:
-        if agent.site_id == site_id:
+        if agent.site_id == site_id and agent.agent_type == "network-sensor":
             return agent.agent_id
     raise ValueError(f"no demo agent configured for site: {site_id}")
 
@@ -616,7 +757,7 @@ def main() -> int:
 
     try:
         store = SqlDemoSeedStore(database_url)
-        output["seeded"] = seed_demo_data(store)
+        output["seeded"] = seed_demo_data(store, base_time=datetime.now(timezone.utc))
         output["ok"] = True
     except ModuleNotFoundError as exc:
         output["errors"].append(dependency_error_message(exc.name or "unknown"))
