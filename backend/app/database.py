@@ -242,6 +242,20 @@ CREATE TABLE IF NOT EXISTS control_tower_assets (
 )
 """
 
+CREATE_AI_ADVISOR_RUNS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS ai_advisor_runs (
+    run_id TEXT PRIMARY KEY,
+    question_sha256 TEXT NOT NULL,
+    site_id TEXT,
+    provider TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    tool_names_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+"""
+
 NORMALIZATION_INDEX_SQL = [
     "ALTER TABLE collector_inventory_submissions ADD COLUMN IF NOT EXISTS collector_guid TEXT",
     "CREATE INDEX IF NOT EXISTS idx_collector_inventory_submissions_collector_guid ON collector_inventory_submissions (collector_guid)",
@@ -267,8 +281,20 @@ NORMALIZATION_INDEX_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_agent_checkins_site_id_received_at ON agent_checkins (site_id, received_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_agent_checkins_agent_id_received_at ON agent_checkins (agent_id, received_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_local_inventory_collections_site_id_received_at ON local_inventory_collections (site_id, received_at DESC)",
+    "ALTER TABLE local_inventory_collections ADD COLUMN IF NOT EXISTS observation_batch_id TEXT",
+    "ALTER TABLE local_inventory_collections ADD COLUMN IF NOT EXISTS observation_source TEXT",
+    "ALTER TABLE local_inventory_collections ADD COLUMN IF NOT EXISTS observed_at TIMESTAMPTZ",
+    "ALTER TABLE local_inventory_collections ADD COLUMN IF NOT EXISTS delivery_state TEXT NOT NULL DEFAULT 'live'",
+    "ALTER TABLE local_inventory_collections ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_local_inventory_observation_batch ON local_inventory_collections (site_id, source_agent_id, observation_batch_id) WHERE observation_batch_id IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_control_tower_assets_site_id ON control_tower_assets (site_id)",
     "CREATE INDEX IF NOT EXISTS idx_control_tower_assets_last_seen_at ON control_tower_assets (last_seen_at DESC)",
+    "ALTER TABLE control_tower_assets ADD COLUMN IF NOT EXISTS observation_batch_id TEXT",
+    "ALTER TABLE control_tower_assets ADD COLUMN IF NOT EXISTS observation_source TEXT",
+    "ALTER TABLE control_tower_assets ADD COLUMN IF NOT EXISTS observed_at TIMESTAMPTZ",
+    "ALTER TABLE control_tower_assets ADD COLUMN IF NOT EXISTS delivery_state TEXT NOT NULL DEFAULT 'live'",
+    "ALTER TABLE control_tower_assets ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION",
+    "CREATE INDEX IF NOT EXISTS idx_ai_advisor_runs_created_at ON ai_advisor_runs (created_at DESC)",
 ]
 
 
@@ -293,6 +319,7 @@ def ensure_database_schema() -> None:
         connection.execute(text(CREATE_AGENT_CHECKINS_TABLE_SQL))
         connection.execute(text(CREATE_LOCAL_INVENTORY_COLLECTIONS_TABLE_SQL))
         connection.execute(text(CREATE_CONTROL_TOWER_ASSETS_TABLE_SQL))
+        connection.execute(text(CREATE_AI_ADVISOR_RUNS_TABLE_SQL))
         for statement in NORMALIZATION_INDEX_SQL:
             connection.execute(text(statement))
 
@@ -1743,11 +1770,39 @@ def _asset_evidence_count(asset: dict[str, Any]) -> int:
     return count
 
 
+HUB_OWNED_ASSET_METADATA_FIELDS = frozenset(
+    {
+        "confidence",
+        "demo",
+        "findings",
+        "management_status",
+        "risk_score",
+        "sample_data",
+        "source",
+    }
+)
+
+
+def _spoke_asset_metadata(asset: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in asset.items() if key not in HUB_OWNED_ASSET_METADATA_FIELDS}
+
+
 def normalize_local_inventory_assets(payload: dict[str, Any], *, site_id: str, received_at: datetime) -> list[dict[str, Any]]:
     assets = payload.get("assets")
     if not isinstance(assets, list):
         return []
-    source_agent_id = _clean_text(payload.get("agent_id"))
+    source_agent_id = _clean_text(payload.get("sensor_id") or payload.get("agent_id"))
+    observed_at = _parse_datetime(payload.get("observed_at") or payload.get("collected_at")) or received_at
+    observation_batch_id = _clean_text(payload.get("observation_batch_id"))
+    observation_source = _clean_text(payload.get("observation_source")) or "local-inventory"
+    requested_delivery_state = _clean_text(payload.get("delivery_state"))
+    delivery_state = requested_delivery_state if requested_delivery_state in {"live", "cached-retry"} else "live"
+    confidence_value = payload.get("confidence")
+    confidence = (
+        float(confidence_value)
+        if isinstance(confidence_value, (int, float)) and 0.0 <= float(confidence_value) <= 1.0
+        else None
+    )
     normalized: list[dict[str, Any]] = []
     for index, asset in enumerate(assets):
         if not isinstance(asset, dict):
@@ -1771,9 +1826,14 @@ def normalize_local_inventory_assets(payload: dict[str, Any], *, site_id: str, r
                 "platform": _clean_text(asset.get("platform") or platform_info.get("platform")),
                 "source_agent_id": source_agent_id,
                 "first_seen_at": received_at,
-                "last_seen_at": received_at,
+                "last_seen_at": observed_at,
                 "evidence_count": _asset_evidence_count(asset),
-                "metadata": asset,
+                "observation_batch_id": observation_batch_id,
+                "observation_source": observation_source,
+                "observed_at": observed_at,
+                "delivery_state": delivery_state,
+                "confidence": confidence,
+                "metadata": _spoke_asset_metadata(asset),
             }
         )
     return normalized
@@ -1796,6 +1856,11 @@ def _upsert_control_tower_asset(connection: Any, asset: dict[str, Any]) -> None:
                 first_seen_at,
                 last_seen_at,
                 evidence_count,
+                observation_batch_id,
+                observation_source,
+                observed_at,
+                delivery_state,
+                confidence,
                 metadata_json
             )
             VALUES (
@@ -1811,6 +1876,11 @@ def _upsert_control_tower_asset(connection: Any, asset: dict[str, Any]) -> None:
                 :first_seen_at,
                 :last_seen_at,
                 :evidence_count,
+                :observation_batch_id,
+                :observation_source,
+                :observed_at,
+                :delivery_state,
+                :confidence,
                 CAST(:metadata_json AS JSONB)
             )
             ON CONFLICT (asset_key) DO UPDATE SET
@@ -1822,6 +1892,11 @@ def _upsert_control_tower_asset(connection: Any, asset: dict[str, Any]) -> None:
                 source_agent_id = COALESCE(EXCLUDED.source_agent_id, control_tower_assets.source_agent_id),
                 last_seen_at = EXCLUDED.last_seen_at,
                 evidence_count = control_tower_assets.evidence_count + EXCLUDED.evidence_count,
+                observation_batch_id = COALESCE(EXCLUDED.observation_batch_id, control_tower_assets.observation_batch_id),
+                observation_source = COALESCE(EXCLUDED.observation_source, control_tower_assets.observation_source),
+                observed_at = COALESCE(EXCLUDED.observed_at, control_tower_assets.observed_at),
+                delivery_state = EXCLUDED.delivery_state,
+                confidence = COALESCE(EXCLUDED.confidence, control_tower_assets.confidence),
                 metadata_json = EXCLUDED.metadata_json,
                 updated_at = NOW()
             """
@@ -1839,6 +1914,11 @@ def _upsert_control_tower_asset(connection: Any, asset: dict[str, Any]) -> None:
             "first_seen_at": asset["first_seen_at"],
             "last_seen_at": asset["last_seen_at"],
             "evidence_count": asset["evidence_count"],
+            "observation_batch_id": asset["observation_batch_id"],
+            "observation_source": asset["observation_source"],
+            "observed_at": asset["observed_at"],
+            "delivery_state": asset["delivery_state"],
+            "confidence": asset["confidence"],
             "metadata_json": _json_payload(asset["metadata"]),
         },
     )
@@ -1850,9 +1930,20 @@ def record_local_inventory_collection(
     site_id: str,
     received_at: datetime,
     observed_asset_count: int,
-) -> dict[str, int]:
+) -> dict[str, int | bool]:
     ensure_site_record(site_id=site_id)
     normalized_assets = normalize_local_inventory_assets(payload, site_id=site_id, received_at=received_at)
+    observation_batch_id = _clean_text(payload.get("observation_batch_id"))
+    observation_source = _clean_text(payload.get("observation_source")) or "local-inventory"
+    observed_at = _parse_datetime(payload.get("observed_at") or payload.get("collected_at"))
+    requested_delivery_state = _clean_text(payload.get("delivery_state"))
+    delivery_state = requested_delivery_state if requested_delivery_state in {"live", "cached-retry"} else "live"
+    confidence_value = payload.get("confidence")
+    confidence = (
+        float(confidence_value)
+        if isinstance(confidence_value, (int, float)) and 0.0 <= float(confidence_value) <= 1.0
+        else None
+    )
     statement = text(
         """
         INSERT INTO local_inventory_collections (
@@ -1863,6 +1954,11 @@ def record_local_inventory_collection(
             received_at,
             observed_asset_count,
             normalized_asset_count,
+            observation_batch_id,
+            observation_source,
+            observed_at,
+            delivery_state,
+            confidence,
             payload_json
         )
         VALUES (
@@ -1873,8 +1969,14 @@ def record_local_inventory_collection(
             :received_at,
             :observed_asset_count,
             :normalized_asset_count,
+            :observation_batch_id,
+            :observation_source,
+            :observed_at,
+            :delivery_state,
+            :confidence,
             CAST(:payload_json AS JSONB)
         )
+        ON CONFLICT DO NOTHING
         RETURNING id
         """
     )
@@ -1883,18 +1985,77 @@ def record_local_inventory_collection(
             statement,
             {
                 "site_id": site_id,
-                "source_agent_id": _clean_text(payload.get("agent_id")),
+                "source_agent_id": _clean_text(payload.get("sensor_id") or payload.get("agent_id")),
                 "schema_version": _clean_text(payload.get("schema_version")),
                 "collected_at": _parse_datetime(payload.get("collected_at")),
                 "received_at": received_at,
                 "observed_asset_count": observed_asset_count,
                 "normalized_asset_count": len(normalized_assets),
+                "observation_batch_id": observation_batch_id,
+                "observation_source": observation_source,
+                "observed_at": observed_at,
+                "delivery_state": delivery_state,
+                "confidence": confidence,
                 "payload_json": _json_payload(payload),
             },
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if collection_id is None and observation_batch_id:
+            existing = connection.execute(
+                text(
+                    """
+                    SELECT id, normalized_asset_count
+                    FROM local_inventory_collections
+                    WHERE site_id = :site_id
+                      AND source_agent_id = :source_agent_id
+                      AND observation_batch_id = :observation_batch_id
+                    """
+                ),
+                {
+                    "site_id": site_id,
+                    "source_agent_id": _clean_text(payload.get("sensor_id") or payload.get("agent_id")),
+                    "observation_batch_id": observation_batch_id,
+                },
+            ).mappings().one()
+            return {
+                "collection_id": int(existing["id"]),
+                "normalized_asset_count": int(existing["normalized_asset_count"]),
+                "duplicate": True,
+            }
+        if collection_id is None:
+            raise RuntimeError("local inventory collection was not stored")
         for asset in normalized_assets:
             _upsert_control_tower_asset(connection, asset)
-    return {"collection_id": int(collection_id), "normalized_asset_count": len(normalized_assets)}
+    return {
+        "collection_id": int(collection_id),
+        "normalized_asset_count": len(normalized_assets),
+        "duplicate": False,
+    }
+
+
+def record_observation_batch(*, payload: dict[str, Any], received_at: datetime) -> dict[str, int | bool]:
+    sensor_id = str(payload["sensor_id"])
+    site_id = str(payload["site_id"])
+    sensor_type = str(payload["sensor_type"])
+    create_agent_enrollment(
+        agent_id=sensor_id,
+        site_id=site_id,
+        display_name=_clean_text(payload.get("sensor_name")) or sensor_id,
+        agent_type="endpoint-agent" if sensor_type == "endpoint-collector" else "network-sensor",
+        platform=None,
+        architecture=None,
+        version=_clean_text(payload.get("sensor_version")),
+        hostname=_clean_text(payload.get("sensor_name")),
+        mode=_clean_text(payload.get("observation_source")),
+        last_seen_at=received_at,
+    )
+    assets = payload.get("assets")
+    observed_asset_count = len(assets) if isinstance(assets, list) else 0
+    return record_local_inventory_collection(
+        payload=payload,
+        site_id=site_id,
+        received_at=received_at,
+        observed_asset_count=observed_asset_count,
+    )
 
 
 def list_agent_checkins(limit: int = 25) -> list[dict[str, Any]]:
@@ -1939,6 +2100,11 @@ def list_control_tower_assets() -> list[dict[str, Any]]:
             first_seen_at,
             last_seen_at,
             evidence_count,
+            observation_batch_id,
+            observation_source,
+            observed_at,
+            delivery_state,
+            confidence,
             metadata_json,
             created_at,
             updated_at
@@ -1956,6 +2122,58 @@ def list_control_tower_assets() -> list[dict[str, Any]]:
         asset["metadata"] = _load_json_value(metadata, {})
         assets.append(asset)
     return assets
+
+
+def record_ai_advisor_run(
+    *,
+    run_id: str,
+    question_sha256: str,
+    site_id: str | None,
+    provider: str,
+    mode: str,
+    tool_names: list[str],
+    evidence_count: int,
+    status: str,
+) -> None:
+    ensure_database_schema()
+    statement = text(
+        """
+        INSERT INTO ai_advisor_runs (
+            run_id,
+            question_sha256,
+            site_id,
+            provider,
+            mode,
+            tool_names_json,
+            evidence_count,
+            status
+        )
+        VALUES (
+            :run_id,
+            :question_sha256,
+            :site_id,
+            :provider,
+            :mode,
+            CAST(:tool_names_json AS JSONB),
+            :evidence_count,
+            :status
+        )
+        """
+    )
+    with get_engine().begin() as connection:
+        connection.execute(
+            statement,
+            {
+                "run_id": run_id,
+                "question_sha256": question_sha256,
+                "site_id": site_id,
+                "provider": provider,
+                "mode": mode,
+                "tool_names_json": _json_payload(tool_names),
+                "evidence_count": evidence_count,
+                "status": status,
+            },
+        )
 
 
 def control_tower_summary() -> dict[str, int]:

@@ -139,6 +139,41 @@ class ControlTowerTests(unittest.TestCase):
         self.assertEqual(assets[0]["os"], "windows")
         self.assertGreaterEqual(assets[0]["evidence_count"], 3)
 
+    def test_local_inventory_cannot_supply_hub_owned_risk_metadata(self) -> None:
+        received_at = datetime.now(timezone.utc)
+        payload = {
+            "site_id": "site-local",
+            "agent_id": "agent-1",
+            "assets": [
+                {
+                    "asset_id": "local-host",
+                    "hostname": "workstation-01",
+                    "risk_score": 100,
+                    "management_status": "unmanaged",
+                    "findings": [{"finding_id": "spoofed"}],
+                    "confidence": 1.0,
+                    "demo": True,
+                    "sample_data": True,
+                    "source": "control-tower-demo-seed",
+                }
+            ],
+        }
+
+        assets = normalize_local_inventory_assets(payload, site_id="site-local", received_at=received_at)
+
+        self.assertEqual(assets[0]["hostname"], "workstation-01")
+        self.assertTrue(
+            {
+                "risk_score",
+                "management_status",
+                "findings",
+                "confidence",
+                "demo",
+                "sample_data",
+                "source",
+            }.isdisjoint(assets[0]["metadata"])
+        )
+
     def test_schema_initialization_includes_control_tower_tables(self) -> None:
         connection = Mock()
         fake_engine = Mock()
@@ -153,6 +188,8 @@ class ControlTowerTests(unittest.TestCase):
         self.assertIn("CREATE TABLE IF NOT EXISTS agent_checkins", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS local_inventory_collections", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS control_tower_assets", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS ai_advisor_runs", executed_sql)
+        self.assertIn("idx_local_inventory_observation_batch", executed_sql)
 
     def test_release_status_is_metadata_only(self) -> None:
         response = api_agent_release_status()
