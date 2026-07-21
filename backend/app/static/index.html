@@ -1435,6 +1435,7 @@
                     <span id="advisor-confidence" class="badge">confidence unknown</span>
                   </div>
                   <p id="advisor-provider-message" class="muted">Provider status has not loaded.</p>
+                  <p id="advisor-fallback-help" class="muted">Deterministic mode can be restored through backend runtime configuration.</p>
                 </div>
               </section>
 
@@ -1444,7 +1445,7 @@
                   <span id="advisor-run-id">no run</span>
                 </div>
                 <div class="panel-body advisor-result">
-                  <div id="advisor-answer" class="advisor-answer">Ask a question to generate a deterministic, evidence-backed demo answer.</div>
+                  <div id="advisor-answer" class="advisor-answer">Ask a question to generate an evidence-backed Advisor answer in the configured provider mode.</div>
                   <div>
                     <h3>Site, sensor, and asset context</h3>
                     <div id="advisor-affected" class="list">
@@ -2359,12 +2360,22 @@
 
     function renderAdvisorProvider(status) {
       state.advisorStatus = status;
-      byId("advisor-provider-pill").textContent = status.available ? `${status.provider} ready` : `${status.provider} unavailable`;
+      const modeLabel = status.mode === "demo"
+        ? "deterministic demo"
+        : status.mode === "local" ? "local model" : "hosted model";
+      byId("advisor-provider-pill").textContent = `${modeLabel} ${status.available ? "ready" : "unavailable"}`;
       byId("advisor-provider-pill").className = `pill ${status.available ? "ok" : "warn"}`;
-      byId("advisor-provider").textContent = `${status.provider} / ${status.mode}`;
+      byId("advisor-provider").textContent = status.model
+        ? `${status.provider} / ${status.model}`
+        : `${status.provider} / ${status.mode}`;
       byId("advisor-provider").className = `badge ${status.available ? "ok" : "warn"}`;
-      byId("advisor-provider-mode").textContent = status.external_data_sharing ? "external sharing enabled" : "local processing";
+      byId("advisor-provider-mode").textContent = status.mode === "demo"
+        ? "deterministic local processing"
+        : status.mode === "local" ? "local model processing; external sharing disabled" : "hosted external sharing enabled";
       byId("advisor-provider-message").textContent = status.message;
+      byId("advisor-fallback-help").textContent = status.mode === "demo"
+        ? "Deterministic demo mode is active."
+        : "To return to deterministic mode, set OPENASSETWATCH_AI_PROVIDER=demo and recreate only the backend service.";
     }
 
     async function loadAdvisorStatus() {
@@ -2468,7 +2479,7 @@
       } catch (error) {
         status.textContent = text(error.message, "AI Advisor request failed safely.");
         status.className = "form-status error";
-        byId("advisor-answer").textContent = "No answer was produced. Check provider status, authentication, and backend health; no action was taken.";
+        byId("advisor-answer").textContent = "No answer was produced. Check provider status, authentication, backend health, and local model availability; no action was taken. Deterministic demo mode can be restored through backend runtime configuration.";
       } finally {
         submit.disabled = false;
       }

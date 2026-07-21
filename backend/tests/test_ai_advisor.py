@@ -4,6 +4,7 @@ import json
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError, URLError
 from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
@@ -16,7 +17,10 @@ from app.ai_advisor import (
     ProviderStatusResponse,
     ProviderUnavailableError,
     ReadOnlyHubTools,
+    GeneratedAnswer,
+    _provider_endpoint,
     configured_provider,
+    load_provider_config,
     provider_status,
     run_advisor,
 )
@@ -98,6 +102,21 @@ def sample_tools(*, injection: bool = False, asset_count: int = 3) -> ReadOnlyHu
 
 
 class AIAdvisorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        provider_environment = patch.dict(
+            os.environ,
+            {
+                "OPENASSETWATCH_AI_PROVIDER": "demo",
+                "OPENASSETWATCH_AI_EXTERNAL_ENABLED": "false",
+                "OPENASSETWATCH_AI_BASE_URL": "",
+                "OPENASSETWATCH_AI_API_KEY": "",
+                "OPENASSETWATCH_AI_MODEL": "",
+            },
+            clear=False,
+        )
+        provider_environment.start()
+        self.addCleanup(provider_environment.stop)
+
     def test_deterministic_environment_response_is_evidence_backed(self) -> None:
         response = run_advisor(
             request=AdvisorQueryRequest(question="Summarize my entire environment."),
@@ -207,6 +226,228 @@ class AIAdvisorTests(unittest.TestCase):
         self.assertNotIn(config.api_key, status.model_dump_json())
         with self.assertRaises(ProviderUnavailableError):
             configured_provider(config)
+
+    def test_local_ollama_configuration_does_not_require_api_key(self) -> None:
+        config = ProviderConfig(
+            provider="openai-compatible",
+            external_enabled=False,
+            base_url="http://host.docker.internal:11434/v1",
+            api_key=None,
+            model="qwen3.6:27b",
+            timeout_seconds=10,
+        )
+
+        provider = OpenAICompatibleProvider(config)
+
+        self.assertEqual(provider.mode, "local")
+        self.assertIsNone(provider.config.api_key)
+
+    def test_local_timeout_is_bounded_separately_from_hosted_timeout(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "OPENASSETWATCH_AI_PROVIDER": "openai-compatible",
+                "OPENASSETWATCH_AI_BASE_URL": "http://host.docker.internal:11434/v1",
+                "OPENASSETWATCH_AI_MODEL": "qwen3.6:27b",
+                "OPENASSETWATCH_AI_TIMEOUT_SECONDS": "120",
+            },
+            clear=False,
+        ):
+            self.assertEqual(load_provider_config().timeout_seconds, 90.0)
+
+        with patch.dict(
+            os.environ,
+            {
+                "OPENASSETWATCH_AI_PROVIDER": "openai-compatible",
+                "OPENASSETWATCH_AI_BASE_URL": "https://api.example.invalid/v1",
+                "OPENASSETWATCH_AI_MODEL": "example-model",
+                "OPENASSETWATCH_AI_TIMEOUT_SECONDS": "120",
+            },
+            clear=False,
+        ):
+            self.assertEqual(load_provider_config().timeout_seconds, 30.0)
+
+    def test_blank_local_key_does_not_send_authorization_header_or_hosted_tools(self) -> None:
+        config = ProviderConfig(
+            provider="openai-compatible",
+            external_enabled=False,
+            base_url="http://host.docker.internal:11434/v1",
+            api_key=None,
+            model="qwen3.6:27b",
+            timeout_seconds=10,
+        )
+        provider = OpenAICompatibleProvider(config)
+        response = Mock()
+        response.read.return_value = json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "answer": "Bounded local answer.",
+                                    "evidence_ids": [],
+                                    "recommended_actions": [],
+                                    "confidence": 0.2,
+                                    "warnings": [],
+                                    "limitations": ["No evidence supplied."],
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        ).encode()
+        opener = Mock()
+        opener.open.return_value = response
+
+        with patch("app.ai_advisor.build_opener", return_value=opener):
+            provider.generate(question="Summarize.", context={"tool_results": {}, "evidence": []})
+
+        request = opener.open.call_args.args[0]
+        self.assertNotIn("Authorization", request.headers)
+        request_body = json.loads(request.data.decode("utf-8"))
+        self.assertNotIn("tools", request_body)
+        self.assertNotIn("functions", request_body)
+        self.assertNotIn("tool_choice", request_body)
+
+    def test_local_http_allowlist_is_exact(self) -> None:
+        for host in ("localhost", "127.0.0.1", "[::1]", "host.docker.internal"):
+            with self.subTest(host=host):
+                endpoint = _provider_endpoint(f"http://{host}:11434/v1")
+                self.assertEqual(endpoint, f"http://{host}:11434/v1/chat/completions")
+
+        for url in (
+            "http://localhost.example.invalid:11434/v1",
+            "http://127.0.0.2:11434/v1",
+            "http://10.0.0.5:11434/v1",
+            "http://169.254.169.254/latest",
+            "https://192.168.1.10/v1",
+            "https://metadata.google.internal/v1",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(ProviderUnavailableError):
+                    _provider_endpoint(url)
+
+    def test_hosted_https_provider_requires_api_key_and_explicit_enablement(self) -> None:
+        missing_key = ProviderConfig(
+            provider="openai-compatible",
+            external_enabled=True,
+            base_url="https://api.example.invalid/v1",
+            api_key=None,
+            model="example-model",
+            timeout_seconds=10,
+        )
+        disabled = ProviderConfig(
+            provider="openai-compatible",
+            external_enabled=False,
+            base_url="https://api.example.invalid/v1",
+            api_key="test-only-value",
+            model="example-model",
+            timeout_seconds=10,
+        )
+
+        with self.assertRaises(ProviderUnavailableError):
+            OpenAICompatibleProvider(missing_key)
+        with self.assertRaises(ProviderUnavailableError):
+            OpenAICompatibleProvider(disabled)
+
+        configured = ProviderConfig(
+            provider="openai-compatible",
+            external_enabled=True,
+            base_url="https://api.example.invalid/v1",
+            api_key="test-only-value",
+            model="example-model",
+            timeout_seconds=10,
+        )
+        self.assertEqual(OpenAICompatibleProvider(configured).mode, "external")
+
+    def test_local_and_hosted_status_report_privacy_modes(self) -> None:
+        local = ProviderConfig(
+            provider="openai-compatible",
+            external_enabled=False,
+            base_url="http://host.docker.internal:11434/v1",
+            api_key=None,
+            model="qwen3.6:27b",
+            timeout_seconds=10,
+        )
+        with patch(
+            "app.ai_advisor._probe_local_provider",
+            return_value=(True, "OpenAI-compatible local model is ready; processing remains on this machine."),
+        ):
+            local_status = provider_status(local)
+
+        self.assertEqual(local_status.mode, "local")
+        self.assertTrue(local_status.enabled)
+        self.assertTrue(local_status.available)
+        self.assertFalse(local_status.external_data_sharing)
+        self.assertEqual(local_status.model, "qwen3.6:27b")
+        self.assertIn("remains on this machine", local_status.message)
+
+        hosted = ProviderConfig(
+            provider="openai-compatible",
+            external_enabled=True,
+            base_url="https://api.example.invalid/v1",
+            api_key="test-only-value",
+            model="example-model",
+            timeout_seconds=10,
+        )
+        hosted_status = provider_status(hosted)
+        self.assertEqual(hosted_status.mode, "external")
+        self.assertTrue(hosted_status.external_data_sharing)
+        self.assertTrue(hosted_status.available)
+        self.assertNotIn(hosted.api_key, hosted_status.model_dump_json())
+
+    def test_deterministic_provider_remains_available(self) -> None:
+        status = provider_status(ProviderConfig("demo", False, None, None, None, 10))
+
+        self.assertEqual(status.mode, "demo")
+        self.assertTrue(status.available)
+        self.assertFalse(status.external_data_sharing)
+
+    def test_local_connection_timeout_and_missing_model_fail_safely(self) -> None:
+        config = ProviderConfig(
+            provider="openai-compatible",
+            external_enabled=False,
+            base_url="http://host.docker.internal:11434/v1",
+            api_key=None,
+            model="qwen3.6:27b",
+            timeout_seconds=2,
+        )
+        provider = OpenAICompatibleProvider(config)
+        failures = (
+            (URLError("connection refused"), "not reachable"),
+            (TimeoutError(), "timed out"),
+            (HTTPError(provider.endpoint, 404, "not found", None, None), "not installed"),
+        )
+        for failure, expected in failures:
+            with self.subTest(expected=expected):
+                opener = Mock()
+                opener.open.side_effect = failure
+                with patch("app.ai_advisor.build_opener", return_value=opener):
+                    with self.assertRaises(ProviderUnavailableError) as raised:
+                        provider.generate(question="Summarize.", context={"tool_results": {}, "evidence": []})
+                self.assertIn(expected, str(raised.exception))
+
+    def test_unknown_provider_evidence_identifier_is_rejected(self) -> None:
+        fake_provider = Mock()
+        fake_provider.name = "openai-compatible"
+        fake_provider.mode = "local"
+        fake_provider.generate.return_value = GeneratedAnswer(
+            answer="Unsupported evidence claim.",
+            evidence_ids=["asset:unknown:unsupported:finding"],
+            recommended_actions=[],
+            confidence=0.9,
+            warnings=[],
+            limitations=[],
+        )
+
+        with patch("app.ai_advisor.configured_provider", return_value=fake_provider):
+            with self.assertRaises(ProviderOutputError):
+                run_advisor(
+                    request=AdvisorQueryRequest(question="Summarize my entire environment."),
+                    tools=sample_tools(),
+                )
 
     def test_external_provider_rejects_malformed_output_without_leaking_secret(self) -> None:
         config = ProviderConfig(

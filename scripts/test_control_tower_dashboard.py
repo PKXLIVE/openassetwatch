@@ -129,6 +129,7 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'maxlength="500"',
             'id="advisor-site"',
             'id="advisor-provider-pill"',
+            'id="advisor-fallback-help"',
             'id="advisor-data-state"',
             'id="advisor-confidence"',
             'id="advisor-evidence"',
@@ -159,7 +160,10 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "No supporting evidence",
             "Treat this answer as unverified",
             "no action was taken",
+            "configured provider mode",
             "Read-only tools:",
+            "local model processing; external sharing disabled",
+            "OPENASSETWATCH_AI_PROVIDER=demo",
         )
         for copy in expected_copy:
             with self.subTest(copy=copy):

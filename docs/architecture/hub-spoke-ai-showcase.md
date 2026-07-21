@@ -160,24 +160,69 @@ packet source, or user-controlled URL.
 
 ### Optional OpenAI-compatible provider
 
-The external interface is intentionally protocol-compatible rather than tied
-to a mandatory vendor. It remains unavailable unless all of the following are
-set at runtime:
+The interface is intentionally protocol-compatible rather than tied to a
+mandatory vendor. The same variables support either a model running on the
+OpenAssetWatch machine or a hosted provider:
 
 | Variable | Meaning |
 | --- | --- |
-| `OPENASSETWATCH_AI_PROVIDER=openai-compatible` | Select the external interface. |
-| `OPENASSETWATCH_AI_EXTERNAL_ENABLED=true` | Explicitly allow normalized context to leave the hub. |
-| `OPENASSETWATCH_AI_BASE_URL` | Administrator-controlled API base; HTTPS is required except for loopback-local runtimes. |
+| `OPENASSETWATCH_AI_PROVIDER=openai-compatible` | Select the generic OpenAI-compatible interface. |
+| `OPENASSETWATCH_AI_EXTERNAL_ENABLED` | Keep `false` for a local model; hosted providers require `true`. |
+| `OPENASSETWATCH_AI_BASE_URL` | Administrator-controlled API base. Local HTTP is allowlisted; hosted providers require HTTPS. |
 | `OPENASSETWATCH_AI_MODEL` | Configured model identifier. |
-| `OPENASSETWATCH_AI_API_KEY` | Secret supplied only through the runtime environment or secret store. |
-| `OPENASSETWATCH_AI_TIMEOUT_SECONDS` | Request timeout, clamped to 2-30 seconds. |
+| `OPENASSETWATCH_AI_API_KEY` | Optional for approved local endpoints; required for hosted providers. |
+| `OPENASSETWATCH_AI_TIMEOUT_SECONDS` | Request timeout: 2-90 seconds locally and 2-30 seconds for hosted providers. |
 
-Redirects are rejected. The provider response is capped, parsed as JSON, and
-validated against a strict schema. The service maps returned evidence IDs back
-to its own evidence catalog and drops unsupported references. Provider errors
-return a bounded `502` or `503` message without response bodies, authorization
-headers, URLs, keys, internal prompts, or stack traces.
+Plain HTTP is accepted only for `localhost`, `127.0.0.1`, `::1`, and
+`host.docker.internal`. Other private, reserved, link-local, metadata-service,
+or arbitrary HTTP targets are rejected. Hosted endpoints require HTTPS,
+explicit external enablement, and an API key.
+
+The local status check calls the bounded OpenAI-compatible `/models` endpoint,
+verifies that the configured model is installed, and never sends an
+Authorization header when the key is blank. Redirects are rejected. Chat uses
+only `POST /chat/completions`; no provider tool, function, browsing, file, URL,
+code, or shell capability is requested.
+
+Provider responses are capped, parsed as JSON, and validated against a strict
+schema. Every returned evidence ID must match the server-issued evidence
+catalog; an unknown ID rejects the response. Provider errors return bounded
+`502` or `503` messages without response bodies, authorization headers, URLs,
+keys, internal prompts, or stack traces.
+
+### Local Ollama example
+
+Ollama remains a separate host service and is not added to the Compose stack.
+For the confirmed local model, place this configuration in the ignored `.env`
+file:
+
+```dotenv
+OPENASSETWATCH_AI_PROVIDER=openai-compatible
+OPENASSETWATCH_AI_EXTERNAL_ENABLED=false
+OPENASSETWATCH_AI_BASE_URL=http://host.docker.internal:11434/v1
+OPENASSETWATCH_AI_MODEL=qwen3.6:27b
+OPENASSETWATCH_AI_API_KEY=
+OPENASSETWATCH_AI_TIMEOUT_SECONDS=90
+```
+
+Recreate only the backend and inspect its privacy/status fields:
+
+```powershell
+docker compose up -d --no-deps --force-recreate backend
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/ai/status
+```
+
+To restore deterministic mode without editing tracked files:
+
+```powershell
+$env:OPENASSETWATCH_AI_PROVIDER = "demo"
+docker compose up -d --no-deps --force-recreate backend
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/ai/status
+```
+
+Remove the temporary shell override with
+`Remove-Item Env:OPENASSETWATCH_AI_PROVIDER` before activating the ignored
+`.env` configuration again.
 
 ## Tool And Prompt Trust Boundary
 
@@ -251,9 +296,11 @@ session-only password field. The UI does not persist it.
 
 - Default demo mode keeps all processing in the hub and sends nothing to an AI
   provider.
-- Enabling an external provider is an explicit data-sharing decision. Only the
+- Enabling a hosted provider is an explicit data-sharing decision. Only the
   bounded normalized projection is sent, but it can still contain operational
   asset identifiers and findings.
+- Approved local OpenAI-compatible endpoints report `mode: local` and
+  `external_data_sharing: false`; processing remains on the local machine.
 - Secrets, raw packets, arbitrary metadata, SQL, filesystem data, and hidden
   prompts are outside the provider contract.
 - Provider keys and admin/collector tokens must come from runtime secret

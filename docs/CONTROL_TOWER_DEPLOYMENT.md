@@ -210,18 +210,20 @@ docker compose down -v --remove-orphans
 | `OAW_POSTGRES_PASSWORD` | Local PostgreSQL password placeholder for Compose. |
 | `OPENASSETWATCH_COLLECTOR_TOKEN` | Optional local collector token. Empty disables token enforcement. |
 | `OPENASSETWATCH_ADMIN_TOKEN` | Optional local admin token for hub/AI read endpoints. Empty disables token enforcement. |
-| `OPENASSETWATCH_AI_PROVIDER` | `demo` by default; `openai-compatible` selects the optional external interface. |
-| `OPENASSETWATCH_AI_EXTERNAL_ENABLED` | Must be `true` before normalized context can leave the hub. |
-| `OPENASSETWATCH_AI_BASE_URL` | Configured external API base. HTTPS required except loopback-local runtimes. |
-| `OPENASSETWATCH_AI_MODEL` | External model identifier. |
-| `OPENASSETWATCH_AI_API_KEY` | External provider secret; set only in the runtime environment/secret store. |
-| `OPENASSETWATCH_AI_TIMEOUT_SECONDS` | External timeout clamped to 2-30 seconds. |
+| `OPENASSETWATCH_AI_PROVIDER` | `demo` by default; `openai-compatible` selects the generic compatible interface. |
+| `OPENASSETWATCH_AI_EXTERNAL_ENABLED` | Keep `false` for an approved local model; hosted providers require `true`. |
+| `OPENASSETWATCH_AI_BASE_URL` | Local or hosted API base. Local HTTP is allowlisted; hosted providers require HTTPS. |
+| `OPENASSETWATCH_AI_MODEL` | Local or hosted model identifier. |
+| `OPENASSETWATCH_AI_API_KEY` | Optional and omitted from requests for approved local endpoints; required for hosted providers. |
+| `OPENASSETWATCH_AI_TIMEOUT_SECONDS` | Provider timeout clamped to 2-90 seconds locally and 2-30 seconds when hosted. |
 | `OPENASSETWATCH_CONTROL_TOWER_VERSION` | API/server version reported by `/health`. |
 | `OPENASSETWATCH_EXPECTED_AGENT_VERSION` | Placeholder expected agent version in release metadata. |
 | `OPENASSETWATCH_AGENT_RELEASE_CHANNEL` | Placeholder release channel such as `local`. |
 | `OPENASSETWATCH_CORS_ORIGINS` | Local UI origins allowed to call the API. |
 
 Do not put production secrets in `.env.example` or in committed Compose files.
+The exact ignored `.env` configuration for local Ollama and deterministic-mode
+restoration commands are in `docs/architecture/hub-spoke-ai-showcase.md`.
 
 ## Database Model
 

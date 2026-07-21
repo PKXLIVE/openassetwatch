@@ -4,6 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from ipaddress import ip_address
 from typing import Annotated, Any, Literal, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -17,6 +18,10 @@ MAX_TOOL_ITEMS = 50
 MAX_EVIDENCE_ITEMS = 30
 MAX_PROVIDER_RESPONSE_BYTES = 1_000_000
 MAX_PROVIDER_CONTEXT_CHARS = 60_000
+MAX_PROVIDER_HEALTH_BYTES = 128_000
+PROVIDER_HEALTH_TIMEOUT_SECONDS = 2.0
+MAX_HOSTED_PROVIDER_TIMEOUT_SECONDS = 30.0
+MAX_LOCAL_PROVIDER_TIMEOUT_SECONDS = 90.0
 STALE_SENSOR_MINUTES = 90
 AGING_DATA_MINUTES = 60
 STALE_DATA_MINUTES = 24 * 60
@@ -26,6 +31,9 @@ AI_BASE_URL_ENV = "OPENASSETWATCH_AI_BASE_URL"
 AI_API_KEY_ENV = "OPENASSETWATCH_AI_API_KEY"
 AI_MODEL_ENV = "OPENASSETWATCH_AI_MODEL"
 AI_TIMEOUT_ENV = "OPENASSETWATCH_AI_TIMEOUT_SECONDS"
+LOCAL_PROVIDER_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
+BLOCKED_PROVIDER_HOSTS = frozenset({"169.254.169.254", "metadata.google.internal", "metadata.google"})
+ProviderMode = Literal["demo", "local", "external"]
 EvidenceId = Annotated[str, Field(min_length=1, max_length=500)]
 RecommendedAction = Annotated[str, Field(min_length=1, max_length=500)]
 NoticeText = Annotated[str, Field(min_length=1, max_length=500)]
@@ -43,7 +51,7 @@ class AdvisorQueryRequest(StrictModel):
 
 class ProviderStatusResponse(StrictModel):
     provider: str
-    mode: Literal["demo", "external"]
+    mode: ProviderMode
     enabled: bool
     available: bool
     external_data_sharing: bool
@@ -75,7 +83,7 @@ class AdvisorResponse(StrictModel):
     confidence: float = Field(ge=0.0, le=1.0)
     data_as_of: datetime | None
     provider: str
-    mode: Literal["demo", "external"]
+    mode: ProviderMode
     data_state: Literal["live", "cached", "demonstration"]
     tools_used: list[str]
     warnings: list[str]
@@ -119,17 +127,29 @@ def load_provider_config() -> ProviderConfig:
         timeout = float(timeout_text)
     except ValueError:
         timeout = 10.0
+    base_url = (os.getenv(AI_BASE_URL_ENV) or "").strip() or None
+    timeout_limit = MAX_HOSTED_PROVIDER_TIMEOUT_SECONDS
+    if base_url:
+        try:
+            if _provider_mode(base_url) == "local":
+                timeout_limit = MAX_LOCAL_PROVIDER_TIMEOUT_SECONDS
+        except ProviderUnavailableError:
+            pass
     return ProviderConfig(
         provider=os.getenv(AI_PROVIDER_ENV, "demo").strip().lower() or "demo",
         external_enabled=_enabled(os.getenv(AI_EXTERNAL_ENABLED_ENV)),
-        base_url=(os.getenv(AI_BASE_URL_ENV) or "").strip() or None,
+        base_url=base_url,
         api_key=(os.getenv(AI_API_KEY_ENV) or "").strip() or None,
         model=(os.getenv(AI_MODEL_ENV) or "").strip() or None,
-        timeout_seconds=max(2.0, min(timeout, 30.0)),
+        timeout_seconds=max(2.0, min(timeout, timeout_limit)),
     )
 
 
-def provider_status(config: ProviderConfig | None = None) -> ProviderStatusResponse:
+def provider_status(
+    config: ProviderConfig | None = None,
+    *,
+    check_availability: bool = True,
+) -> ProviderStatusResponse:
     config = config or load_provider_config()
     if config.provider == "demo":
         return ProviderStatusResponse(
@@ -141,23 +161,65 @@ def provider_status(config: ProviderConfig | None = None) -> ProviderStatusRespo
             model="deterministic-showcase-v1",
             message="Deterministic local provider; no network access or API key is used.",
         )
-    configured = bool(config.base_url and config.api_key and config.model)
-    available = config.provider == "openai-compatible" and config.external_enabled and configured
     if config.provider != "openai-compatible":
-        message = "Unknown provider; select demo or openai-compatible."
-    elif not config.external_enabled:
-        message = "External provider is disabled until explicitly enabled."
-    elif not configured:
-        message = "External provider configuration is incomplete."
-    else:
-        message = "OpenAI-compatible provider is configured for bounded advisory requests."
+        return ProviderStatusResponse(
+            provider=config.provider,
+            mode="external",
+            enabled=False,
+            available=False,
+            external_data_sharing=False,
+            message="Unknown provider; select demo or openai-compatible.",
+        )
+    try:
+        mode = _provider_mode(config.base_url) if config.base_url else "external"
+    except ProviderUnavailableError as exc:
+        return ProviderStatusResponse(
+            provider=config.provider,
+            mode="external",
+            enabled=False,
+            available=False,
+            external_data_sharing=False,
+            model=config.model,
+            message=str(exc),
+        )
+    if not config.base_url or not config.model:
+        return ProviderStatusResponse(
+            provider=config.provider,
+            mode=mode,
+            enabled=False,
+            available=False,
+            external_data_sharing=False,
+            model=config.model,
+            message="OpenAI-compatible provider configuration is incomplete.",
+        )
+    if mode == "local":
+        available, message = (
+            _probe_local_provider(config)
+            if check_availability
+            else (True, "OpenAI-compatible local model is configured for bounded advisory requests.")
+        )
+        return ProviderStatusResponse(
+            provider=config.provider,
+            mode="local",
+            enabled=True,
+            available=available,
+            external_data_sharing=False,
+            model=config.model,
+            message=message,
+        )
+    configured = bool(config.external_enabled and config.api_key)
+    message = (
+        "Hosted OpenAI-compatible provider is configured for bounded advisory requests."
+        if configured
+        else "Hosted providers require explicit external enablement and an API key."
+    )
     return ProviderStatusResponse(
         provider=config.provider,
         mode="external",
-        enabled=config.external_enabled,
-        available=available,
-        external_data_sharing=available,
-        model=config.model if available else None,
+        enabled=configured,
+        available=configured,
+        external_data_sharing=configured,
+        model=config.model,
         message=message,
     )
 
@@ -533,7 +595,7 @@ def build_tool_context(
 
 class AdvisorProvider(Protocol):
     name: str
-    mode: Literal["demo", "external"]
+    mode: ProviderMode
 
     def generate(self, *, question: str, context: dict[str, Any]) -> GeneratedAnswer:
         ...
@@ -651,24 +713,96 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 
 
 def _provider_endpoint(base_url: str) -> str:
+    validated_base, _ = _validated_provider_base(base_url)
+    return validated_base + "/chat/completions"
+
+
+def _provider_models_endpoint(base_url: str) -> str:
+    validated_base, _ = _validated_provider_base(base_url)
+    return validated_base + "/models"
+
+
+def _provider_mode(base_url: str) -> Literal["local", "external"]:
+    _, mode = _validated_provider_base(base_url)
+    return mode
+
+
+def _validated_provider_base(base_url: str) -> tuple[str, Literal["local", "external"]]:
     parsed = urlparse(base_url)
     if parsed.scheme not in {"https", "http"} or not parsed.hostname:
-        raise ProviderUnavailableError("external provider URL must be an absolute HTTP(S) URL")
+        raise ProviderUnavailableError("provider URL must be an absolute HTTP(S) URL")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ProviderUnavailableError("external provider URL contains unsupported components")
-    if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        raise ProviderUnavailableError("external provider URL must use HTTPS unless it is loopback-local")
-    return base_url.rstrip("/") + "/chat/completions"
+        raise ProviderUnavailableError("provider URL contains unsupported components")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ProviderUnavailableError("provider URL contains an invalid port") from exc
+    hostname = parsed.hostname.rstrip(".").lower()
+    if hostname in BLOCKED_PROVIDER_HOSTS:
+        raise ProviderUnavailableError("provider URL targets a blocked metadata or link-local host")
+    local = hostname in LOCAL_PROVIDER_HOSTS
+    if not local:
+        try:
+            address = ip_address(hostname)
+        except ValueError:
+            address = None
+        if address is not None and not address.is_global:
+            raise ProviderUnavailableError("provider URL targets a private, reserved, or link-local address")
+    if parsed.scheme == "http" and not local:
+        raise ProviderUnavailableError("hosted provider URLs must use HTTPS")
+    return base_url.rstrip("/"), "local" if local else "external"
+
+
+def _provider_headers(config: ProviderConfig, *, content_type: bool = False) -> dict[str, str]:
+    headers = {"Accept": "application/json"}
+    if content_type:
+        headers["Content-Type"] = "application/json"
+    if config.api_key:
+        headers["Authorization"] = f"Bearer {config.api_key}"
+    return headers
+
+
+def _probe_local_provider(config: ProviderConfig) -> tuple[bool, str]:
+    if not config.base_url or not config.model:
+        return False, "OpenAI-compatible local provider configuration is incomplete."
+    request = Request(
+        _provider_models_endpoint(config.base_url),
+        method="GET",
+        headers=_provider_headers(config),
+    )
+    try:
+        response = build_opener(_NoRedirectHandler()).open(request, timeout=PROVIDER_HEALTH_TIMEOUT_SECONDS)
+        raw = response.read(MAX_PROVIDER_HEALTH_BYTES + 1)
+    except HTTPError as exc:
+        if exc.code == 404:
+            return False, "Local model endpoint is reachable, but the models API is unavailable."
+        return False, "Local model health check was rejected safely."
+    except TimeoutError:
+        return False, "Local model health check timed out."
+    except (URLError, OSError):
+        return False, "Local model is not reachable from the backend."
+    if len(raw) > MAX_PROVIDER_HEALTH_BYTES:
+        return False, "Local model health response exceeded the safety limit."
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+        models = payload["data"]
+        model_ids = {item["id"] for item in models if isinstance(item, dict) and isinstance(item.get("id"), str)}
+    except (KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+        return False, "Local model health response was malformed."
+    if config.model not in model_ids:
+        return False, "Local model service is reachable, but the configured model is not installed."
+    return True, "OpenAI-compatible local model is ready; processing remains on this machine."
 
 
 class OpenAICompatibleProvider:
     name = "openai-compatible"
-    mode: Literal["external"] = "external"
 
     def __init__(self, config: ProviderConfig) -> None:
-        status = provider_status(config)
-        if not status.available or not config.base_url or not config.api_key or not config.model:
-            raise ProviderUnavailableError(status.message)
+        if not config.base_url or not config.model:
+            raise ProviderUnavailableError("OpenAI-compatible provider configuration is incomplete.")
+        self.mode = _provider_mode(config.base_url)
+        if self.mode == "external" and (not config.external_enabled or not config.api_key):
+            raise ProviderUnavailableError("Hosted providers require explicit external enablement and an API key.")
         self.config = config
         self.endpoint = _provider_endpoint(config.base_url)
 
@@ -702,13 +836,23 @@ class OpenAICompatibleProvider:
             self.endpoint,
             data=body,
             method="POST",
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.config.api_key}"},
+            headers=_provider_headers(self.config, content_type=True),
         )
         try:
             response = build_opener(_NoRedirectHandler()).open(request, timeout=self.config.timeout_seconds)
             raw = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
-        except (HTTPError, URLError, TimeoutError, OSError) as exc:
-            raise ProviderUnavailableError("external provider request failed safely") from exc
+        except HTTPError as exc:
+            if self.mode == "local" and exc.code == 404:
+                raise ProviderUnavailableError("local model is unavailable or not installed") from exc
+            raise ProviderUnavailableError(f"{self.mode} provider rejected the request safely") from exc
+        except TimeoutError as exc:
+            raise ProviderUnavailableError(f"{self.mode} provider request timed out safely") from exc
+        except URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise ProviderUnavailableError(f"{self.mode} provider request timed out safely") from exc
+            raise ProviderUnavailableError(f"{self.mode} provider is not reachable from the backend") from exc
+        except OSError as exc:
+            raise ProviderUnavailableError(f"{self.mode} provider is not reachable from the backend") from exc
         if len(raw) > MAX_PROVIDER_RESPONSE_BYTES:
             raise ProviderOutputError("external provider response exceeded the safety limit")
         try:
@@ -751,11 +895,12 @@ def run_advisor(
     provider = configured_provider(config)
     generated = provider.generate(question=request.question, context=context)
     evidence_by_id = {item.evidence_id: item for item in evidence}
-    selected_evidence = [evidence_by_id[item_id] for item_id in generated.evidence_ids if item_id in evidence_by_id]
+    unknown_evidence_ids = [item_id for item_id in generated.evidence_ids if item_id not in evidence_by_id]
+    if unknown_evidence_ids:
+        raise ProviderOutputError("AI provider returned unknown evidence references")
+    selected_evidence = [evidence_by_id[item_id] for item_id in dict.fromkeys(generated.evidence_ids)]
     warnings = list(generated.warnings)
     confidence = generated.confidence
-    if generated.evidence_ids and len(selected_evidence) != len(generated.evidence_ids):
-        warnings.append("Unsupported provider evidence references were removed.")
     if not selected_evidence:
         confidence = min(confidence, 0.35)
         if "No supporting evidence items were available for this answer." not in warnings:

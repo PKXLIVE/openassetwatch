@@ -136,7 +136,8 @@ python scripts/test_control_tower_demo_seed.py
 ```
 
 See `docs/architecture/hub-spoke-ai-showcase.md` for provider configuration,
-the observation batch contract, trust boundaries, and local demo steps.
+the observation batch contract, trust boundaries, local Ollama activation, and
+deterministic-mode restoration steps.
 
 ## Safety Boundaries
 
