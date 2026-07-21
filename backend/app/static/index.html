@@ -860,6 +860,177 @@
       gap: 0.45rem;
     }
 
+    .advisor-trust-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.55rem;
+    }
+
+    .advisor-trust-strip[hidden] {
+      display: none;
+    }
+
+    .advisor-trust-item {
+      display: grid;
+      gap: 0.2rem;
+      min-width: 0;
+      padding: 0.7rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .advisor-trust-item span,
+    .advisor-technical-grid span {
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 850;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .advisor-trust-item strong {
+      overflow-wrap: anywhere;
+    }
+
+    .advisor-trust-item.privacy {
+      border-color: #8ac7b5;
+      background: var(--green-bg);
+    }
+
+    .advisor-trust-item.external {
+      border-color: #e5b86e;
+      background: var(--amber-bg);
+    }
+
+    .advisor-progress {
+      display: grid;
+      gap: 0.45rem;
+      padding: 0.7rem;
+      border: 1px solid #d8c9f2;
+      border-radius: 7px;
+      background: var(--violet-bg);
+    }
+
+    .advisor-progress[hidden] {
+      display: none;
+    }
+
+    .advisor-progress-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    .advisor-progress-line strong,
+    .advisor-progress-line span {
+      overflow-wrap: anywhere;
+    }
+
+    .advisor-progress-track {
+      height: 4px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #ddd3ed;
+    }
+
+    .advisor-progress-track span {
+      display: block;
+      width: 32%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--violet);
+      animation: advisor-wait 1.8s ease-in-out infinite alternate;
+    }
+
+    @keyframes advisor-wait {
+      from { transform: translateX(-35%); }
+      to { transform: translateX(245%); }
+    }
+
+    .advisor-answer-section,
+    .advisor-result-section {
+      display: grid;
+      gap: 0.55rem;
+    }
+
+    .advisor-answer-section h3,
+    .advisor-result-section h3 {
+      margin: 0;
+    }
+
+    .advisor-trust-note {
+      display: grid;
+      gap: 0.2rem;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid #d8c9f2;
+      border-radius: 7px;
+      background: #faf7ff;
+    }
+
+    .advisor-trust-note span {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .advisor-entity-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.55rem;
+    }
+
+    .advisor-entity-card {
+      display: grid;
+      gap: 0.25rem;
+      padding: 0.7rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .advisor-entity-card span {
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .advisor-technical,
+    .advisor-provider-help {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .advisor-technical summary,
+    .advisor-provider-help summary {
+      cursor: pointer;
+      padding: 0.7rem;
+      font-weight: 850;
+    }
+
+    .advisor-technical-grid {
+      display: grid;
+      gap: 0.55rem;
+      padding: 0 0.7rem 0.7rem;
+    }
+
+    .advisor-technical-grid div {
+      display: grid;
+      gap: 0.15rem;
+    }
+
+    .advisor-technical-grid code {
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+
+    .advisor-provider-help p {
+      margin: 0;
+      padding: 0 0.7rem 0.7rem;
+    }
+
     .advisor-answer {
       border-left: 4px solid var(--violet);
       border-radius: 6px;
@@ -911,7 +1082,8 @@
       .summary-grid,
       .split,
       .asset-layout,
-      .advisor-layout {
+      .advisor-layout,
+      .advisor-entity-grid {
         grid-template-columns: 1fr;
       }
 
@@ -973,6 +1145,25 @@
 
       .mini-stats {
         grid-template-columns: 1fr;
+      }
+
+      .advisor-trust-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .advisor-progress-line {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.2rem;
+      }
+
+      #ai-advisor .panel-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      #ai-advisor .panel-header span {
+        white-space: normal;
       }
     }
   </style>
@@ -1387,7 +1578,7 @@
             <span id="advisor-provider-pill" class="pill warn">checking provider</span>
           </div>
 
-          <div class="advisor-layout">
+          <div class="advisor-layout" data-mobile-stack="advisor">
             <section class="panel">
               <div class="panel-header">
                 <h3>AI Advisor question</h3>
@@ -1417,6 +1608,14 @@
                   <button id="advisor-status-refresh" class="secondary" type="button">Refresh provider status</button>
                 </div>
                 <span id="advisor-form-status" class="form-status" role="status" aria-live="polite">Ready for a read-only question.</span>
+                <div id="advisor-progress" class="advisor-progress" role="status" aria-live="polite" hidden>
+                  <div class="advisor-progress-line">
+                    <strong id="advisor-progress-stage">Gathering hub evidence</strong>
+                    <span id="advisor-elapsed">0 seconds elapsed</span>
+                  </div>
+                  <div class="advisor-progress-track" aria-hidden="true"><span></span></div>
+                  <small>Client-side waiting guide only; the backend does not stream exact stage progress.</small>
+                </div>
                 <p class="muted">The showcase exposes no terminal or OS process controls, configuration changes, packet capture, or remediation.</p>
               </form>
             </section>
@@ -1428,48 +1627,114 @@
                   <span id="advisor-provider-mode">not loaded</span>
                 </div>
                 <div class="panel-body advisor-context">
+                  <div id="advisor-local-trust" class="advisor-trust-strip" hidden>
+                    <div class="advisor-trust-item">
+                      <span>Local model</span>
+                      <strong id="advisor-local-model">model not reported</strong>
+                    </div>
+                    <div class="advisor-trust-item">
+                      <span>Runtime</span>
+                      <strong>OpenAI-compatible local runtime</strong>
+                    </div>
+                    <div class="advisor-trust-item privacy">
+                      <span>Privacy</span>
+                      <strong>Data stays on this machine</strong>
+                      <small>No external sharing</small>
+                    </div>
+                  </div>
+                  <div id="advisor-demo-trust" class="advisor-trust-strip" hidden>
+                    <div class="advisor-trust-item">
+                      <span>Provider mode</span>
+                      <strong>Deterministic demo</strong>
+                    </div>
+                    <div class="advisor-trust-item">
+                      <span>Runtime</span>
+                      <strong>Bounded backend logic</strong>
+                    </div>
+                    <div class="advisor-trust-item privacy">
+                      <span>Privacy</span>
+                      <strong>Local processing</strong>
+                      <small>No external sharing</small>
+                    </div>
+                  </div>
+                  <div id="advisor-hosted-trust" class="advisor-trust-strip" hidden>
+                    <div class="advisor-trust-item">
+                      <span>Provider mode</span>
+                      <strong>Hosted external model</strong>
+                    </div>
+                    <div class="advisor-trust-item">
+                      <span>Model</span>
+                      <strong id="advisor-hosted-model">model not reported</strong>
+                    </div>
+                    <div class="advisor-trust-item external">
+                      <span>Data sharing</span>
+                      <strong>External sharing enabled</strong>
+                      <small>Bounded normalized evidence may leave this machine.</small>
+                    </div>
+                  </div>
                   <div class="advisor-meta">
                     <span id="advisor-provider" class="badge">provider unknown</span>
                     <span id="advisor-data-state" class="badge">data state unknown</span>
                     <span id="advisor-freshness" class="badge">data as of unknown</span>
-                    <span id="advisor-confidence" class="badge">confidence unknown</span>
+                    <span id="advisor-confidence" class="badge warn">Model-reported confidence unavailable · Uncalibrated</span>
                   </div>
                   <p id="advisor-provider-message" class="muted">Provider status has not loaded.</p>
-                  <p id="advisor-fallback-help" class="muted">Deterministic mode can be restored through backend runtime configuration.</p>
+                  <details class="advisor-provider-help">
+                    <summary>Provider details and fallback</summary>
+                    <p id="advisor-fallback-help" class="muted">Deterministic mode can be restored through backend runtime configuration.</p>
+                  </details>
                 </div>
               </section>
 
               <section class="panel">
                 <div class="panel-header">
                   <h3>Structured answer</h3>
-                  <span id="advisor-run-id">no run</span>
+                  <span id="advisor-citation-count">0 validated citations</span>
                 </div>
                 <div class="panel-body advisor-result">
-                  <div id="advisor-answer" class="advisor-answer">Ask a question to generate an evidence-backed Advisor answer in the configured provider mode.</div>
-                  <div>
-                    <h3>Site, sensor, and asset context</h3>
-                    <div id="advisor-affected" class="list">
+                  <section class="advisor-answer-section" aria-labelledby="advisor-answer-heading">
+                    <h3 id="advisor-answer-heading">Executive answer</h3>
+                    <div id="advisor-answer" class="advisor-answer">Ask a question to generate an evidence-backed Advisor answer in the configured provider mode.</div>
+                    <div class="advisor-trust-note">
+                      <strong>Evidence-backed answer</strong>
+                      <span>OpenAssetWatch validates cited evidence identifiers. The model's interpretation, confidence, and recommendations remain advisory.</span>
+                    </div>
+                  </section>
+                  <section class="advisor-result-section" aria-labelledby="advisor-affected-heading">
+                    <h3 id="advisor-affected-heading">Affected site, sensor, and asset</h3>
+                    <div id="advisor-affected" class="advisor-entity-grid">
                       <div class="empty-state"><strong>No affected records yet</strong>Context will appear only when supported by cited evidence.</div>
                     </div>
-                  </div>
-                  <div>
-                    <h3>Evidence</h3>
+                  </section>
+                  <section class="advisor-result-section" aria-labelledby="advisor-evidence-heading">
+                    <h3 id="advisor-evidence-heading">Validated evidence</h3>
                     <div id="advisor-evidence" class="advisor-evidence">
                       <div class="empty-state"><strong>No evidence yet</strong>The Advisor will not present unsupported claims as verified facts.</div>
                     </div>
-                  </div>
-                  <div>
-                    <h3>Recommended actions</h3>
+                  </section>
+                  <section class="advisor-result-section" aria-labelledby="advisor-actions-heading">
+                    <h3 id="advisor-actions-heading">Recommended actions</h3>
                     <div id="advisor-actions" class="list">
                       <div class="empty-state"><strong>No recommendations yet</strong>Recommendations remain advisory and read-only.</div>
                     </div>
-                  </div>
-                  <div>
-                    <h3>Warnings and limitations</h3>
+                  </section>
+                  <section class="advisor-result-section" aria-labelledby="advisor-limitations-heading">
+                    <h3 id="advisor-limitations-heading">Limitations and advisory notice</h3>
                     <div id="advisor-limitations" class="list">
-                      <div class="list-row"><span>Demo mode uses deterministic logic and normalized synthetic evidence.</span></div>
+                      <div class="list-row"><span>AI interpretation and recommendations remain advisory until validated against current evidence.</span></div>
                     </div>
-                  </div>
+                  </section>
+                  <details id="advisor-technical-details" class="advisor-technical">
+                    <summary>Technical details</summary>
+                    <div class="advisor-technical-grid">
+                      <div><span>AI run ID</span><code id="advisor-run-id">no run</code></div>
+                      <div><span>Site IDs</span><code id="advisor-site-ids">none</code></div>
+                      <div><span>Sensor IDs</span><code id="advisor-sensor-ids">none</code></div>
+                      <div><span>Asset IDs</span><code id="advisor-asset-ids">none</code></div>
+                      <div><span>Evidence IDs</span><code id="advisor-evidence-ids">none</code></div>
+                      <div><span>Read-only tools</span><code id="advisor-tools">none</code></div>
+                    </div>
+                  </details>
                 </div>
               </section>
             </div>
@@ -1577,6 +1842,13 @@
     };
     const DEMO_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed";
     const VIEW_IDS = ["dashboard", "assets", "collectors", "sites", "evidence", "findings", "ai-advisor", "policies", "reports", "settings"];
+    const ADVISOR_WAIT_STAGES = [
+      {afterSeconds: 0, label: "Gathering hub evidence"},
+      {afterSeconds: 3, label: "Preparing bounded context"},
+      {afterSeconds: 8, label: "Asking local model"},
+      {afterSeconds: 35, label: "Validating structured response"},
+      {afterSeconds: 45, label: "Reconciling citations"}
+    ];
 
     const state = {
       loading: false,
@@ -1585,7 +1857,9 @@
       assetSearch: "",
       selectedAssetId: null,
       selectedCollectorId: null,
-      advisorStatus: null
+      advisorStatus: null,
+      advisorProgressTimer: null,
+      advisorProgressStartedAt: null
     };
 
     function byId(id) {
@@ -2352,7 +2626,7 @@
       sites.forEach(site => {
         const option = document.createElement("option");
         option.value = text(site.site_id, "");
-        option.textContent = `${text(site.name, site.site_id)} (${text(site.site_id)})`;
+        option.textContent = text(site.name, site.site_id);
         select.appendChild(option);
       });
       select.value = Array.from(select.options).some(option => option.value === selected) ? selected : "";
@@ -2363,6 +2637,11 @@
       const modeLabel = status.mode === "demo"
         ? "deterministic demo"
         : status.mode === "local" ? "local model" : "hosted model";
+      byId("advisor-local-trust").hidden = status.mode !== "local";
+      byId("advisor-demo-trust").hidden = status.mode !== "demo";
+      byId("advisor-hosted-trust").hidden = status.mode !== "external";
+      byId("advisor-local-model").textContent = text(status.model, "model not reported");
+      byId("advisor-hosted-model").textContent = text(status.model, "model not reported");
       byId("advisor-provider-pill").textContent = `${modeLabel} ${status.available ? "ready" : "unavailable"}`;
       byId("advisor-provider-pill").className = `pill ${status.available ? "ok" : "warn"}`;
       byId("advisor-provider").textContent = status.model
@@ -2370,8 +2649,8 @@
         : `${status.provider} / ${status.mode}`;
       byId("advisor-provider").className = `badge ${status.available ? "ok" : "warn"}`;
       byId("advisor-provider-mode").textContent = status.mode === "demo"
-        ? "deterministic local processing"
-        : status.mode === "local" ? "local model processing; external sharing disabled" : "hosted external sharing enabled";
+        ? "deterministic local processing · no external sharing"
+        : status.mode === "local" ? "data stays on this machine · no external sharing" : "hosted model · external sharing enabled";
       byId("advisor-provider-message").textContent = status.message;
       byId("advisor-fallback-help").textContent = status.mode === "demo"
         ? "Deterministic demo mode is active."
@@ -2392,6 +2671,122 @@
       }
     }
 
+    function advisorSiteName(siteId) {
+      const site = state.data.sites.find(item => item.site_id === siteId);
+      return text(site && site.name, text(siteId, "Site not reported"));
+    }
+
+    function advisorSensorName(sensorId) {
+      const sensor = state.data.agents.find(item => item.agent_id === sensorId);
+      return text(sensor && (sensor.display_name || sensor.hostname), sensorId);
+    }
+
+    function advisorAssetName(assetId) {
+      const asset = state.data.assets.find(item => item.asset_id === assetId);
+      if (!asset) return text(assetId);
+      const assetMetadata = metadata(asset);
+      const explicitName = assetMetadata.display_name || assetMetadata.name;
+      if (explicitName) return text(explicitName);
+      const siteName = advisorSiteName(asset.site_id).replace(/\s+Demo$/i, "");
+      if (assetMetadata.category === "unknown" && siteName && siteName !== asset.site_id) {
+        return `Unknown ${siteName} Device`;
+      }
+      return text(asset.os || asset.hostname, assetId).replace(/\s+Demo Firmware$/i, "");
+    }
+
+    function renderAdvisorEntities(response) {
+      const target = byId("advisor-affected");
+      clearNode(target);
+      const groups = [
+        ["Site", response.affected_sites, advisorSiteName],
+        ["Sensor", response.affected_sensors, advisorSensorName],
+        ["Asset", response.affected_assets, advisorAssetName]
+      ];
+      let rendered = 0;
+      groups.forEach(([label, identifiers, friendlyName]) => {
+        identifiers.forEach(identifier => {
+          const card = document.createElement("div");
+          const kind = document.createElement("span");
+          const name = document.createElement("strong");
+          card.className = "advisor-entity-card";
+          kind.textContent = label;
+          name.textContent = friendlyName(identifier);
+          card.append(kind, name);
+          target.appendChild(card);
+          rendered += 1;
+        });
+      });
+      if (!rendered) {
+        renderEmpty(target, "No affected records", "The answer did not include supported site, sensor, or asset evidence.");
+      }
+    }
+
+    function advisorDisplayText(response, value, fallback = "Not reported") {
+      let displayValue = text(value, fallback);
+      const replacements = [
+        ...response.affected_sites.map(identifier => [identifier, advisorSiteName(identifier)]),
+        ...response.affected_sensors.map(identifier => [identifier, advisorSensorName(identifier)]),
+        ...response.affected_assets.map(identifier => [identifier, advisorAssetName(identifier)])
+      ];
+      replacements.forEach(([identifier, friendlyName]) => {
+        if (!identifier || identifier === friendlyName) return;
+        displayValue = displayValue.split(identifier).join(friendlyName);
+        displayValue = displayValue.split(`${friendlyName} (${friendlyName})`).join(friendlyName);
+      });
+      return displayValue;
+    }
+
+    function advisorDisplayAnswer(response) {
+      return advisorDisplayText(response, response.answer, "No answer was returned.");
+    }
+
+    function setAdvisorTechnicalDetails(response) {
+      byId("advisor-run-id").textContent = text(response.run_id, "no run");
+      byId("advisor-site-ids").textContent = response.affected_sites.join(", ") || "none";
+      byId("advisor-sensor-ids").textContent = response.affected_sensors.join(", ") || "none";
+      byId("advisor-asset-ids").textContent = response.affected_assets.join(", ") || "none";
+      byId("advisor-evidence-ids").textContent = response.evidence.map(item => item.evidence_id).join(", ") || "none";
+      byId("advisor-tools").textContent = response.tools_used.join(", ") || "none";
+    }
+
+    function advisorElapsedSeconds() {
+      if (!state.advisorProgressStartedAt) return 0;
+      return Math.max(0, Math.floor((Date.now() - state.advisorProgressStartedAt) / 1000));
+    }
+
+    function updateAdvisorProgress() {
+      const elapsed = advisorElapsedSeconds();
+      const stage = ADVISOR_WAIT_STAGES.reduce(
+        (current, candidate) => elapsed >= candidate.afterSeconds ? candidate : current,
+        ADVISOR_WAIT_STAGES[0]
+      );
+      let stageLabel = stage.label;
+      if (stage.label === "Asking local model" && state.advisorStatus && state.advisorStatus.mode === "external") {
+        stageLabel = "Asking hosted model";
+      } else if (stage.label === "Asking local model" && state.advisorStatus && state.advisorStatus.mode === "demo") {
+        stageLabel = "Running deterministic advisor";
+      }
+      byId("advisor-progress-stage").textContent = stageLabel;
+      byId("advisor-elapsed").textContent = `${elapsed} second${elapsed === 1 ? "" : "s"} elapsed`;
+    }
+
+    function startAdvisorProgress() {
+      if (state.advisorProgressTimer) clearInterval(state.advisorProgressTimer);
+      state.advisorProgressStartedAt = Date.now();
+      byId("advisor-progress").hidden = false;
+      updateAdvisorProgress();
+      state.advisorProgressTimer = setInterval(updateAdvisorProgress, 1000);
+    }
+
+    function stopAdvisorProgress() {
+      const elapsed = advisorElapsedSeconds();
+      if (state.advisorProgressTimer) clearInterval(state.advisorProgressTimer);
+      state.advisorProgressTimer = null;
+      state.advisorProgressStartedAt = null;
+      byId("advisor-progress").hidden = true;
+      return elapsed;
+    }
+
     function renderAdvisorRows(targetId, values, emptyTitle, emptyDetail) {
       const target = byId(targetId);
       clearNode(target);
@@ -2410,19 +2805,16 @@
     }
 
     function renderAdvisorResponse(response) {
-      byId("advisor-answer").textContent = response.answer;
-      byId("advisor-run-id").textContent = `run ${text(response.run_id)}`;
+      byId("advisor-answer").textContent = advisorDisplayAnswer(response);
       byId("advisor-data-state").textContent = `${response.data_state} data`;
       byId("advisor-data-state").className = `badge ${response.data_state === "live" ? "ok" : "warn"}`;
       byId("advisor-freshness").textContent = `data as of ${fmtDate(response.data_as_of)}`;
-      byId("advisor-confidence").textContent = `${Math.round(Number(response.confidence || 0) * 100)}% confidence`;
-      byId("advisor-confidence").className = `badge ${Number(response.confidence || 0) >= 0.7 ? "ok" : "warn"}`;
-      const affected = [];
-      if (response.affected_sites.length) affected.push(`Sites: ${response.affected_sites.join(", ")}`);
-      if (response.affected_sensors.length) affected.push(`Sensors: ${response.affected_sensors.join(", ")}`);
-      if (response.affected_assets.length) affected.push(`Assets: ${response.affected_assets.join(", ")}`);
-      affected.push(`Read-only tools: ${response.tools_used.join(", ")}`);
-      renderAdvisorRows("advisor-affected", affected, "No affected records", "The answer did not include supported site, sensor, or asset evidence.");
+      byId("advisor-confidence").textContent = `Model-reported confidence: ${Math.round(Number(response.confidence || 0) * 100)}% · Uncalibrated`;
+      byId("advisor-confidence").className = "badge warn";
+      const citationLabel = response.evidence.length === 1 ? "validated citation" : "validated citations";
+      byId("advisor-citation-count").textContent = `${response.evidence.length} ${citationLabel}`;
+      renderAdvisorEntities(response);
+      setAdvisorTechnicalDetails(response);
 
       const evidenceTarget = byId("advisor-evidence");
       clearNode(evidenceTarget);
@@ -2434,17 +2826,25 @@
           const strong = document.createElement("strong");
           const summary = document.createElement("span");
           const details = document.createElement("small");
-          strong.textContent = item.evidence_type;
-          summary.textContent = item.summary;
-          details.textContent = `${item.evidence_id} | ${text(item.site_id, "no site")} | ${text(item.source)} | ${item.freshness} | ${Math.round(Number(item.confidence || 0) * 100)}% confidence`;
+          strong.textContent = item.evidence_type.split("_").join(" ");
+          summary.textContent = advisorDisplayText(response, item.summary);
+          details.textContent = `${advisorSiteName(item.site_id)} | ${text(item.source)} | ${item.freshness} | Evidence confidence: ${Math.round(Number(item.confidence || 0) * 100)}%`;
           article.append(strong, summary, details);
           evidenceTarget.appendChild(article);
         });
       }
-      renderAdvisorRows("advisor-actions", response.recommended_actions, "No recommended actions", "The Advisor did not return a supported next step.");
+      renderAdvisorRows(
+        "advisor-actions",
+        response.recommended_actions.map(value => advisorDisplayText(response, value)),
+        "No recommended actions",
+        "The Advisor did not return a supported next step."
+      );
       renderAdvisorRows(
         "advisor-limitations",
-        [...response.warnings.map(value => `Warning: ${value}`), ...response.limitations],
+        [
+          ...response.warnings.map(value => `Warning: ${advisorDisplayText(response, value)}`),
+          ...response.limitations.map(value => advisorDisplayText(response, value))
+        ],
         "No limitations reported",
         "Always validate AI output against current OpenAssetWatch evidence."
       );
@@ -2462,8 +2862,9 @@
         return;
       }
       submit.disabled = true;
-      status.textContent = "Gathering bounded evidence and preparing a read-only answer...";
+      status.textContent = "Request in progress. Waiting stages are timing-based and do not claim streamed backend progress.";
       status.className = "form-status";
+      startAdvisorProgress();
       try {
         const body = {question};
         if (siteId) body.site_id = siteId;
@@ -2473,14 +2874,17 @@
           body: JSON.stringify(body)
         });
         renderAdvisorResponse(response);
-        status.textContent = `Answer ready with ${response.evidence.length} cited evidence item(s).`;
+        const elapsed = stopAdvisorProgress();
+        status.textContent = `Answer ready in ${elapsed} second${elapsed === 1 ? "" : "s"} with ${response.evidence.length} validated citation${response.evidence.length === 1 ? "" : "s"}.`;
         status.className = "form-status ok";
         await loadAdvisorStatus();
       } catch (error) {
+        const elapsed = stopAdvisorProgress();
         status.textContent = text(error.message, "AI Advisor request failed safely.");
         status.className = "form-status error";
-        byId("advisor-answer").textContent = "No answer was produced. Check provider status, authentication, backend health, and local model availability; no action was taken. Deterministic demo mode can be restored through backend runtime configuration.";
+        byId("advisor-answer").textContent = `No answer was produced after ${elapsed} second${elapsed === 1 ? "" : "s"}. Check provider status, authentication, backend health, and local model availability; no action was taken. Deterministic demo mode remains available in provider details.`;
       } finally {
+        if (state.advisorProgressTimer) stopAdvisorProgress();
         submit.disabled = false;
       }
     }
