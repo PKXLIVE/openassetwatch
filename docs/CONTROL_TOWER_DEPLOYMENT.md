@@ -17,6 +17,9 @@ The local Docker Compose stack runs:
 - `web`: static Control Tower dashboard on `http://localhost:8080`
 - `postgres`: PostgreSQL persistence, bound to `127.0.0.1:5432`
 
+The hub-and-spoke AI showcase and future sensor contract are described in
+`docs/architecture/hub-spoke-ai-showcase.md`.
+
 PostgreSQL is the default persistence layer for this foundation. It is
 production-friendly, works with the existing backend code, and keeps the local
 demo close to the future self-hosted deployment model.
@@ -30,6 +33,10 @@ added back only with a concrete queue/cache feature and matching healthcheck.
 - database, API, and web ports bind to localhost by default
 - `.env.example` contains placeholders only
 - collector token auth is optional for local development and empty by default
+- admin token auth is optional for local development and protects the new hub
+  and AI endpoints when configured
+- deterministic AI demo mode is local and makes no provider request
+- external AI data sharing is disabled unless explicitly enabled and fully configured
 - no production secrets are committed
 - the release endpoint is metadata-only and never downloads or executes updates
 - ingestion endpoints reject unsafe top-level command and credential fields
@@ -80,7 +87,7 @@ http://localhost:8080
 
 The dashboard is a static Control Tower MVP UI with a left navigation shell and
 client-side views for Dashboard, Assets, Collectors, Sites, Evidence, Findings,
-Policies, Reports, and Settings. It provides overview metrics, attention items,
+AI Advisor, Policies, Reports, and Settings. It provides overview metrics, attention items,
 asset mix, collector health, recent check-ins, recent evidence, discovered
 assets, site cards, release metadata, and policy guardrail summaries. Empty
 states explain what will appear as agents enroll and inventory evidence arrives.
@@ -88,6 +95,12 @@ A local create-site form uses `POST /api/v1/sites` to add site metadata only.
 Asset search, quick filters, row details, hash routes, and Getting Started
 actions run in the browser against already-loaded local API data. The browser
 can copy local demo commands, but it does not execute them.
+
+The AI Advisor view adds a focused read-only showcase without changing the
+dashboard layout. It shows provider and data state, example questions, optional
+site scope, evidence, affected records, recommendations, confidence, freshness,
+and limitations. The optional admin-token field remains only in the page and
+is not stored by browser APIs.
 
 Check API health:
 
@@ -171,13 +184,15 @@ local virtual environment.
 Seeded records are clearly marked as demo/sample data and use documentation IP
 ranges plus locally administered synthetic MAC addresses. The seed includes:
 
-- `home-lab` and `small-office` demo sites
-- two endpoint agents and one passive network sensor placeholder
+- Home, Office, and Lab demo sites with namespaced IDs (`demo-home`,
+  `demo-office`, and `demo-lab`) so local reset operations cannot match ordinary
+  site identifiers accidentally
+- one endpoint collector and one passive network sensor per site
 - recent synthetic check-ins
-- Windows workstation, macOS laptop, Linux server, printer, network switch,
-  smart TV/IoT, unmanaged mobile, and unknown-device assets
+- twelve Windows, macOS, Linux, infrastructure, IoT, mobile, and unknown-device assets
 - safe attention themes such as stale collector, missing security tooling,
   unmanaged IoT device, and unknown device samples
+- cached-retry evidence at Office plus healthy, delayed, and stale sensor examples
 
 The seed does not run automatically, does not add active scanning, does not
 create credentials, and does not execute remote commands or update behavior.
@@ -194,12 +209,21 @@ docker compose down -v --remove-orphans
 | --- | --- |
 | `OAW_POSTGRES_PASSWORD` | Local PostgreSQL password placeholder for Compose. |
 | `OPENASSETWATCH_COLLECTOR_TOKEN` | Optional local collector token. Empty disables token enforcement. |
+| `OPENASSETWATCH_ADMIN_TOKEN` | Optional local admin token for hub/AI read endpoints. Empty disables token enforcement. |
+| `OPENASSETWATCH_AI_PROVIDER` | `demo` by default; `openai-compatible` selects the generic compatible interface. |
+| `OPENASSETWATCH_AI_EXTERNAL_ENABLED` | Keep `false` for an approved local model; hosted providers require `true`. |
+| `OPENASSETWATCH_AI_BASE_URL` | Local or hosted API base. Local HTTP is allowlisted; hosted providers require HTTPS. |
+| `OPENASSETWATCH_AI_MODEL` | Local or hosted model identifier. |
+| `OPENASSETWATCH_AI_API_KEY` | Optional and omitted from requests for approved local endpoints; required for hosted providers. |
+| `OPENASSETWATCH_AI_TIMEOUT_SECONDS` | Provider timeout clamped to 2-90 seconds locally and 2-30 seconds when hosted. |
 | `OPENASSETWATCH_CONTROL_TOWER_VERSION` | API/server version reported by `/health`. |
 | `OPENASSETWATCH_EXPECTED_AGENT_VERSION` | Placeholder expected agent version in release metadata. |
 | `OPENASSETWATCH_AGENT_RELEASE_CHANNEL` | Placeholder release channel such as `local`. |
 | `OPENASSETWATCH_CORS_ORIGINS` | Local UI origins allowed to call the API. |
 
 Do not put production secrets in `.env.example` or in committed Compose files.
+The exact ignored `.env` configuration for local Ollama and deterministic-mode
+restoration commands are in `docs/architecture/hub-spoke-ai-showcase.md`.
 
 ## Database Model
 
@@ -211,6 +235,7 @@ The Control Tower schema adds these first durable records:
 - `agent_checkins`: received agent health and identity metadata
 - `local_inventory_collections`: raw local inventory evidence submissions
 - `control_tower_assets`: normalized MVP asset records with evidence counts
+- `ai_advisor_runs`: question hashes and bounded provider/tool/evidence audit metadata
 
 The existing collector tables remain in place for the earlier Python collector
 and policy work.
@@ -226,10 +251,15 @@ and policy work.
 | `POST /api/v1/agents/enrollments` | Create or update an agent/sensor enrollment record. |
 | `POST /api/v1/agents/check-in` | Accept agent check-in metadata and update last seen state. |
 | `POST /api/v1/collections/local-inventory` | Accept Go agent local inventory JSON and normalize basic assets. |
+| `POST /api/v1/observations/batches` | Accept strict, authenticated, idempotent normalized spoke batches. |
 | `GET /api/v1/control-tower/summary` | Dashboard counts for sites, agents, check-ins, assets, and evidence. |
 | `GET /api/v1/control-tower/check-ins` | Recent agent check-ins. |
 | `GET /api/v1/control-tower/assets` | Normalized Control Tower asset records. |
 | `GET /api/v1/releases/agent` | Agent release metadata placeholder. |
+| `GET /api/v1/hub/sites/summary` | Read-only site risk, finding, sensor, asset, and freshness summary. |
+| `GET /api/v1/hub/sensors` | Read-only enrolled spoke identity and health summary. |
+| `GET /api/v1/ai/status` | AI provider/mode status without secrets or configured URL. |
+| `POST /api/v1/ai/advisor/query` | Read-only bounded AI Advisor query with typed evidence. |
 
 ## Agent Configuration Direction
 
@@ -248,18 +278,21 @@ Enrollment tokens are future work and must be treated as secrets when added.
 
 ## Limitations
 
-- no authentication/authorization for admin UI/API yet
+- optional shared-token authentication only; no users, RBAC, or production authorization yet
 - no tenant isolation enforcement yet
 - no enrollment-token issuance yet
 - no real release download or update execution
 - no active scanning, remote commands, or credential collection
 - web UI is a functional foundation, not a finished product interface
-- asset normalization is intentionally minimal
+- asset normalization and deterministic findings are intentionally minimal
+- no passive packet sensor, spoke queue, or retry runtime yet; only the hub contract exists
+- no autonomous AI actions, vector database, or unrestricted model tools
 
 ## Network Sensor Next Step
 
-The next sensor integration step is to reuse the same enrollment model with
-`agent_type: network-sensor`, then define a passive sensor evidence envelope.
-Sensor ingestion should remain passive-first, avoid active scans by default,
-and preserve the same site, agent/sensor, evidence, and audit boundaries used
-by endpoint agents.
+The next sensor integration step is to implement stable local sensor identity,
+outbound TLS authentication, a bounded encrypted offline queue, and idempotent
+retry against `POST /api/v1/observations/batches`. Sensor collection should
+remain passive-first, avoid active scans and packet upload, expose no inbound
+management port by default, and preserve the hub's site, identity, evidence,
+freshness, confidence, and audit boundaries.

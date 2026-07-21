@@ -48,6 +48,10 @@ The current MVP focuses on:
 * Agent and future sensor enrollment model
 * Agent check-in and local inventory ingestion endpoints
 * Basic asset normalization and evidence counts
+* Hub-and-spoke normalized observation batch contract
+* Site/sensor health and freshness summaries
+* Deterministic, evidence-backed AI Advisor showcase
+* Optional provider-neutral OpenAI-compatible interface, disabled by default
 * Standalone collector framework
 * Device, network, and hybrid collector modes
 * Local ARP/neighbor discovery
@@ -59,19 +63,17 @@ The current MVP focuses on:
 ## High-Level Architecture
 
 ```text
-Local Device / Network
+Site spokes (endpoint collectors / future passive sensors / connectors)
+        |
+        | outbound authenticated normalized observations
+        v
+Control Tower Hub API
         |
         v
-OpenAssetWatch Collector
+PostgreSQL evidence, identity, health, findings, and audit metadata
         |
         v
-OpenAssetWatch Backend API
-        |
-        v
-PostgreSQL
-        |
-        v
-Control Tower Dashboard / Risk Engine / AI Advisor / Integrations
+Bounded read-only tool gateway / AI Advisor / Dashboard / Integrations
 ```
 
 ### Collector Modes
@@ -154,6 +156,10 @@ http://localhost:8080
 The local stack binds API, web, and PostgreSQL ports to localhost by
 default. See [docs/CONTROL_TOWER_DEPLOYMENT.md](docs/CONTROL_TOWER_DEPLOYMENT.md)
 for startup steps, API endpoints, database tables, and limitations.
+See
+[docs/architecture/hub-spoke-ai-showcase.md](docs/architecture/hub-spoke-ai-showcase.md)
+for the first three-site AI showcase, trust boundary, provider configuration,
+and future sensor ingestion contract.
 
 View logs:
 
@@ -230,6 +236,11 @@ Current and planned backend endpoints include:
 | `POST /api/v1/collections/local-inventory` | Available | Go agent local inventory ingestion |
 | `GET /api/v1/control-tower/summary` | Available | Dashboard counts |
 | `GET /api/v1/control-tower/assets` | Available | Normalized Control Tower assets |
+| `POST /api/v1/observations/batches` | Available | Authenticated, idempotent normalized spoke observations |
+| `GET /api/v1/hub/sites/summary` | Available | Read-only cross-site intelligence summary |
+| `GET /api/v1/hub/sensors` | Available | Read-only sensor/spoke health and freshness |
+| `GET /api/v1/ai/status` | Available | AI provider mode and availability without secrets |
+| `POST /api/v1/ai/advisor/query` | Available | Read-only evidence-backed AI Advisor query |
 | `GET /api/v1/releases/agent` | Available | Agent release metadata placeholder |
 | `POST /api/v1/collectors/checkin` | Available | Legacy Python collector heartbeat/check-in |
 | `POST /api/v1/collectors/inventory` | Available | Legacy Python collector inventory upload |

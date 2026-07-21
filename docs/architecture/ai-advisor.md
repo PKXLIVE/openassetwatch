@@ -1,5 +1,12 @@
 # AI Advisor Architecture
 
+The first read-only Hub-and-Spoke AI Showcase foundation is implemented and is
+documented in `docs/architecture/hub-spoke-ai-showcase.md`. It adds a
+deterministic local provider, an explicitly gated OpenAI-compatible interface,
+bounded evidence tools, typed answers, audit metadata, and a focused Control
+Tower UI view. The deeper sections linked below remain the canonical direction
+for future agents, memory, MCP adapters, approvals, and enterprise controls.
+
 For the foundational AI Advisor purpose, value, evidence, safety principles,
 and agent architecture direction, see
 `docs/architecture/ai-agent-architecture.md`.
@@ -23,8 +30,9 @@ For the phased future implementation plan, see the
 `AI Advisor Implementation Roadmap` section in
 `docs/architecture/ai-agent-architecture.md`.
 
-The OpenAssetWatch AI Advisor is a future advisory layer that runs after data
-collection, normalization, and rule-based risk scoring.
+The OpenAssetWatch AI Advisor is an advisory layer that runs after data
+collection and normalization. The showcase uses a deterministic risk/finding
+projection; the full versioned rules engine remains future work.
 
 AI should not replace deterministic scoring rules. Rule-based checks remain the
 source of truth for repeatable findings such as exposed services, weak device
@@ -32,12 +40,13 @@ posture, stale assets, missing updates, or risky configuration patterns. The AI
 Advisor should summarize those findings, explain why they matter, prioritize
 remediation, and help non-technical users understand what to fix first.
 
-The first AI integration should consume normalized asset and risk data, not raw
-packet captures. Advisor output should include evidence references back to the
+The first AI integration consumes normalized asset and risk data, not raw
+packet captures. Advisor output includes evidence references back to the
 collected data that produced each recommendation, such as asset identifiers,
 observed services, timestamps, collector source evidence, and rule IDs.
 
-Provider support should be optional and pluggable. A local Qwen or other local
+Provider support is optional and pluggable. The deterministic provider is the
+current offline default. A local Qwen or other local
 LLM provider should be supported later for privacy-focused deployments. External
 providers such as Claude, OpenAI, or Gemini can also be optional integrations
 later, controlled by deployment configuration.

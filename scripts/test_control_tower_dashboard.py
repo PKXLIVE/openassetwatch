@@ -27,6 +27,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "/api/v1/control-tower/check-ins",
             "/api/v1/control-tower/assets",
             "/api/v1/releases/agent",
+            "/api/v1/ai/status",
+            "/api/v1/ai/advisor/query",
         )
         self.assertIn('http://127.0.0.1:8000', self.dashboard)
         for endpoint in expected_endpoints:
@@ -42,6 +44,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Sites",
             "Evidence",
             "Findings",
+            "AI Advisor",
+            "Ask OpenAssetWatch",
             "Policies",
             "Reports",
             "Settings",
@@ -73,6 +77,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Collector Guidance",
             "Collector Detail",
             "Local Inventory Guidance",
+            "Structured answer",
+            "Provider and data state",
         )
         for section in required_sections:
             with self.subTest(section=section):
@@ -110,6 +116,157 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Remote commands unavailable",
             "Release metadata only",
             "docker compose --profile demo run --rm demo-seed",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
+    def test_ai_advisor_showcase_has_scoped_questions_and_structured_output(self) -> None:
+        expected_copy = (
+            'id="ai-advisor"',
+            'id="advisor-form"',
+            'id="advisor-question"',
+            'maxlength="500"',
+            'id="advisor-site"',
+            'id="advisor-provider-pill"',
+            'id="advisor-fallback-help"',
+            'id="advisor-data-state"',
+            'id="advisor-confidence"',
+            'id="advisor-citation-count"',
+            'id="advisor-evidence"',
+            'id="advisor-actions"',
+            'id="advisor-limitations"',
+            'id="advisor-technical-details"',
+            "What needs my attention first?",
+            "Which site has the highest risk?",
+            "Which sensors have stopped checking in?",
+            "Compare security posture across sites.",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
+    def test_ai_advisor_uses_session_only_token_and_text_safe_rendering(self) -> None:
+        self.assertIn('id="advisor-token" type="password" autocomplete="off"', self.dashboard)
+        self.assertIn('headers["X-OpenAssetWatch-Admin-Token"] = token', self.dashboard)
+        self.assertIn("strong.textContent = item.evidence_type", self.dashboard)
+        self.assertIn("summary.textContent = advisorDisplayText(response, item.summary)", self.dashboard)
+        self.assertIn("name.textContent = friendlyName(identifier)", self.dashboard)
+        self.assertNotIn("localStorage", self.dashboard)
+        self.assertNotIn("sessionStorage", self.dashboard)
+        self.assertNotIn(".innerHTML", self.dashboard)
+
+    def test_ai_advisor_has_loading_error_and_unsupported_claim_states(self) -> None:
+        expected_copy = (
+            "Gathering hub evidence",
+            "Preparing bounded context",
+            "Asking local model",
+            "Asking hosted model",
+            "Running deterministic advisor",
+            "Validating structured response",
+            "Reconciling citations",
+            'id="advisor-elapsed"',
+            "Client-side waiting guide only",
+            "AI Advisor request failed safely.",
+            "No supporting evidence",
+            "Treat this answer as unverified",
+            "no action was taken",
+            "configured provider mode",
+            "Read-only tools",
+            "data stays on this machine · no external sharing",
+            "OPENASSETWATCH_AI_PROVIDER=demo",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
+    def test_ai_advisor_labels_local_identity_and_privacy_without_key_state(self) -> None:
+        expected_copy = (
+            'id="advisor-local-trust"',
+            "Local model",
+            "OpenAI-compatible local runtime",
+            "Data stays on this machine",
+            "No external sharing",
+            'id="advisor-local-model"',
+            'byId("advisor-local-model").textContent = text(status.model',
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+        self.assertNotIn("API key configured", self.dashboard)
+        self.assertNotIn("API key missing", self.dashboard)
+
+    def test_ai_advisor_marks_model_confidence_uncalibrated_and_counts_validated_citations(self) -> None:
+        expected_copy = (
+            "Model-reported confidence",
+            "Uncalibrated",
+            "Evidence-backed answer",
+            "OpenAssetWatch validates cited evidence identifiers",
+            "interpretation, confidence, and recommendations remain advisory",
+            "validated citation",
+            "Evidence confidence:",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+        self.assertNotIn("}% confidence`", self.dashboard)
+        self.assertNotIn("100% confidence", self.dashboard)
+
+    def test_ai_advisor_shows_friendly_names_before_collapsed_technical_ids(self) -> None:
+        expected_code = (
+            "function advisorSiteName",
+            "function advisorSensorName",
+            "function advisorAssetName",
+            "function advisorDisplayText",
+            "function advisorDisplayAnswer",
+            "sensor.display_name || sensor.hostname",
+            "Unknown ${siteName} Device",
+            "option.textContent = text(site.name, site.site_id)",
+            "renderAdvisorEntities(response)",
+            'byId("advisor-answer").textContent = advisorDisplayAnswer(response)',
+            "summary.textContent = advisorDisplayText(response, item.summary)",
+            "response.recommended_actions.map(value => advisorDisplayText(response, value))",
+            'id="advisor-run-id"',
+            'id="advisor-site-ids"',
+            'id="advisor-sensor-ids"',
+            'id="advisor-asset-ids"',
+            'id="advisor-evidence-ids"',
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+        self.assertLess(self.dashboard.index("Affected site, sensor, and asset"), self.dashboard.index("Technical details"))
+        self.assertIn('<details id="advisor-technical-details"', self.dashboard)
+        self.assertNotIn('<details id="advisor-technical-details" open', self.dashboard)
+
+    def test_ai_advisor_distinguishes_local_demo_and_hosted_trust_states(self) -> None:
+        expected_copy = (
+            'id="advisor-local-trust"',
+            'id="advisor-demo-trust"',
+            'id="advisor-hosted-trust"',
+            "Deterministic demo",
+            "Bounded backend logic",
+            "Hosted external model",
+            "External sharing enabled",
+            "Bounded normalized evidence may leave this machine.",
+            'status.mode !== "local"',
+            'status.mode !== "demo"',
+            'status.mode !== "external"',
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
+    def test_ai_advisor_preserves_mobile_stack_and_collapsible_details(self) -> None:
+        expected_copy = (
+            'data-mobile-stack="advisor"',
+            ".advisor-trust-strip",
+            ".advisor-entity-grid",
+            ".advisor-progress-line",
+            "grid-template-columns: 1fr;",
+            ".advisor-technical summary",
+            "#ai-advisor .panel-header",
+            "white-space: normal;",
         )
         for copy in expected_copy:
             with self.subTest(copy=copy):

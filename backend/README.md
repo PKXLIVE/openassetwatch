@@ -12,6 +12,11 @@ service backed by PostgreSQL through SQLAlchemy.
 - Go agent local inventory ingestion
 - raw inventory evidence persistence
 - basic Control Tower asset normalization
+- idempotent outbound observation batches with site/sensor provenance
+- site and sensor health/freshness summaries
+- deterministic and optional external AI Advisor providers
+- bounded read-only AI evidence tools and audit metadata
+- focused AI Advisor dashboard view
 - release/artifact metadata placeholder
 - static dashboard mount at `/ui`
 - legacy Python collector ingestion and policy endpoints
@@ -108,17 +113,31 @@ Control Tower tables include:
 - `agent_checkins`
 - `local_inventory_collections`
 - `control_tower_assets`
+- `ai_advisor_runs`
 
 ## Tests
 
-Use the project virtual environment when available:
+Run backend tests through the Linux/Python 3.12 backend image so the hashed
+lock, platform-specific dependencies, and test runtime match Docker:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s backend\tests -t backend
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace/backend backend `
+  python -m unittest discover -s tests -v
 ```
 
 The unit tests mock the database boundary for endpoint behavior and test local
 normalization/schema helpers without requiring a live PostgreSQL instance.
+Static showcase and seed tests use only the standard library:
+
+```powershell
+python scripts/test_control_tower_dashboard.py
+python scripts/test_control_tower_demo_seed.py
+```
+
+See `docs/architecture/hub-spoke-ai-showcase.md` for provider configuration,
+the observation batch contract, trust boundaries, local Ollama activation, and
+deterministic-mode restoration steps.
 
 ## Safety Boundaries
 

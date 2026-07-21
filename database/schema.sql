@@ -209,12 +209,21 @@ CREATE TABLE IF NOT EXISTS local_inventory_collections (
     received_at TIMESTAMPTZ NOT NULL,
     observed_asset_count INTEGER NOT NULL DEFAULT 0,
     normalized_asset_count INTEGER NOT NULL DEFAULT 0,
+    observation_batch_id TEXT,
+    observation_source TEXT,
+    observed_at TIMESTAMPTZ,
+    delivery_state TEXT NOT NULL DEFAULT 'live',
+    confidence DOUBLE PRECISION,
     payload_json JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_local_inventory_collections_site_id_received_at
     ON local_inventory_collections (site_id, received_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_local_inventory_observation_batch
+    ON local_inventory_collections (site_id, source_agent_id, observation_batch_id)
+    WHERE observation_batch_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS control_tower_assets (
     asset_key TEXT PRIMARY KEY,
@@ -229,6 +238,11 @@ CREATE TABLE IF NOT EXISTS control_tower_assets (
     first_seen_at TIMESTAMPTZ NOT NULL,
     last_seen_at TIMESTAMPTZ NOT NULL,
     evidence_count INTEGER NOT NULL DEFAULT 0,
+    observation_batch_id TEXT,
+    observation_source TEXT,
+    observed_at TIMESTAMPTZ,
+    delivery_state TEXT NOT NULL DEFAULT 'live',
+    confidence DOUBLE PRECISION,
     metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -240,3 +254,18 @@ CREATE INDEX IF NOT EXISTS idx_control_tower_assets_site_id
 
 CREATE INDEX IF NOT EXISTS idx_control_tower_assets_last_seen_at
     ON control_tower_assets (last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_advisor_runs (
+    run_id TEXT PRIMARY KEY,
+    question_sha256 TEXT NOT NULL,
+    site_id TEXT,
+    provider TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    tool_names_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_advisor_runs_created_at
+    ON ai_advisor_runs (created_at DESC);
