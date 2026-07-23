@@ -2,10 +2,10 @@
 
 The first read-only Hub-and-Spoke AI Showcase foundation is implemented and is
 documented in `docs/architecture/hub-spoke-ai-showcase.md`. It adds a
-deterministic local provider, an explicitly gated OpenAI-compatible interface,
+deterministic local provider, an explicitly gated compatible model interface,
 bounded evidence tools, typed answers, audit metadata, and a focused Control
 Tower UI view. The deeper sections linked below remain the canonical direction
-for future agents, memory, MCP adapters, approvals, and enterprise controls.
+for future agents, memory, tool adapters, approvals, and enterprise controls.
 
 For the foundational AI Advisor purpose, value, evidence, safety principles,
 and agent architecture direction, see
@@ -15,6 +15,13 @@ For the model-tier selection, privacy-aware escalation, cost controls,
 insufficient-evidence handling, and routing telemetry design, see
 `docs/architecture/ai-model-routing.md`.
 
+For centralized AI policy, request security, model and agent controls, isolated
+execution, token enforcement, and human approval, see
+`docs/architecture/ai-governance-security.md`.
+
+For AI usage, cost, token, latency, quality, policy, and operations telemetry,
+see `docs/architecture/ai-observability-operations.md`.
+
 For the future AI evidence card model and AI finding output schema, see the
 `AI Evidence and Finding Schema` section in
 `docs/architecture/ai-agent-architecture.md`.
@@ -22,7 +29,7 @@ For the future AI evidence card model and AI finding output schema, see the
 For the initial specialist advisor roles, see the `AI Specialist Agent Roles`
 section in `docs/architecture/ai-agent-architecture.md`.
 
-For the future AI Tool Gateway and MCP-style safety model, see the
+For the future AI Tool Gateway and tool-adapter safety model, see the
 `AI Tool Gateway and MCP Safety Model` section in
 `docs/architecture/ai-agent-architecture.md`.
 
@@ -50,10 +57,9 @@ collected data that produced each recommendation, such as asset identifiers,
 observed services, timestamps, collector source evidence, and rule IDs.
 
 Provider support is optional and pluggable. The deterministic provider is the
-current offline default. A local Qwen or other local
-LLM provider should be supported later for privacy-focused deployments. External
-providers such as Claude, OpenAI, or Gemini can also be optional integrations
-later, controlled by deployment configuration.
+current offline default. Local model runtimes should be supported later for
+privacy-focused deployments. External model services may also be optional
+integrations controlled by deployment and tenant policy.
 
 Provider configuration alone should not determine which model handles every
 request. The future AI Model Router should select among deterministic logic,
@@ -73,26 +79,26 @@ operators can choose the privacy, cost, and resource profile that fits them.
 ### Local/self-hosted AI Advisor
 
 The local model runs on the main OpenAssetWatch server or on a dedicated device
-with enough CPU, memory, or GPU resources. It can use Qwen through Ollama,
-llama.cpp, vLLM, or another local runtime.
+with enough CPU, memory, or accelerator resources. It should connect through a
+provider-neutral local runtime interface.
 
 This is the preferred option for privacy-focused users who do not want asset,
-risk, or home network data sent to cloud LLM providers.
+risk, or home network data sent to external model providers.
 
 ### Cloud/VPS AI Advisor
 
 The cloud/VPS model runs on the OpenAssetWatch cloud or VPS backend. This
-supports a SaaS-like deployment where collectors send normalized data to the
+supports a service-style deployment where collectors send normalized data to the
 backend and the backend performs advisory analysis.
 
-This model can use a cloud-hosted Qwen instance, a GPU VPS, or an external LLM
-API depending on deployment configuration.
+This model may use a self-hosted remote inference service or an approved
+external model API depending on deployment configuration.
 
 ### External provider AI Advisor
 
 External provider support should be optional and disabled by default for
-privacy. Future integrations may include Claude, OpenAI, Gemini, or other API
-providers.
+privacy. Integrations should use provider-neutral adapters and capability
+metadata rather than embedding vendor-specific behavior into task definitions.
 
 The provider should be configurable through settings or environment variables so
 deployments can explicitly choose whether data leaves the local or VPS
@@ -116,6 +122,8 @@ environment.
   audited.
 - Routing telemetry and benchmarks must distinguish measured, estimated, and
   synthetic results.
+- Architecture documents should remain independent of model, runtime, hardware,
+  and cloud vendors.
 
 ## Future Configuration
 
@@ -123,9 +131,9 @@ environment.
 ai:
   enabled: true
   deployment_mode: local
-  provider: qwen
-  runtime: ollama
-  model: qwen
+  provider: configured_local_provider
+  runtime: configured_local_runtime
+  model: configured_model
   include_raw_logs: false
   include_asset_evidence: true
   advisory_only: true
