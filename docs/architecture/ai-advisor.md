@@ -11,6 +11,10 @@ For the foundational AI Advisor purpose, value, evidence, safety principles,
 and agent architecture direction, see
 `docs/architecture/ai-agent-architecture.md`.
 
+For the model-tier selection, privacy-aware escalation, cost controls,
+insufficient-evidence handling, and routing telemetry design, see
+`docs/architecture/ai-model-routing.md`.
+
 For the future AI evidence card model and AI finding output schema, see the
 `AI Evidence and Finding Schema` section in
 `docs/architecture/ai-agent-architecture.md`.
@@ -50,6 +54,12 @@ current offline default. A local Qwen or other local
 LLM provider should be supported later for privacy-focused deployments. External
 providers such as Claude, OpenAI, or Gemini can also be optional integrations
 later, controlled by deployment configuration.
+
+Provider configuration alone should not determine which model handles every
+request. The future AI Model Router should select among deterministic logic,
+local lightweight models, local advanced models, optional external models,
+human review, or an insufficient-evidence response based on task type, evidence
+quality, sensitivity, policy, cost, latency, and available resources.
 
 AI output is advisory only. The AI Advisor must not automatically make network
 changes, modify firewall rules, quarantine devices, change router settings, or
@@ -99,6 +109,13 @@ environment.
 - AI must not automatically make network changes.
 - AI provider selection should be configurable through settings or environment
   variables later.
+- The router should prefer deterministic or local execution when it can satisfy
+  the task safely.
+- A stronger model must not be used as a substitute for missing evidence.
+- External model use must be policy-controlled, redacted where required, and
+  audited.
+- Routing telemetry and benchmarks must distinguish measured, estimated, and
+  synthetic results.
 
 ## Future Configuration
 
@@ -113,6 +130,10 @@ ai:
   include_asset_evidence: true
   advisory_only: true
 ```
+
+The single-provider example above remains useful for an initial deployment. The
+longer-term tiered and policy-aware configuration is documented in
+`docs/architecture/ai-model-routing.md`.
 
 ## Future Splunk Integration
 
