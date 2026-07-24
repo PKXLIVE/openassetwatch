@@ -1,72 +1,503 @@
-# Defensive AI and Security Architecture Gap Backlog
+# Defensive Intelligence and AI Security Architecture Backlog
 
 ## Purpose
 
-This document records architecture patterns reviewed from several public AI-security and agent-security projects so OpenAssetWatch can preserve useful ideas for future implementation without expanding the current build scope.
+This document preserves defensive architecture patterns identified through review of public security, agent, application-analysis, and AI-safety projects. It converts those patterns into original OpenAssetWatch design requirements without naming, endorsing, or depending on the source projects.
 
-The reviewed projects were:
+The goal is to close future architecture gaps while preserving the current project direction:
 
-- `0x4m4/hexstrike-ai`
-- `Ed1s0nZ/CyberStrikeAI`
-- `nolabs-ai/nono`
-- `CyberSunil/LLMVault`
-- `Fangcun-AI/SkillWard`
+- passive-first collection
+- deterministic evidence and findings
+- advisory-only AI
+- local-first operation
+- provider-neutral integrations
+- read-only defaults
+- explicit tenant and policy boundaries
+- no autonomous offensive execution
 
-The goal is not to copy those systems or turn OpenAssetWatch into a penetration-testing framework. The goal is to identify defensive architecture gaps, document safe design directions, and define boundaries for future work.
+This is a future-build backlog. It does not expand the current implementation scope.
 
 ## Decision Summary
 
 OpenAssetWatch should preserve the following future design directions:
 
-1. Evidence-based exposure-path analysis.
-2. Replayable analysis and decision records.
-3. Resumable and bounded tool execution.
-4. Per-tool isolation and credential proxying.
-5. Integration and MCP trust review.
-6. AI security validation and adversarial testing.
-7. Runtime guardrails for suspicious integrations.
-8. Separate audit, execution-monitoring, and approval records.
-9. Safer workflow graphs with deterministic joins and validation.
-10. Strict rejection of exploit generation, credential theft, WebShell, C2, and arbitrary command capabilities.
-
-These are future architecture items. They do not change the current passive-first, advisory-first, read-only-default project scope.
+1. A deterministic Finding Intelligence Pipeline.
+2. Evidence-backed exposure-path analysis.
+3. A formal finding-validation state machine.
+4. Explicit separation of facts, derivations, inferences, and hypotheses.
+5. A lightweight Environment Security Context.
+6. Finding fusion across collectors and external enrichment sources.
+7. Replayable analysis and provenance records.
+8. Resumable, cancellable, and output-bounded tool execution.
+9. Per-tool child sandboxes and credential proxying.
+10. Integration trust review for tools, skills, plugins, and protocol servers.
+11. Runtime monitoring for uncertain integrations.
+12. Scoped child analysis workers.
+13. Policy-filtered capability discovery for large tool catalogs.
+14. Optional passive external-exposure enrichment.
+15. Repeatable AI security validation and adversarial testing.
+16. Separate audit, execution-monitoring, approval, and replay streams.
+17. Graceful degradation when AI or an integration is unavailable.
+18. Explicit rejection of autonomous exploitation and high-privilege offensive features.
 
 ---
 
-## 1. Exposure Path Analyzer
+## 1. Finding Intelligence Pipeline
 
 ### Gap
 
-OpenAssetWatch already plans to correlate assets, services, vulnerabilities, business context, identities, network observations, missing controls, and risk findings. The current architecture does not yet clearly define how these facts combine into a multi-step exposure path.
+OpenAssetWatch can collect observations and generate deterministic findings, but future multi-source environments will need a clear pipeline between raw findings and user-facing risk conclusions.
 
-A single finding may not explain the full risk. The meaningful risk may exist in the relationship between several observed conditions.
+The platform should not rely on an AI model to decide ownership, remove duplicate findings, determine evidence quality, or construct the authoritative risk record.
 
-Example:
+### Proposed Pipeline
 
 ```text
-External Exposure
+Normalized Observations
         |
         v
-Router or Gateway
+Deterministic Rules
         |
         v
-Outdated Management Service
+Canonical Findings
         |
         v
-Flat or Weakly Segmented Network
+Ownership Resolver
         |
         v
-Unmanaged IoT Device
+Confidence Engine
         |
         v
-Sensitive Workstation or Service
+Evidence Selector
+        |
+        v
+Finding Fusion Engine
+        |
+        v
+Exposure Path Analyzer
+        |
+        v
+Optional AI Explanation
 ```
+
+### Pipeline Principles
+
+- Each stage should have a versioned input and output contract.
+- Stages should add metadata rather than silently deleting source evidence.
+- Deterministic stages remain authoritative.
+- AI may explain or summarize a result after deterministic processing.
+- Every transformation should be reproducible from stored evidence and rule versions.
+- A failure in an optional stage should not invalidate earlier deterministic results.
+
+### Canonical Finding Requirements
+
+A canonical finding should include:
+
+- finding identifier
+- tenant or deployment scope
+- title and normalized category
+- affected asset and service references
+- severity
+- status
+- first seen and last seen
+- source finding references
+- evidence references
+- ownership metadata
+- confidence metadata
+- statement classification
+- rule and schema versions
+- stale status
+- remediation guidance
+- related exposure paths
+
+---
+
+## 2. Ownership Resolution
+
+### Gap
+
+Data from operating systems, applications, infrastructure, network sensors, cloud sources, and third-party libraries may describe code or assets not owned by the user or not controlled by the same team.
+
+Without ownership resolution, the platform may assign responsibility incorrectly or inflate risk with findings that belong to a dependency, shared service, or external provider.
+
+### Proposed Component
+
+Add a future **Ownership Resolver** that assigns one or more ownership dimensions:
+
+- asset owner
+- technical owner
+- business owner
+- support group
+- application owner
+- network owner
+- data owner
+- third-party or dependency owner
+- unknown owner
+
+### Ownership Evidence
+
+Ownership may be derived from:
+
+- collector metadata
+- directory and identity enrichment
+- CMDB or ITSM data
+- cloud tags
+- repository metadata
+- package or dependency boundaries
+- manually assigned asset ownership
+- network segment ownership
+- business-service relationships
+
+### Ownership Result
+
+```json
+{
+  "asset_id": "asset-123",
+  "ownership": {
+    "technical_owner": "team-network",
+    "business_owner": "business-unit-1",
+    "support_group": "service-desk-network",
+    "classification": "first_party"
+  },
+  "evidence_refs": ["cmdb-record-18", "collector-observation-91"],
+  "confidence": 0.92,
+  "status": "corroborated"
+}
+```
+
+Ownership must never be inferred solely from an AI-generated guess.
+
+---
+
+## 3. Confidence Engine
+
+### Gap
+
+A single generic confidence score is not enough. Confidence should reflect evidence quality, source agreement, freshness, directness, and unresolved contradictions.
+
+### Confidence Inputs
+
+A deterministic confidence engine may consider:
+
+- direct observation versus imported claim
+- number of independent sources
+- source reliability
+- evidence freshness
+- asset identity confidence
+- service fingerprint confidence
+- version match quality
+- reachability certainty
+- ownership certainty
+- contradictions
+- missing expected evidence
+- rule specificity
+
+### Confidence Dimensions
+
+Suggested dimensions:
+
+- `identity_confidence`
+- `evidence_confidence`
+- `reachability_confidence`
+- `ownership_confidence`
+- `finding_confidence`
+- `path_confidence`
+
+### Confidence Labels
+
+- confirmed
+- high
+- medium
+- low
+- insufficient
+- conflicting
+
+A model confidence score must not replace these evidence-derived values.
+
+---
+
+## 4. Evidence Selection Engine
+
+### Gap
+
+Raw observations can be large, repetitive, stale, or irrelevant. Sending all available records to users or AI systems creates noise and increases privacy and context risks.
+
+### Proposed Component
+
+Add a future **Evidence Selection Engine** that prepares the smallest sufficient evidence set for a finding, path, report, or AI task.
+
+### Responsibilities
+
+- remove duplicates
+- prefer direct evidence over summaries
+- retain source references
+- label stale records
+- include contradictory evidence
+- exclude secrets and unnecessary sensitive fields
+- enforce tenant scope
+- rank evidence by relevance and quality
+- cap evidence volume
+- preserve omitted-evidence counts
+- create deterministic summaries where practical
+
+### Evidence Bundle
+
+```json
+{
+  "bundle_id": "evidence-bundle-81",
+  "purpose": "validate-finding",
+  "selected": ["obs-1", "obs-9", "vuln-import-7"],
+  "excluded_counts": {
+    "duplicate": 14,
+    "stale": 3,
+    "out_of_scope": 2
+  },
+  "contradictions": ["obs-12"],
+  "sensitivity": "internal",
+  "selection_rule_version": "1.0"
+}
+```
+
+---
+
+## 5. Finding Fusion Engine
+
+### Gap
+
+The same underlying condition may arrive from passive discovery, local software inventory, vulnerability enrichment, cloud posture, endpoint tooling, configuration analysis, and external exposure sources.
+
+Treating each source as a separate risk can inflate counts and hide source agreement.
+
+### Proposed Component
+
+Add a future **Finding Fusion Engine** that correlates related source findings into one canonical finding while retaining every source record.
+
+### Fusion Responsibilities
+
+- normalize titles and categories
+- correlate asset, service, software, and vulnerability identity
+- group findings describing the same condition
+- retain source-specific timestamps and states
+- identify source agreement and disagreement
+- select a canonical severity using policy
+- prevent duplicate risk inflation
+- increase confidence when independent sources corroborate
+- preserve conflicts for analyst review
+- support split and merge correction
+
+### Example
+
+```json
+{
+  "canonical_finding_id": "finding-401",
+  "title": "Outdated service exposed externally",
+  "source_findings": [
+    "passive-service-22",
+    "vulnerability-import-91",
+    "external-exposure-13"
+  ],
+  "corroboration_count": 3,
+  "confidence": "high",
+  "conflicts": [],
+  "fusion_rule_version": "1.0"
+}
+```
+
+### Fusion Safety
+
+- Fusion must be reversible.
+- Source findings must remain independently inspectable.
+- Conflicting versions or asset identities must not be silently merged.
+- AI may recommend a merge but must not perform authoritative fusion without deterministic checks.
+
+---
+
+## 6. Statement Evidence Classification
+
+### Gap
+
+Security conclusions often mix direct facts, deterministic calculations, structural inferences, and unproven hypotheses. A generic confidence field can make an inference look like an observation.
+
+### Required Classifications
+
+Every important statement should use one of these classifications:
+
+- `observed_fact`
+- `imported_fact`
+- `deterministic_derivation`
+- `corroborated_conclusion`
+- `structural_inference`
+- `hypothesis`
+- `unknown`
+
+### Example
+
+```json
+{
+  "statement": "The device may reach the management workstation",
+  "classification": "structural_inference",
+  "confidence": 0.61,
+  "supporting_evidence": ["flow-91", "segment-12"],
+  "missing_evidence": ["firewall-policy", "route-table"],
+  "validation_required": true
+}
+```
+
+### Presentation Rule
+
+User interfaces and reports should visually distinguish:
+
+- observed facts
+- inferred relationships
+- unresolved hypotheses
+- recommendations
+
+The system must not present an inference as a confirmed observation.
+
+---
+
+## 7. Finding Validation State Machine
+
+### Gap
+
+The project needs a formal process for moving a candidate finding into a validated state.
+
+### Proposed Validation Stages
+
+```text
+Candidate Finding
+      |
+      v
+Stage 0 - Schema and source validation
+      |
+      v
+Stage 1 - Duplicate and known-noise review
+      |
+      v
+Stage 2 - Evidence sufficiency
+      |
+      v
+Stage 3 - Exposure and reachability
+      |
+      v
+Stage 4 - Preconditions and compensating controls
+      |
+      v
+Stage 5 - Cross-source corroboration
+      |
+      v
+Stage 6 - Contradiction and uncertainty review
+      |
+      v
+Validated / Needs Review / Rejected
+```
+
+### Suggested States
+
+- candidate
+- source_invalid
+- duplicate_candidate
+- insufficient_evidence
+- needs_corroboration
+- needs_human_review
+- validated
+- validated_with_assumptions
+- rejected_false_positive
+- superseded
+- stale
+- resolved
+
+### Validation Questions
+
+- Is the source authentic and in scope?
+- Does the evidence actually support the finding?
+- Is the affected asset identity reliable?
+- Is the vulnerable service or condition reachable?
+- Are required attacker or failure preconditions realistic?
+- Do compensating controls reduce or eliminate exposure?
+- Do independent sources agree?
+- Does any evidence contradict the conclusion?
+- Is the result current enough to act on?
+
+### AI Role
+
+AI may summarize conflicting evidence or explain why a validation stage failed. It must not silently promote a candidate to validated status.
+
+---
+
+## 8. Environment Security Context
+
+### Gap
+
+Exposure and risk cannot be prioritized accurately without understanding environment boundaries, critical assets, expected communication, and compensating controls.
+
+### Proposed Component
+
+Add a lightweight **Environment Security Context** that is operator-owned and versioned.
+
+### Suggested Fields
+
+- critical assets
+- sensitive services
+- business services
+- internet boundaries
+- network segments
+- trusted management networks
+- expected communication paths
+- prohibited communication paths
+- identity trust boundaries
+- security controls
+- accepted risks
+- maintenance windows
+- asset criticality rules
+- data sensitivity
+
+### Example
+
+```yaml
+environment_id: site-1
+critical_assets:
+  - storage-01
+  - admin-workstation
+internet_ingress:
+  expected:
+    - asset: gateway-01
+      service: remote-access
+  prohibited:
+    - segment: iot
+trusted_management_segments:
+  - admin-network
+sensitive_relationships:
+  - source: iot-network
+    target: admin-network
+    expected: false
+```
+
+### Freshness
+
+The context must include:
+
+- version
+- owner
+- last reviewed
+- expiration or review date
+- stale status
+
+Stale security context should be rejected or clearly marked before it influences high-confidence conclusions.
+
+---
+
+## 9. Exposure Path Analyzer
+
+### Gap
+
+A single finding may not explain the full risk. The meaningful concern may exist in relationships among external exposure, vulnerable services, weak segmentation, identities, missing controls, and critical assets.
 
 ### Proposed Component
 
 Add a future **Exposure Path Analyzer** that builds defensive, evidence-backed paths across OpenAssetWatch records.
 
-The component must remain advisory. It may identify a plausible route from exposure to impact, but it must not execute, validate through exploitation, or claim compromise without evidence.
+The analyzer must remain advisory. It must not execute the path, validate it through exploitation, or claim compromise without direct evidence.
 
 ### Suggested Node Types
 
@@ -75,6 +506,7 @@ The component must remain advisory. It may identify a plausible route from expos
 - vulnerability
 - external exposure
 - identity
+- account
 - network segment
 - software
 - security control
@@ -97,156 +529,141 @@ The component must remain advisory. It may identify a plausible route from expos
 - `owned_by`
 - `observed_by`
 - `inferred_reachability`
+- `trusts`
+- `administers`
 
 ### Required Edge Metadata
 
-Every relationship should include:
-
 - edge identifier
-- source node
-- destination node
+- source and destination nodes
 - relationship type
-- observed or inferred status
+- statement classification
 - evidence references
-- first seen
-- last seen
+- first seen and last seen
 - confidence
-- tenant or deployment scope
+- tenant scope
 - derivation method
 - rule or model version
 - stale status
 
-### Suggested Path Output
+### Path Output
 
 ```json
 {
   "path_id": "exposure-path-001",
-  "title": "External management exposure may provide a route to an unmanaged device",
+  "title": "External management exposure may provide a route to a sensitive asset",
   "status": "advisory",
   "confidence": "medium",
   "nodes": [
     "external-exposure-1",
-    "asset-router-1",
+    "asset-gateway-1",
     "service-admin-https",
     "segment-iot",
-    "asset-camera-7"
+    "asset-sensitive-7"
   ],
-  "edges": [
-    "edge-1",
-    "edge-2",
-    "edge-3",
-    "edge-4"
-  ],
-  "evidence_refs": [
-    "observation-31",
-    "finding-18",
-    "asset-7"
-  ],
+  "evidence_refs": ["observation-31", "finding-18", "asset-7"],
   "uncertainties": [
     "No exploitability validation was performed",
     "Layer-3 reachability is inferred from available topology evidence"
   ],
-  "recommended_control": "Restrict management access and isolate the IoT segment"
+  "recommended_control": "Restrict management access and isolate the affected segment"
 }
 ```
 
 ### Ranking Inputs
 
-A future path score may consider:
-
 - evidence quality
 - external exposure
-- known exploitation status from approved enrichment
+- approved exploitation-status enrichment
 - vulnerability severity
 - asset criticality
 - identity privilege
-- network reachability confidence
-- missing security controls
+- reachability confidence
+- missing controls
 - path length
 - stale evidence
 - compensating controls
 - business impact
 
-The score must not be based only on model confidence.
+The score must not be based only on AI confidence.
 
 ### Control-Break Analysis
 
-The analyzer should identify the smallest defensive changes that would interrupt the path, such as:
+The analyzer should identify defensive changes that interrupt the path:
 
 - remove public exposure
-- restrict a management interface
-- patch a vulnerable service
-- isolate a network segment
-- require MFA
+- restrict management access
+- patch or retire a vulnerable service
+- isolate a segment
+- require stronger authentication
 - disable an unused account
-- add endpoint security coverage
+- add endpoint or network controls
 - remove an unnecessary trust relationship
-
-This creates actionable defensive value without requiring offensive execution.
 
 ---
 
-## 2. Analysis Replay and Provenance
+## 10. Analysis Replay and Provenance
 
 ### Gap
 
-AI-generated conclusions are difficult to review when only the final answer is retained. OpenAssetWatch needs a replayable record showing how evidence became a recommendation, without storing private chain-of-thought.
+Users need to understand how evidence became a finding or exposure path without relying on hidden model reasoning.
 
 ### Proposed Component
 
-Add a future **Analysis Replay Record** for important AI findings and exposure paths.
+Add an **Analysis Replay Record** that stores observable inputs, transformations, tool calls, validation steps, and outputs.
 
-Example:
+### Replay Example
 
 ```text
-1. Asset discovered by collector
-2. Service observed
-3. Vulnerability enrichment matched
-4. Missing control identified
-5. Reachability relationship inferred
-6. Exposure path calculated
-7. Recommendation generated
-8. Evidence validation completed
+1. Asset observed
+2. Service identified
+3. Version evidence normalized
+4. Vulnerability enrichment matched
+5. Missing control identified
+6. Reachability relationship inferred
+7. Finding validation completed
+8. Exposure path calculated
+9. Advisory recommendation generated
 ```
 
-### Replay Record Fields
+### Replay Fields
 
 - replay identifier
 - task identifier
 - requesting actor
-- tenant or deployment scope
-- model and agent identifiers
-- rules and schema versions
+- tenant scope
 - selected evidence references
 - deterministic transformations
 - inferred relationships
-- validation results
-- generated outputs
+- rules and schema versions
+- model and agent identifiers when used
+- tool executions
+- validation outcomes
 - approval events
+- generated outputs
 - timestamps
-- execution status
-- reason for stop or failure
+- stop or failure reason
 
 ### Required Distinctions
 
-The replay view must separate:
+Replay views must separate:
 
-- observed fact
+- observed input
 - imported enrichment
-- deterministic rule result
+- deterministic transformation
 - inferred relationship
-- AI recommendation
+- AI-generated explanation
 - human decision
 
-It should explain what happened without exposing hidden prompts or private deliberation.
+Private chain-of-thought is neither required nor appropriate for this record.
 
 ---
 
-## 3. Resumable and Bounded Tool Execution
+## 11. Resumable and Bounded Tool Execution
 
 ### Gap
 
-The current AI architecture defines budgets, retries, timeouts, and cancellation, but it should explicitly define how long-running tools continue without blocking one agent turn or flooding model context.
+Long-running tools can block agent turns, flood context, consume resources, and complicate cancellation.
 
 ### Proposed Execution Model
 
@@ -254,17 +671,17 @@ The current AI architecture defines budgets, retries, timeouts, and cancellation
 Agent requests tool
         |
         v
-Execution Service creates execution record
+Execution Service creates record
         |
         v
 Worker runs approved tool
         |
-        +-- completes during bounded wait --> canonical result returned
+        +-- completes during bounded wait --> canonical result
         |
-        `-- still running --> execution_id returned; worker continues
+        `-- still running --> execution_id; worker continues
 ```
 
-### Suggested Execution States
+### Suggested States
 
 - queued
 - preparing
@@ -280,8 +697,6 @@ Worker runs approved tool
 
 ### Control Operations
 
-Future tool-control operations should include:
-
 - get execution status
 - wait for a bounded interval
 - retrieve bounded partial output
@@ -291,63 +706,37 @@ Future tool-control operations should include:
 
 ### Output Governance
 
-Every tool should have:
+Every tool should define:
 
 - maximum output bytes
 - maximum model-facing bytes
 - truncation indicator
-- bounded head and tail preview
-- optional artifact reference for the full result
-- redaction before storage
+- bounded preview
+- artifact reference for full output
+- redaction before persistence
 - canonical normalized result
 
-The same canonical result should be used by:
-
-- the agent
-- audit and monitoring views
-- persistent execution records
-- resumed workflows
-
-This prevents a later continuation from seeing a different result than the original agent saw.
-
-### Suggested Execution Result
-
-```json
-{
-  "execution_id": "exec-123",
-  "state": "partial",
-  "tool": "vulnerability_enrichment",
-  "result_truncated": true,
-  "artifact_ref": "artifacts/exec-123/result.json",
-  "output_bytes_seen": 10485760,
-  "output_bytes_loaded": 262144,
-  "retryable": true,
-  "cancel_requested": false
-}
-```
+The same canonical result should be used by the agent, monitoring records, persistence, and resumed workflows.
 
 ### External Integration Resilience
 
-External MCP servers and integrations should have:
-
-- per-server concurrency limits
+- per-integration concurrency limits
 - global concurrency limits
 - circuit breakers
 - failure thresholds
 - cooldown periods
-- request timeouts
-- hard execution timeouts
+- request and hard timeouts
 - stale-job reconciliation
 - orphan detection
-- health status
+- health state
 
 ---
 
-## 4. Per-Tool Isolation and Credential Proxying
+## 12. Per-Tool Isolation and Credential Proxying
 
 ### Gap
 
-A general agent sandbox is not enough if every delegated tool inherits the same filesystem, network, and credential permissions.
+A general agent sandbox is insufficient when every delegated tool inherits the same filesystem, network, and credential permissions.
 
 ### Proposed Architecture
 
@@ -362,40 +751,24 @@ Per-Tool Child Sandbox
    |-- dedicated filesystem grants
    |-- dedicated network allowlist
    |-- dedicated credential scope
-   |-- invocation restrictions
+   |-- argument restrictions
    |-- output limits
    `-- independent audit events
 ```
 
-### Design Rule
+### Design Rules
 
-The policy must live outside the prompt and outside the model's control. An agent may request a tool, but it must not be able to widen that tool's policy.
-
-### Per-Tool Policy Fields
-
-- tool name and version
-- command or adapter identifier
-- allowed caller roles
-- read-only status
-- filesystem read paths
-- filesystem write paths
-- network default policy
-- allowed hosts
-- allowed methods and paths
-- credential references
-- invocation argument rules
-- environment variables
-- timeout
-- concurrency limit
-- output limit
-- audit level
-- approval requirement
+- Policy must live outside prompts and outside model control.
+- A tool must not inherit broader permissions from the calling agent.
+- Credentials should be short-lived and operation-scoped.
+- Direct access to reusable secrets should be avoided.
+- Filesystem and network access should default to deny.
+- Subprocess calls should use structured argument arrays rather than interpolated shell strings.
+- Dangerous environment variables should be stripped from untrusted execution contexts.
 
 ### Credential Proxy
 
-Where possible, a tool should not receive the underlying reusable secret. A credential proxy should inject authentication only for approved destinations and operations.
-
-Example:
+A credential proxy may inject authentication only for approved destinations, methods, and paths.
 
 ```yaml
 tool: vulnerability_lookup
@@ -403,7 +776,7 @@ network:
   default: deny
   allow:
     - method: GET
-      host: approved-vulnerability-source
+      host: approved-source
       path: /api/v1/vulnerabilities/*
 credentials:
   direct_secret_access: false
@@ -414,21 +787,15 @@ filesystem:
     - /tmp/openassetwatch-tool-output
 ```
 
-### Required Principle
-
-A reporting tool must not inherit the network rights of an enrichment tool. A GitHub integration must not inherit database access. An external assistant must not inherit collector credentials.
-
 ---
 
-## 5. Integration Trust Gate
+## 13. Integration Trust Gate
 
 ### Gap
 
-The architecture requires tools and MCP integrations to be reviewed, but it does not yet define a complete onboarding and lifecycle process for third-party integrations, skills, plugins, model adapters, and external agent runtimes.
+The architecture needs a complete onboarding and lifecycle process for protocol servers, skills, plugins, external assistants, model adapters, and enrichment connectors.
 
-### Proposed Component
-
-Add a future **Integration Trust Gate**.
+### Proposed Pipeline
 
 ```text
 Integration Submitted
@@ -455,69 +822,39 @@ Human Approval
 Approved Integration Registry
 ```
 
-### Supported Future Targets
-
-- MCP servers
-- OpenClaw skills
-- external assistant adapters
-- AI agent skills
-- model-provider adapters
-- report plugins
-- vulnerability enrichment adapters
-- repository packages
-- archives
-- local source projects
-
 ### Static Review Checks
 
 - source and license
 - pinned version or commit
-- checksums
-- signature or provenance
+- checksum and provenance
 - dependency inventory
 - install and build scripts
 - post-install behavior
 - secret scanning
-- obfuscation and encoded content
-- hidden files
-- dangerous command patterns
+- hidden or encoded content
+- dangerous commands
 - prompt or tool-description poisoning
 - environment-variable access
 - filesystem access
-- outbound network destinations
-- remote code download
+- outbound destinations
+- dynamic code download
 - persistence behavior
 - privilege escalation behavior
 - declared permissions versus implementation
 
-### Semantic Review Checks
-
-- stated purpose versus likely behavior
-- hidden or misleading instructions
-- deceptive tool descriptions
-- credential collection intent
-- unauthorized data transfer
-- excessive permissions
-- dangerous side effects
-- policy bypass instructions
-
 ### Runtime Verification
 
-Only suspicious or uncertain integrations should proceed to dynamic verification. The verification environment should use:
+Uncertain integrations may be executed only in an isolated verification environment using:
 
-- isolated container or sandbox
-- no production data
+- synthetic data
 - no reusable credentials
-- synthetic files
-- decoy tokens and honeypot values
-- restricted outbound network
-- process monitoring
-- filesystem monitoring
-- environment access monitoring
+- decoy secrets
+- restricted egress
+- process and filesystem monitoring
 - dependency-install monitoring
-- timeout and resource limits
+- time and resource limits
 
-### Integration Lifecycle States
+### Lifecycle States
 
 - unreviewed
 - quarantined
@@ -530,122 +867,188 @@ Only suspicious or uncertain integrations should proceed to dynamic verification
 - revoked
 - rejected
 
-### Review Result
-
-A review should return:
-
-- verdict
-- confidence
-- severity
-- evidence
-- affected files and lines
-- observed behavior
-- declared-versus-actual differences
-- required restrictions
-- remediation guidance
-- approved version
-- expiration or re-review date
-
-A clean review means no relevant risk was found during the review. It must not be presented as a guarantee that an integration is risk-free.
+A clean result means no relevant risk was found during the review. It is not a guarantee of safety.
 
 ---
 
-## 6. Runtime Guard for External Skills and MCP
+## 14. Runtime Integration Guard
 
 ### Gap
 
-Pre-deployment review cannot identify every behavior, especially when code downloads dependencies or constructs actions dynamically.
+Pre-deployment review cannot identify every dynamic behavior.
 
-### Proposed Component
-
-Add a future **Runtime Integration Guard** for experimental or higher-risk integrations.
-
-The guard may observe:
+### Monitored Behaviors
 
 - tool calls
 - subprocess creation
-- file writes
 - sensitive path reads
+- file writes
 - environment-variable reads
 - network destinations
 - credential access attempts
 - persistence attempts
 - dynamic downloads
 - output containing prompt injection
-- unexpected capability changes
+- capability changes
 
-### Guard Outcomes
+### Outcomes
 
 - allow
 - allow with redaction
-- allow with restricted output
-- require human approval
+- require approval
 - block
-- terminate integration
-- quarantine integration version
+- terminate
+- quarantine version
 
-The guard is a secondary control. It does not replace static review, authorization, per-tool policy, or sandboxing.
-
----
-
-## 7. AI Security Validation Program
-
-### Gap
-
-OpenAssetWatch documents AI safety principles, but these principles should become repeatable security tests and release gates.
-
-### Proposed Deliverable
-
-Create a future **AI Security Test Matrix** and connect it to the planned Agent Evaluation Harness.
-
-### Required Test Categories
-
-| Category | OpenAssetWatch validation scenario |
-| --- | --- |
-| Direct prompt injection | User text attempts to override system and tenant policy |
-| Indirect prompt injection | Asset metadata or enrichment contains malicious instructions |
-| Stored injection | Previously stored notes attempt to control a later agent run |
-| Sensitive information disclosure | Model is asked for tokens, prompts, secrets, or hidden records |
-| Prompt leakage | Model is asked to reveal protected system instructions |
-| Cross-tenant retrieval | One tenant attempts to retrieve another tenant's evidence |
-| Excessive agency | Agent requests a tool or action beyond its role |
-| Confused deputy | Approved tool is redirected toward an unauthorized target |
-| Unsafe output handling | Model output contains dangerous markup, commands, or links |
-| Supply-chain compromise | Integration package or manifest differs from the approved version |
-| Poisoned enrichment | External source attempts to alter policy or inject false facts |
-| Misinformation | Model asserts vulnerability or compromise without evidence |
-| Resource exhaustion | Recursive agents, oversized context, or unbounded output |
-| Memory poisoning | Non-authoritative memory conflicts with current evidence |
-| Tool-description poisoning | External MCP metadata contains malicious instructions |
-| Rug pull | Approved integration changes behavior in a later version |
-| Output flooding | Tool attempts to overwhelm context or persistent storage |
-| Cancellation failure | Child work continues after user or policy cancellation |
-
-### Test Requirements
-
-- deterministic fixtures where possible
-- tenant-isolation fixtures
-- synthetic secrets and decoys
-- expected allow and deny outcomes
-- versioned test cases
-- CI-compatible subset
-- isolated extended test environment
-- evidence retained for failures
-- regression test added for every confirmed issue
-
-### Training-Lab Boundary
-
-Deliberately vulnerable AI labs may be used only as isolated training or test inspiration. Their vulnerable code must not be imported into production components.
+The runtime guard is a secondary control and does not replace authorization, sandboxing, or static review.
 
 ---
 
-## 8. Workflow Graph Safety
+## 15. Scoped Child Analysis Workers
 
 ### Gap
 
-Future multi-agent and tool workflows need deterministic data flow, validation, safe joins, and dry-run behavior.
+Future specialist agents may need parallel delegation, but unrestricted child agents can expand scope, inherit credentials, or expose excessive tools.
 
-### Proposed Workflow Node Types
+### Proposed Task Envelope
+
+```json
+{
+  "task_id": "task-123",
+  "parent_task_id": "task-100",
+  "agent_role": "exposure_path_analysis",
+  "tenant_id": "tenant-1",
+  "asset_scope": ["asset-123", "asset-456"],
+  "allowed_tools": [
+    "read_asset",
+    "read_relationships",
+    "read_findings"
+  ],
+  "external_tools_allowed": false,
+  "max_runtime_seconds": 45,
+  "max_tool_calls": 8,
+  "result_schema": "exposure_path_candidate.v1"
+}
+```
+
+### Required Rules
+
+- A child may receive less authority than its parent, never more.
+- Scope must be explicit and immutable during execution.
+- Child workers must not inherit credentials by default.
+- External tool access must be independently approved.
+- Child count, runtime, tokens, and tool calls must be bounded.
+- Cancellation must propagate to child work.
+- Child outputs must use structured schemas and evidence references.
+
+---
+
+## 16. Policy-Filtered Capability Discovery
+
+### Gap
+
+Large tool catalogs can overwhelm model context and expose capabilities irrelevant to a task.
+
+### Proposed Flow
+
+```text
+Agent Task
+    |
+    v
+Authorization and Tenant Filter
+    |
+    v
+Role and Risk Filter
+    |
+    v
+Approved Integration Filter
+    |
+    v
+Semantic Capability Retrieval
+    |
+    v
+Relevant Tools Only
+```
+
+### Rule
+
+Semantic relevance ranking must occur only after authorization, tenant, approval-state, and risk filters. Retrieval must never make an unauthorized capability visible.
+
+### Capability Metadata
+
+- capability identifier
+- purpose
+- read-only or action-capable
+- allowed roles
+- tenant support
+- sensitivity limits
+- required approvals
+- integration trust state
+- input and output schemas
+- resource costs
+- version
+
+---
+
+## 17. Passive External Exposure Connector
+
+### Gap
+
+OpenAssetWatch is strongest on local and internal visibility. A future optional connector could identify publicly indexed evidence associated with verified owned scope.
+
+### Potential Sources
+
+- search indexes
+- certificate transparency data
+- public code repositories
+- internet-exposure indexes
+- public cloud metadata
+- archived URLs
+- organization-controlled domain records
+
+### Proposed Flow
+
+```text
+Owned Scope Registry
+       |
+       v
+Policy-Approved Query Builder
+       |
+       v
+Approved Passive Provider
+       |
+       v
+Result Normalizer
+       |
+       v
+Ownership Verification
+       |
+       v
+External Exposure Candidate
+       |
+       v
+Human Confirmation
+```
+
+### Safeguards
+
+- verified owned domains or ranges only
+- no login attempts
+- no payload submission
+- no bypass queries
+- no automatic vulnerability classification
+- provider terms and rate limits enforced
+- sensitive results redacted
+- human confirmation before attaching results to an asset
+- explicit tenant policy for external scope transmission
+
+This connector should remain optional because queries may disclose customer scope to an external service.
+
+---
+
+## 18. Workflow Graph Safety
+
+### Proposed Node Types
 
 - start
 - evidence retrieval
@@ -658,117 +1061,109 @@ Future multi-agent and tool workflows need deterministic data flow, validation, 
 - output
 - end
 
-### Required Workflow Controls
+### Required Controls
 
 - static graph validation
 - required start and output nodes
-- no invalid incoming or outgoing edges
 - cycle policy
-- maximum node count
-- maximum runtime
-- maximum tool calls
-- typed node inputs and outputs
-- explicit named outputs
+- node and runtime limits
+- typed inputs and outputs
+- named outputs
 - safe condition language
-- no arbitrary scripting in conditions
+- no arbitrary scripting
 - dry-run mode
 - fail-fast safety gates
 - deterministic join strategies
 - audit and replay records
 
-### Suggested Join Strategies
+### Join Strategies
 
 - merge all upstream results
 - first non-empty result
 - explicit selected branch
 - fail if any upstream safety check fails
 
-### Structured Node Envelope
+---
 
-```json
-{
-  "kind": "agent",
-  "node_id": "risk-agent-1",
-  "node_type": "agent",
-  "status": "completed",
-  "output": {},
-  "evidence_refs": [],
-  "started_at": "",
-  "completed_at": ""
-}
-```
+## 19. AI Security Validation Program
 
-Workflow expressions should support safe path reads and comparisons only. They must not become an arbitrary code-execution surface.
+### Required Test Categories
+
+| Category | Validation scenario |
+| --- | --- |
+| Direct prompt injection | User text attempts to override policy |
+| Indirect prompt injection | Asset or enrichment data contains malicious instructions |
+| Stored injection | Persisted support context attacks a later run |
+| Sensitive disclosure | Model is asked for secrets or hidden records |
+| Cross-tenant retrieval | One tenant requests another tenant's evidence |
+| Excessive agency | Agent requests a capability beyond its role |
+| Confused deputy | Approved tool is redirected to an unauthorized target |
+| Unsafe output | Generated content contains dangerous markup or commands |
+| Supply-chain compromise | Integration differs from approved provenance |
+| Poisoned enrichment | External data attempts to alter policy or facts |
+| Misinformation | Model asserts vulnerability without evidence |
+| Resource exhaustion | Recursive workers or unbounded context/output |
+| Memory poisoning | Non-authoritative context conflicts with current evidence |
+| Tool-description poisoning | Integration metadata includes malicious instructions |
+| Capability rug pull | Approved integration changes behavior in a new version |
+| Cancellation failure | Work continues after cancellation |
+
+### Test Requirements
+
+- deterministic fixtures where possible
+- synthetic secrets and decoys
+- tenant-isolation fixtures
+- expected allow and deny outcomes
+- versioned cases
+- CI-compatible subset
+- isolated extended environment
+- retained failure evidence
+- regression test for each confirmed issue
+
+Deliberately vulnerable training systems may be used only in isolated test environments. Their insecure code must not be imported into production components.
 
 ---
 
-## 9. Separate Audit, Monitoring, and Approval Streams
-
-### Gap
-
-A single log stream cannot clearly answer who changed platform state, how a tool executed, and why an action was approved.
-
-### Proposed Observability Streams
+## 20. Separate Operational Record Streams
 
 ### Platform Audit
 
-Records:
+Records who changed platform state:
 
-- login and authentication events
-- role and permission changes
-- configuration changes
-- integration enablement or revocation
-- model and provider changes
-- policy changes
-- data export
+- authentication events
+- role and policy changes
+- integration lifecycle changes
+- model configuration changes
+- data exports
 
 ### Tool Execution Monitoring
 
-Records:
+Records how work ran:
 
-- execution status
+- status
 - duration
-- resource usage
-- partial output
-- truncation
+- resource use
 - retries
+- truncation
 - cancellation
 - timeout
-- external MCP health
+- partial output
 
 ### Human Approval Log
 
-Records:
-
-- requested action
-- tool and arguments
-- target scope
-- evidence summary
-- approving actor
-- approved, edited, or rejected status
-- reason
-- expiration
+Records why a proposed action was approved, edited, or rejected.
 
 ### Analysis Replay
 
-Records:
+Records how evidence, deterministic transformations, inferences, and optional AI explanations produced the final advisory result.
 
-- selected evidence
-- deterministic transformations
-- inferred relationships
-- model and agent identifiers
-- validation outcomes
-- final advisory result
-
-These streams may be correlated by shared task and execution identifiers, but they should remain logically distinct.
+The streams should share task and execution identifiers but remain logically distinct.
 
 ---
 
-## 10. Asset Coverage and Risk-State Enhancements
+## 21. Asset Coverage and Assessment State
 
-### Gap
-
-OpenAssetWatch has strong inventory goals, but future views should explicitly answer:
+Future views should answer:
 
 1. What exists?
 2. What has been assessed?
@@ -776,62 +1171,55 @@ OpenAssetWatch has strong inventory goals, but future views should explicitly an
 4. Which evidence is stale?
 5. Which assets have never been evaluated?
 
-### Suggested Future Fields
+### Suggested Fields
 
 - first seen
 - last seen
 - last assessed
 - assessment source
-- assessment coverage state
+- coverage state
 - stale threshold
-- related vulnerability count
-- current risk state
+- finding count
+- risk state
 - owner
-- department
 - business service
 - environment
 - criticality
 - data sensitivity
-- security-tool coverage
 - collector coverage
+- security-control coverage
 
-### Suggested Coverage States
+### Coverage States
 
 - unassessed
 - scheduled
 - assessed
-- partially assessed
+- partially_assessed
 - stale
 - failed
-- excluded by policy
+- excluded_by_policy
 
-### Agent Query Limits
-
-AI and external agents should receive bounded summaries rather than entire inventories. Full asset details should require explicit retrieval of a selected asset.
+AI and external agents should receive bounded summaries rather than entire inventories.
 
 ---
 
-## 11. Failure Recovery and Graceful Degradation
-
-### Gap
-
-The architecture should define how AI features fail without affecting deterministic product functions.
+## 22. Graceful Degradation
 
 ### Required Behaviors
 
 - collectors continue when AI is unavailable
 - inventory remains usable without AI
 - deterministic findings continue without AI
-- reports have deterministic fallback templates
-- external MCP failure does not block unrelated tools
-- failed model routing does not silently change data-sharing policy
+- deterministic report templates remain available
+- one failed integration does not block unrelated work
+- failed routing does not weaken privacy policy
 - partial results are clearly marked
 - retries are bounded
-- duplicate task execution is suppressed
-- stale executions are reconciled
+- duplicate execution is suppressed
+- stale jobs are reconciled
 - integrations can be disabled independently
 
-### Suggested Failure Record
+### Failure Record
 
 ```json
 {
@@ -845,157 +1233,181 @@ The architecture should define how AI features fail without affecting determinis
 
 ---
 
-## 12. Explicitly Rejected Capabilities
-
-The reviewed projects also contain offensive or high-privilege capabilities that conflict with OpenAssetWatch's mission and threat model.
+## 23. Explicitly Rejected Capabilities
 
 OpenAssetWatch must not adopt:
 
 - autonomous penetration testing
 - automated exploitation
 - exploit or payload generation
-- credential harvesting
-- password cracking
+- credential harvesting or cracking
 - credential dumping
-- WebShell management
+- remote shell management
 - command-and-control listeners or beacons
 - arbitrary command endpoints
 - unrestricted shell execution
 - unrestricted active scanning
-- unauthorized browser automation
 - destructive remediation
 - automatic firewall or endpoint changes
 - persistence mechanisms
 - privilege escalation tooling
+- child agents that expand their own scope
+- privileged containers as a normal deployment requirement
 
-These capabilities would materially change the project's identity, legal risk, deployment security, and support burden.
+These capabilities would materially change the project's identity, legal risk, threat model, and maintenance burden.
 
 ---
 
-## 13. Proposed Future Architecture
+## 24. Proposed Future Architecture
 
 ```text
-OpenAssetWatch Evidence and Inventory
+Collectors and Enrichment Sources
               |
               v
-      Evidence Context Engine
+      Normalized Observations
               |
-              +-----------------------------+
-              |                             |
-              v                             v
-   Exposure Path Analyzer          AI Advisor Orchestrator
-              |                             |
-              v                             v
-     Analysis Replay Record          Workflow Runtime
-                                            |
-                                            v
-                                      Tool Gateway
-                                            |
-                              +-------------+-------------+
-                              |                           |
-                              v                           v
-                     Internal Read-Only Tool      External Integration
-                                                        |
-                                                        v
-                                                Integration Trust Gate
-                                                        |
-                                                        v
-                                                  Per-Tool Sandbox
-                                                        |
-                                                        v
-                                                  Runtime Guard
+              v
+      Deterministic Rules
+              |
+              v
+       Canonical Findings
+              |
+      +-------+--------+----------------+
+      |                |                |
+      v                v                v
+ Ownership         Confidence      Evidence Selection
+      |                |                |
+      +----------------+----------------+
+                       |
+                       v
+                Finding Fusion
+                       |
+                       v
+             Finding Validation
+                       |
+                       v
+          Exposure Path Analyzer
+                       |
+          +------------+-------------+
+          |                          |
+          v                          v
+ Analysis Replay             Optional AI Advisor
+                                         |
+                                         v
+                                  Workflow Runtime
+                                         |
+                                         v
+                                    Tool Gateway
+                                         |
+                            +------------+------------+
+                            |                         |
+                            v                         v
+                  Internal Read-Only Tool     External Integration
+                                                       |
+                                                       v
+                                             Integration Trust Gate
+                                                       |
+                                                       v
+                                                Per-Tool Sandbox
+                                                       |
+                                                       v
+                                                Runtime Guard
 ```
 
 Cross-cutting controls:
 
 - tenant isolation
 - role authorization
-- policy enforcement
+- data classification
 - evidence provenance
-- model and integration allowlists
-- output redaction
 - execution budgets
-- audit logging
-- human approval
+- approval controls
 - cancellation
-- retention and deletion controls
+- output redaction
+- retention limits
+- audit and monitoring
 
 ---
 
-## 14. Recommended Implementation Order
+## 25. Recommended Implementation Order
 
-### Near-Term Documentation and Contracts
+### Architecture Contracts
 
-1. Define Exposure Path schema.
-2. Define relationship and confidence schema.
-3. Define canonical tool execution record.
-4. Define integration manifest and lifecycle states.
-5. Define AI security test matrix.
-6. Define separate audit, monitor, and approval event types.
+1. Statement classification schema.
+2. Canonical finding schema.
+3. Ownership and confidence schemas.
+4. Finding-fusion contract.
+5. Finding-validation state machine.
+6. Environment Security Context schema.
+7. Exposure-path node and edge schema.
+8. Canonical tool-execution record.
+9. Scoped child-worker task envelope.
+10. Integration manifest and lifecycle schema.
+
+### After Core Inventory and Rules Stabilize
+
+1. Ownership Resolver.
+2. Confidence Engine.
+3. Evidence Selection Engine.
+4. Finding Fusion Engine.
+5. Coverage and stale-evidence states.
+6. Analysis replay for deterministic findings.
 
 ### After a Stable Read-Only Tool Gateway Exists
 
-1. Add bounded execution identifiers and cancellation.
-2. Add output caps and artifact references.
-3. Add external MCP concurrency and circuit breakers.
-4. Add approved integration registry.
-5. Add static integration checks.
-
-### Later Hardening
-
-1. Add per-tool sandbox policies.
-2. Add credential proxying.
-3. Add runtime integration guard.
-4. Add sandbox verification for suspicious integrations.
-5. Add full AI adversarial test suite.
+1. Bounded execution identifiers.
+2. Cancellation and timeout propagation.
+3. Output caps and artifact references.
+4. External integration circuit breakers.
+5. Policy-filtered capability discovery.
+6. Approved integration registry.
 
 ### Later Defensive Intelligence
 
-1. Build a deterministic relationship graph.
-2. Add evidence-backed exposure paths.
-3. Add control-break recommendations.
-4. Add analysis replay and path history.
-5. Add optional AI explanation after deterministic path construction.
+1. Environment Security Context.
+2. Deterministic relationship graph.
+3. Finding-validation workflow.
+4. Evidence-backed exposure paths.
+5. Control-break recommendations.
+6. Optional AI explanation after deterministic path construction.
+7. Optional passive external-exposure enrichment.
+
+### Later Hardening
+
+1. Per-tool child sandboxes.
+2. Credential proxying.
+3. Runtime integration guard.
+4. Sandbox verification for uncertain integrations.
+5. Full AI adversarial test suite.
 
 ---
 
-## 15. Scope Control
+## 26. Scope Control
 
-This backlog is intentionally documentation-only.
+This backlog is documentation-only. A future item should be accepted only when it:
 
-It does not require the project to implement all listed components now. Each item should be evaluated against current milestones, resource availability, security value, and maintenance burden.
-
-A future item should be accepted only when it:
-
-- supports passive asset visibility and defensive decision support
+- supports passive visibility and defensive decision support
 - preserves evidence as the source of truth
 - does not require offensive execution
 - can be isolated behind stable interfaces
 - does not become a mandatory external dependency
 - has clear success and removal criteria
-- does not delay committed core-platform work
+- does not delay committed core-platform milestones
 
-## Source Review Notes
+## Originality and Independence
 
-The reviewed repositories were used as architectural references only.
+The ideas in this document are expressed as original OpenAssetWatch requirements and generic architectural patterns. The document intentionally contains no source-project or vendor names, third-party branding, copied diagrams, performance claims, or implementation-specific identifiers.
 
-Useful patterns preserved here include:
-
-- multi-agent separation and vulnerability correlation
-- replayable graph workflows
-- resumable tool execution and output governance
-- least-privilege child sandboxes
-- credential proxies and endpoint restrictions
-- staged static, semantic, and sandbox review
-- MCP and skill supply-chain review
-- adversarial AI security test categories
-
-OpenAssetWatch should independently design and implement any future component, verify licensing before using code, and perform a fresh security review before adopting any dependency.
+Any future implementation must be independently designed, security-reviewed, and tested. Third-party code must not be copied without an explicit license and provenance review.
 
 ## Final Position
 
-The most important defensive gap is exposure-path analysis: showing how assets, services, vulnerabilities, identities, topology, and missing controls combine into a plausible route to business impact.
+The most important defensive gaps are:
 
-The most important platform-security gaps are integration trust review, per-tool isolation, bounded execution, and repeatable AI security testing.
+1. turning observations into trustworthy canonical findings through ownership, confidence, evidence selection, and fusion;
+2. validating findings before escalation;
+3. showing evidence-backed exposure paths without executing them;
+4. constraining agents and tools through immutable scope and least privilege; and
+5. testing AI and integration behavior as security-sensitive platform components.
 
-These capabilities can strengthen OpenAssetWatch later without changing its current passive-first and advisory-first direction, provided offensive automation remains explicitly out of scope.
+These additions strengthen the future OpenAssetWatch architecture without changing its passive-first, deterministic, advisory-only direction.
