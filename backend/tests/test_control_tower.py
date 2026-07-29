@@ -215,11 +215,15 @@ class ControlTowerTests(unittest.TestCase):
         executed_sql = "\n".join(str(call.args[0]) for call in connection.execute.call_args_list)
         self.assertIn("CREATE TABLE IF NOT EXISTS sites", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS agent_enrollments", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS sensor_enrollments", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS sensor_credentials", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS sensor_identity_audit_events", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS agent_checkins", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS local_inventory_collections", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS control_tower_assets", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS ai_advisor_runs", executed_sql)
         self.assertIn("idx_local_inventory_observation_batch", executed_sql)
+        self.assertIn("idx_sensor_credentials_sensor_status", executed_sql)
 
     def test_release_status_is_metadata_only(self) -> None:
         response = api_agent_release_status()

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -194,6 +196,51 @@ func TestSendRefusesRedirectWithoutLeakingCollectorToken(t *testing.T) {
 	}
 	if redirectedRequests != 0 {
 		t.Fatalf("redirect target received %d request(s)", redirectedRequests)
+	}
+}
+
+func TestEnrollUsesBoundedOneTimeExchangeAndValidatesIdentity(t *testing.T) {
+	enrollmentToken := "oaw_enroll_v1." + strings.Repeat("a", 32) + "." + strings.Repeat("B", 43)
+	sensorCredential := "oaw_sensor_v1." + strings.Repeat("c", 32) + "." + strings.Repeat("D", 43)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != EnrollmentPath || request.Method != http.MethodPost {
+			http.Error(writer, "not found", http.StatusNotFound)
+			return
+		}
+		if request.Header.Get(CollectorTokenHeader) != "" {
+			t.Error("enrollment token was incorrectly copied into the authentication header")
+		}
+		var body EnrollmentRequest
+		decoder := json.NewDecoder(io.LimitReader(request.Body, maxEnrollmentBytes+1))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&body); err != nil || body.EnrollmentToken != enrollmentToken {
+			http.Error(writer, "invalid", http.StatusBadRequest)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(
+			writer,
+			`{"status":"enrolled","site_id":"site-test","sensor_id":"sensor-test","sensor_type":"passive-network-sensor","credential_id":"scred_%s","sensor_credential":%q,"issued_at":"2026-07-29T12:00:00Z"}`,
+			strings.Repeat("e", 32), sensorCredential,
+		)
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL, "", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Enroll(context.Background(), EnrollmentRequest{
+		EnrollmentToken: enrollmentToken,
+		SensorID:        "sensor-test",
+		SensorName:      "Sensor Test",
+		SensorType:      "passive-network-sensor",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.SiteID != "site-test" || response.SensorCredential != sensorCredential {
+		t.Fatalf("enrollment response = %#v", response)
 	}
 }
 
