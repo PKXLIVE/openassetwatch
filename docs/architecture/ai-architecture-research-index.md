@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This index keeps the OpenAssetWatch AI and defensive-intelligence research work organized, discoverable, and controlled. It links the architecture documents created from public research while preserving a provider-neutral design and preventing interesting ideas from becoming unplanned implementation scope.
+This index keeps the OpenAssetWatch AI, platform, security-operations, and defensive-intelligence research work organized, discoverable, and controlled. It links the architecture documents created from public research while preserving a provider-neutral design and preventing interesting ideas from becoming unplanned implementation scope.
 
 The documents in this index describe original OpenAssetWatch requirements. They do not reproduce third-party branding, diagrams, implementation details, or performance claims.
 
@@ -38,6 +38,61 @@ Generic architecture documents should:
 A document evaluating a deliberately selected compatibility target may identify that target when the identity is necessary to preserve the decision. That exception does not allow source names to enter the generic platform architecture.
 
 ## Canonical Research-Derived Documents
+
+### OpenAssetWatch Platform Architecture Overview
+
+File: `openassetwatch-platform-overview.md`
+
+Covers:
+
+- current-state and target-state platform topology
+- Web Access Boundary and Control Plane API
+- sites, tenants, collectors, sensors, assets, evidence, findings, alerts, and cases
+- relationship and exposure graph
+- connector, reporting, projection, and AI boundaries
+- canonical record progression from raw source to verification
+- canonical, artifact, queue, cache, and search responsibilities
+- optional derived search-index abstraction
+- browser and API boundary decision rules
+- Platform Task Orchestrator and AI Scheduler separation
+- schema migration governance relationship
+- deployment profiles, trust boundaries, and graceful degradation
+
+### Platform Task Orchestration Architecture
+
+File: `platform-task-orchestration.md`
+
+Covers:
+
+- durable platform-task contracts
+- task states and immutable authorization scope
+- ingestion, connector, normalization, enrichment, finding, case, report, maintenance, and AI-submission jobs
+- idempotency and duplicate suppression
+- schedules and missed-run policies
+- typed workflow dependencies and deterministic joins
+- workers, leases, heartbeats, checkpoints, and orphan recovery
+- failure classification, retries, circuit breakers, and cancellation
+- resource budgets and tenant fairness
+- durable state versus transient queue state
+- explicit boundary between platform work and AI execution
+
+### Database Schema Migration Governance
+
+File: `database-schema-migration-governance.md`
+
+Covers:
+
+- canonical schema, migration history, and bootstrap convergence
+- additive, constraint, data, index, transforming, and destructive migrations
+- schema version and migration-file contracts
+- expand-and-contract releases
+- application and worker compatibility
+- migration locking and preflight validation
+- backup, restore, and recovery
+- resumable data backfills
+- fresh-install and air-gapped migration support
+- tenant-isolation, artifact, and search consistency
+- migration testing and release gates
 
 ### Local Agentic AI Design Direction
 
@@ -143,6 +198,23 @@ Covers:
 - optional analyst-reviewed operational lessons after case closure
 - canonical case state with external systems treated as projections
 
+### Security Operations, Detection, and Case Intelligence Architecture
+
+File: `security-operations-detection-case-intelligence.md`
+
+Covers:
+
+- top-level security-operations data flow
+- canonical source event, alert, observable, and case records
+- ingestion, normalization, deduplication, and correlation
+- case lifecycle, investigation workspace, ledger, and replay
+- analyst and AI assessment separation
+- typed investigation reports
+- detection-as-code and hunt-as-code
+- evaluation, feedback, and model governance
+- advisory response planning and defensive what-if simulation
+- connector, privacy, egress, service, and tenant boundaries
+
 ### Detection, Feedback, and Response Governance Architecture
 
 File: `detection-feedback-response-governance.md`
@@ -196,6 +268,10 @@ Covers a separately approved, optional support-assistant experiment. It remains 
 
 Future research findings should be assigned to one or more categories:
 
+- platform topology and domain boundaries
+- browser and API security boundaries
+- schema lifecycle and migrations
+- platform tasks and background orchestration
 - asset and evidence collection
 - normalization and identity resolution
 - vulnerability and exposure enrichment
@@ -216,6 +292,7 @@ Future research findings should be assigned to one or more categories:
 - tools and integration security
 - sandboxing and egress
 - output and publication safety
+- canonical, artifact, queue, cache, and search storage
 - supply-chain and provenance
 - observability and audit
 - quality and evaluation
