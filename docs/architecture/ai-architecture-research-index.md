@@ -125,6 +125,67 @@ Covers:
 - output rendering safety
 - incident response
 
+### Security Investigation and Case Operations Architecture
+
+File: `security-investigation-case-operations.md`
+
+Covers:
+
+- canonical security signals, findings, cases, artifacts, and timelines
+- separate source, deterministic, AI, and analyst assessments
+- deterministic correlation and idempotent case formation
+- race-safe assignment and atomic claim semantics
+- server-anchored service targets, snooze, and shift handoff
+- deterministic investigation narratives and entity pivots
+- append-only investigation ledger and safe replay
+- structured reports with explicit unknowns
+- typed read-only playbooks and duplicate-job suppression
+- optional analyst-reviewed operational lessons after case closure
+- canonical case state with external systems treated as projections
+
+### Detection, Feedback, and Response Governance Architecture
+
+File: `detection-feedback-response-governance.md`
+
+Covers:
+
+- versioned detector and rule lifecycle
+- deterministic detector-quality and tuning recommendations
+- coverage snapshots and drift monitoring
+- separate deterministic-substrate and live-agent evaluations
+- synthetic incidents with backing telemetry
+- reproducible evaluation provenance and history
+- authenticated, reviewable, retractable analyst feedback
+- feedback poisoning and training-eligibility controls
+- versioned feature contracts and schema-compatibility gates
+- multi-metric candidate model promotion
+- shadow, canary, hot-reload, rollback, and model cards
+- AI-generated detection drafts that require validation and review
+- recommendation-first response plans
+- blast radius, dry run, approval, rollback, and post-change verification
+- defensive what-if analysis with explicit simulation limits
+
+### Connector, Playbook, and External Projection Architecture
+
+File: `connector-playbook-projection-architecture.md`
+
+Covers:
+
+- self-describing connector definitions and explicit capabilities
+- tenant-scoped connector instances, checkpoints, health, and circuit breakers
+- canonical evidence-ingress envelopes
+- token-bound and signed universal evidence inboxes
+- template-bound parsing, rate limits, and replay protection
+- credential authority separation and stateless connection testing
+- source preservation, unmapped fields, and schema-drift detection
+- trusted extension identity, collision, and override controls
+- production-safe custom-extension packaging
+- admin-only read-only definition and health views
+- typed playbook catalogs and run records
+- canonical-state-first external projection
+- signed, idempotent inbound status convergence
+- explicit egress profiles and air-gap verification
+
 ### Experimental External Support Integration
 
 File: `experimental-external-ai-support.md`
@@ -140,6 +201,14 @@ Future research findings should be assigned to one or more categories:
 - vulnerability and exposure enrichment
 - finding intelligence
 - attack and exposure paths
+- security signals and case formation
+- investigation workflow and analyst operations
+- detection content and tuning
+- feedback and model lifecycle
+- response planning and verification
+- connectors and evidence ingress
+- playbooks and extension packaging
+- external projections and data convergence
 - AI routing and scheduling
 - agent orchestration
 - permissions and authorization
