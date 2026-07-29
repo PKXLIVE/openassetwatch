@@ -16,6 +16,9 @@ batch contract, provider boundary, and current limitations are documented in
 `docs/architecture/hub-spoke-ai-showcase.md`.
 The Linux-first passive sensor, cross-platform replay, privacy boundary, and
 deployment model are documented in `docs/PASSIVE_SENSOR_MVP.md`.
+Its one-time enrollment, site/sensor-bound bearer credential, rotation,
+revocation, and certificate-migration boundary are documented in
+`docs/SENSOR_ENROLLMENT.md`.
 
 ## Hub-And-Spoke Control Plane
 

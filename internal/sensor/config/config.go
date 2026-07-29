@@ -17,7 +17,10 @@ import (
 	"github.com/openassetwatch/openassetwatch/internal/sensor/safefile"
 )
 
-const CollectorTokenEnv = "OPENASSETWATCH_COLLECTOR_TOKEN"
+const (
+	CollectorTokenEnv   = "OPENASSETWATCH_COLLECTOR_TOKEN"
+	SensorCredentialEnv = "OPENASSETWATCH_SENSOR_CREDENTIAL"
+)
 
 var (
 	siteIdentifierPattern   = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -32,7 +35,9 @@ type Config struct {
 	CaptureMode           string `json:"capture_mode"`
 	CaptureInterface      string `json:"capture_interface,omitempty"`
 	IdentityPath          string `json:"identity_path"`
+	CredentialPath        string `json:"credential_path"`
 	SpoolPath             string `json:"spool_path"`
+	CredentialEnv         string `json:"credential_env"`
 	TokenEnv              string `json:"token_env"`
 	BatchSize             int    `json:"batch_size"`
 	BatchIntervalSeconds  int    `json:"batch_interval_seconds"`
@@ -50,7 +55,8 @@ func Default() Config {
 	return Config{
 		HubURL: "http://127.0.0.1:8000", SensorName: "OpenAssetWatch Passive Sensor",
 		CaptureMode: "synthetic", IdentityPath: filepath.Join(stateDir, "identity.json"),
-		SpoolPath: filepath.Join(stateDir, "spool"), TokenEnv: CollectorTokenEnv,
+		CredentialPath: filepath.Join(stateDir, "credential.json"), SpoolPath: filepath.Join(stateDir, "spool"),
+		CredentialEnv: SensorCredentialEnv, TokenEnv: CollectorTokenEnv,
 		BatchSize: 250, BatchIntervalSeconds: 60, RequestTimeoutSeconds: 10,
 		RetryInitialSeconds: 2, RetryMaxSeconds: 300, SpoolMaxItems: 1000,
 		SpoolMaxBytes: 256 << 20, AggregationMaxDevices: 2048, AggregationTTLSeconds: 1800,
@@ -133,8 +139,11 @@ func (cfg Config) Validate() error {
 	if cfg.CaptureMode == "live" && interfaceName == "" {
 		return errors.New("capture_interface is required for live mode")
 	}
-	if !safePath(cfg.IdentityPath) || !safePath(cfg.SpoolPath) {
-		return errors.New("identity_path and spool_path must be safe paths of at most 4096 characters")
+	if !safePath(cfg.IdentityPath) || !safePath(cfg.CredentialPath) || !safePath(cfg.SpoolPath) {
+		return errors.New("identity_path, credential_path, and spool_path must be safe paths of at most 4096 characters")
+	}
+	if cfg.CredentialEnv != SensorCredentialEnv {
+		return fmt.Errorf("credential_env must be %s", SensorCredentialEnv)
 	}
 	if cfg.TokenEnv != CollectorTokenEnv {
 		return fmt.Errorf("token_env must be %s", CollectorTokenEnv)

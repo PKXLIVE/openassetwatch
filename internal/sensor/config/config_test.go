@@ -75,6 +75,12 @@ func TestConfigIdentifierParityAndAbsoluteLimits(t *testing.T) {
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate() accepted an ambiguous identity path")
 	}
+	cfg = Default()
+	cfg.SiteID = "site"
+	cfg.CredentialEnv = "ARBITRARY_SENSOR_SECRET"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() accepted an arbitrary credential environment name")
+	}
 }
 
 func TestForbiddenHubIPRejectsResolvedMetadataAndSpecialNetworks(t *testing.T) {

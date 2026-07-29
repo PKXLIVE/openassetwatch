@@ -403,14 +403,24 @@ class ReadOnlyHubTools:
     def _project_sensor(self, sensor: dict[str, Any]) -> dict[str, Any]:
         last_seen = _datetime(sensor.get("last_seen_at"))
         agent_type = _text(sensor.get("agent_type")) or "network-sensor"
+        stored_identity_status = _text(sensor.get("identity_status")).lower()
+        if stored_identity_status == "revoked":
+            identity_status = "revoked"
+            projected_sensor_status = "revoked"
+        elif stored_identity_status == "active":
+            identity_status = "enrolled"
+            projected_sensor_status = sensor_status(last_seen, now=self.now)
+        else:
+            identity_status = "development-shared"
+            projected_sensor_status = sensor_status(last_seen, now=self.now)
         return {
             "sensor_id": _text(sensor.get("agent_id"), limit=160),
             "site_id": _text(sensor.get("site_id"), limit=128),
             "sensor_name": _text(sensor.get("display_name") or sensor.get("hostname") or sensor.get("agent_id"), limit=160),
             "sensor_type": "endpoint-collector" if agent_type == "endpoint-agent" else "passive-network-sensor",
             "sensor_version": _text(sensor.get("version"), limit=80) or None,
-            "sensor_status": sensor_status(last_seen, now=self.now),
-            "identity_status": "enrolled",
+            "sensor_status": projected_sensor_status,
+            "identity_status": identity_status,
             "last_seen_at": last_seen,
             "data_freshness": freshness(last_seen, now=self.now),
             "observation_source": _text(sensor.get("mode")) or agent_type,

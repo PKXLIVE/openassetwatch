@@ -6,6 +6,10 @@ should not be added here.
 
 - `e2e/`: local development validation helpers. These must stay defensive,
   local-only, and explicit about any backend URL they contact.
+- `demo_sensor_enrollment.py`: loopback-HTTP/HTTPS synthetic proof of one-time
+  sensor enrollment, bound uploads, rotation, revocation, retained evidence,
+  and deterministic AI visibility. It reads administrator authorization only
+  from a named environment variable and never prints issued secrets.
 - `release/`: local release artifact helpers. These may build local binaries
   into ignored `dist/` paths, create local TAR.GZ archives from existing dist
   artifacts, create local Debian package artifacts from existing Linux dist

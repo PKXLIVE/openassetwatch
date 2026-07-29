@@ -2,14 +2,17 @@ import hashlib
 import json
 import os
 import secrets
+import threading
+import time
+from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import Body, Header, HTTPException, FastAPI
+from fastapi import Body, Header, HTTPException, FastAPI, Path as ApiPath, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -53,8 +56,36 @@ from .database import (
 from .hub_contracts import (
     ObservationBatchRequest,
     ObservationBatchResponse,
+    SensorCheckInRequest,
+    SensorCheckInResponse,
+    SensorCredentialIssueResponse,
+    SensorCredentialListResponse,
+    SensorEnrollmentCreateRequest,
+    SensorEnrollmentCreateResponse,
+    SensorEnrollmentExchangeRequest,
+    SensorEnrollmentExchangeResponse,
+    SensorEnrollmentListResponse,
+    SensorEnrollmentPublic,
     SensorSummaryResponse,
     SiteIntelligenceSummaryResponse,
+)
+from .sensor_identity import (
+    SensorAuthenticationRejected,
+    SensorEnrollmentRejected,
+    SensorIdentityConflict,
+    SensorIdentityNotFound,
+    authenticate_sensor_request,
+    create_sensor_enrollment,
+    exchange_sensor_enrollment,
+    get_sensor_enrollment,
+    list_sensor_credentials,
+    list_sensor_enrollments,
+    list_sensor_identity_audit,
+    record_sensor_checkin,
+    revoke_sensor,
+    revoke_sensor_credential,
+    revoke_sensor_enrollment,
+    rotate_sensor_credential,
 )
 
 app = FastAPI(
@@ -62,6 +93,71 @@ app = FastAPI(
     description="Open-source family network asset intelligence platform.",
     version="0.1.0",
 )
+
+
+class BoundedRequestBodyMiddleware:
+    """Enforce sensitive ingestion limits even for chunked request bodies."""
+
+    LIMITS = {
+        "/api/v1/sensors/enroll": 8 << 10,
+        "/api/v1/sensors/check-in": 16 << 10,
+        "/api/v1/observations/batches": 2 << 20,
+    }
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        limit = self.LIMITS.get(scope.get("path"))
+        if limit is None:
+            await self.app(scope, receive, send)
+            return
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        content_length = headers.get(b"content-length")
+        if content_length is not None:
+            try:
+                declared = int(content_length.decode("ascii"), 10)
+            except (UnicodeDecodeError, ValueError):
+                response = JSONResponse(status_code=400, content={"detail": "invalid request metadata"})
+                await response(scope, receive, send)
+                return
+            if declared < 0 or declared > limit:
+                response = JSONResponse(status_code=413, content={"detail": "request body is too large"})
+                await response(scope, receive, send)
+                return
+
+        buffered = bytearray()
+        while True:
+            message = await receive()
+            if message.get("type") != "http.request":
+                async def disconnected_receive() -> dict[str, Any]:
+                    return message
+
+                await self.app(scope, disconnected_receive, send)
+                return
+            buffered.extend(message.get("body", b""))
+            if len(buffered) > limit:
+                response = JSONResponse(status_code=413, content={"detail": "request body is too large"})
+                await response(scope, receive, send)
+                return
+            if not message.get("more_body", False):
+                break
+        replayed = False
+
+        async def replay_receive() -> dict[str, Any]:
+            nonlocal replayed
+            if replayed:
+                return {"type": "http.disconnect"}
+            replayed = True
+            return {"type": "http.request", "body": bytes(buffered), "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+
+app.add_middleware(BoundedRequestBodyMiddleware)
 
 
 CONTROL_TOWER_VERSION = os.getenv("OPENASSETWATCH_CONTROL_TOWER_VERSION", "0.1.0")
@@ -93,6 +189,7 @@ COLLECTOR_TOKEN_ENV = "OPENASSETWATCH_COLLECTOR_TOKEN"
 COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
 ADMIN_TOKEN_ENV = "OPENASSETWATCH_ADMIN_TOKEN"
 ADMIN_TOKEN_HEADER = "X-OpenAssetWatch-Admin-Token"
+MAX_SENSOR_ENROLLMENT_BODY_BYTES = 8 << 10
 
 
 def require_collector_token(provided_token: str | None) -> None:
@@ -115,6 +212,74 @@ def require_admin_token(provided_token: str | None) -> None:
     if provided_token and secrets.compare_digest(provided_token, expected_token):
         return
     raise HTTPException(status_code=401, detail="valid admin token required")
+
+
+def require_sensor_admin_token(provided_token: str | None) -> None:
+    """Fail closed for credential-issuing administration.
+
+    Existing read-only local admin surfaces retain their development behavior;
+    issuance, rotation, and revocation require an explicitly configured admin
+    secret.
+    """
+
+    expected_token = os.getenv(ADMIN_TOKEN_ENV)
+    if not expected_token:
+        raise HTTPException(status_code=503, detail="sensor identity administration is not configured")
+    if isinstance(provided_token, str) and secrets.compare_digest(provided_token, expected_token):
+        return
+    raise HTTPException(status_code=401, detail="valid admin token required")
+
+
+class _EnrollmentAttemptLimiter:
+    """Small per-process limiter for the unauthenticated token exchange."""
+
+    def __init__(self, *, limit: int = 20, window_seconds: float = 60.0, max_sources: int = 4096) -> None:
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self.max_sources = max_sources
+        self._lock = threading.Lock()
+        self._attempts: OrderedDict[str, deque[float]] = OrderedDict()
+
+    def allow(self, source: str, *, now: float | None = None) -> bool:
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            attempts = self._attempts.pop(source, deque())
+            cutoff = current - self.window_seconds
+            while attempts and attempts[0] <= cutoff:
+                attempts.popleft()
+            allowed = len(attempts) < self.limit
+            if allowed:
+                attempts.append(current)
+            self._attempts[source] = attempts
+            while len(self._attempts) > self.max_sources:
+                self._attempts.popitem(last=False)
+            return allowed
+
+
+_sensor_enrollment_attempts = _EnrollmentAttemptLimiter()
+
+
+def _sensor_request_source(request: Request) -> str:
+    if request.client is None or not request.client.host:
+        return "unknown"
+    return request.client.host[:128]
+
+
+def _require_bounded_enrollment_request(content_length: str | None) -> None:
+    if not isinstance(content_length, str):
+        return
+    try:
+        length = int(content_length, 10)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid request metadata") from exc
+    if length < 0 or length > MAX_SENSOR_ENROLLMENT_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="sensor enrollment request is too large")
+
+
+def _raise_sensor_admin_error(exc: SensorIdentityNotFound | SensorIdentityConflict) -> None:
+    if isinstance(exc, SensorIdentityNotFound):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 class CollectorCheckInRequest(BaseModel):
@@ -367,6 +532,207 @@ def api_create_agent_enrollment(payload: AgentEnrollmentRequest):
         )
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to save agent enrollment") from exc
+
+
+@app.post(
+    "/api/v1/admin/sensor-enrollments",
+    response_model=SensorEnrollmentCreateResponse,
+    response_model_exclude_none=True,
+)
+def admin_create_sensor_enrollment(
+    payload: SensorEnrollmentCreateRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return create_sensor_enrollment(
+            site_id=payload.site_id,
+            requested_sensor_id=payload.requested_sensor_id,
+            requested_sensor_name=payload.requested_sensor_name,
+            sensor_type=payload.sensor_type,
+            expires_in_minutes=payload.expires_in_minutes,
+        )
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to create sensor enrollment") from exc
+
+
+@app.get("/api/v1/admin/sensor-enrollments", response_model=SensorEnrollmentListResponse)
+def admin_list_sensor_enrollments(
+    limit: int = Query(default=100, ge=1, le=500),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return {"enrollments": list_sensor_enrollments(limit=limit)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sensor enrollments") from exc
+
+
+@app.get(
+    "/api/v1/admin/sensor-enrollments/{enrollment_id}",
+    response_model=SensorEnrollmentPublic,
+    response_model_exclude_none=True,
+)
+def admin_get_sensor_enrollment(
+    enrollment_id: str = ApiPath(..., pattern=r"^senr_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return get_sensor_enrollment(enrollment_id)
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sensor enrollment") from exc
+
+
+@app.post(
+    "/api/v1/admin/sensor-enrollments/{enrollment_id}/revoke",
+    response_model=SensorEnrollmentPublic,
+    response_model_exclude_none=True,
+)
+def admin_revoke_sensor_enrollment(
+    enrollment_id: str = ApiPath(..., pattern=r"^senr_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return revoke_sensor_enrollment(enrollment_id)
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to revoke sensor enrollment") from exc
+
+
+@app.get("/api/v1/admin/sensors", response_model=SensorCredentialListResponse)
+def admin_list_sensor_credentials(
+    limit: int = Query(default=500, ge=1, le=500),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return {"credentials": list_sensor_credentials(limit=limit)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sensor credentials") from exc
+
+
+@app.post(
+    "/api/v1/admin/sensors/{sensor_id}/credentials/rotate",
+    response_model=SensorCredentialIssueResponse,
+)
+def admin_rotate_sensor_credential(
+    sensor_id: str = ApiPath(..., min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return rotate_sensor_credential(sensor_id)
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to rotate sensor credential") from exc
+
+
+@app.post("/api/v1/admin/sensors/{sensor_id}/credentials/{credential_id}/revoke")
+def admin_revoke_sensor_credential(
+    sensor_id: str = ApiPath(..., min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$"),
+    credential_id: str = ApiPath(..., pattern=r"^scred_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return revoke_sensor_credential(sensor_id, credential_id)
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to revoke sensor credential") from exc
+
+
+@app.post("/api/v1/admin/sensors/{sensor_id}/revoke")
+def admin_revoke_sensor(
+    sensor_id: str = ApiPath(..., min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return revoke_sensor(sensor_id)
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to revoke sensor") from exc
+
+
+@app.get("/api/v1/admin/sensor-identity/audit")
+def admin_sensor_identity_audit(
+    limit: int = Query(default=100, ge=1, le=500),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return {"events": list_sensor_identity_audit(limit=limit)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sensor identity audit") from exc
+
+
+@app.post("/api/v1/sensors/enroll", response_model=SensorEnrollmentExchangeResponse)
+def sensor_enroll(
+    payload: SensorEnrollmentExchangeRequest,
+    request: Request,
+    content_length: str | None = Header(default=None, alias="Content-Length"),
+):
+    _require_bounded_enrollment_request(content_length)
+    if not _sensor_enrollment_attempts.allow(_sensor_request_source(request)):
+        raise HTTPException(status_code=429, detail="sensor enrollment temporarily unavailable")
+    try:
+        return exchange_sensor_enrollment(
+            enrollment_token=payload.enrollment_token.get_secret_value(),
+            sensor_id=payload.sensor_id,
+            sensor_name=payload.sensor_name,
+            sensor_type=payload.sensor_type,
+            sensor_version=payload.sensor_version,
+            platform=payload.platform,
+        )
+    except SensorEnrollmentRejected as exc:
+        raise HTTPException(status_code=401, detail="sensor enrollment failed") from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="sensor enrollment failed") from exc
+
+
+@app.post("/api/v1/sensors/check-in", response_model=SensorCheckInResponse)
+def sensor_check_in(
+    payload: SensorCheckInRequest,
+    collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
+):
+    try:
+        authenticate_sensor_request(
+            provided_token=collector_token,
+            claimed_site_id=payload.site_id,
+            claimed_sensor_id=payload.sensor_id,
+            claimed_sensor_type=payload.sensor_type,
+        )
+    except SensorAuthenticationRejected as exc:
+        raise HTTPException(status_code=401, detail="valid sensor credential required") from exc
+    received_at = datetime.now(timezone.utc)
+    try:
+        record_sensor_checkin(
+            site_id=payload.site_id,
+            sensor_id=payload.sensor_id,
+            sensor_name=payload.sensor_name,
+            sensor_version=payload.sensor_version,
+            status=payload.status,
+            received_at=received_at,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to persist sensor check-in") from exc
+    return SensorCheckInResponse(
+        status="accepted",
+        site_id=payload.site_id,
+        sensor_id=payload.sensor_id,
+        received_at=received_at,
+        message="sensor check-in accepted",
+    )
 
 
 @app.get("/api/v1/control-tower/summary", response_model=ControlTowerSummaryResponse)
@@ -1013,7 +1379,15 @@ def observation_batch(
     payload: ObservationBatchRequest,
     collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
 ):
-    require_collector_token(collector_token)
+    try:
+        authenticate_sensor_request(
+            provided_token=collector_token,
+            claimed_site_id=payload.site_id,
+            claimed_sensor_id=payload.sensor_id,
+            claimed_sensor_type=payload.sensor_type,
+        )
+    except SensorAuthenticationRejected as exc:
+        raise HTTPException(status_code=401, detail="valid sensor credential required") from exc
     received_at = datetime.now(timezone.utc)
     stored_payload = payload.model_dump(mode="json")
     try:

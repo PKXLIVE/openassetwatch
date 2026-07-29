@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/openassetwatch/openassetwatch/internal/sensor/credential"
 )
 
 func TestRunVersionAndProfile(t *testing.T) {
@@ -54,11 +56,108 @@ func TestRunStatusIsNonRunningAndDoesNotExposeToken(t *testing.T) {
 	if code := run([]string{"status"}, &out, &errOut); code != 0 {
 		t.Fatalf("status exit code = %d: %s", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), `"status": "not-running"`) || !strings.Contains(out.String(), `"collector_token_available": true`) {
+	if !strings.Contains(out.String(), `"status": "not-running"`) || !strings.Contains(out.String(), `"authentication_mode": "development-shared"`) {
 		t.Fatalf("status output = %s", out.String())
 	}
 	if strings.Contains(out.String(), "status-secret-value") {
 		t.Fatalf("status disclosed token value: %s", out.String())
+	}
+}
+
+func TestRunStatusUsesCredentialEnvironmentWithoutDisclosingIt(t *testing.T) {
+	value := "oaw_sensor_v1." + strings.Repeat("a", 32) + "." + strings.Repeat("B", 43)
+	t.Setenv(credential.EnvironmentName, value)
+	t.Setenv("OPENASSETWATCH_COLLECTOR_TOKEN", "")
+	var out, errOut bytes.Buffer
+	if code := run([]string{"status"}, &out, &errOut); code != 0 {
+		t.Fatalf("status exit code = %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), `"authentication_mode": "bound-environment"`) {
+		t.Fatalf("status output = %s", out.String())
+	}
+	if strings.Contains(out.String(), value) || strings.Contains(errOut.String(), value) {
+		t.Fatal("status disclosed the credential environment value")
+	}
+}
+
+func TestRunEnrollStoresCredentialWithoutPrintingSecrets(t *testing.T) {
+	enrollmentToken := "oaw_enroll_v1." + strings.Repeat("a", 32) + "." + strings.Repeat("B", 43)
+	sensorCredential := "oaw_sensor_v1." + strings.Repeat("c", 32) + "." + strings.Repeat("D", 43)
+	replacementCredential := "oaw_sensor_v1." + strings.Repeat("e", 32) + "." + strings.Repeat("F", 43)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/sensors/enroll" || request.Method != http.MethodPost {
+			http.Error(writer, "not found", http.StatusNotFound)
+			return
+		}
+		var body struct {
+			EnrollmentToken string `json:"enrollment_token"`
+			SensorID        string `json:"sensor_id"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil ||
+			body.EnrollmentToken != enrollmentToken || body.SensorID != "sensor-test" {
+			http.Error(writer, "invalid", http.StatusBadRequest)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(
+			writer,
+			`{"status":"enrolled","site_id":"site-test","sensor_id":"sensor-test","sensor_type":"passive-network-sensor","credential_id":"scred_%s","sensor_credential":%q,"issued_at":"2026-07-29T12:00:00Z"}`,
+			strings.Repeat("1", 32), sensorCredential,
+		)
+	}))
+	defer server.Close()
+
+	stateDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "sensor.json")
+	credentialPath := filepath.Join(stateDir, "credential.json")
+	configBody := fmt.Sprintf(
+		`{"hub_url":%q,"site_id":"site-test","sensor_id":"sensor-test","sensor_name":"Sensor Test","capture_mode":"synthetic","identity_path":%q,"credential_path":%q,"spool_path":%q,"credential_env":"OPENASSETWATCH_SENSOR_CREDENTIAL","token_env":"OPENASSETWATCH_COLLECTOR_TOKEN","batch_size":10,"batch_interval_seconds":1,"request_timeout_seconds":5,"retry_initial_seconds":1,"retry_max_seconds":2,"spool_max_items":10,"spool_max_bytes":1048576,"aggregation_max_devices":10,"aggregation_ttl_seconds":60}`,
+		server.URL,
+		filepath.Join(stateDir, "identity.json"),
+		credentialPath,
+		filepath.Join(stateDir, "spool"),
+	)
+	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(credential.EnrollmentTokenEnv, enrollmentToken)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"enroll", "--config", configPath}, &out, &errOut); code != 0 {
+		t.Fatalf("enroll exit code = %d: stdout=%s stderr=%s", code, out.String(), errOut.String())
+	}
+	if strings.Contains(out.String(), enrollmentToken) || strings.Contains(out.String(), sensorCredential) ||
+		strings.Contains(errOut.String(), enrollmentToken) || strings.Contains(errOut.String(), sensorCredential) {
+		t.Fatal("enrollment command disclosed secret material")
+	}
+	stored, err := credential.Load(credentialPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Credential != sensorCredential || stored.SensorID != "sensor-test" {
+		t.Fatal("enrollment command did not store the bound credential")
+	}
+
+	t.Setenv(credential.EnvironmentName, replacementCredential)
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"replace-credential", "--config", configPath}, &out, &errOut); code != 0 {
+		t.Fatalf("replace exit code = %d: stdout=%s stderr=%s", code, out.String(), errOut.String())
+	}
+	if strings.Contains(out.String(), replacementCredential) || strings.Contains(errOut.String(), replacementCredential) {
+		t.Fatal("credential replacement disclosed the new secret")
+	}
+	t.Setenv(credential.EnvironmentName, "")
+	stored, err = credential.Load(credentialPath)
+	if err != nil || stored.Credential != replacementCredential {
+		t.Fatalf("replacement credential was not stored: record=%#v err=%v", stored, err)
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"clear-credential", "--config", configPath, "--confirm-clear"}, &out, &errOut); code != 0 {
+		t.Fatalf("clear exit code = %d: stdout=%s stderr=%s", code, out.String(), errOut.String())
+	}
+	if _, err := credential.Load(credentialPath); !os.IsNotExist(err) {
+		t.Fatalf("credential still exists after clear: %v", err)
 	}
 }
 

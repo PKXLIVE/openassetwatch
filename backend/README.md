@@ -13,6 +13,7 @@ service backed by PostgreSQL through SQLAlchemy.
 - raw inventory evidence persistence
 - basic Control Tower asset normalization
 - idempotent outbound observation batches with site/sensor provenance
+- one-time passive-sensor enrollment and bound, rotatable credentials
 - site and sensor health/freshness summaries
 - deterministic and optional external AI Advisor providers
 - bounded read-only AI evidence tools and audit metadata
@@ -110,6 +111,9 @@ Control Tower tables include:
 
 - `sites`
 - `agent_enrollments`
+- `sensor_enrollments`
+- `sensor_credentials`
+- `sensor_identity_audit_events`
 - `agent_checkins`
 - `local_inventory_collections`
 - `control_tower_assets`
@@ -138,6 +142,8 @@ python scripts/test_control_tower_demo_seed.py
 See `docs/architecture/hub-spoke-ai-showcase.md` for provider configuration,
 the observation batch contract, trust boundaries, local Ollama activation, and
 deterministic-mode restoration steps.
+See `docs/SENSOR_ENROLLMENT.md` for the one-time sensor enrollment API,
+credential storage, rotation/revocation, and development shared-token boundary.
 
 ## Safety Boundaries
 
