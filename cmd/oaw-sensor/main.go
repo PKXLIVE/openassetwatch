@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"github.com/openassetwatch/openassetwatch/internal/sensor/capture"
 	sensorconfig "github.com/openassetwatch/openassetwatch/internal/sensor/config"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/contract"
+	"github.com/openassetwatch/openassetwatch/internal/sensor/credential"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/health"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/hubclient"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/identity"
@@ -49,12 +52,20 @@ func run(args []string, out, errOut io.Writer) int {
 		return runValidateConfig(args[1:], out, errOut)
 	case "status", "health":
 		return runStatus(args[1:], out, errOut)
+	case "enroll":
+		return runEnroll(args[1:], out, errOut)
+	case "credential-status":
+		return runCredentialStatus(args[1:], out, errOut)
+	case "replace-credential":
+		return runReplaceCredential(args[1:], out, errOut)
+	case "clear-credential":
+		return runClearCredential(args[1:], out, errOut)
 	case "demo", "replay":
 		return runReplay(args[1:], out, errOut)
 	case "live":
 		return runLive(args[1:], out, errOut)
 	default:
-		_, _ = fmt.Fprintf(errOut, "unknown oaw-sensor command %q (use profile, demo, live, validate-config, or status)\n", args[0])
+		_, _ = fmt.Fprintf(errOut, "unknown oaw-sensor command %q (use profile, enroll, credential-status, replace-credential, clear-credential, demo, live, validate-config, or status)\n", args[0])
 		return 2
 	}
 }
@@ -149,6 +160,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	} else {
 		cfg.SiteID = "(unconfigured)"
 	}
+	token, authMode, authErr := resolveAuthentication(cfg, cfg.SensorID)
 	status := struct {
 		Running          bool   `json:"running"`
 		Configured       bool   `json:"configured"`
@@ -159,18 +171,234 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		CaptureMode      string `json:"capture_mode"`
 		CaptureInterface string `json:"capture_interface,omitempty"`
 		HubURL           string `json:"hub_url"`
-		TokenAvailable   bool   `json:"collector_token_available"`
+		AuthMode         string `json:"authentication_mode"`
+		CredentialReady  bool   `json:"credential_available"`
+		AuthError        bool   `json:"credential_error"`
 	}{
 		Running: false, Configured: configured, Status: "not-running",
 		Version: version.String(), SiteID: cfg.SiteID, SensorID: cfg.SensorID,
 		CaptureMode: cfg.CaptureMode, CaptureInterface: cfg.CaptureInterface,
-		HubURL: cfg.HubURL, TokenAvailable: os.Getenv(cfg.TokenEnv) != "",
+		HubURL: cfg.HubURL, AuthMode: authMode, CredentialReady: token != "",
+		AuthError: authErr != nil,
 	}
 	if err := writeJSON(out, status); err != nil {
 		_, _ = fmt.Fprintln(errOut, err)
 		return 1
 	}
 	return 0
+}
+
+func runEnroll(args []string, out, errOut io.Writer) int {
+	flags := flag.NewFlagSet("enroll", flag.ContinueOnError)
+	flags.SetOutput(errOut)
+	configPath := flags.String("config", "", "path to an OAW sensor JSON config")
+	identityPath := flags.String("identity-path", "", "identity file override")
+	credentialPath := flags.String("credential-path", "", "credential file override")
+	tokenFile := flags.String("enrollment-token-file", "", "protected file containing the one-time enrollment token")
+	tokenEnv := flags.String("enrollment-token-env", credential.EnrollmentTokenEnv, "environment variable containing the one-time enrollment token")
+	tokenStdin := flags.Bool("enrollment-token-stdin", false, "read the one-time enrollment token from standard input")
+	timeout := flags.Duration("timeout", 20*time.Second, "enrollment request timeout")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*configPath) == "" {
+		_, _ = fmt.Fprintln(errOut, "--config is required")
+		return 2
+	}
+	cfg, err := sensorconfig.Load(*configPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	if *identityPath != "" {
+		cfg.IdentityPath = *identityPath
+	}
+	if *credentialPath != "" {
+		cfg.CredentialPath = *credentialPath
+	}
+	if err := cfg.Validate(); err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 2
+	}
+	sensorID, err := resolveSensorID(cfg, "", cfg.IdentityPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	if err := credential.EnsureAbsent(cfg.CredentialPath); err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	enrollmentToken, err := readSecretInput(*tokenEnv, *tokenFile, *tokenStdin, true)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 2
+	}
+	hub, err := hubclient.New(cfg.HubURL, "", min(*timeout, cfg.RequestTimeout()))
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	ctx, cancel := contextWithTimeout(*timeout)
+	defer cancel()
+	response, err := hub.Enroll(ctx, hubclient.EnrollmentRequest{
+		EnrollmentToken: enrollmentToken,
+		SensorID:        sensorID,
+		SensorName:      cfg.SensorName,
+		SensorType:      "passive-network-sensor",
+		SensorVersion:   version.Number,
+		Platform:        runtime.GOOS,
+	})
+	enrollmentToken = ""
+	if err != nil {
+		_, _ = fmt.Fprintf(errOut, "sensor enrollment failed: %s\n", scrubError(err.Error()))
+		return 1
+	}
+	if response.SiteID != cfg.SiteID || response.SensorID != sensorID {
+		_, _ = fmt.Fprintln(errOut, "sensor enrollment response identity does not match local configuration")
+		return 1
+	}
+	record := credential.Record{
+		SchemaVersion: credential.SchemaVersion,
+		SiteID:        response.SiteID,
+		SensorID:      response.SensorID,
+		SensorType:    response.SensorType,
+		Credential:    response.SensorCredential,
+		IssuedAt:      response.IssuedAt,
+	}
+	response.SensorCredential = ""
+	if err := credential.Write(cfg.CredentialPath, record, false); err != nil {
+		_, _ = fmt.Fprintln(errOut, "credential was issued but could not be stored; revoke the sensor and re-enroll")
+		return 1
+	}
+	record.Credential = ""
+	return writeSafeCredentialResult(out, "enrolled", response.SiteID, response.SensorID, "bound-sensor", errOut)
+}
+
+func runCredentialStatus(args []string, out, errOut io.Writer) int {
+	flags := flag.NewFlagSet("credential-status", flag.ContinueOnError)
+	flags.SetOutput(errOut)
+	configPath := flags.String("config", "", "path to an OAW sensor JSON config")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*configPath) == "" {
+		_, _ = fmt.Fprintln(errOut, "--config is required")
+		return 2
+	}
+	cfg, err := sensorconfig.Load(*configPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	sensorID, err := resolveSensorID(cfg, "", cfg.IdentityPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	token, mode, authErr := resolveAuthentication(cfg, sensorID)
+	result := struct {
+		SiteID              string `json:"site_id"`
+		SensorID            string `json:"sensor_id"`
+		AuthenticationMode  string `json:"authentication_mode"`
+		CredentialAvailable bool   `json:"credential_available"`
+		CredentialValid     bool   `json:"credential_valid"`
+	}{
+		SiteID: cfg.SiteID, SensorID: sensorID, AuthenticationMode: mode,
+		CredentialAvailable: token != "", CredentialValid: authErr == nil && token != "",
+	}
+	token = ""
+	if err := writeJSON(out, result); err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	if authErr != nil {
+		_, _ = fmt.Fprintln(errOut, "sensor credential is unavailable or invalid")
+		return 1
+	}
+	return 0
+}
+
+func runReplaceCredential(args []string, out, errOut io.Writer) int {
+	flags := flag.NewFlagSet("replace-credential", flag.ContinueOnError)
+	flags.SetOutput(errOut)
+	configPath := flags.String("config", "", "path to an OAW sensor JSON config")
+	credentialPath := flags.String("credential-path", "", "credential file override")
+	tokenFile := flags.String("credential-file", "", "protected file containing the replacement credential")
+	tokenEnv := flags.String("credential-env", credential.EnvironmentName, "environment variable containing the replacement credential")
+	tokenStdin := flags.Bool("credential-stdin", false, "read the replacement credential from standard input")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*configPath) == "" {
+		_, _ = fmt.Fprintln(errOut, "--config is required")
+		return 2
+	}
+	cfg, err := sensorconfig.Load(*configPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	if *credentialPath != "" {
+		cfg.CredentialPath = *credentialPath
+	}
+	if err := cfg.Validate(); err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 2
+	}
+	sensorID, err := resolveSensorID(cfg, "", cfg.IdentityPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	value, err := readSecretInput(*tokenEnv, *tokenFile, *tokenStdin, false)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 2
+	}
+	record := credential.Record{
+		SchemaVersion: credential.SchemaVersion,
+		SiteID:        cfg.SiteID,
+		SensorID:      sensorID,
+		SensorType:    "passive-network-sensor",
+		Credential:    value,
+		IssuedAt:      time.Now().UTC(),
+	}
+	value = ""
+	if err := credential.Write(cfg.CredentialPath, record, true); err != nil {
+		_, _ = fmt.Fprintln(errOut, "failed to replace protected sensor credential")
+		return 1
+	}
+	record.Credential = ""
+	return writeSafeCredentialResult(out, "credential-replaced", cfg.SiteID, sensorID, "bound-sensor", errOut)
+}
+
+func runClearCredential(args []string, out, errOut io.Writer) int {
+	flags := flag.NewFlagSet("clear-credential", flag.ContinueOnError)
+	flags.SetOutput(errOut)
+	configPath := flags.String("config", "", "path to an OAW sensor JSON config")
+	confirm := flags.Bool("confirm-clear", false, "confirm permanent removal of the local credential file")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*configPath) == "" || !*confirm {
+		_, _ = fmt.Fprintln(errOut, "--config and --confirm-clear are required")
+		return 2
+	}
+	cfg, err := sensorconfig.Load(*configPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	if os.Getenv(cfg.CredentialEnv) != "" {
+		_, _ = fmt.Fprintln(errOut, "credential environment override is active; unset it before clearing the file")
+		return 1
+	}
+	if err := credential.Clear(cfg.CredentialPath); err != nil {
+		_, _ = fmt.Fprintln(errOut, "failed to clear protected sensor credential")
+		return 1
+	}
+	return writeSafeCredentialResult(out, "credential-cleared", cfg.SiteID, cfg.SensorID, "unconfigured", errOut)
 }
 
 func runReplay(args []string, out, errOut io.Writer) int {
@@ -247,9 +475,17 @@ func runReplay(args []string, out, errOut io.Writer) int {
 		_, _ = fmt.Fprintln(errOut, err)
 		return 2
 	}
+	token, _, authErr := resolveAuthentication(cfg, resolvedSensorID)
+	if authErr != nil {
+		_, _ = fmt.Fprintln(errOut, "sensor credential is unavailable or invalid")
+		return 1
+	}
+	if token == "" && selectedTokenEnv != cfg.TokenEnv {
+		token = os.Getenv(selectedTokenEnv)
+	}
 	ctx, cancel := contextWithTimeout(*timeout)
 	defer cancel()
-	return runSensor(ctx, cfg, resolvedSensorID, sensorreplay.NewSource(sensorreplay.DemoObservedAt), os.Getenv(selectedTokenEnv), out, errOut)
+	return runSensor(ctx, cfg, resolvedSensorID, sensorreplay.NewSource(sensorreplay.DemoObservedAt), token, out, errOut)
 }
 
 func runLive(args []string, out, errOut io.Writer) int {
@@ -283,6 +519,11 @@ func runLive(args []string, out, errOut io.Writer) int {
 		_, _ = fmt.Fprintln(errOut, err)
 		return 2
 	}
+	token, _, authErr := resolveAuthentication(cfg, resolvedSensorID)
+	if authErr != nil {
+		_, _ = fmt.Fprintln(errOut, "sensor credential is unavailable or invalid")
+		return 1
+	}
 	source, err := capture.NewLive(cfg.CaptureInterface)
 	if err != nil {
 		_, _ = fmt.Fprintln(errOut, err)
@@ -290,7 +531,7 @@ func runLive(args []string, out, errOut io.Writer) int {
 	}
 	ctx, stop := contextWithSignals()
 	defer stop()
-	return runSensor(ctx, cfg, resolvedSensorID, source, os.Getenv(cfg.TokenEnv), out, errOut)
+	return runSensor(ctx, cfg, resolvedSensorID, source, token, out, errOut)
 }
 
 func runSensor(ctx context.Context, cfg sensorconfig.Config, sensorID string, source capture.Source, token string, out, errOut io.Writer) int {
@@ -332,6 +573,89 @@ func runSensor(ctx context.Context, cfg sensorconfig.Config, sensorID string, so
 		return 1
 	}
 	if err != nil {
+		return 1
+	}
+	return 0
+}
+
+func resolveAuthentication(cfg sensorconfig.Config, sensorID string) (string, string, error) {
+	if value := os.Getenv(cfg.CredentialEnv); value != "" {
+		if !credential.ValidSensorCredential(value) {
+			return "", "bound-environment", errors.New("sensor credential environment override is invalid")
+		}
+		return value, "bound-environment", nil
+	}
+	record, err := credential.Load(cfg.CredentialPath)
+	if err == nil {
+		if record.SiteID != cfg.SiteID || (sensorID != "" && record.SensorID != sensorID) {
+			return "", "bound-file", errors.New("sensor credential file belongs to a different identity")
+		}
+		return record.Credential, "bound-file", nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", "bound-file", err
+	}
+	if value := os.Getenv(cfg.TokenEnv); value != "" {
+		return value, "development-shared", nil
+	}
+	return "", "unconfigured", nil
+}
+
+func readSecretInput(environmentName, filePath string, fromStdin, enrollment bool) (string, error) {
+	environmentName = strings.TrimSpace(environmentName)
+	if len(environmentName) > 128 || !environmentNamePattern.MatchString(environmentName) {
+		return "", errors.New("secret environment must name a valid environment variable")
+	}
+	environmentValue := os.Getenv(environmentName)
+	sources := 0
+	if environmentValue != "" {
+		sources++
+	}
+	if strings.TrimSpace(filePath) != "" {
+		sources++
+	}
+	if fromStdin {
+		sources++
+	}
+	if sources != 1 {
+		return "", errors.New("provide exactly one protected secret source using environment, file, or standard input")
+	}
+	value := environmentValue
+	if filePath != "" {
+		var err error
+		value, err = credential.ReadSecretFile(filePath, enrollment)
+		if err != nil {
+			return "", err
+		}
+	}
+	if fromStdin {
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, credential.MaxSecretBytes+2))
+		if err != nil || len(data) > credential.MaxSecretBytes+1 {
+			return "", errors.New("failed to read bounded secret from standard input")
+		}
+		value = strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
+	}
+	valid := credential.ValidSensorCredential(value)
+	if enrollment {
+		valid = credential.ValidEnrollmentToken(value)
+	}
+	if !valid {
+		return "", errors.New("provided secret has an invalid format")
+	}
+	return value, nil
+}
+
+func writeSafeCredentialResult(out io.Writer, status, siteID, sensorID, authMode string, errOut io.Writer) int {
+	result := struct {
+		Status             string `json:"status"`
+		SiteID             string `json:"site_id"`
+		SensorID           string `json:"sensor_id,omitempty"`
+		AuthenticationMode string `json:"authentication_mode"`
+	}{
+		Status: status, SiteID: siteID, SensorID: sensorID, AuthenticationMode: authMode,
+	}
+	if err := writeJSON(out, result); err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
 		return 1
 	}
 	return 0

@@ -17,15 +17,19 @@ import (
 
 	sensorconfig "github.com/openassetwatch/openassetwatch/internal/sensor/config"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/contract"
+	"github.com/openassetwatch/openassetwatch/internal/sensor/credential"
 )
 
 const (
 	ObservationPath      = "/api/v1/observations/batches"
+	EnrollmentPath       = "/api/v1/sensors/enroll"
 	CollectorTokenHeader = "X-OpenAssetWatch-Collector-Token"
 	maxResponseBytes     = 64 << 10
+	maxEnrollmentBytes   = 8 << 10
 )
 
 type Client struct {
+	baseURL  string
 	endpoint string
 	token    string
 	http     *http.Client
@@ -41,6 +45,25 @@ type Acknowledgement struct {
 	ObservedAssetCount   int       `json:"observed_asset_count"`
 	NormalizedAssetCount int       `json:"normalized_asset_count"`
 	Message              string    `json:"message"`
+}
+
+type EnrollmentRequest struct {
+	EnrollmentToken string `json:"enrollment_token"`
+	SensorID        string `json:"sensor_id"`
+	SensorName      string `json:"sensor_name"`
+	SensorType      string `json:"sensor_type"`
+	SensorVersion   string `json:"sensor_version,omitempty"`
+	Platform        string `json:"platform,omitempty"`
+}
+
+type EnrollmentResponse struct {
+	Status           string    `json:"status"`
+	SiteID           string    `json:"site_id"`
+	SensorID         string    `json:"sensor_id"`
+	SensorType       string    `json:"sensor_type"`
+	CredentialID     string    `json:"credential_id"`
+	SensorCredential string    `json:"sensor_credential"`
+	IssuedAt         time.Time `json:"issued_at"`
 }
 
 type DeliveryError struct {
@@ -63,6 +86,7 @@ func New(hubURL, token string, timeout time.Duration) (*Client, error) {
 		return nil, errors.New("hub request timeout is outside supported bounds")
 	}
 	parsed, _ := url.Parse(strings.TrimSpace(hubURL))
+	baseURL := parsed.String()
 	parsed.Path = ObservationPath
 	connectTimeout := min(timeout, 5*time.Second)
 	baseTransport, ok := http.DefaultTransport.(*http.Transport)
@@ -84,7 +108,7 @@ func New(hubURL, token string, timeout time.Duration) (*Client, error) {
 			return http.ErrUseLastResponse
 		},
 	}
-	return &Client{endpoint: parsed.String(), token: token, http: client}, nil
+	return &Client{baseURL: baseURL, endpoint: parsed.String(), token: token, http: client}, nil
 }
 
 func secureDialContext(dialer *net.Dialer) func(context.Context, string, string) (net.Conn, error) {
@@ -173,6 +197,68 @@ func (c *Client) Send(ctx context.Context, batch contract.Batch) (Acknowledgemen
 		return Acknowledgement{}, &DeliveryError{StatusCode: response.StatusCode, Class: "protocol", message: err.Error()}
 	}
 	return acknowledgement, nil
+}
+
+func (c *Client) Enroll(ctx context.Context, enrollment EnrollmentRequest) (EnrollmentResponse, error) {
+	if !credential.ValidEnrollmentToken(enrollment.EnrollmentToken) {
+		return EnrollmentResponse{}, &DeliveryError{Class: "validation", message: "sensor enrollment input is invalid"}
+	}
+	if err := contract.ValidateSensorID(enrollment.SensorID); err != nil {
+		return EnrollmentResponse{}, &DeliveryError{Class: "validation", message: "sensor enrollment input is invalid"}
+	}
+	if strings.TrimSpace(enrollment.SensorName) == "" || len(enrollment.SensorName) > 160 ||
+		enrollment.SensorType != "passive-network-sensor" || len(enrollment.SensorVersion) > 80 ||
+		len(enrollment.Platform) > 80 {
+		return EnrollmentResponse{}, &DeliveryError{Class: "validation", message: "sensor enrollment input is invalid"}
+	}
+	body, err := json.Marshal(enrollment)
+	if err != nil || len(body) > maxEnrollmentBytes {
+		return EnrollmentResponse{}, &DeliveryError{Class: "validation", message: "sensor enrollment input is invalid"}
+	}
+	parsed, _ := url.Parse(c.baseURL)
+	parsed.Path = EnrollmentPath
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, parsed.String(), bytes.NewReader(body))
+	if err != nil {
+		return EnrollmentResponse{}, &DeliveryError{Class: "validation", message: "failed to create sensor enrollment request"}
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response, err := c.http.Do(request)
+	if err != nil {
+		class := "network"
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			class = "timeout"
+		}
+		return EnrollmentResponse{}, &DeliveryError{Class: class, Retryable: true, message: "sensor enrollment request failed"}
+	}
+	defer response.Body.Close()
+	responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if readErr != nil {
+		return EnrollmentResponse{}, &DeliveryError{StatusCode: response.StatusCode, Class: "network", Retryable: true, message: "failed to read sensor enrollment response"}
+	}
+	if len(responseBody) > maxResponseBytes {
+		return EnrollmentResponse{}, &DeliveryError{StatusCode: response.StatusCode, Class: "protocol", message: "sensor enrollment response exceeds size limit"}
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return EnrollmentResponse{}, classifyStatus(response.StatusCode)
+	}
+	var result EnrollmentResponse
+	decoder := json.NewDecoder(bytes.NewReader(responseBody))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil {
+		return EnrollmentResponse{}, &DeliveryError{StatusCode: response.StatusCode, Class: "protocol", message: "hub returned an invalid sensor enrollment response"}
+	}
+	var trailing struct{}
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return EnrollmentResponse{}, &DeliveryError{StatusCode: response.StatusCode, Class: "protocol", message: "hub returned an invalid sensor enrollment response"}
+	}
+	if result.Status != "enrolled" || result.SensorID != enrollment.SensorID ||
+		result.SensorType != enrollment.SensorType || result.SiteID == "" ||
+		result.CredentialID == "" || result.IssuedAt.IsZero() ||
+		!credential.ValidSensorCredential(result.SensorCredential) {
+		return EnrollmentResponse{}, &DeliveryError{StatusCode: response.StatusCode, Class: "protocol", message: "hub returned an invalid sensor enrollment response"}
+	}
+	return result, nil
 }
 
 func validateAcknowledgement(ack Acknowledgement, batch contract.Batch) error {
