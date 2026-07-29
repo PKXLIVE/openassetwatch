@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -38,6 +40,15 @@ def batch_payload() -> dict[str, object]:
 
 
 class ObservationBatchTests(unittest.TestCase):
+    def test_exact_go_sensor_fixture_is_accepted_by_pydantic(self) -> None:
+        fixture_path = Path(__file__).parent / "fixtures" / "passive_sensor_batch.json"
+        payload = ObservationBatchRequest(**json.loads(fixture_path.read_text(encoding="utf-8")))
+
+        self.assertEqual(payload.sensor_type, "passive-network-sensor")
+        self.assertEqual(payload.assets[0].evidence[0].protocol, "dns")
+        self.assertEqual(payload.assets[0].evidence[1].protocol, "vlan")
+        self.assertFalse(hasattr(payload.assets[0], "raw_packet"))
+
     def test_valid_batch_is_collector_authenticated_and_normalized(self) -> None:
         payload = ObservationBatchRequest(**batch_payload())
         with (
@@ -108,6 +119,44 @@ class ObservationBatchTests(unittest.TestCase):
         hub_owned["assets"][0]["risk_score"] = 99
         with self.assertRaises(ValidationError):
             ObservationBatchRequest(**hub_owned)
+
+    def test_bounded_passive_evidence_is_accepted_and_raw_packets_are_not(self) -> None:
+        payload = batch_payload()
+        payload["assets"][0]["evidence"] = [
+            {
+                "protocol": "dns",
+                "kind": "query-name",
+                "value": "printer.example.test",
+                "confidence": 0.75,
+            }
+        ]
+        parsed = ObservationBatchRequest(**payload)
+        self.assertEqual(parsed.assets[0].evidence[0].protocol, "dns")
+
+        oversized = batch_payload()
+        oversized["assets"][0]["evidence"] = [
+            {
+                "protocol": "dns",
+                "kind": "query-name",
+                "value": "name",
+                "confidence": 0.5,
+            }
+        ] * 33
+        with self.assertRaises(ValidationError):
+            ObservationBatchRequest(**oversized)
+
+        unsafe = batch_payload()
+        unsafe["assets"][0]["evidence"] = [
+            {
+                "protocol": "dns",
+                "kind": "query-name",
+                "value": "name",
+                "confidence": 0.5,
+                "raw_packet": "00ff",
+            }
+        ]
+        with self.assertRaises(ValidationError):
+            ObservationBatchRequest(**unsafe)
 
     def test_observed_at_is_timezone_aware(self) -> None:
         payload = ObservationBatchRequest(**batch_payload())

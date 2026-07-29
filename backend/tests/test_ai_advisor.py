@@ -30,7 +30,12 @@ from app.main import api_ai_advisor_query, require_admin_token
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
 
 
-def sample_tools(*, injection: bool = False, asset_count: int = 3) -> ReadOnlyHubTools:
+def sample_tools(
+    *,
+    injection: bool = False,
+    asset_count: int = 3,
+    passive_evidence: bool = False,
+) -> ReadOnlyHubTools:
     sites = [
         {"site_id": "home", "name": "Home Demo", "description": "Home"},
         {"site_id": "office", "name": "Office Demo", "description": "Office"},
@@ -95,6 +100,18 @@ def sample_tools(*, injection: bool = False, asset_count: int = 3) -> ReadOnlyHu
                             "severity": "high",
                         }
                     ],
+                    "evidence": (
+                        [
+                            {
+                                "protocol": "dns",
+                                "kind": "address-record",
+                                "value": "router.example.test=192.0.2.10",
+                                "confidence": 0.8,
+                            }
+                        ]
+                        if passive_evidence and index == 0
+                        else []
+                    ),
                 },
             }
         )
@@ -131,6 +148,14 @@ class AIAdvisorTests(unittest.TestCase):
         self.assertTrue(response.evidence)
         self.assertTrue(all(item.evidence_id for item in response.evidence))
         self.assertLessEqual(response.confidence, 1.0)
+
+    def test_passive_protocol_evidence_is_available_to_read_only_advisor(self) -> None:
+        tools = sample_tools(asset_count=1, passive_evidence=True)
+        evidence = tools.evidence_catalog(site_id="home", asset_id="asset-home-0")
+        protocol_items = [item for item in evidence if item.evidence_type == "asset_protocol_evidence"]
+        self.assertTrue(protocol_items)
+        self.assertIn("dns address-record router.example.test=192.0.2.10", protocol_items[0].summary)
+        self.assertNotIn("raw_packet", protocol_items[0].summary)
 
     def test_cross_site_summary_identifies_highest_risk_site(self) -> None:
         response = run_advisor(

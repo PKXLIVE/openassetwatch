@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -277,6 +279,43 @@ def _metadata(asset: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _observation_evidence(asset: dict[str, Any]) -> list[dict[str, Any]]:
+    """Project only the bounded, typed passive evidence accepted by the hub."""
+
+    raw = _metadata(asset).get("evidence")
+    if not isinstance(raw, list):
+        return []
+    projected: list[dict[str, Any]] = []
+    for item in raw[:32]:
+        if not isinstance(item, dict):
+            continue
+        protocol = _text(item.get("protocol"), limit=32).lower()
+        kind = _text(item.get("kind"), limit=64)
+        value = _text(item.get("value"), limit=512)
+        allowed_protocol = "abcdefghijklmnopqrstuvwxyz0123456789._-"
+        if (
+            not protocol
+            or protocol[0] not in "abcdefghijklmnopqrstuvwxyz0123456789"
+            or any(character not in allowed_protocol for character in protocol)
+            or not kind
+            or not value
+        ):
+            continue
+        confidence_value = item.get("confidence")
+        confidence = float(confidence_value) if isinstance(confidence_value, (int, float)) else 0.0
+        if not math.isfinite(confidence):
+            continue
+        projected.append(
+            {
+                "protocol": protocol,
+                "kind": kind,
+                "value": value,
+                "confidence": max(0.0, min(confidence, 1.0)),
+            }
+        )
+    return projected
+
+
 def _risk_score(asset: dict[str, Any]) -> int:
     metadata = _metadata(asset)
     value = metadata.get("risk_score")
@@ -396,6 +435,7 @@ class ReadOnlyHubTools:
             "data_freshness": freshness(observed_at, now=self.now),
             "confidence": max(0.0, min(float(asset.get("confidence") or metadata.get("confidence") or 0.7), 1.0)),
             "evidence_count": int(asset.get("evidence_count") or 0),
+            "observation_evidence": _observation_evidence(asset),
             "findings": _finding_records(asset),
             "created_at": _datetime(asset.get("created_at") or asset.get("first_seen_at")),
         }
@@ -532,6 +572,27 @@ class ReadOnlyHubTools:
                         observed_at=asset["observed_at"],
                         freshness=asset["data_freshness"],
                         confidence=max(0.0, min(asset["confidence"], 1.0)),
+                    )
+                )
+            for observation in asset["observation_evidence"]:
+                fingerprint = hashlib.sha256(
+                    (observation["protocol"] + "\x00" + observation["kind"] + "\x00" + observation["value"]).encode("utf-8")
+                ).hexdigest()[:16]
+                evidence.append(
+                    EvidenceItem(
+                        evidence_id=f"asset:{asset['site_id']}:{asset['asset_id']}:observation:{fingerprint}",
+                        evidence_type="asset_protocol_evidence",
+                        summary=(
+                            f"{asset['asset_id']}: {observation['protocol']} {observation['kind']} "
+                            f"{observation['value']}"
+                        )[:500],
+                        site_id=asset["site_id"],
+                        sensor_id=asset["source_sensor_id"],
+                        asset_id=asset["asset_id"],
+                        source=asset["observation_source"],
+                        observed_at=asset["observed_at"],
+                        freshness=asset["data_freshness"],
+                        confidence=observation["confidence"],
                     )
                 )
         evidence.sort(key=lambda item: (item.freshness == "fresh", item.confidence), reverse=True)

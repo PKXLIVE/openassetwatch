@@ -174,6 +174,36 @@ class ControlTowerTests(unittest.TestCase):
             }.isdisjoint(assets[0]["metadata"])
         )
 
+    def test_passive_protocol_evidence_is_counted_and_preserved_as_spoke_metadata(self) -> None:
+        received_at = datetime.now(timezone.utc)
+        evidence = [
+            {
+                "protocol": "mdns",
+                "kind": "address-record",
+                "value": "printer.local=192.0.2.40",
+                "confidence": 0.85,
+            }
+        ]
+        payload = {
+            "site_id": "site-local",
+            "sensor_id": "sensor-passive",
+            "observation_source": "passive-network",
+            "assets": [
+                {
+                    "asset_id": "mac-02005e102030-vlan-100",
+                    "mac": "02:00:5e:10:20:30",
+                    "evidence": evidence,
+                    "risk_score": 100,
+                }
+            ],
+        }
+
+        assets = normalize_local_inventory_assets(payload, site_id="site-local", received_at=received_at)
+
+        self.assertEqual(assets[0]["metadata"]["evidence"], evidence)
+        self.assertNotIn("risk_score", assets[0]["metadata"])
+        self.assertEqual(assets[0]["evidence_count"], 2)
+
     def test_schema_initialization_includes_control_tower_tables(self) -> None:
         connection = Mock()
         fake_engine = Mock()

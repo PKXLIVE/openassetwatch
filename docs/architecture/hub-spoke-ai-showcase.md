@@ -5,14 +5,16 @@ normalized inventory, history, correlation, findings, AI policy, provider
 configuration, authentication, and audit records. Spokes collect narrowly
 scoped evidence at a site and send authenticated outbound updates to the hub.
 
-This document describes the first implemented AI showcase foundation. It is a
-small, read-only demonstration over existing normalized inventory; it is not a
-production authorization system or a passive packet-capture sensor.
+This document describes the first implemented AI showcase foundation. The
+passive network sensor MVP now provides the first concrete hub-and-spoke
+evidence source; its deployment and replay instructions live in
+`docs/PASSIVE_SENSOR_MVP.md`. The showcase remains a read-only AI experience,
+not a production authorization system.
 
 ## Runtime Shape
 
 ```text
-Windows / Linux / macOS collectors       Future passive network sensor
+Windows / Linux / macOS collectors       Linux passive network sensor
 SNMP / cloud / vulnerability / SIEM      Future evidence connectors
                 \                              /
                  outbound authenticated batches
@@ -72,7 +74,7 @@ dedicated versioned finding history.
 
 ## Outbound Observation Batch Contract
 
-Future spokes submit normalized evidence to:
+Spokes submit normalized evidence to:
 
 `POST /api/v1/observations/batches`
 
@@ -101,7 +103,15 @@ Example normalized batch:
       "hostname": "home-router",
       "primary_ip": "192.0.2.1",
       "mac": "02:00:5e:10:00:01",
-      "category": "router"
+      "category": "router",
+      "evidence": [
+        {
+          "protocol": "vlan",
+          "kind": "vlan-id",
+          "value": "100",
+          "confidence": 1.0
+        }
+      ]
     }
   ]
 }
@@ -117,9 +127,10 @@ Risk, management posture, and finding IDs are hub-owned decisions and are not
 accepted from a spoke. The older local-inventory normalizer also strips those
 reserved hub fields before persistence. This contract accepts normalized
 observations only. It does not accept packet payloads, PCAP data, credentials,
-scripts, arbitrary attributes, or collection instructions. The actual passive
-network sensor, its local cache, backoff, and capture-free normalization
-pipeline remain a separate branch.
+scripts, arbitrary attributes, or collection instructions. The passive sensor
+implements this contract with bounded protocol evidence, conservative
+site/MAC/VLAN correlation, a private durable spool, and authenticated
+outbound-only delivery. See `docs/PASSIVE_SENSOR_MVP.md`.
 
 ## Read-Only Hub API
 
