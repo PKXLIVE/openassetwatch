@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS agent_enrollments (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ,
+    identity_status TEXT NOT NULL DEFAULT 'legacy',
     CHECK (agent_type IN ('endpoint-agent', 'network-sensor'))
 );
 
@@ -178,6 +179,82 @@ CREATE INDEX IF NOT EXISTS idx_agent_enrollments_site_id
 
 CREATE INDEX IF NOT EXISTS idx_agent_enrollments_last_seen_at
     ON agent_enrollments (last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS sensor_enrollments (
+    enrollment_id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    requested_sensor_id TEXT,
+    requested_sensor_name TEXT,
+    sensor_type TEXT NOT NULL,
+    token_lookup_id TEXT NOT NULL UNIQUE,
+    token_digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 10,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    issued_sensor_id TEXT,
+    CHECK (sensor_type IN ('passive-network-sensor')),
+    CHECK (status IN ('pending', 'used', 'expired', 'revoked')),
+    CHECK (failed_attempts >= 0 AND max_attempts BETWEEN 1 AND 100)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_enrollments_site_status
+    ON sensor_enrollments (site_id, status, expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_enrollments_requested_sensor
+    ON sensor_enrollments (requested_sensor_id)
+    WHERE requested_sensor_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS sensor_credentials (
+    credential_id TEXT PRIMARY KEY,
+    sensor_id TEXT NOT NULL,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    sensor_type TEXT NOT NULL,
+    token_lookup_id TEXT NOT NULL UNIQUE,
+    credential_digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    rotated_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    predecessor_credential_id TEXT REFERENCES sensor_credentials(credential_id),
+    replacement_credential_id TEXT REFERENCES sensor_credentials(credential_id),
+    CHECK (sensor_type IN ('passive-network-sensor')),
+    CHECK (status IN ('active', 'revoked', 'rotated', 'expired'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_credentials_sensor_status
+    ON sensor_credentials (sensor_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_credentials_site_id
+    ON sensor_credentials (site_id);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_credentials_last_used_at
+    ON sensor_credentials (last_used_at DESC);
+
+CREATE TABLE IF NOT EXISTS sensor_identity_audit_events (
+    event_id BIGSERIAL PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    enrollment_id TEXT,
+    credential_id TEXT,
+    sensor_id TEXT,
+    site_id TEXT,
+    reason_code TEXT,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (outcome IN ('success', 'rejected'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_identity_audit_created_at
+    ON sensor_identity_audit_events (created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_identity_audit_sensor_id
+    ON sensor_identity_audit_events (sensor_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS agent_checkins (
     id BIGSERIAL PRIMARY KEY,

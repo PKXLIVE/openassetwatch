@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from app.hub_contracts import ObservationBatchRequest
 from app.main import observation_batch
+from app.sensor_identity import SensorAuthContext, SensorAuthenticationRejected
 
 
 def batch_payload() -> dict[str, object]:
@@ -54,6 +55,16 @@ class ObservationBatchTests(unittest.TestCase):
         with (
             patch.dict(os.environ, {"OPENASSETWATCH_COLLECTOR_TOKEN": "collector-test-value"}, clear=False),
             patch(
+                "app.main.authenticate_sensor_request",
+                return_value=SensorAuthContext(
+                    mode="bound-sensor",
+                    site_id="home",
+                    sensor_id="sensor-home",
+                    sensor_type="passive-network-sensor",
+                    credential_id="scred_test",
+                ),
+            ) as authenticate,
+            patch(
                 "app.main.record_observation_batch",
                 return_value={"collection_id": 7, "normalized_asset_count": 1, "duplicate": False},
             ) as record,
@@ -64,25 +75,31 @@ class ObservationBatchTests(unittest.TestCase):
         self.assertEqual(response.storage_id, 7)
         self.assertEqual(response.sensor_id, "sensor-home")
         self.assertEqual(record.call_args.kwargs["payload"]["delivery_state"], "cached-retry")
+        self.assertEqual(authenticate.call_args.kwargs["claimed_site_id"], "home")
+        self.assertEqual(authenticate.call_args.kwargs["claimed_sensor_id"], "sensor-home")
 
-    def test_configured_collector_token_is_required(self) -> None:
+    def test_sensor_authentication_is_required(self) -> None:
         payload = ObservationBatchRequest(**batch_payload())
-        with patch.dict(os.environ, {"OPENASSETWATCH_COLLECTOR_TOKEN": "collector-test-value"}, clear=False):
+        with patch(
+            "app.main.authenticate_sensor_request",
+            side_effect=SensorAuthenticationRejected("valid sensor credential required"),
+        ):
             with self.assertRaises(HTTPException) as raised:
                 observation_batch(payload, collector_token=None)
 
         self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.detail, "valid sensor credential required")
 
     def test_duplicate_batch_returns_stable_storage_id_without_new_evidence(self) -> None:
         payload = ObservationBatchRequest(**batch_payload())
         with (
-            patch.dict(os.environ, {"OPENASSETWATCH_COLLECTOR_TOKEN": ""}, clear=False),
+            patch.dict(os.environ, {"OPENASSETWATCH_COLLECTOR_TOKEN": "explicit-development-token"}, clear=False),
             patch(
                 "app.main.record_observation_batch",
                 return_value={"collection_id": 7, "normalized_asset_count": 1, "duplicate": True},
             ),
         ):
-            response = observation_batch(payload)
+            response = observation_batch(payload, collector_token="explicit-development-token")
 
         self.assertEqual(response.status, "duplicate")
         self.assertIn("no duplicate", response.message)
