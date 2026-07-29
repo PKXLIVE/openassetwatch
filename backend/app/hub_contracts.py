@@ -13,6 +13,15 @@ class StrictContract(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+class ObservationEvidence(StrictContract):
+    """Bounded, vendor-neutral evidence attached to a normalized asset."""
+
+    protocol: str = Field(..., min_length=1, max_length=32, pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    kind: str = Field(..., min_length=1, max_length=64)
+    value: str = Field(..., min_length=1, max_length=512)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+
 class ObservationAsset(StrictContract):
     asset_id: str = Field(..., min_length=1, max_length=160)
     hostname: str | None = Field(default=None, max_length=255)
@@ -21,6 +30,7 @@ class ObservationAsset(StrictContract):
     os: str | None = Field(default=None, max_length=160)
     platform: str | None = Field(default=None, max_length=160)
     category: str | None = Field(default=None, max_length=80)
+    evidence: list[ObservationEvidence] = Field(default_factory=list, max_length=32)
 
 
 class ObservationBatchRequest(StrictContract):

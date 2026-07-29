@@ -1761,6 +1761,7 @@ def _asset_evidence_count(asset: dict[str, Any]) -> int:
         "default_gateway",
         "network_neighbors",
         "software",
+        "evidence",
     ):
         value = asset.get(field_name)
         if isinstance(value, list):
