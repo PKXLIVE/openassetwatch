@@ -14,6 +14,8 @@ behavior.
 The first implemented hub-and-spoke AI showcase, its normalized observation
 batch contract, provider boundary, and current limitations are documented in
 `docs/architecture/hub-spoke-ai-showcase.md`.
+The Linux-first passive sensor, cross-platform replay, privacy boundary, and
+deployment model are documented in `docs/PASSIVE_SENSOR_MVP.md`.
 
 ## Hub-And-Spoke Control Plane
 

@@ -63,7 +63,7 @@ The current MVP focuses on:
 ## High-Level Architecture
 
 ```text
-Site spokes (endpoint collectors / future passive sensors / connectors)
+Site spokes (endpoint collectors / passive network sensors / connectors)
         |
         | outbound authenticated normalized observations
         v
@@ -85,7 +85,7 @@ OpenAssetWatch collectors are designed to run in different modes:
 | `device`  | Collects information about the device running the collector     |
 | `network` | Discovers nearby devices using local network visibility         |
 | `hybrid`  | Combines device and network collection                          |
-| `sensor`  | Future passive network sensor mode for deeper IoT/OT visibility |
+| `sensor`  | Linux-first passive network sensor and synthetic replay mode    |
 
 ---
 
@@ -158,8 +158,10 @@ default. See [docs/CONTROL_TOWER_DEPLOYMENT.md](docs/CONTROL_TOWER_DEPLOYMENT.md
 for startup steps, API endpoints, database tables, and limitations.
 See
 [docs/architecture/hub-spoke-ai-showcase.md](docs/architecture/hub-spoke-ai-showcase.md)
-for the first three-site AI showcase, trust boundary, provider configuration,
-and future sensor ingestion contract.
+for the first three-site AI showcase, trust boundary, and provider
+configuration. See [docs/PASSIVE_SENSOR_MVP.md](docs/PASSIVE_SENSOR_MVP.md) for
+the passive sensor contract, replay demonstration, privacy guarantees, and
+Linux SPAN deployment model.
 
 View logs:
 
@@ -317,7 +319,7 @@ Future deployment options may include:
 
 ### 5. IoT/OT and Network Sensor Roadmap
 
-Future OpenAssetWatch network sensors may support passive visibility for:
+The passive sensor MVP provides a foundation for visibility into:
 
 * Smart home IoT devices
 * Cameras
@@ -331,14 +333,10 @@ Future OpenAssetWatch network sensors may support passive visibility for:
 * Raspberry Pi and lab systems
 * OT-like lab environments
 
-Future passive fingerprinting sources may include:
+The MVP implements DHCPv4, DNS, mDNS, SSDP, and NetBIOS metadata. Future
+passive fingerprinting sources may additionally include:
 
-* DHCP metadata
 * MAC OUI/vendor data
-* mDNS/Bonjour
-* SSDP/UPnP
-* NetBIOS
-* DNS queries
 * TLS SNI
 * HTTP headers
 * Observed protocols
