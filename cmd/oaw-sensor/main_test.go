@@ -14,6 +14,15 @@ import (
 	"github.com/openassetwatch/openassetwatch/internal/sensor/credential"
 )
 
+func privateTempDir(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir()
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatalf("secure test temporary directory: %v", err)
+	}
+	return path
+}
+
 func TestRunVersionAndProfile(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run([]string{"--version"}, &out, &errOut); code != 0 {
@@ -36,8 +45,8 @@ func TestRunVersionAndProfile(t *testing.T) {
 }
 
 func TestRunValidateConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sensor.json")
-	contents := `{"hub_url":"http://127.0.0.1:8000","site_id":"site-demo","sensor_name":"Demo","capture_mode":"synthetic","identity_path":"` + filepath.ToSlash(filepath.Join(t.TempDir(), "identity.json")) + `","spool_path":"` + filepath.ToSlash(filepath.Join(t.TempDir(), "spool")) + `","token_env":"OPENASSETWATCH_COLLECTOR_TOKEN","batch_size":10,"batch_interval_seconds":1,"request_timeout_seconds":5,"retry_initial_seconds":1,"retry_max_seconds":2,"spool_max_items":10,"spool_max_bytes":1048576,"aggregation_max_devices":10,"aggregation_ttl_seconds":60}`
+	path := filepath.Join(privateTempDir(t), "sensor.json")
+	contents := `{"hub_url":"http://127.0.0.1:8000","site_id":"site-demo","sensor_name":"Demo","capture_mode":"synthetic","identity_path":"` + filepath.ToSlash(filepath.Join(privateTempDir(t), "identity.json")) + `","spool_path":"` + filepath.ToSlash(filepath.Join(privateTempDir(t), "spool")) + `","token_env":"OPENASSETWATCH_COLLECTOR_TOKEN","batch_size":10,"batch_interval_seconds":1,"request_timeout_seconds":5,"retry_initial_seconds":1,"retry_max_seconds":2,"spool_max_items":10,"spool_max_bytes":1048576,"aggregation_max_devices":10,"aggregation_ttl_seconds":60}`
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -107,8 +116,8 @@ func TestRunEnrollStoresCredentialWithoutPrintingSecrets(t *testing.T) {
 	}))
 	defer server.Close()
 
-	stateDir := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "sensor.json")
+	stateDir := privateTempDir(t)
+	configPath := filepath.Join(privateTempDir(t), "sensor.json")
 	credentialPath := filepath.Join(stateDir, "credential.json")
 	configBody := fmt.Sprintf(
 		`{"hub_url":%q,"site_id":"site-test","sensor_id":"sensor-test","sensor_name":"Sensor Test","capture_mode":"synthetic","identity_path":%q,"credential_path":%q,"spool_path":%q,"credential_env":"OPENASSETWATCH_SENSOR_CREDENTIAL","token_env":"OPENASSETWATCH_COLLECTOR_TOKEN","batch_size":10,"batch_interval_seconds":1,"request_timeout_seconds":5,"retry_initial_seconds":1,"retry_max_seconds":2,"spool_max_items":10,"spool_max_bytes":1048576,"aggregation_max_devices":10,"aggregation_ttl_seconds":60}`,
@@ -215,7 +224,7 @@ func TestRunDemoUsesSyntheticSourceAndHub(t *testing.T) {
 
 	for attempt := 0; attempt < 2; attempt++ {
 		var out, errOut bytes.Buffer
-		if code := run([]string{"demo", "--hub-url", server.URL, "--site-id", "site-demo", "--sensor-id", "sensor-demo", "--spool-dir", t.TempDir(), "--timeout", "5s"}, &out, &errOut); code != 0 {
+		if code := run([]string{"demo", "--hub-url", server.URL, "--site-id", "site-demo", "--sensor-id", "sensor-demo", "--spool-dir", privateTempDir(t), "--timeout", "5s"}, &out, &errOut); code != 0 {
 			t.Fatalf("demo attempt %d exit code = %d: stderr=%s stdout=%s", attempt+1, code, errOut.String(), out.String())
 		}
 		if !strings.Contains(out.String(), `"batches_sent": 1`) {

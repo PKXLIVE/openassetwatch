@@ -25,8 +25,17 @@ func testRecord(character string) Record {
 	}
 }
 
+func privateTempDir(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir()
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatalf("secure test temporary directory: %v", err)
+	}
+	return path
+}
+
 func TestWriteLoadReplaceAndClearCredential(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "credential.json")
+	path := filepath.Join(privateTempDir(t), "credential.json")
 	if err := EnsureAbsent(path); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +77,7 @@ func TestWriteLoadReplaceAndClearCredential(t *testing.T) {
 }
 
 func TestCredentialRejectsSymlinkAndHardLink(t *testing.T) {
-	root := t.TempDir()
+	root := privateTempDir(t)
 	target := filepath.Join(root, "credential.json")
 	if err := Write(target, testRecord("a"), false); err != nil {
 		t.Fatal(err)
@@ -88,7 +97,7 @@ func TestCredentialRejectsSymlinkAndHardLink(t *testing.T) {
 }
 
 func TestProtectedTokenFileIsBoundedAndValidated(t *testing.T) {
-	root := t.TempDir()
+	root := privateTempDir(t)
 	tokenPath := filepath.Join(root, "enrollment-token")
 	token := "oaw_enroll_v1." + strings.Repeat("a", 32) + "." + strings.Repeat("B", 43)
 	if err := os.WriteFile(tokenPath, []byte(token+"\n"), 0o600); err != nil {

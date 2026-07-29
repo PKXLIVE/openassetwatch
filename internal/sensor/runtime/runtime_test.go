@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -17,9 +18,18 @@ import (
 	"github.com/openassetwatch/openassetwatch/internal/sensor/spool"
 )
 
+func privateTempDir(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir()
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatalf("secure test temporary directory: %v", err)
+	}
+	return path
+}
+
 func TestRunnerReportsQueueOverflowAndRetainsUnacknowledgedBatch(t *testing.T) {
 	base := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
-	queue, err := spool.Open(spool.Config{Path: t.TempDir(), MaxItems: 1, MaxBytes: 1 << 20})
+	queue, err := spool.Open(spool.Config{Path: privateTempDir(t), MaxItems: 1, MaxBytes: 1 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}

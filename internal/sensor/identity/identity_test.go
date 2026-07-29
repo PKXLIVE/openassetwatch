@@ -8,8 +8,17 @@ import (
 	"testing"
 )
 
+func privateTempDir(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir()
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatalf("secure test temporary directory: %v", err)
+	}
+	return path
+}
+
 func TestLoadOrCreatePersistsStableBoundedIdentity(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "identity.json")
+	path := filepath.Join(privateTempDir(t), "identity.json")
 	first, created, err := LoadOrCreate(path, "site-demo")
 	if err != nil || !created {
 		t.Fatalf("LoadOrCreate() = %+v, %t, %v", first, created, err)
@@ -34,11 +43,11 @@ func TestLoadOrCreatePersistsStableBoundedIdentity(t *testing.T) {
 }
 
 func TestIdentityRejectsInvalidSitesAndTrailingJSON(t *testing.T) {
-	if _, _, err := LoadOrCreate(filepath.Join(t.TempDir(), "identity.json"), "bad/site"); err == nil {
+	if _, _, err := LoadOrCreate(filepath.Join(privateTempDir(t), "identity.json"), "bad/site"); err == nil {
 		t.Fatal("LoadOrCreate() accepted invalid site ID")
 	}
 
-	parent := t.TempDir()
+	parent := privateTempDir(t)
 	path := filepath.Join(parent, "identity.json")
 	contents := `{"schema_version":"oaw.sensor-identity.v1","site_id":"site-demo","sensor_id":"sensor-demo"}{}`
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
@@ -50,7 +59,7 @@ func TestIdentityRejectsInvalidSitesAndTrailingJSON(t *testing.T) {
 }
 
 func TestIdentityRejectsSymlinksWhenPlatformSupportsIt(t *testing.T) {
-	linkParent := t.TempDir()
+	linkParent := privateTempDir(t)
 	target := filepath.Join(linkParent, "target.json")
 	link := filepath.Join(linkParent, "identity.json")
 	if err := os.WriteFile(target, []byte(`{"schema_version":"oaw.sensor-identity.v1","site_id":"site-demo","sensor_id":"sensor-demo"}`), 0o600); err != nil {
