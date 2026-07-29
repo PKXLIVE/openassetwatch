@@ -11,6 +11,7 @@ import argparse
 import ipaddress
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -22,20 +23,57 @@ from uuid import uuid4
 ADMIN_HEADER = "X-OpenAssetWatch-Admin-Token"
 SENSOR_HEADER = "X-OpenAssetWatch-Collector-Token"
 MAX_RESPONSE_BYTES = 1 << 20
+SECRET_VALUE_PREFIXES = ("oaw_enroll_v1.", "oaw_sensor_v1.")
+FORBIDDEN_RESPONSE_KEYS = frozenset(
+    {
+        "authorization",
+        "credential",
+        "credential_digest",
+        "enrollment_token",
+        "sensor_credential",
+        "token_digest",
+        "token_lookup_id",
+        ADMIN_HEADER.lower().replace("-", "_"),
+        SENSOR_HEADER.lower().replace("-", "_"),
+    }
+)
+SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
+SAFE_FAILURE_MESSAGES = {
+    "cleartext-remote-url": "HTTP is allowed only for a loopback demonstration hub",
+    "evidence-not-visible": "historical evidence was not visible to assets and deterministic AI",
+    "invalid-hub-json": "hub returned invalid JSON",
+    "invalid-hub-response": "hub returned an invalid response",
+    "invalid-server-url": "server URL is invalid",
+    "missing-admin-token": "the configured admin-token environment variable is empty",
+    "missing-enrollment-token": "hub did not issue an enrollment token",
+    "missing-replacement-credential": "hub did not issue a replacement credential",
+    "missing-sensor-credential": "hub did not issue a sensor credential",
+    "oversized-hub-response": "hub response exceeded the demonstration size limit",
+    "unexpected-http-status": "hub returned an unexpected HTTP status",
+    "unsafe-admin-response": "hub returned an unsafe administrative response",
+    "unsafe-public-result": "demonstration result failed safe-output validation",
+    "unsafe-server-url": "server URL contains a disallowed component",
+}
 
 
 class DemoFailure(RuntimeError):
-    pass
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+    @property
+    def safe_message(self) -> str:
+        return SAFE_FAILURE_MESSAGES.get(self.code, "demonstration operation failed")
 
 
 def safe_base_url(value: str) -> str:
     parsed = urllib.parse.urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise DemoFailure("server URL must use http or https and include a host")
+        raise DemoFailure("invalid-server-url")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise DemoFailure("server URL must not include credentials, query, or fragment")
+        raise DemoFailure("unsafe-server-url")
     if parsed.path not in {"", "/"}:
-        raise DemoFailure("server URL must not include a path")
+        raise DemoFailure("unsafe-server-url")
     if parsed.scheme == "http":
         host = parsed.hostname.rstrip(".").lower()
         try:
@@ -43,8 +81,60 @@ def safe_base_url(value: str) -> str:
         except ValueError:
             loopback = host == "localhost"
         if not loopback:
-            raise DemoFailure("HTTP is allowed only for a loopback demonstration hub")
+            raise DemoFailure("cleartext-remote-url")
     return value.rstrip("/")
+
+
+def assert_secret_free_response(value: object) -> None:
+    """Reject secret-bearing administrative data without returning tainted values."""
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized = str(key).strip().lower().replace("-", "_")
+            if normalized in FORBIDDEN_RESPONSE_KEYS or "authorization" in normalized:
+                raise DemoFailure("unsafe-admin-response")
+            assert_secret_free_response(child)
+        return
+    if isinstance(value, list):
+        for child in value:
+            assert_secret_free_response(child)
+        return
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized.startswith(SECRET_VALUE_PREFIXES) or "authorization:" in normalized:
+            raise DemoFailure("unsafe-admin-response")
+
+
+def _safe_identifier(value: object) -> str:
+    if not isinstance(value, str) or not SAFE_IDENTIFIER_PATTERN.fullmatch(value):
+        raise DemoFailure("unsafe-public-result")
+    if value.lower().startswith(SECRET_VALUE_PREFIXES):
+        raise DemoFailure("unsafe-public-result")
+    return value
+
+
+def public_summary(result: dict[str, object]) -> dict[str, object]:
+    """Build the only object that main is permitted to serialize."""
+
+    first_batch = result.get("first_batch")
+    duplicate_batch = result.get("duplicate_batch")
+    if first_batch != "accepted" or duplicate_batch != "duplicate":
+        raise DemoFailure("unsafe-public-result")
+    return {
+        "site_id": _safe_identifier(result.get("site_id")),
+        "sensor_id": _safe_identifier(result.get("sensor_id")),
+        "enrollment_replay_rejected": result.get("enrollment_replay_rejected") is True,
+        "first_batch": "accepted",
+        "duplicate_batch": "duplicate",
+        "site_mismatch_rejected": result.get("site_mismatch_rejected") is True,
+        "sensor_mismatch_rejected": result.get("sensor_mismatch_rejected") is True,
+        "old_credential_rejected": result.get("old_credential_rejected") is True,
+        "new_credential_accepted": result.get("new_credential_accepted") is True,
+        "revoked_credential_rejected": result.get("revoked_credential_rejected") is True,
+        "historical_evidence_retained": result.get("historical_evidence_retained") is True,
+        "ai_evidence_visible": result.get("ai_evidence_visible") is True,
+        "admin_views_secret_free": result.get("admin_views_secret_free") is True,
+    }
 
 
 class Client:
@@ -81,23 +171,23 @@ class Client:
             status = exc.code
             response_body = exc.read(MAX_RESPONSE_BYTES + 1)
         if len(response_body) > MAX_RESPONSE_BYTES:
-            raise DemoFailure("hub response exceeded the demonstration size limit")
+            raise DemoFailure("oversized-hub-response")
         try:
             decoded = json.loads(response_body or b"{}")
         except json.JSONDecodeError as exc:
-            raise DemoFailure(f"hub returned invalid JSON for {method} {path}") from exc
+            raise DemoFailure("invalid-hub-json") from exc
         if not isinstance(decoded, dict):
-            raise DemoFailure(f"hub returned an invalid response for {method} {path}")
+            raise DemoFailure("invalid-hub-response")
         allowed = expected or {200}
         if status not in allowed:
-            raise DemoFailure(f"hub returned HTTP {status} for {method} {path}")
+            raise DemoFailure("unexpected-http-status")
         return status, decoded
 
 
 def run(args: argparse.Namespace) -> dict[str, object]:
     admin_token = os.getenv(args.admin_token_env, "")
     if not admin_token:
-        raise DemoFailure(f"{args.admin_token_env} must contain the configured hub admin token")
+        raise DemoFailure("missing-admin-token")
     suffix = uuid4().hex[:10]
     site_id = args.site_id or f"sensor-enrollment-demo-{suffix}"
     sensor_id = args.sensor_id or f"sensor-enrollment-demo-{suffix}"
@@ -123,7 +213,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     )
     enrollment_token = str(enrollment.pop("enrollment_token", ""))
     if not enrollment_token:
-        raise DemoFailure("hub did not issue an enrollment token")
+        raise DemoFailure("missing-enrollment-token")
     exchange_payload = {
         "enrollment_token": enrollment_token,
         "sensor_id": sensor_id,
@@ -135,15 +225,15 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     _, issued = client.request("POST", "/api/v1/sensors/enroll", exchange_payload)
     sensor_credential = str(issued.pop("sensor_credential", ""))
     if not sensor_credential:
-        raise DemoFailure("hub did not issue a sensor credential")
+        raise DemoFailure("missing-sensor-credential")
     replay_status, _ = client.request(
         "POST",
         "/api/v1/sensors/enroll",
         exchange_payload,
         expected={401},
     )
-    secret_values = [enrollment_token, sensor_credential]
     exchange_payload["enrollment_token"] = ""
+    enrollment_token = ""
 
     observed_at = datetime.now(timezone.utc).replace(microsecond=0)
     batch = {
@@ -209,8 +299,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     )
     replacement = str(rotation.pop("sensor_credential", ""))
     if not replacement:
-        raise DemoFailure("hub did not issue a replacement credential")
-    secret_values.append(replacement)
+        raise DemoFailure("missing-replacement-credential")
     old_status, _ = client.request(
         "POST",
         "/api/v1/observations/batches",
@@ -221,6 +310,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     new_status, _ = client.request(
         "POST", "/api/v1/observations/batches", batch, sensor_credential=replacement
     )
+    sensor_credential = ""
     client.request("POST", f"/api/v1/admin/sensors/{sensor_id}/revoke", {}, admin=True)
     revoked_status, _ = client.request(
         "POST",
@@ -229,6 +319,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         sensor_credential=replacement,
         expected={401},
     )
+    replacement = ""
 
     _, assets = client.request("GET", "/api/v1/control-tower/assets")
     _, advisor = client.request(
@@ -240,13 +331,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     _, enrollments = client.request("GET", "/api/v1/admin/sensor-enrollments", admin=True)
     _, credentials = client.request("GET", "/api/v1/admin/sensors", admin=True)
     _, audit = client.request("GET", "/api/v1/admin/sensor-identity/audit?limit=100", admin=True)
-    administrative_views = json.dumps([enrollments, credentials, audit])
-    secret_free_views = all(secret not in administrative_views for secret in secret_values)
-    secret_values.clear()
+    assert_secret_free_response(enrollments)
+    assert_secret_free_response(credentials)
+    assert_secret_free_response(audit)
     if asset_id not in json.dumps(assets) or asset_id not in json.dumps(advisor):
-        raise DemoFailure("historical evidence was not visible to assets and deterministic AI")
-    if not secret_free_views:
-        raise DemoFailure("an administrative status view disclosed credential material")
+        raise DemoFailure("evidence-not-visible")
+    client.admin_token = ""
+    admin_token = ""
 
     return {
         "site_id": site_id,
@@ -261,7 +352,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "revoked_credential_rejected": revoked_status == 401,
         "historical_evidence_retained": True,
         "ai_evidence_visible": True,
-        "admin_views_secret_free": secret_free_views,
+        "admin_views_secret_free": True,
     }
 
 
@@ -276,9 +367,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     try:
-        result = run(parse_args())
-    except (DemoFailure, OSError) as exc:
-        print(f"sensor enrollment demo failed: {exc}", file=sys.stderr)
+        result = public_summary(run(parse_args()))
+    except DemoFailure as exc:
+        print(f"sensor enrollment demo failed: {exc.safe_message}", file=sys.stderr)
+        return 1
+    except OSError:
+        print("sensor enrollment demo failed: hub request failed", file=sys.stderr)
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
