@@ -4,6 +4,8 @@ OpenAssetWatch's passive network sensor is a Linux-first spoke that observes
 metadata from a SPAN or mirror port and sends normalized evidence to the
 existing hub observation-batch API. It is intentionally passive: it does not
 scan, probe, inject packets, fetch discovered URLs, or upload raw packet data.
+Production-oriented enrollment and per-sensor credential binding are
+documented in `docs/SENSOR_ENROLLMENT.md`.
 
 The sensor keeps the hub authoritative. The spoke may report an asset identity,
 protocol evidence, VLAN scope, timestamps, and confidence. Risk, findings,
@@ -62,8 +64,10 @@ go run ./cmd/oaw-sensor demo \
   --spool-dir <user-writable-state-directory>
 ```
 
-Set `OPENASSETWATCH_COLLECTOR_TOKEN` when the local hub requires the collector
-token. The command prints a bounded summary and uses a deterministic batch
+Enroll the sensor first or set `OPENASSETWATCH_SENSOR_CREDENTIAL` to an issued
+bound credential. `OPENASSETWATCH_COLLECTOR_TOKEN` remains an explicitly
+configured local-development compatibility mode, not the preferred production
+path. The command prints a bounded summary and uses a deterministic batch
 identifier, so replaying the same observation is idempotent at the hub.
 The fixture uses a fixed historical observation timestamp; freshness views may
 therefore label the replay-created asset evidence as stale while the sensor
@@ -88,10 +92,11 @@ go run ./cmd/oaw-sensor live --config <path> --interface enp2s0
 
 `oaw-sensor validate --config <path>` validates the strict JSON sensor config.
 The config contains site and sensor identity, hub URL, capture mode/interface,
-identity path, spool path, batching, retry, and aggregation limits. Tokens are
-read from `OPENASSETWATCH_COLLECTOR_TOKEN`; replay can select another
-environment-variable name with `--token-env`. Token values are not serialized
-into config, spool entries, health output, or logs.
+identity path, separate credential path, spool path, batching, retry, and
+aggregation limits. Bound credentials are read from the protected credential
+file or `OPENASSETWATCH_SENSOR_CREDENTIAL`. Replay can still select an explicit
+development shared-token environment with `--token-env`. Secret values are not
+serialized into non-secret config, spool entries, health output, or logs.
 
 Example Linux service configuration:
 
@@ -103,7 +108,9 @@ Example Linux service configuration:
   "capture_mode": "live",
   "capture_interface": "enp2s0",
   "identity_path": "/var/lib/openassetwatch/sensor/identity.json",
+  "credential_path": "/var/lib/openassetwatch/sensor/credential.json",
   "spool_path": "/var/lib/openassetwatch/sensor/spool",
+  "credential_env": "OPENASSETWATCH_SENSOR_CREDENTIAL",
   "token_env": "OPENASSETWATCH_COLLECTOR_TOKEN",
   "batch_size": 250,
   "batch_interval_seconds": 60,
@@ -150,9 +157,10 @@ The hub URL must use HTTPS except for explicit local development hosts
 requires it). Redirects, URL userinfo, query strings, fragments, link-local
 addresses, and cloud metadata endpoints are rejected. The client uses explicit
 connect, TLS handshake, response-header, and overall request timeouts.
-Certificate-bound production enrollment and sensor impersonation resistance
-remain follow-up work: the MVP collector token is a bearer credential and does
-not attest a sensor's machine identity.
+The per-sensor credential is bound and independently revocable but remains a
+bearer value; it does not attest a sensor's machine identity.
+Certificate-bound production enrollment and stronger impersonation resistance
+remain follow-up work.
 
 ## Linux live capture
 
