@@ -346,3 +346,178 @@ CREATE TABLE IF NOT EXISTS ai_advisor_runs (
 
 CREATE INDEX IF NOT EXISTS idx_ai_advisor_runs_created_at
     ON ai_advisor_runs (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS finding_evaluation_runs (
+    run_id TEXT PRIMARY KEY,
+    trigger_type TEXT NOT NULL,
+    requested_by TEXT,
+    scope_site_id TEXT,
+    scope_asset_id TEXT,
+    scope_sensor_id TEXT,
+    ruleset_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ,
+    data_as_of TIMESTAMPTZ,
+    site_count INTEGER NOT NULL DEFAULT 0,
+    sensor_count INTEGER NOT NULL DEFAULT 0,
+    asset_count INTEGER NOT NULL DEFAULT 0,
+    candidate_count INTEGER NOT NULL DEFAULT 0,
+    opened_count INTEGER NOT NULL DEFAULT 0,
+    updated_count INTEGER NOT NULL DEFAULT 0,
+    reopened_count INTEGER NOT NULL DEFAULT 0,
+    resolved_count INTEGER NOT NULL DEFAULT 0,
+    error_code TEXT,
+    CHECK (status IN ('running', 'completed', 'failed'))
+);
+
+CREATE TABLE IF NOT EXISTS findings (
+    finding_id TEXT PRIMARY KEY,
+    dedupe_key TEXT NOT NULL UNIQUE,
+    rule_id TEXT NOT NULL,
+    rule_version INTEGER NOT NULL,
+    previous_rule_version INTEGER,
+    rule_version_changed_at TIMESTAMPTZ,
+    engine_version TEXT NOT NULL,
+    category TEXT NOT NULL,
+    subject_type TEXT NOT NULL,
+    site_id TEXT NOT NULL REFERENCES sites(site_id) ON DELETE CASCADE,
+    asset_id TEXT,
+    sensor_id TEXT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    recommendation TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL,
+    status TEXT NOT NULL,
+    evidence_observed_at TIMESTAMPTZ,
+    evidence_freshness TEXT NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    evaluated_at TIMESTAMPTZ NOT NULL,
+    resolved_at TIMESTAMPTZ,
+    resolution_basis TEXT,
+    acknowledged_at TIMESTAMPTZ,
+    acknowledged_by TEXT,
+    suppressed_at TIMESTAMPTZ,
+    suppressed_by TEXT,
+    suppressed_until TIMESTAMPTZ,
+    suppression_reason TEXT,
+    reopen_count INTEGER NOT NULL DEFAULT 0,
+    last_evaluation_run_id TEXT NOT NULL REFERENCES finding_evaluation_runs(run_id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (subject_type IN ('asset', 'sensor', 'site')),
+    CHECK (severity IN ('critical', 'high', 'medium', 'low', 'informational')),
+    CHECK (confidence >= 0.0 AND confidence <= 1.0),
+    CHECK (status IN ('active', 'acknowledged', 'resolved', 'suppressed')),
+    CHECK (evidence_freshness IN ('fresh', 'aging', 'stale', 'unknown')),
+    CHECK (
+        (subject_type = 'asset' AND asset_id IS NOT NULL AND sensor_id IS NULL)
+        OR (subject_type = 'sensor' AND sensor_id IS NOT NULL AND asset_id IS NULL)
+        OR (subject_type = 'site' AND asset_id IS NULL AND sensor_id IS NULL)
+    )
+);
+
+ALTER TABLE finding_evaluation_runs
+    ADD COLUMN IF NOT EXISTS scope_sensor_id TEXT;
+ALTER TABLE findings
+    ADD COLUMN IF NOT EXISTS previous_rule_version INTEGER;
+ALTER TABLE findings
+    ADD COLUMN IF NOT EXISTS rule_version_changed_at TIMESTAMPTZ;
+ALTER TABLE findings
+    ADD COLUMN IF NOT EXISTS engine_version TEXT NOT NULL DEFAULT 'oaw.findings.v1';
+ALTER TABLE findings
+    ADD COLUMN IF NOT EXISTS evaluated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE TABLE IF NOT EXISTS finding_evidence (
+    evidence_id BIGSERIAL PRIMARY KEY,
+    finding_id TEXT NOT NULL REFERENCES findings(finding_id) ON DELETE CASCADE,
+    evidence_ref TEXT NOT NULL,
+    evidence_type TEXT NOT NULL,
+    source TEXT NOT NULL,
+    observed_at TIMESTAMPTZ,
+    freshness TEXT NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL,
+    summary TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (finding_id, evidence_ref),
+    CHECK (freshness IN ('fresh', 'aging', 'stale', 'unknown')),
+    CHECK (confidence >= 0.0 AND confidence <= 1.0)
+);
+
+CREATE TABLE IF NOT EXISTS asset_risk_scores (
+    site_id TEXT NOT NULL REFERENCES sites(site_id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    band TEXT NOT NULL,
+    formula_version TEXT NOT NULL,
+    finding_count INTEGER NOT NULL,
+    data_as_of TIMESTAMPTZ,
+    calculated_at TIMESTAMPTZ NOT NULL,
+    evaluation_run_id TEXT NOT NULL REFERENCES finding_evaluation_runs(run_id),
+    PRIMARY KEY (site_id, asset_id),
+    CHECK (score >= 0 AND score <= 100)
+);
+
+CREATE TABLE IF NOT EXISTS site_risk_scores (
+    site_id TEXT PRIMARY KEY REFERENCES sites(site_id) ON DELETE CASCADE,
+    score INTEGER NOT NULL,
+    band TEXT NOT NULL,
+    formula_version TEXT NOT NULL,
+    asset_count INTEGER NOT NULL,
+    finding_count INTEGER NOT NULL,
+    data_as_of TIMESTAMPTZ,
+    calculated_at TIMESTAMPTZ NOT NULL,
+    evaluation_run_id TEXT NOT NULL REFERENCES finding_evaluation_runs(run_id),
+    CHECK (score >= 0 AND score <= 100)
+);
+
+CREATE TABLE IF NOT EXISTS risk_factors (
+    risk_factor_id BIGSERIAL PRIMARY KEY,
+    subject_type TEXT NOT NULL,
+    site_id TEXT NOT NULL REFERENCES sites(site_id) ON DELETE CASCADE,
+    asset_id TEXT,
+    finding_id TEXT REFERENCES findings(finding_id) ON DELETE SET NULL,
+    factor_type TEXT NOT NULL,
+    category TEXT NOT NULL,
+    label TEXT NOT NULL,
+    severity TEXT,
+    confidence DOUBLE PRECISION NOT NULL,
+    freshness TEXT NOT NULL,
+    base_weight DOUBLE PRECISION NOT NULL,
+    adjusted_weight DOUBLE PRECISION NOT NULL,
+    ordinal INTEGER NOT NULL,
+    evaluation_run_id TEXT NOT NULL REFERENCES finding_evaluation_runs(run_id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (subject_type IN ('asset', 'site')),
+    CHECK (confidence >= 0.0 AND confidence <= 1.0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_findings_status_severity
+    ON findings (status, severity, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_findings_site_status
+    ON findings (site_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_findings_asset_status
+    ON findings (site_id, asset_id, status) WHERE asset_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_findings_sensor_status
+    ON findings (sensor_id, status) WHERE sensor_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_findings_rule_status
+    ON findings (rule_id, status);
+CREATE INDEX IF NOT EXISTS idx_finding_evidence_finding_id
+    ON finding_evidence (finding_id);
+CREATE INDEX IF NOT EXISTS idx_finding_runs_started_at
+    ON finding_evaluation_runs (started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_finding_runs_scope
+    ON finding_evaluation_runs (
+        scope_site_id,
+        scope_asset_id,
+        scope_sensor_id,
+        started_at DESC
+    );
+CREATE INDEX IF NOT EXISTS idx_asset_risk_score_desc
+    ON asset_risk_scores (score DESC, site_id, asset_id);
+CREATE INDEX IF NOT EXISTS idx_site_risk_score_desc
+    ON site_risk_scores (score DESC, site_id);
+CREATE INDEX IF NOT EXISTS idx_risk_factors_subject
+    ON risk_factors (subject_type, site_id, asset_id, ordinal);

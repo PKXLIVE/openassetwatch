@@ -394,6 +394,11 @@ def ensure_database_schema() -> None:
         connection.execute(text(CREATE_AI_ADVISOR_RUNS_TABLE_SQL))
         for statement in NORMALIZATION_INDEX_SQL:
             connection.execute(text(statement))
+        # Keep the additive findings/risk schema colocated with its lifecycle
+        # repository while initializing it in the same application schema pass.
+        from .finding_store import ensure_findings_schema
+
+        ensure_findings_schema(connection)
 
 
 def save_inventory_submission(
@@ -1572,17 +1577,27 @@ def ensure_site_record(*, site_id: str, name: str | None = None, description: st
     return create_site(site_id=site_id, name=name or site_id, description=description)
 
 
-def list_sites() -> list[dict[str, Any]]:
+def list_sites(
+    limit: int | None = None,
+    *,
+    site_id: str | None = None,
+) -> list[dict[str, Any]]:
     ensure_database_schema()
+    limit_clause = "\n        LIMIT :limit" if limit is not None else ""
     statement = text(
         """
         SELECT site_id, name, description, created_at, updated_at
         FROM sites
+        WHERE (:site_id IS NULL OR site_id = :site_id)
         ORDER BY updated_at DESC, site_id ASC
         """
+        + limit_clause
     )
+    params: dict[str, Any] = {"site_id": site_id}
+    if limit is not None:
+        params["limit"] = max(1, int(limit))
     with get_engine().begin() as connection:
-        rows = connection.execute(statement).mappings().all()
+        rows = connection.execute(statement, params).mappings().all()
     return _row_dicts(rows)
 
 
@@ -1674,8 +1689,13 @@ def create_agent_enrollment(
     return dict(row)
 
 
-def list_agent_enrollments() -> list[dict[str, Any]]:
+def list_agent_enrollments(
+    limit: int | None = None,
+    *,
+    site_id: str | None = None,
+) -> list[dict[str, Any]]:
     ensure_database_schema()
+    limit_clause = "\n        LIMIT :limit" if limit is not None else ""
     statement = text(
         """
         SELECT
@@ -1692,12 +1712,17 @@ def list_agent_enrollments() -> list[dict[str, Any]]:
             updated_at,
             last_seen_at,
             identity_status
-        FROM agent_enrollments
-        ORDER BY last_seen_at DESC NULLS LAST, updated_at DESC, agent_id ASC
+          FROM agent_enrollments
+          WHERE (:site_id IS NULL OR site_id = :site_id)
+          ORDER BY last_seen_at DESC NULLS LAST, updated_at DESC, agent_id ASC
         """
+        + limit_clause
     )
+    params: dict[str, Any] = {"site_id": site_id}
+    if limit is not None:
+        params["limit"] = max(1, int(limit))
     with get_engine().begin() as connection:
-        rows = connection.execute(statement).mappings().all()
+        rows = connection.execute(statement, params).mappings().all()
     return _row_dicts(rows)
 
 
@@ -2161,8 +2186,13 @@ def list_agent_checkins(limit: int = 25) -> list[dict[str, Any]]:
     return _row_dicts(rows)
 
 
-def list_control_tower_assets() -> list[dict[str, Any]]:
+def list_control_tower_assets(
+    limit: int | None = None,
+    *,
+    site_id: str | None = None,
+) -> list[dict[str, Any]]:
     ensure_database_schema()
+    limit_clause = "\n        LIMIT :limit" if limit is not None else ""
     statement = text(
         """
         SELECT
@@ -2185,12 +2215,17 @@ def list_control_tower_assets() -> list[dict[str, Any]]:
             metadata_json,
             created_at,
             updated_at
-        FROM control_tower_assets
-        ORDER BY last_seen_at DESC, asset_id ASC
+          FROM control_tower_assets
+          WHERE (:site_id IS NULL OR site_id = :site_id)
+          ORDER BY last_seen_at DESC, asset_id ASC
         """
+        + limit_clause
     )
+    params: dict[str, Any] = {"site_id": site_id}
+    if limit is not None:
+        params["limit"] = max(1, int(limit))
     with get_engine().begin() as connection:
-        rows = connection.execute(statement).mappings().all()
+        rows = connection.execute(statement, params).mappings().all()
 
     assets: list[dict[str, Any]] = []
     for row in rows:
