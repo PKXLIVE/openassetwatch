@@ -1,0 +1,22 @@
+{
+  "hub_url": "https://hub.example.invalid",
+  "site_id": "replace-me",
+  "sensor_name": "OpenAssetWatch Passive Sensor",
+  "capture_mode": "live",
+  "capture_interface": "eth1",
+  "identity_path": "/var/lib/openassetwatch/sensor/identity.json",
+  "credential_path": "/var/lib/openassetwatch/sensor/credential.json",
+  "spool_path": "/var/lib/openassetwatch/sensor/spool",
+  "status_path": "/var/lib/openassetwatch/sensor/status.json",
+  "credential_env": "OPENASSETWATCH_SENSOR_CREDENTIAL",
+  "token_env": "OPENASSETWATCH_COLLECTOR_TOKEN",
+  "batch_size": 250,
+  "batch_interval_seconds": 60,
+  "request_timeout_seconds": 10,
+  "retry_initial_seconds": 2,
+  "retry_max_seconds": 300,
+  "spool_max_items": 1000,
+  "spool_max_bytes": 268435456,
+  "aggregation_max_devices": 2048,
+  "aggregation_ttl_seconds": 1800
+}

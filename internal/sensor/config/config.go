@@ -37,6 +37,7 @@ type Config struct {
 	IdentityPath          string `json:"identity_path"`
 	CredentialPath        string `json:"credential_path"`
 	SpoolPath             string `json:"spool_path"`
+	StatusPath            string `json:"status_path"`
 	CredentialEnv         string `json:"credential_env"`
 	TokenEnv              string `json:"token_env"`
 	BatchSize             int    `json:"batch_size"`
@@ -56,6 +57,7 @@ func Default() Config {
 		HubURL: "http://127.0.0.1:8000", SensorName: "OpenAssetWatch Passive Sensor",
 		CaptureMode: "synthetic", IdentityPath: filepath.Join(stateDir, "identity.json"),
 		CredentialPath: filepath.Join(stateDir, "credential.json"), SpoolPath: filepath.Join(stateDir, "spool"),
+		StatusPath:    filepath.Join(stateDir, "status.json"),
 		CredentialEnv: SensorCredentialEnv, TokenEnv: CollectorTokenEnv,
 		BatchSize: 250, BatchIntervalSeconds: 60, RequestTimeoutSeconds: 10,
 		RetryInitialSeconds: 2, RetryMaxSeconds: 300, SpoolMaxItems: 1000,
@@ -67,34 +69,11 @@ func Load(path string) (Config, error) {
 	if strings.TrimSpace(path) == "" {
 		return Config{}, errors.New("sensor config path is required")
 	}
-	root, err := safefile.OpenPrivateRoot(filepath.Dir(filepath.Clean(path)), false)
+	file, err := safefile.OpenRootControlledConfig(path, 64<<10)
 	if err != nil {
 		return Config{}, fmt.Errorf("inspect sensor config: %w", err)
-	}
-	defer root.Close()
-	name := filepath.Base(path)
-	if name == "." || name == string(filepath.Separator) || name == "" {
-		return Config{}, errors.New("sensor config path must name a file")
-	}
-	info, err := root.Lstat(name)
-	if err != nil {
-		return Config{}, fmt.Errorf("inspect sensor config: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > 64<<10 {
-		return Config{}, errors.New("sensor config must be a regular non-symlink file no larger than 64 KiB")
-	}
-	file, err := root.Open(name)
-	if err != nil {
-		return Config{}, fmt.Errorf("open sensor config: %w", err)
 	}
 	defer file.Close()
-	opened, err := file.Stat()
-	if err != nil {
-		return Config{}, fmt.Errorf("stat sensor config: %w", err)
-	}
-	if err := safefile.ValidateOpenedFile(info, opened); err != nil {
-		return Config{}, fmt.Errorf("validate sensor config: %w", err)
-	}
 	cfg := Default()
 	decoder := json.NewDecoder(io.LimitReader(file, 64<<10))
 	decoder.DisallowUnknownFields()
@@ -139,8 +118,8 @@ func (cfg Config) Validate() error {
 	if cfg.CaptureMode == "live" && interfaceName == "" {
 		return errors.New("capture_interface is required for live mode")
 	}
-	if !safePath(cfg.IdentityPath) || !safePath(cfg.CredentialPath) || !safePath(cfg.SpoolPath) {
-		return errors.New("identity_path, credential_path, and spool_path must be safe paths of at most 4096 characters")
+	if !safePath(cfg.IdentityPath) || !safePath(cfg.CredentialPath) || !safePath(cfg.SpoolPath) || !safePath(cfg.StatusPath) {
+		return errors.New("identity_path, credential_path, spool_path, and status_path must be safe paths of at most 4096 characters")
 	}
 	if cfg.CredentialEnv != SensorCredentialEnv {
 		return fmt.Errorf("credential_env must be %s", SensorCredentialEnv)
