@@ -31,8 +31,9 @@ For the phased future implementation plan, see the
 `docs/architecture/ai-agent-architecture.md`.
 
 The OpenAssetWatch AI Advisor is an advisory layer that runs after data
-collection and normalization. The showcase uses a deterministic risk/finding
-projection; the full versioned rules engine remains future work.
+collection, normalization, deterministic finding evaluation, and deterministic
+risk scoring. The implemented versioned rules engine and its authority boundary
+are documented in `docs/DETERMINISTIC_FINDINGS_AND_RISK.md`.
 
 AI should not replace deterministic scoring rules. Rule-based checks remain the
 source of truth for repeatable findings such as exposed services, weak device

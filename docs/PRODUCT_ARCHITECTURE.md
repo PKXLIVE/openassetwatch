@@ -21,6 +21,9 @@ systemd deployment and authorized SPAN validation are documented in
 Its one-time enrollment, site/sensor-bound bearer credential, rotation,
 revocation, and certificate-migration boundary are documented in
 `docs/SENSOR_ENROLLMENT.md`.
+The authoritative deterministic rule registry, finding lifecycle, explainable
+asset/site risk formula, API, AI boundary, and safe extension process are
+documented in `docs/DETERMINISTIC_FINDINGS_AND_RISK.md`.
 
 ## Hub-And-Spoke Control Plane
 

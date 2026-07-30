@@ -15,6 +15,8 @@ service backed by PostgreSQL through SQLAlchemy.
 - idempotent outbound observation batches with site/sensor provenance
 - one-time passive-sensor enrollment and bound, rotatable credentials
 - site and sensor health/freshness summaries
+- versioned deterministic finding rules with persisted lifecycle and evidence
+- explainable deterministic asset and site risk scores
 - deterministic and optional external AI Advisor providers
 - bounded read-only AI evidence tools and audit metadata
 - focused AI Advisor dashboard view
@@ -118,6 +120,12 @@ Control Tower tables include:
 - `local_inventory_collections`
 - `control_tower_assets`
 - `ai_advisor_runs`
+- `finding_evaluation_runs`
+- `findings`
+- `finding_evidence`
+- `asset_risk_scores`
+- `site_risk_scores`
+- `risk_factors`
 
 ## Tests
 
@@ -144,10 +152,14 @@ the observation batch contract, trust boundaries, local Ollama activation, and
 deterministic-mode restoration steps.
 See `docs/SENSOR_ENROLLMENT.md` for the one-time sensor enrollment API,
 credential storage, rotation/revocation, and development shared-token boundary.
+See `docs/DETERMINISTIC_FINDINGS_AND_RISK.md` for the rule registry, finding
+lifecycle, score formula, API, configuration, AI authority boundary, and safe
+rule-extension process.
 
 ## Safety Boundaries
 
 The backend does not perform active scanning, credential collection, remote
 command execution, package installation, self-update, or release download
 execution. Ingestion treats client-submitted data as passive observations, not
-privileged truth.
+privileged truth. Finding evaluation runs only reviewed static rules and cannot
+be extended through an API or model response.
