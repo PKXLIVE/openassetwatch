@@ -5,7 +5,9 @@ metadata from a SPAN or mirror port and sends normalized evidence to the
 existing hub observation-batch API. It is intentionally passive: it does not
 scan, probe, inject packets, fetch discovered URLs, or upload raw packet data.
 Production-oriented enrollment and per-sensor credential binding are
-documented in `docs/SENSOR_ENROLLMENT.md`.
+documented in `docs/SENSOR_ENROLLMENT.md`. Hardened systemd deployment,
+bounded diagnostics, and the authorized SPAN workflow are documented in
+`docs/SENSOR_LINUX_DEPLOYMENT.md`.
 
 The sensor keeps the hub authoritative. The spoke may report an asset identity,
 protocol evidence, VLAN scope, timestamps, and confidence. Risk, findings,
@@ -72,25 +74,30 @@ identifier, so replaying the same observation is idempotent at the hub.
 The fixture uses a fixed historical observation timestamp; freshness views may
 therefore label the replay-created asset evidence as stale while the sensor
 itself is healthy from its current hub acknowledgement.
-Use `oaw-sensor status --config <path>` for a local configuration and health
-readiness summary; it is non-mutating, reports that no daemon is running, and
-never exposes token values. Replay and live commands print the bounded runtime
-health counters described below.
+Use `oaw-sensor status --config <path>` for local configuration and credential
+readiness. `oaw-sensor health --config <path>` reads the service's persisted,
+bounded operational status. Neither exposes token values. Replay and live
+commands print bounded runtime health counters.
 
 The command surface is intentionally small:
 
 ```text
 go run ./cmd/oaw-sensor version
 go run ./cmd/oaw-sensor profile --site-id example-site
-go run ./cmd/oaw-sensor validate --config <path>
+go run ./cmd/oaw-sensor config validate --config <path>
+go run ./cmd/oaw-sensor interface list
+go run ./cmd/oaw-sensor interface validate --interface enp2s0
 go run ./cmd/oaw-sensor status --config <path>
+go run ./cmd/oaw-sensor health --config <path>
+go run ./cmd/oaw-sensor spool status --config <path>
+go run ./cmd/oaw-sensor capture-check --interface enp2s0 --duration 30s
 go run ./cmd/oaw-sensor demo --hub-url http://127.0.0.1:8000 --site-id demo-passive-site --sensor-id sensor-passive-demo-01
-go run ./cmd/oaw-sensor live --config <path> --interface enp2s0
+go run ./cmd/oaw-sensor service run --config <path>
 ```
 
 ## Configuration and identity
 
-`oaw-sensor validate --config <path>` validates the strict JSON sensor config.
+`oaw-sensor config validate --config <path>` validates the strict JSON sensor config.
 The config contains site and sensor identity, hub URL, capture mode/interface,
 identity path, separate credential path, spool path, batching, retry, and
 aggregation limits. Bound credentials are read from the protected credential
@@ -110,6 +117,7 @@ Example Linux service configuration:
   "identity_path": "/var/lib/openassetwatch/sensor/identity.json",
   "credential_path": "/var/lib/openassetwatch/sensor/credential.json",
   "spool_path": "/var/lib/openassetwatch/sensor/spool",
+  "status_path": "/var/lib/openassetwatch/sensor/status.json",
   "credential_env": "OPENASSETWATCH_SENSOR_CREDENTIAL",
   "token_env": "OPENASSETWATCH_COLLECTOR_TOKEN",
   "batch_size": 250,
@@ -164,13 +172,13 @@ remain follow-up work.
 
 ## Linux live capture
 
-Use `oaw-sensor live --config <path> --interface <name>` on a Linux host whose
-selected interface receives a SPAN or mirror-port feed. Prefer a dedicated
-unprivileged service identity with `CAP_NET_RAW` for AF_PACKET capture.
-`CAP_NET_ADMIN` may be needed by a separate interface-setup workflow but is not
-required by the sensor's read loop itself. Do not run the complete service as
-root after setup. The sensor exposes no inbound management or metrics listener
-by default.
+Use `oaw-sensor service run --config <path>` through the committed systemd unit
+on a Linux host whose explicitly configured interface receives a SPAN or
+mirror-port feed. The service runs as `openassetwatch-sensor` with only
+`CAP_NET_RAW`; `CAP_NET_ADMIN` is not required by the sensor read loop. The
+sensor exposes no inbound management or metrics listener. See
+`docs/SENSOR_LINUX_DEPLOYMENT.md` for installation, `capture-check`, repair,
+upgrade, removal, and authorized physical validation.
 
 Docker Desktop on Windows and macOS does not provide a transparent path to a
 physical host SPAN port. Use replay mode for demonstrations there, or run the

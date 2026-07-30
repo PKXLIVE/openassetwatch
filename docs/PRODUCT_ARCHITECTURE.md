@@ -15,7 +15,9 @@ The first implemented hub-and-spoke AI showcase, its normalized observation
 batch contract, provider boundary, and current limitations are documented in
 `docs/architecture/hub-spoke-ai-showcase.md`.
 The Linux-first passive sensor, cross-platform replay, privacy boundary, and
-deployment model are documented in `docs/PASSIVE_SENSOR_MVP.md`.
+deployment model are documented in `docs/PASSIVE_SENSOR_MVP.md`. Hardened
+systemd deployment and authorized SPAN validation are documented in
+`docs/SENSOR_LINUX_DEPLOYMENT.md`.
 Its one-time enrollment, site/sensor-bound bearer credential, rotation,
 revocation, and certificate-migration boundary are documented in
 `docs/SENSOR_ENROLLMENT.md`.

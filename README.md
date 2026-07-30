@@ -160,8 +160,10 @@ See
 [docs/architecture/hub-spoke-ai-showcase.md](docs/architecture/hub-spoke-ai-showcase.md)
 for the first three-site AI showcase, trust boundary, and provider
 configuration. See [docs/PASSIVE_SENSOR_MVP.md](docs/PASSIVE_SENSOR_MVP.md) for
-the passive sensor contract, replay demonstration, privacy guarantees, and
-Linux SPAN deployment model. See
+the passive sensor contract, replay demonstration, and privacy guarantees, and
+[docs/SENSOR_LINUX_DEPLOYMENT.md](docs/SENSOR_LINUX_DEPLOYMENT.md) for the
+hardened systemd installer, bounded capture diagnostic, and authorized
+mirror-port validation workflow.
 [docs/SENSOR_ENROLLMENT.md](docs/SENSOR_ENROLLMENT.md) for one-time enrollment,
 site/sensor credential binding, rotation, revocation, and trust limitations.
 

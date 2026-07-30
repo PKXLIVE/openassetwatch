@@ -57,6 +57,88 @@ func TestRunValidateConfig(t *testing.T) {
 	if !strings.Contains(out.String(), `"valid": true`) {
 		t.Fatalf("validate output = %s", out.String())
 	}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"config", "validate", "--config", path}, &out, &errOut); code != 0 {
+		t.Fatalf("config validate exit code = %d: %s", code, errOut.String())
+	}
+}
+
+func TestOperationalCommandsAreBoundedAndDoNotCaptureImplicitly(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := run([]string{"interface", "list"}, &out, &errOut); code != 0 {
+		t.Fatalf("interface list exit code = %d: %s", code, errOut.String())
+	}
+	for _, forbidden := range []string{"packet_bytes", "raw_packet", "payload", "authorization"} {
+		if strings.Contains(strings.ToLower(out.String()), forbidden) {
+			t.Fatalf("interface list output contains %q: %s", forbidden, out.String())
+		}
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"interface", "validate"}, &out, &errOut); code != 2 {
+		t.Fatalf("interface validate without explicit interface exit code = %d", code)
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"capture-check", "--interface", "explicit-test-interface"}, &out, &errOut); code != 2 {
+		t.Fatalf("capture-check without duration exit code = %d", code)
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"capture-check", "--duration", "1s"}, &out, &errOut); code != 2 {
+		t.Fatalf("capture-check without interface exit code = %d", code)
+	}
+	if code := run([]string{"service"}, &out, &errOut); code != 2 {
+		t.Fatalf("service without run exit code = %d", code)
+	}
+}
+
+func TestMissingLiveInterfaceProducesPersistentBoundedHealth(t *testing.T) {
+	stateDir := privateTempDir(t)
+	configDir := privateTempDir(t)
+	configPath := filepath.Join(configDir, "sensor.json")
+	statusPath := filepath.Join(stateDir, "status.json")
+	configBody := fmt.Sprintf(
+		`{"hub_url":"http://127.0.0.1:8000","site_id":"site-test","sensor_id":"sensor-test","sensor_name":"Sensor Test","capture_mode":"live","capture_interface":"oaw-interface-does-not-exist","identity_path":%q,"credential_path":%q,"spool_path":%q,"status_path":%q,"credential_env":"OPENASSETWATCH_SENSOR_CREDENTIAL","token_env":"OPENASSETWATCH_COLLECTOR_TOKEN","batch_size":10,"batch_interval_seconds":1,"request_timeout_seconds":5,"retry_initial_seconds":1,"retry_max_seconds":2,"spool_max_items":10,"spool_max_bytes":1048576,"aggregation_max_devices":10,"aggregation_ttl_seconds":60}`,
+		filepath.Join(stateDir, "identity.json"),
+		filepath.Join(stateDir, "credential.json"),
+		filepath.Join(stateDir, "spool"),
+		statusPath,
+	)
+	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"service", "run", "--config", configPath}, &out, &errOut); code != 1 {
+		t.Fatalf("service run exit code = %d: stdout=%s stderr=%s", code, out.String(), errOut.String())
+	}
+	if strings.Contains(strings.ToLower(errOut.String()), "credential") {
+		t.Fatalf("missing interface was misreported as a credential error: %s", errOut.String())
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"health", "--config", configPath}, &out, &errOut); code != 0 {
+		t.Fatalf("health exit code = %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), `"running": false`) ||
+		!strings.Contains(out.String(), `"capture_interface": "oaw-interface-does-not-exist"`) ||
+		!strings.Contains(out.String(), `"last_capture_error"`) {
+		t.Fatalf("degraded health output = %s", out.String())
+	}
+	for _, forbidden := range []string{"packet_bytes", "raw_packet", "authorization", "sensor_credential"} {
+		if strings.Contains(strings.ToLower(out.String()+errOut.String()), forbidden) {
+			t.Fatalf("health output contains forbidden value %q", forbidden)
+		}
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"spool", "status", "--config", configPath}, &out, &errOut); code != 0 {
+		t.Fatalf("spool status exit code = %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), `"items": 0`) {
+		t.Fatalf("spool status output = %s", out.String())
+	}
 }
 
 func TestRunStatusIsNonRunningAndDoesNotExposeToken(t *testing.T) {

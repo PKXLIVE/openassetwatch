@@ -114,6 +114,7 @@ as separate paths:
   "identity_path": "/var/lib/openassetwatch/sensor/identity.json",
   "credential_path": "/var/lib/openassetwatch/sensor/credential.json",
   "spool_path": "/var/lib/openassetwatch/sensor/spool",
+  "status_path": "/var/lib/openassetwatch/sensor/status.json",
   "credential_env": "OPENASSETWATCH_SENSOR_CREDENTIAL",
   "token_env": "OPENASSETWATCH_COLLECTOR_TOKEN",
   "batch_size": 250,
@@ -144,6 +145,9 @@ go run ./cmd/oaw-sensor enroll --config <sensor-config-path> \
 
 Piped standard input is also available with `--enrollment-token-stdin`. There
 is deliberately no command-line flag that accepts the raw token value.
+The hardened Linux service workflow uses the service identity and standard
+input exactly as documented in `docs/SENSOR_LINUX_DEPLOYMENT.md`; the Linux
+installer never accepts or logs enrollment tokens or issued credentials.
 
 Local status and credential maintenance:
 

@@ -25,12 +25,15 @@ import (
 	sensorconfig "github.com/openassetwatch/openassetwatch/internal/sensor/config"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/contract"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/credential"
+	"github.com/openassetwatch/openassetwatch/internal/sensor/diagnostic"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/health"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/hubclient"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/identity"
+	"github.com/openassetwatch/openassetwatch/internal/sensor/interfaceinfo"
 	sensorreplay "github.com/openassetwatch/openassetwatch/internal/sensor/replay"
 	sensorruntime "github.com/openassetwatch/openassetwatch/internal/sensor/runtime"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/spool"
+	sensorstatus "github.com/openassetwatch/openassetwatch/internal/sensor/status"
 	"github.com/openassetwatch/openassetwatch/pkg/version"
 )
 
@@ -48,10 +51,22 @@ func run(args []string, out, errOut io.Writer) int {
 		return 0
 	case "profile":
 		return runProfile(args[1:], out, errOut)
+	case "config":
+		return runConfigCommand(args[1:], out, errOut)
 	case "validate-config", "validate":
 		return runValidateConfig(args[1:], out, errOut)
-	case "status", "health":
+	case "status":
 		return runStatus(args[1:], out, errOut)
+	case "health":
+		return runHealth(args[1:], out, errOut)
+	case "interface":
+		return runInterfaceCommand(args[1:], out, errOut)
+	case "spool":
+		return runSpoolCommand(args[1:], out, errOut)
+	case "service":
+		return runServiceCommand(args[1:], out, errOut)
+	case "capture-check":
+		return runCaptureCheck(args[1:], out, errOut)
 	case "enroll":
 		return runEnroll(args[1:], out, errOut)
 	case "credential-status":
@@ -65,9 +80,168 @@ func run(args []string, out, errOut io.Writer) int {
 	case "live":
 		return runLive(args[1:], out, errOut)
 	default:
-		_, _ = fmt.Fprintf(errOut, "unknown oaw-sensor command %q (use profile, enroll, credential-status, replace-credential, clear-credential, demo, live, validate-config, or status)\n", args[0])
+		_, _ = fmt.Fprintf(errOut, "unknown oaw-sensor command %q (use profile, config validate, interface list, interface validate, service run, capture-check, enroll, credential-status, replace-credential, clear-credential, replay, live, status, health, or spool status)\n", args[0])
 		return 2
 	}
+}
+
+func runConfigCommand(args []string, out, errOut io.Writer) int {
+	if len(args) == 0 || args[0] != "validate" {
+		_, _ = fmt.Fprintln(errOut, "use: oaw-sensor config validate --config <path>")
+		return 2
+	}
+	return runValidateConfig(args[1:], out, errOut)
+}
+
+func runServiceCommand(args []string, out, errOut io.Writer) int {
+	if len(args) == 0 || args[0] != "run" {
+		_, _ = fmt.Fprintln(errOut, "use: oaw-sensor service run --config <path>")
+		return 2
+	}
+	return runLive(args[1:], out, errOut)
+}
+
+func runInterfaceCommand(args []string, out, errOut io.Writer) int {
+	if len(args) == 0 {
+		_, _ = fmt.Fprintln(errOut, "use: oaw-sensor interface list|validate")
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		flags := flag.NewFlagSet("interface list", flag.ContinueOnError)
+		flags.SetOutput(errOut)
+		if err := flags.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if flags.NArg() != 0 {
+			_, _ = fmt.Fprintln(errOut, "interface list does not accept positional arguments")
+			return 2
+		}
+		interfaces, err := interfaceinfo.List()
+		if err != nil {
+			_, _ = fmt.Fprintln(errOut, err)
+			return 1
+		}
+		result := struct {
+			Interfaces   []interfaceinfo.Info          `json:"interfaces"`
+			Capabilities interfaceinfo.CapabilityState `json:"capabilities"`
+		}{interfaces, interfaceinfo.EffectiveCapabilities()}
+		if err := writeJSON(out, result); err != nil {
+			_, _ = fmt.Fprintln(errOut, err)
+			return 1
+		}
+		return 0
+	case "validate":
+		flags := flag.NewFlagSet("interface validate", flag.ContinueOnError)
+		flags.SetOutput(errOut)
+		name := flags.String("interface", "", "explicit Linux capture interface")
+		if err := flags.Parse(args[1:]); err != nil {
+			return 2
+		}
+		result, err := interfaceinfo.Validate(*name)
+		if err != nil {
+			_, _ = fmt.Fprintln(errOut, err)
+			return 2
+		}
+		if err := writeJSON(out, result); err != nil {
+			_, _ = fmt.Fprintln(errOut, err)
+			return 1
+		}
+		if !result.Valid {
+			return 1
+		}
+		return 0
+	default:
+		_, _ = fmt.Fprintln(errOut, "use: oaw-sensor interface list|validate")
+		return 2
+	}
+}
+
+func runSpoolCommand(args []string, out, errOut io.Writer) int {
+	if len(args) == 0 || args[0] != "status" {
+		_, _ = fmt.Fprintln(errOut, "use: oaw-sensor spool status --config <path>")
+		return 2
+	}
+	flags := flag.NewFlagSet("spool status", flag.ContinueOnError)
+	flags.SetOutput(errOut)
+	configPath := flags.String("config", "", "path to an OAW sensor JSON config")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*configPath) == "" {
+		_, _ = fmt.Fprintln(errOut, "--config is required")
+		return 2
+	}
+	cfg, err := sensorconfig.Load(*configPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	queue, err := spool.Open(spool.Config{Path: cfg.SpoolPath, MaxItems: cfg.SpoolMaxItems, MaxBytes: cfg.SpoolMaxBytes})
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	defer queue.Close()
+	stats, err := queue.Stats()
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	result := struct {
+		Items       int     `json:"items"`
+		Bytes       int64   `json:"bytes"`
+		Utilization float64 `json:"utilization"`
+		MaxItems    int     `json:"max_items"`
+		MaxBytes    int64   `json:"max_bytes"`
+	}{stats.Items, stats.Bytes, stats.Capacity, cfg.SpoolMaxItems, cfg.SpoolMaxBytes}
+	if err := writeJSON(out, result); err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	return 0
+}
+
+func runCaptureCheck(args []string, out, errOut io.Writer) int {
+	flags := flag.NewFlagSet("capture-check", flag.ContinueOnError)
+	flags.SetOutput(errOut)
+	interfaceName := flags.String("interface", "", "explicit Linux interface connected to a passive SPAN/mirror port")
+	duration := flags.Duration("duration", 0, "bounded capture duration between 1s and 5m")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*interfaceName) == "" || *duration == 0 {
+		_, _ = fmt.Fprintln(errOut, "--interface and --duration are required")
+		return 2
+	}
+	validation, err := interfaceinfo.Validate(*interfaceName)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 2
+	}
+	if !validation.Valid {
+		_ = writeJSON(out, validation)
+		_, _ = fmt.Fprintln(errOut, "capture interface validation failed")
+		return 1
+	}
+	source, err := capture.NewLive(*interfaceName)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, scrubError(err.Error()))
+		return 1
+	}
+	defer source.Close()
+	ctx, stop := contextWithSignals()
+	defer stop()
+	summary, err := diagnostic.Run(ctx, source, *interfaceName, *duration, validation.Capabilities)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, scrubError(err.Error()))
+		return 1
+	}
+	if err := writeJSON(out, summary); err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	return 0
 }
 
 func runProfile(args []string, out, errOut io.Writer) int {
@@ -128,13 +302,47 @@ func runValidateConfig(args []string, out, errOut io.Writer) int {
 	// Config output intentionally excludes token values; token_env is safe to
 	// show because it is only the name of an environment variable.
 	result := struct {
-		Valid       bool   `json:"valid"`
-		HubURL      string `json:"hub_url"`
-		SiteID      string `json:"site_id"`
-		SensorID    string `json:"sensor_id,omitempty"`
-		CaptureMode string `json:"capture_mode"`
-	}{true, cfg.HubURL, cfg.SiteID, cfg.SensorID, cfg.CaptureMode}
+		Valid            bool   `json:"valid"`
+		HubURL           string `json:"hub_url"`
+		SiteID           string `json:"site_id"`
+		SensorID         string `json:"sensor_id,omitempty"`
+		CaptureMode      string `json:"capture_mode"`
+		CaptureInterface string `json:"capture_interface,omitempty"`
+	}{true, cfg.HubURL, cfg.SiteID, cfg.SensorID, cfg.CaptureMode, cfg.CaptureInterface}
 	if err := writeJSON(out, result); err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	return 0
+}
+
+func runHealth(args []string, out, errOut io.Writer) int {
+	flags := flag.NewFlagSet("health", flag.ContinueOnError)
+	flags.SetOutput(errOut)
+	configPath := flags.String("config", "", "path to an OAW sensor JSON config")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*configPath) == "" {
+		_, _ = fmt.Fprintln(errOut, "--config is required")
+		return 2
+	}
+	cfg, err := sensorconfig.Load(*configPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	snapshot, err := sensorstatus.Load(cfg.StatusPath)
+	if errors.Is(err, os.ErrNotExist) {
+		snapshot = health.Snapshot{
+			Running: false, Version: version.Number, SiteID: cfg.SiteID, SensorID: cfg.SensorID,
+			CaptureMode: cfg.CaptureMode, CaptureInterface: cfg.CaptureInterface,
+		}
+	} else if err != nil {
+		_, _ = fmt.Fprintln(errOut, err)
+		return 1
+	}
+	if err := writeJSON(out, snapshot); err != nil {
 		_, _ = fmt.Fprintln(errOut, err)
 		return 1
 	}
@@ -511,6 +719,7 @@ func runLive(args []string, out, errOut io.Writer) int {
 	}
 	cfg.CaptureMode = sensor.CaptureModeLive
 	if err := cfg.Validate(); err != nil {
+		writeDegradedStatus(cfg, cfg.SensorID, err, true)
 		_, _ = fmt.Fprintln(errOut, err)
 		return 2
 	}
@@ -521,11 +730,13 @@ func runLive(args []string, out, errOut io.Writer) int {
 	}
 	token, _, authErr := resolveAuthentication(cfg, resolvedSensorID)
 	if authErr != nil {
+		writeDegradedStatus(cfg, resolvedSensorID, authErr, false)
 		_, _ = fmt.Fprintln(errOut, "sensor credential is unavailable or invalid")
 		return 1
 	}
 	source, err := capture.NewLive(cfg.CaptureInterface)
 	if err != nil {
+		writeDegradedStatus(cfg, resolvedSensorID, err, true)
 		_, _ = fmt.Fprintln(errOut, err)
 		return 1
 	}
@@ -553,6 +764,31 @@ func runSensor(ctx context.Context, cfg sensorconfig.Config, sensorID string, so
 		return 1
 	}
 	tracker := health.NewWithDetails(version.Number, cfg.SiteID, sensorID, cfg.CaptureMode, cfg.CaptureInterface, source.Name())
+	var persistCancel context.CancelFunc
+	var persistDone <-chan struct{}
+	if cfg.CaptureMode == sensor.CaptureModeLive {
+		if err := sensorstatus.Write(cfg.StatusPath, tracker.Snapshot()); err != nil {
+			_, _ = fmt.Fprintln(errOut, "sensor status path is unavailable")
+			return 1
+		}
+		persistContext, cancel := context.WithCancel(context.Background())
+		persistCancel = cancel
+		done := make(chan struct{})
+		persistDone = done
+		go func() {
+			defer close(done)
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-persistContext.Done():
+					return
+				case <-ticker.C:
+					_ = sensorstatus.Write(cfg.StatusPath, tracker.Snapshot())
+				}
+			}
+		}()
+	}
 	runner := &sensorruntime.Runner{
 		Config: sensorruntime.Config{SiteID: cfg.SiteID, SensorID: sensorID, SensorName: cfg.SensorName, SensorVersion: version.Number, BatchSize: cfg.BatchSize, BatchInterval: cfg.BatchInterval(), RetryInitial: cfg.RetryInitial(), RetryMaximum: cfg.RetryMax()},
 		Source: source, Aggregator: agg, Spool: queue, Hub: hub, Health: tracker,
@@ -565,6 +801,13 @@ func runSensor(ctx context.Context, cfg sensorconfig.Config, sensorID string, so
 	}
 	err = runner.Run(ctx)
 	state := tracker.Snapshot()
+	if persistCancel != nil {
+		persistCancel()
+		<-persistDone
+		if statusErr := sensorstatus.Write(cfg.StatusPath, state); statusErr != nil && err == nil {
+			err = errors.New("persist final sensor status")
+		}
+	}
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "sensor run failed: %s\n", scrubError(err.Error()))
 	}
@@ -576,6 +819,22 @@ func runSensor(ctx context.Context, cfg sensorconfig.Config, sensorID string, so
 		return 1
 	}
 	return 0
+}
+
+func writeDegradedStatus(cfg sensorconfig.Config, sensorID string, cause error, captureFailure bool) {
+	if cfg.CaptureMode != sensor.CaptureModeLive || strings.TrimSpace(cfg.StatusPath) == "" {
+		return
+	}
+	snapshot := health.Snapshot{
+		Running: false, Version: version.Number, SiteID: cfg.SiteID, SensorID: sensorID,
+		CaptureMode: cfg.CaptureMode, CaptureInterface: cfg.CaptureInterface,
+	}
+	if captureFailure {
+		snapshot.LastCaptureError = scrubError(cause.Error())
+	} else {
+		snapshot.LastHubError = scrubError(cause.Error())
+	}
+	_ = sensorstatus.Write(cfg.StatusPath, snapshot)
 }
 
 func resolveAuthentication(cfg sensorconfig.Config, sensorID string) (string, string, error) {
