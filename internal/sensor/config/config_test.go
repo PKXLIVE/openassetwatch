@@ -8,6 +8,15 @@ import (
 	"testing"
 )
 
+func privateConfigDir(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir()
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestValidateHubURLAppliesOutboundSecurityPolicy(t *testing.T) {
 	for _, value := range []string{
 		"http://localhost:8000",
@@ -112,7 +121,7 @@ func TestLoadRejectsTrailingJSONUnknownFieldsAndNonRegularFiles(t *testing.T) {
 		"unknown field": strings.TrimSuffix(valid, "}") + `,"token":"secret"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "sensor.json")
+			path := filepath.Join(privateConfigDir(t), "sensor.json")
 			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -122,7 +131,7 @@ func TestLoadRejectsTrailingJSONUnknownFieldsAndNonRegularFiles(t *testing.T) {
 		})
 	}
 
-	directory := filepath.Join(t.TempDir(), "sensor.json")
+	directory := filepath.Join(privateConfigDir(t), "sensor.json")
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +141,7 @@ func TestLoadRejectsTrailingJSONUnknownFieldsAndNonRegularFiles(t *testing.T) {
 }
 
 func TestLoadRejectsSymlinkWhenPlatformSupportsIt(t *testing.T) {
-	parent := t.TempDir()
+	parent := privateConfigDir(t)
 	target := filepath.Join(parent, "target.json")
 	link := filepath.Join(parent, "sensor.json")
 	if err := os.WriteFile(target, []byte(`{}`), 0o600); err != nil {
