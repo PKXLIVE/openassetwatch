@@ -700,8 +700,9 @@ class AIAdvisorTests(unittest.TestCase):
 
     def test_query_endpoint_audits_only_question_hash_not_question(self) -> None:
         question = "Summarize my entire environment."
+        builder = Mock(return_value=sample_tools())
         with (
-            patch("app.main.build_read_only_hub_tools", return_value=sample_tools()),
+            patch("app.main.build_read_only_hub_tools", builder),
             patch("app.main.record_ai_advisor_run") as audit,
             patch.dict(os.environ, {"OPENASSETWATCH_AI_PROVIDER": "demo", "OPENASSETWATCH_ADMIN_TOKEN": ""}, clear=False),
         ):
@@ -711,6 +712,24 @@ class AIAdvisorTests(unittest.TestCase):
         self.assertNotEqual(audit.call_args.kwargs["question_sha256"], question)
         self.assertEqual(len(audit.call_args.kwargs["question_sha256"]), 64)
         self.assertNotIn(question, str(audit.call_args))
+        builder.assert_called_once_with(include_advisory_feed_evidence=False)
+
+    def test_query_includes_feed_evidence_only_with_configured_valid_admin_token(self) -> None:
+        builder = Mock(return_value=sample_tools())
+        with (
+            patch("app.main.build_read_only_hub_tools", builder),
+            patch("app.main.record_ai_advisor_run"),
+            patch.dict(
+                os.environ,
+                {"OPENASSETWATCH_AI_PROVIDER": "demo", "OPENASSETWATCH_ADMIN_TOKEN": "configured-secret"},
+                clear=False,
+            ),
+        ):
+            api_ai_advisor_query(
+                AdvisorQueryRequest(question="Summarize advisory feed status."),
+                admin_token="configured-secret",
+            )
+        builder.assert_called_once_with(include_advisory_feed_evidence=True)
 
     def test_query_endpoint_returns_safe_provider_error_codes(self) -> None:
         payload = AdvisorQueryRequest(question="Summarize my entire environment.")
