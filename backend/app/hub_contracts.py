@@ -3,7 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 
 MAX_OBSERVATIONS_PER_BATCH = 500
@@ -27,6 +34,60 @@ class ObservationEvidence(StrictContract):
     confidence: float = Field(..., ge=0.0, le=1.0)
 
 
+class ComponentObservation(StrictContract):
+    """Bounded passive component evidence; collected values remain data."""
+
+    component_type: Literal[
+        "application",
+        "operating-system-package",
+        "library",
+        "runtime",
+        "driver",
+        "firmware",
+        "operating-system",
+        "security-tool",
+        "unknown",
+    ]
+    ecosystem: str = Field(..., min_length=1, max_length=40)
+    name: str = Field(..., min_length=1, max_length=240)
+    version: str | None = Field(default=None, max_length=160)
+    namespace: str | None = Field(default=None, max_length=160)
+    vendor: str | None = Field(default=None, max_length=160)
+    architecture: str | None = Field(default=None, max_length=40)
+    package_manager: str | None = Field(default=None, max_length=48)
+    purl: str | None = Field(default=None, max_length=600)
+    install_scope: str = Field(default="system", min_length=1, max_length=40)
+    observed_at: datetime | None = None
+    firmware_evidence_type: Literal[
+        "direct",
+        "vendor-reported",
+        "collector-reported",
+        "inferred",
+        "unknown",
+    ] = "unknown"
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("observed_at")
+    @classmethod
+    def require_component_timezone(
+        cls,
+        value: datetime | None,
+    ) -> datetime | None:
+        if value is None:
+            return value
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("component observed_at must include a timezone")
+        if (
+            value.astimezone(timezone.utc)
+            > datetime.now(timezone.utc) + MAX_OBSERVATION_FUTURE_SKEW
+        ):
+            raise ValueError(
+                "component observed_at exceeds the allowed future clock skew"
+            )
+        return value
+
+
 class ObservationAsset(StrictContract):
     asset_id: str = Field(..., min_length=1, max_length=160)
     hostname: str | None = Field(default=None, max_length=255)
@@ -36,6 +97,11 @@ class ObservationAsset(StrictContract):
     platform: str | None = Field(default=None, max_length=160)
     category: str | None = Field(default=None, max_length=80)
     evidence: list[ObservationEvidence] = Field(default_factory=list, max_length=32)
+    components: list[ComponentObservation] = Field(
+        default_factory=list,
+        max_length=1_000,
+    )
+    component_inventory_complete: bool = False
 
 
 class ObservationBatchRequest(StrictContract):
@@ -50,6 +116,7 @@ class ObservationBatchRequest(StrictContract):
     observation_source: Literal["passive-network", "endpoint-inventory", "connector"]
     delivery_state: Literal["live", "cached-retry"] = "live"
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    component_inventory_complete: bool = False
     assets: list[ObservationAsset] = Field(default_factory=list, max_length=MAX_OBSERVATIONS_PER_BATCH)
 
     @field_validator("observed_at")
@@ -60,6 +127,32 @@ class ObservationBatchRequest(StrictContract):
         if value.astimezone(timezone.utc) > datetime.now(timezone.utc) + MAX_OBSERVATION_FUTURE_SKEW:
             raise ValueError("observed_at exceeds the allowed future clock skew")
         return value
+
+    @model_validator(mode="after")
+    def require_bound_source_kind(self) -> "ObservationBatchRequest":
+        expected = {
+            "passive-network-sensor": "passive-network",
+            "endpoint-collector": "endpoint-inventory",
+            "connector": "connector",
+        }[self.sensor_type]
+        if self.observation_source != expected:
+            raise ValueError(
+                "observation_source must match the authenticated sensor_type"
+            )
+        component_limit = (
+            self.observed_at.astimezone(timezone.utc)
+            + MAX_OBSERVATION_FUTURE_SKEW
+        )
+        if any(
+            component.observed_at is not None
+            and component.observed_at.astimezone(timezone.utc) > component_limit
+            for asset in self.assets
+            for component in asset.components
+        ):
+            raise ValueError(
+                "component observed_at exceeds the batch observation time"
+            )
+        return self
 
 
 class ObservationBatchResponse(StrictContract):
