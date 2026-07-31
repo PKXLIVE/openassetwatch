@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 
 MAX_OBSERVATIONS_PER_BATCH = 500
+MAX_OBSERVATION_FUTURE_SKEW = timedelta(minutes=5)
 SITE_ID_PATTERN = r"^[A-Za-z0-9._-]+$"
 SENSOR_ID_PATTERN = r"^[A-Za-z0-9._:-]+$"
 SENSOR_ENROLLMENT_ID_PATTERN = r"^senr_[0-9a-f]{32}$"
@@ -56,6 +57,8 @@ class ObservationBatchRequest(StrictContract):
     def require_timezone(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("observed_at must include a timezone")
+        if value.astimezone(timezone.utc) > datetime.now(timezone.utc) + MAX_OBSERVATION_FUTURE_SKEW:
+            raise ValueError("observed_at exceeds the allowed future clock skew")
         return value
 
 
