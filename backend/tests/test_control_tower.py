@@ -228,9 +228,18 @@ class ControlTowerTests(unittest.TestCase):
         self.assertIn("CREATE TABLE IF NOT EXISTS asset_risk_scores", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS site_risk_scores", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS risk_factors", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS classification_evidence", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS classification_runs", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS asset_classifications", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS asset_classification_history", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS asset_classification_evidence", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS classification_conflicts", executed_sql)
         self.assertIn("idx_local_inventory_observation_batch", executed_sql)
         self.assertIn("idx_sensor_credentials_sensor_status", executed_sql)
         self.assertIn("idx_findings_site_status", executed_sql)
+        self.assertIn("idx_classification_evidence_asset", executed_sql)
+        self.assertIn("idx_asset_classifications_filters", executed_sql)
+        self.assertIn("idx_classification_conflicts_open", executed_sql)
 
     def test_release_status_is_metadata_only(self) -> None:
         response = api_agent_release_status()

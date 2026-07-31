@@ -194,6 +194,13 @@ uploaded, or exposed to the AI worker. The AI Advisor receives normalized hub
 evidence and bounded freshness/health metadata; it cannot access packet capture,
 the sensor filesystem, shell commands, or sensor configuration.
 
+Accepted passive evidence is projected into source-aware durable
+classification evidence and queues evaluation only for affected assets. The
+hub classifier may infer reviewed categories from DHCP, mDNS, SSDP, and NBNS,
+but packet strings remain untrusted data. OUI establishes only a manufacturer,
+and no SSDP URL is fetched. Current classification, conflicts, findings, and
+risk remain hub-authoritative; AI is explanation-only.
+
 The MVP correlates conservatively by site, normalized MAC, and optional VLAN.
 IP addresses are time-bounded evidence and hostnames are supporting evidence,
 not permanent identity keys. IPv6 Neighbor Discovery, LLDP, certificate-bound

@@ -352,6 +352,26 @@ class ControlTowerDashboardTests(unittest.TestCase):
             with self.subTest(code=code):
                 self.assertIn(code, self.dashboard)
 
+    def test_asset_detail_presents_deterministic_classification_safely(self) -> None:
+        expected_code = (
+            "function classification(asset)",
+            "function classificationEvidenceLabel(asset)",
+            "Classification basis",
+            "Managed capability",
+            "Classification status",
+            "Independent sources",
+            "Technical classification evidence",
+            "supporting_evidence_ids",
+            "conflicting_evidence_ids",
+            "deterministic classification; AI commentary remains advisory",
+            "identifiers.textContent =",
+            "conflicts.textContent =",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+        self.assertNotIn(".innerHTML", self.dashboard)
+
     def test_read_only_api_loads_retry_transient_startup_errors(self) -> None:
         self.assertIn("const attempts = method === \"GET\" ? 3 : 1;", self.dashboard)
         self.assertIn("response.status >= 500", self.dashboard)

@@ -18,7 +18,7 @@ Severity = Literal["critical", "high", "medium", "low", "informational"]
 Freshness = Literal["fresh", "aging", "stale", "unknown"]
 SubjectType = Literal["asset", "sensor", "site"]
 
-RULESET_VERSION = "oaw.findings.v1"
+RULESET_VERSION = "oaw.findings.v2"
 MAX_FINDING_CANDIDATES = 10_000
 MAX_EVIDENCE_REFERENCES = 8
 SUPPORTED_SEVERITIES = frozenset({"critical", "high", "medium", "low", "informational"})
@@ -219,6 +219,33 @@ def _confidence(value: Any, default: float = 0.8) -> float:
 def _metadata(asset: Mapping[str, Any]) -> dict[str, Any]:
     value = asset.get("metadata")
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _classification(asset: Mapping[str, Any]) -> dict[str, Any]:
+    value = asset.get("classification")
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _managed_expectation(
+    asset: Mapping[str, Any],
+    capability: str,
+) -> str:
+    managed = _classification(asset).get("managed_capability")
+    if not isinstance(managed, dict):
+        return "unknown"
+    value = _text(managed.get(capability), limit=32).lower()
+    return value if value in {"expected", "not-expected", "unknown"} else "unknown"
+
+
+def _classification_confidence(
+    asset: Mapping[str, Any],
+    *,
+    fallback: float,
+) -> float:
+    classification = _classification(asset)
+    if not classification:
+        return _confidence(asset.get("confidence"), fallback)
+    return _confidence(classification.get("confidence"), fallback)
 
 
 def _source_agent_types(sensors: Sequence[Mapping[str, Any]]) -> dict[str, str]:
@@ -478,8 +505,19 @@ def _new_or_unknown_asset(context: RuleContext) -> Iterable[FindingCandidate]:
         if not asset_id or not site_id:
             continue
         metadata = _metadata(asset)
-        category = _text(metadata.get("category"), limit=80).lower()
-        if category and not category.startswith("unknown"):
+        classification = _classification(asset)
+        category = _text(
+            classification.get("category") or metadata.get("category"),
+            limit=80,
+        ).lower()
+        status = _text(classification.get("status"), limit=40).lower()
+        if classification:
+            if category and category != "unknown" and status not in {
+                "unknown",
+                "insufficient-evidence",
+            }:
+                continue
+        elif category and not category.startswith("unknown"):
             continue
         observed_at = _utc(asset.get("observed_at") or asset.get("last_seen_at"))
         first_seen_at = _utc(asset.get("first_seen_at") or asset.get("created_at"))
@@ -487,7 +525,7 @@ def _new_or_unknown_asset(context: RuleContext) -> Iterable[FindingCandidate]:
         freshness = evidence_freshness(observed_at, now=context.now, config=context.config)
         yield _candidate(
             rule_id=rule_id,
-            rule_version=1,
+            rule_version=2,
             category="inventory",
             subject_type="asset",
             site_id=site_id,
@@ -496,19 +534,30 @@ def _new_or_unknown_asset(context: RuleContext) -> Iterable[FindingCandidate]:
             description="The normalized asset does not yet have a recognized, evidence-backed category.",
             recommendation="Validate ownership and expected function, then classify the asset using reviewed inventory data.",
             severity="medium" if is_new else "low",
-            confidence=_confidence(asset.get("confidence"), 0.7),
+            confidence=max(0.35, _classification_confidence(asset, fallback=0.7)),
             observed_at=observed_at,
             freshness=freshness,
             evidence=(
                 _evidence(
-                    source="control_tower_assets.metadata.category",
+                    source=(
+                        "asset_classifications.status"
+                        if classification
+                        else "control_tower_assets.metadata.category"
+                    ),
                     evidence_type="asset-classification",
                     site_id=site_id,
                     subject_id=asset_id,
                     observed_at=observed_at,
                     freshness=freshness,
-                    confidence=_confidence(asset.get("confidence"), 0.7),
-                    summary="Normalized asset classification is absent or explicitly unknown.",
+                    confidence=max(
+                        0.35,
+                        _classification_confidence(asset, fallback=0.7),
+                    ),
+                    summary=(
+                        "Deterministic classification is unknown or has insufficient evidence."
+                        if classification
+                        else "Normalized asset classification is absent or explicitly unknown."
+                    ),
                 ),
             ),
         )
@@ -536,12 +585,25 @@ def _passive_only_assets(context: RuleContext) -> Iterable[FindingCandidate]:
         observation_source = _text(asset.get("observation_source"), limit=80).lower()
         source_type = sensor_types.get(source_sensor_id, "")
         passive_only = observation_source == "passive-network" or source_type == "network-sensor"
-        category = _text(_metadata(asset).get("category"), limit=80).lower()
+        classification = _classification(asset)
+        category = _text(
+            classification.get("category") or _metadata(asset).get("category"),
+            limit=80,
+        ).lower()
+        expected = _managed_expectation(asset, "endpoint_collector")
+        has_endpoint_evidence = bool(
+            classification.get("endpoint_evidence_present")
+        ) or _has_endpoint_evidence(asset, sensor_types)
         if (
             not asset_id
             or not site_id
             or not passive_only
-            or category not in managed_categories
+            or has_endpoint_evidence
+            or (
+                expected != "expected"
+                if classification
+                else category not in managed_categories
+            )
         ):
             continue
         observed_at = _utc(asset.get("observed_at") or asset.get("last_seen_at"))
@@ -550,7 +612,7 @@ def _passive_only_assets(context: RuleContext) -> Iterable[FindingCandidate]:
             continue
         yield _candidate(
             rule_id=rule_id,
-            rule_version=1,
+            rule_version=2,
             category="coverage",
             subject_type="asset",
             site_id=site_id,
@@ -561,7 +623,7 @@ def _passive_only_assets(context: RuleContext) -> Iterable[FindingCandidate]:
             ),
             recommendation="Confirm whether endpoint management is expected for this asset class or document a compensating control.",
             severity="low",
-            confidence=_confidence(asset.get("confidence"), 0.75),
+            confidence=_classification_confidence(asset, fallback=0.75),
             observed_at=observed_at,
             freshness=freshness,
             evidence=(
@@ -572,8 +634,10 @@ def _passive_only_assets(context: RuleContext) -> Iterable[FindingCandidate]:
                     subject_id=asset_id,
                     observed_at=observed_at,
                     freshness=freshness,
-                    confidence=_confidence(asset.get("confidence"), 0.75),
-                    summary="The latest normalized asset record is passive-sensor evidence.",
+                    confidence=_classification_confidence(asset, fallback=0.75),
+                    summary=(
+                        "Fresh evidence is passive-only while deterministic managed capability expects an endpoint collector."
+                    ),
                 ),
             ),
         )
@@ -594,10 +658,19 @@ def _security_coverage_gap(context: RuleContext) -> Iterable[FindingCandidate]:
         )
         explicit_boolean_gap = metadata.get("endpoint_security") is False
         endpoint_evidence = _has_endpoint_evidence(asset, source_types)
+        classification = _classification(asset)
+        endpoint_security_expected = _managed_expectation(
+            asset,
+            "endpoint_security",
+        )
         if (
             not asset_id
             or not site_id
             or not endpoint_evidence
+            or (
+                classification
+                and endpoint_security_expected != "expected"
+            )
             or (not explicit_boolean_gap and not any(value in gap_values for value in explicit_statuses))
         ):
             continue
@@ -607,7 +680,7 @@ def _security_coverage_gap(context: RuleContext) -> Iterable[FindingCandidate]:
             continue
         yield _candidate(
             rule_id=rule_id,
-            rule_version=1,
+            rule_version=2,
             category="coverage",
             subject_type="asset",
             site_id=site_id,
@@ -616,7 +689,7 @@ def _security_coverage_gap(context: RuleContext) -> Iterable[FindingCandidate]:
             description="Reviewed normalized metadata explicitly reports missing or degraded endpoint security coverage.",
             recommendation="Validate the expected control for this asset and restore coverage or record an approved exception.",
             severity="high",
-            confidence=_confidence(asset.get("confidence"), 0.8),
+            confidence=_classification_confidence(asset, fallback=0.8),
             observed_at=observed_at,
             freshness=freshness,
             evidence=(
@@ -627,10 +700,83 @@ def _security_coverage_gap(context: RuleContext) -> Iterable[FindingCandidate]:
                     subject_id=asset_id,
                     observed_at=observed_at,
                     freshness=freshness,
-                    confidence=_confidence(asset.get("confidence"), 0.8),
-                    summary="Normalized metadata explicitly reports a security coverage gap.",
+                    confidence=_classification_confidence(asset, fallback=0.8),
+                    summary=(
+                        "Normalized metadata reports a gap for a class whose deterministic managed capability expects endpoint security."
+                    ),
                 ),
             ),
+        )
+
+
+def _classification_conflicts(context: RuleContext) -> Iterable[FindingCandidate]:
+    rule_id = "classification-conflict"
+    for asset in context.assets:
+        asset_id = _text(asset.get("asset_id"), limit=160)
+        site_id = _text(asset.get("site_id"), limit=128)
+        classification = _classification(asset)
+        if (
+            not asset_id
+            or not site_id
+            or _text(classification.get("status"), limit=40) != "conflicting"
+        ):
+            continue
+        evaluated_at = _utc(classification.get("evaluated_at"))
+        freshness = evidence_freshness(
+            evaluated_at,
+            now=context.now,
+            config=context.config,
+        )
+        supporting = classification.get("supporting_evidence_ids")
+        conflicting = classification.get("conflicting_evidence_ids")
+        evidence_ids = [
+            value
+            for value in (
+                *(supporting if isinstance(supporting, list) else []),
+                *(conflicting if isinstance(conflicting, list) else []),
+            )
+            if isinstance(value, str) and value.startswith("cev_")
+        ][:MAX_EVIDENCE_REFERENCES]
+        evidence = tuple(
+            EvidenceReference(
+                evidence_ref=evidence_id[:80],
+                evidence_type="classification-evidence",
+                source="classification_evidence",
+                observed_at=evaluated_at,
+                freshness=freshness,
+                confidence=_classification_confidence(asset, fallback=0.6),
+                summary="Server-issued evidence reference participates in an unresolved deterministic classification conflict.",
+            )
+            for evidence_id in evidence_ids
+        )
+        if not evidence:
+            evidence = (
+                _evidence(
+                    source="asset_classifications.status",
+                    evidence_type="classification-conflict",
+                    site_id=site_id,
+                    subject_id=asset_id,
+                    observed_at=evaluated_at,
+                    freshness=freshness,
+                    confidence=_classification_confidence(asset, fallback=0.6),
+                    summary="The current deterministic classification has an unresolved material conflict.",
+                ),
+            )
+        yield _candidate(
+            rule_id=rule_id,
+            rule_version=1,
+            category="identity",
+            subject_type="asset",
+            site_id=site_id,
+            asset_id=asset_id,
+            title="Conflicting asset classification",
+            description="Independent evidence sources support incompatible asset classifications.",
+            recommendation="Review the cited evidence and source freshness; do not resolve the conflict from AI interpretation alone.",
+            severity="high",
+            confidence=_classification_confidence(asset, fallback=0.6),
+            observed_at=evaluated_at,
+            freshness=freshness,
+            evidence=evidence,
         )
 
 
@@ -731,7 +877,7 @@ RULE_REGISTRY: tuple[RuleDefinition, ...] = (
     ),
     RuleDefinition(
         rule_id="unknown-asset",
-        version=1,
+        version=2,
         category="inventory",
         title="Unknown asset requires review",
         rationale="Only missing or explicitly unknown normalized classification triggers this rule.",
@@ -745,13 +891,13 @@ RULE_REGISTRY: tuple[RuleDefinition, ...] = (
     ),
     RuleDefinition(
         rule_id="passive-only-asset",
-        version=1,
+        version=2,
         category="coverage",
         title="Asset is visible only through passive evidence",
         rationale="The rule reports collection coverage; it does not classify all IoT assets as risky.",
         severity="low",
         scope="asset",
-        required_evidence=("fresh passive observation", "managed-device classification"),
+        required_evidence=("fresh passive observation", "managed-capability expectation"),
         freshness_requirement="Requires fresh passive evidence.",
         remediation_guidance="Confirm whether endpoint management is expected or document a compensating control.",
         resolution_behavior="Resolve only after a fresh normalized record is no longer passive-only.",
@@ -759,7 +905,7 @@ RULE_REGISTRY: tuple[RuleDefinition, ...] = (
     ),
     RuleDefinition(
         rule_id="security-coverage-gap",
-        version=1,
+        version=2,
         category="coverage",
         title="Explicit security coverage gap",
         rationale="Only explicit normalized coverage signals trigger this rule.",
@@ -770,6 +916,20 @@ RULE_REGISTRY: tuple[RuleDefinition, ...] = (
         remediation_guidance="Restore the expected security control or record an approved exception.",
         resolution_behavior="Resolve only from fresh endpoint-origin evidence that no longer reports the gap.",
         evaluator=_security_coverage_gap,
+    ),
+    RuleDefinition(
+        rule_id="classification-conflict",
+        version=1,
+        category="identity",
+        title="Conflicting asset classification",
+        rationale="Independent deterministic evidence supports incompatible current classifications.",
+        severity="high",
+        scope="asset",
+        required_evidence=("current classification", "server-issued classification evidence references"),
+        freshness_requirement="Uses current persisted classification freshness and confidence.",
+        remediation_guidance="Review source provenance and freshness; AI may explain but cannot resolve the conflict.",
+        resolution_behavior="Resolve only after deterministic reevaluation reports a fresh non-conflicting classification.",
+        evaluator=_classification_conflicts,
     ),
     RuleDefinition(
         rule_id="identity-conflict",
@@ -841,7 +1001,11 @@ def _resolution_eligible(
         if asset_id and site_id and freshness == "fresh":
             if "asset-stale" in rule_ids:
                 keys.add(_subject_key("asset-stale", "asset", site_id, asset_id))
-            category = _text(_metadata(asset).get("category"), limit=80).lower()
+            classification = _classification(asset)
+            category = _text(
+                classification.get("category") or _metadata(asset).get("category"),
+                limit=80,
+            ).lower()
             if (
                 "unknown-asset" in rule_ids
                 and category
@@ -850,6 +1014,19 @@ def _resolution_eligible(
                 keys.add(_subject_key("unknown-asset", "asset", site_id, asset_id))
             if "passive-only-asset" in rule_ids:
                 keys.add(_subject_key("passive-only-asset", "asset", site_id, asset_id))
+            if (
+                "classification-conflict" in rule_ids
+                and classification
+                and _text(classification.get("status"), limit=40) != "conflicting"
+            ):
+                keys.add(
+                    _subject_key(
+                        "classification-conflict",
+                        "asset",
+                        site_id,
+                        asset_id,
+                    )
+                )
             if (
                 "security-coverage-gap" in rule_ids
                 and _has_endpoint_evidence(asset, source_types)

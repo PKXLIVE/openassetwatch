@@ -203,7 +203,7 @@ class FindingApiTests(unittest.TestCase):
     def test_rule_registry_explicitly_reports_vlan_movement_as_deferred(self) -> None:
         response = api_finding_rules(admin_token="test-admin-token")
 
-        self.assertEqual(len(response["rules"]), 6)
+        self.assertEqual(len(response["rules"]), 7)
         self.assertTrue(any("VLAN movement" in value for value in response["deferred_rules"]))
 
     def test_post_ingestion_evaluation_is_queued_after_response(self) -> None:

@@ -24,12 +24,17 @@ revocation, and certificate-migration boundary are documented in
 The authoritative deterministic rule registry, finding lifecycle, explainable
 asset/site risk formula, API, AI boundary, and safe extension process are
 documented in `docs/DETERMINISTIC_FINDINGS_AND_RISK.md`.
+The deterministic asset model, source-aware evidence fusion, confidence and
+conflict rules, managed-capability expectations, local vendor catalog, APIs,
+and AI authority boundary are documented in
+`docs/ASSET_CLASSIFICATION_AND_EVIDENCE_FUSION.md`.
 
 ## Hub-And-Spoke Control Plane
 
 The Control Tower hub owns the API, PostgreSQL evidence store, site and sensor
-identity, health/freshness, risk and findings projection, AI Advisor, controlled
-tool gateway, authentication boundary, audit metadata, and cross-site views.
+identity, health/freshness, deterministic classification and history, risk and
+findings projection, AI Advisor, controlled tool gateway, authentication
+boundary, audit metadata, and cross-site views.
 
 Endpoint collectors, passive network sensors, and future SNMP, cloud,
 vulnerability, identity, and SIEM connectors are spokes. A spoke belongs to a

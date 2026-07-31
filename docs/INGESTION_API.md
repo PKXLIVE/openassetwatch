@@ -102,6 +102,15 @@ neighbor data as passive observations. Client-submitted values are not treated
 as privileged truth and do not by themselves establish tenant ownership,
 license entitlement, or final asset identity.
 
+That boundary also applies to deterministic classification: the transitional
+route may contribute bounded inferred evidence, but a client-declared
+`agent_id`, `sensor_id`, `sensor_type`, or `observation_source` does not make
+the evidence direct. All submissions on that route share the server-assigned
+`untrusted-local-inventory` evidence identity, preventing fabricated
+independent-source agreement. Direct endpoint classification requires a
+server-authenticated ingestion context. Observation times more than five
+minutes ahead of hub receive time are clamped to receive time.
+
 ## Expected Request Shape
 
 ```json
@@ -228,6 +237,8 @@ delivery state; confidence; and up to 500 strict normalized asset records.
 When `OPENASSETWATCH_COLLECTOR_TOKEN` is configured, the request must include
 `X-OpenAssetWatch-Collector-Token`. The batch identifier is idempotent within a
 site and sensor, so a cached retry does not add the same evidence twice.
+Timezone-aware `observed_at` values more than five minutes ahead of hub time
+are rejected so future timestamps cannot freeze asset or classification state.
 
 The contract accepts `live` and `cached-retry` delivery states. A spoke
 can therefore retain an observation during a hub outage and submit it later

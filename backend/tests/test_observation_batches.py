@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import os
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
 
+from app.database import record_observation_batch as persist_observation_batch
 from app.hub_contracts import ObservationBatchRequest
 from app.main import observation_batch
 from app.sensor_identity import SensorAuthContext, SensorAuthenticationRejected
@@ -104,6 +105,66 @@ class ObservationBatchTests(unittest.TestCase):
         self.assertEqual(response.status, "duplicate")
         self.assertIn("no duplicate", response.message)
 
+    def test_accepted_batch_queues_only_affected_assets_for_classification(self) -> None:
+        payload = ObservationBatchRequest(**batch_payload())
+        background = BackgroundTasks()
+        with (
+            patch.dict(
+                os.environ,
+                {"OPENASSETWATCH_COLLECTOR_TOKEN": "explicit-development-token"},
+                clear=False,
+            ),
+            patch(
+                "app.main.record_observation_batch",
+                return_value={
+                    "collection_id": 7,
+                    "normalized_asset_count": 1,
+                    "duplicate": False,
+                    "asset_ids": ["home-router"],
+                },
+            ),
+        ):
+            response = observation_batch(
+                payload,
+                background_tasks=background,
+                collector_token="explicit-development-token",
+            )
+
+        self.assertEqual(response.status, "accepted")
+        self.assertEqual(len(background.tasks), 1)
+        self.assertEqual(
+            background.tasks[0].kwargs,
+            {"site_id": "home", "asset_ids": ["home-router"]},
+        )
+
+    def test_duplicate_batch_does_not_queue_classification(self) -> None:
+        payload = ObservationBatchRequest(**batch_payload())
+        background = BackgroundTasks()
+        with (
+            patch.dict(
+                os.environ,
+                {"OPENASSETWATCH_COLLECTOR_TOKEN": "explicit-development-token"},
+                clear=False,
+            ),
+            patch(
+                "app.main.record_observation_batch",
+                return_value={
+                    "collection_id": 7,
+                    "normalized_asset_count": 1,
+                    "duplicate": True,
+                    "asset_ids": ["home-router"],
+                },
+            ),
+        ):
+            response = observation_batch(
+                payload,
+                background_tasks=background,
+                collector_token="explicit-development-token",
+            )
+
+        self.assertEqual(response.status, "duplicate")
+        self.assertEqual(background.tasks, [])
+
     def test_contract_rejects_extra_execution_fields_and_too_many_assets(self) -> None:
         unsafe = batch_payload()
         unsafe["command"] = "do-not-run"
@@ -184,6 +245,36 @@ class ObservationBatchTests(unittest.TestCase):
         invalid["observed_at"] = "2026-07-20T12:00:00"
         with self.assertRaises(ValidationError):
             ObservationBatchRequest(**invalid)
+
+    def test_observed_at_rejects_excessive_future_clock_skew(self) -> None:
+        invalid = batch_payload()
+        invalid["observed_at"] = (
+            datetime.now(timezone.utc) + timedelta(minutes=10)
+        ).isoformat()
+
+        with self.assertRaisesRegex(ValidationError, "future clock skew"):
+            ObservationBatchRequest(**invalid)
+
+    def test_authenticated_observation_context_is_server_derived(self) -> None:
+        payload = batch_payload()
+        with (
+            patch("app.database.create_agent_enrollment"),
+            patch(
+                "app.database.record_local_inventory_collection",
+                return_value={
+                    "collection_id": 7,
+                    "normalized_asset_count": 1,
+                    "duplicate": False,
+                    "asset_ids": ["home-router"],
+                },
+            ) as record_local,
+        ):
+            persist_observation_batch(
+                payload=payload,
+                received_at=datetime.now(timezone.utc),
+            )
+
+        self.assertTrue(record_local.call_args.kwargs["source_authenticated"])
 
 
 if __name__ == "__main__":

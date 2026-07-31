@@ -183,8 +183,44 @@ DEMO_ASSETS = (
     DemoAsset("asset-lab-server-demo", "demo-lab", "demo-lab-server", "203.0.113.30", "02:00:5e:30:00:30", "Linux Demo", "Linux/amd64", "agent-linux-lab-demo-01", 8, 10, "server", "explicit coverage gap sample", "missing"),
     DemoAsset("asset-lab-runner-demo", "demo-lab", "demo-lab-runner", "203.0.113.31", "02:00:5e:30:00:30", "Linux Demo", "Linux/amd64", "sensor-lab-demo-01", 6, 18, "server", "passive server and identity-conflict sample"),
     DemoAsset("asset-lab-nas-demo", "demo-lab", "demo-lab-nas", "203.0.113.40", "02:00:5e:30:00:40", "NAS Demo Firmware", "storage-demo", "sensor-lab-demo-01", 5, 50, "storage", "passive storage sample"),
-    DemoAsset("asset-lab-camera-demo", "demo-lab", "demo-lab-camera", "203.0.113.55", "02:00:5e:30:00:55", "Camera Demo Firmware", "iot-demo", "sensor-lab-demo-01", 3, 34, "camera", "passive camera sample"),
+    DemoAsset("asset-lab-camera-demo", "demo-lab", "demo-lab-camera", "203.0.113.55", "02:ca:fe:30:00:55", "Camera Demo Firmware", "iot-demo", "sensor-lab-demo-01", 3, 34, "camera", "passive camera sample"),
+    DemoAsset("asset-lab-reclassified-demo", "demo-lab", "demo-lab-reclassified", "203.0.113.70", "02:00:5e:30:00:70", "Linux Demo", "Linux/amd64", "agent-linux-lab-demo-01", 5, 9, "server", "stronger direct evidence reclassification sample"),
 )
+
+DEMO_PROTOCOL_EVIDENCE: dict[str, tuple[dict[str, Any], ...]] = {
+    "asset-home-smart-tv-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_airplay._tcp.local", "confidence": 0.88},
+    ),
+    "asset-home-mobile-demo": (
+        {"protocol": "dhcp", "kind": "dhcp-vendor-class", "value": "android-demo-client", "confidence": 0.82},
+    ),
+    "asset-home-router-demo": (
+        {"protocol": "ssdp", "kind": "ssdp-device-type", "value": "urn:schemas-upnp-org:device:InternetGatewayDevice:1", "confidence": 0.9},
+    ),
+    "asset-office-printer-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_ipp._tcp.local", "confidence": 0.9},
+        {"protocol": "ssdp", "kind": "ssdp-device-type", "value": "urn:schemas-upnp-org:device:Printer:1", "confidence": 0.82},
+    ),
+    "asset-office-switch-demo": (
+        {"protocol": "dhcp", "kind": "dhcp-vendor-class", "value": "example-switch-demo", "confidence": 0.78},
+    ),
+    "asset-office-unknown-demo": (
+        {"protocol": "nbns", "kind": "nbns-name", "value": "DEMO-UNKNOWN", "confidence": 0.42},
+    ),
+    "asset-lab-runner-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_ipp._tcp.local", "confidence": 0.9},
+    ),
+    "asset-lab-nas-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_smb._tcp.local", "confidence": 0.88},
+    ),
+    "asset-lab-camera-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_rtsp._tcp.local", "confidence": 0.9},
+        {"protocol": "ssdp", "kind": "ssdp-device-type", "value": "urn:example:device:NetworkVideoCamera:1", "confidence": 0.86},
+    ),
+    "asset-lab-reclassified-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_ipp._tcp.local", "confidence": 0.84},
+    ),
+}
 
 LEGACY_DEMO_SITE_IDS = ("home-lab", "small-office")
 LEGACY_DEMO_AGENT_IDS = ("agent-win-demo-01", "agent-macos-demo-01", "sensor-passive-demo-01")
@@ -286,6 +322,9 @@ class DemoSeedStore:
     def evaluate_findings(self, *, evaluated_at: datetime) -> dict[str, Any]:
         return {}
 
+    def evaluate_classifications(self, *, evaluated_at: datetime) -> dict[str, Any]:
+        return {}
+
 
 class SqlDemoSeedStore(DemoSeedStore):
     def __init__(self, database_url: str) -> None:
@@ -316,6 +355,17 @@ class SqlDemoSeedStore(DemoSeedStore):
         agent_ids = [agent.agent_id for agent in DEMO_AGENTS] + list(LEGACY_DEMO_AGENT_IDS)
         asset_ids = [asset.asset_id for asset in DEMO_ASSETS] + list(LEGACY_DEMO_ASSET_IDS)
         with self.engine.begin() as connection:
+            connection.execute(
+                self.text(
+                    """
+                    DELETE FROM asset_classification_history
+                    WHERE site_id IN :site_ids
+                    """
+                ).bindparams(
+                    self.bindparam("site_ids", expanding=True),
+                ),
+                {"site_ids": site_ids},
+            )
             connection.execute(
                 self.text(
                     """
@@ -369,6 +419,14 @@ class SqlDemoSeedStore(DemoSeedStore):
                 self.text(
                     """
                     DELETE FROM finding_evaluation_runs
+                    WHERE requested_by = 'control-tower-demo-seed'
+                    """
+                )
+            )
+            connection.execute(
+                self.text(
+                    """
+                    DELETE FROM classification_runs
                     WHERE requested_by = 'control-tower-demo-seed'
                     """
                 )
@@ -626,6 +684,225 @@ class SqlDemoSeedStore(DemoSeedStore):
     def summary(self) -> dict[str, int]:
         return self.control_tower_summary()
 
+    def evaluate_classifications(self, *, evaluated_at: datetime) -> dict[str, Any]:
+        from app.classification_service import evaluate_classifications
+        from app.classification_store import (
+            SqlClassificationStore,
+            classification_evidence_for_asset,
+            persist_classification_evidence,
+        )
+        from app.vendor_catalog import load_configured_catalog
+
+        agents = {agent.agent_id: agent for agent in DEMO_AGENTS}
+        catalog = load_configured_catalog()
+
+        def normalized_asset(
+            asset: DemoAsset,
+            *,
+            source_agent_id: str,
+            category: str | None,
+            os_name: str | None,
+            platform: str | None,
+            protocol_evidence: tuple[dict[str, Any], ...],
+        ) -> dict[str, Any]:
+            return {
+                "site_id": asset.site_id,
+                "asset_id": asset.asset_id,
+                "hostname": asset.hostname,
+                "primary_ip": asset.primary_ip,
+                "mac": asset.mac,
+                "os": os_name,
+                "platform": platform,
+                "source_agent_id": source_agent_id,
+                "metadata": {
+                    "category": category,
+                    "security_coverage": asset.security_coverage,
+                    "evidence": list(protocol_evidence),
+                },
+            }
+
+        def payload_for(source_agent_id: str) -> dict[str, Any]:
+            agent = agents[source_agent_id]
+            endpoint = agent.agent_type == "endpoint-agent"
+            return {
+                "site_id": agent.site_id,
+                "sensor_id": source_agent_id,
+                "sensor_type": (
+                    "endpoint-collector"
+                    if endpoint
+                    else "passive-network-sensor"
+                ),
+                "observation_source": (
+                    "endpoint-inventory"
+                    if endpoint
+                    else "passive-network"
+                ),
+                "confidence": 0.9,
+            }
+
+        reclassified = next(
+            asset
+            for asset in DEMO_ASSETS
+            if asset.asset_id == "asset-lab-reclassified-demo"
+        )
+        initial_reclassification_at = evaluated_at - timedelta(hours=100)
+        with self.engine.begin() as connection:
+            for asset in DEMO_ASSETS:
+                if asset.asset_id == reclassified.asset_id:
+                    continue
+                seen_at = event_time(
+                    asset.last_seen_minutes_ago,
+                    base_time=evaluated_at,
+                )
+                projected = normalized_asset(
+                    asset,
+                    source_agent_id=asset.source_agent_id,
+                    category=asset.category,
+                    os_name=asset.os,
+                    platform=asset.platform,
+                    protocol_evidence=DEMO_PROTOCOL_EVIDENCE.get(
+                        asset.asset_id,
+                        (),
+                    ),
+                )
+                records = classification_evidence_for_asset(
+                    asset=projected,
+                    payload=payload_for(asset.source_agent_id),
+                    observed_at=seen_at,
+                    catalog=catalog,
+                    source_authenticated=asset.source_agent_id.startswith("agent-"),
+                )
+                persist_classification_evidence(connection, records=records)
+
+            initial_projected = normalized_asset(
+                reclassified,
+                source_agent_id="sensor-lab-demo-01",
+                category=None,
+                os_name=None,
+                platform=None,
+                protocol_evidence=DEMO_PROTOCOL_EVIDENCE[
+                    reclassified.asset_id
+                ],
+            )
+            persist_classification_evidence(
+                connection,
+                records=classification_evidence_for_asset(
+                    asset=initial_projected,
+                    payload=payload_for("sensor-lab-demo-01"),
+                    observed_at=initial_reclassification_at,
+                    catalog=catalog,
+                    source_authenticated=True,
+                ),
+            )
+
+        initial_reclassification = evaluate_classifications(
+            trigger_type="demo-reclassification-initial",
+            requested_by="control-tower-demo-seed",
+            site_id=reclassified.site_id,
+            asset_id=reclassified.asset_id,
+            now=initial_reclassification_at,
+            reevaluate_findings=False,
+        )
+
+        with self.engine.begin() as connection:
+            final_projected = normalized_asset(
+                reclassified,
+                source_agent_id="agent-linux-lab-demo-01",
+                category="server",
+                os_name="Linux Demo",
+                platform="Linux/amd64",
+                protocol_evidence=(),
+            )
+            persist_classification_evidence(
+                connection,
+                records=classification_evidence_for_asset(
+                    asset=final_projected,
+                    payload=payload_for("agent-linux-lab-demo-01"),
+                    observed_at=evaluated_at,
+                    catalog=catalog,
+                    source_authenticated=True,
+                ),
+            )
+            runner = next(
+                asset
+                for asset in DEMO_ASSETS
+                if asset.asset_id == "asset-lab-runner-demo"
+            )
+            runner_direct = normalized_asset(
+                runner,
+                source_agent_id="agent-linux-lab-demo-01",
+                category="server",
+                os_name="Linux Demo",
+                platform="Linux/amd64",
+                protocol_evidence=(),
+            )
+            persist_classification_evidence(
+                connection,
+                records=classification_evidence_for_asset(
+                    asset=runner_direct,
+                    payload=payload_for("agent-linux-lab-demo-01"),
+                    observed_at=evaluated_at,
+                    catalog=catalog,
+                    source_authenticated=True,
+                ),
+            )
+
+        final = evaluate_classifications(
+            trigger_type="demo-seed",
+            requested_by="control-tower-demo-seed",
+            now=evaluated_at,
+            reevaluate_findings=False,
+        )
+        store = SqlClassificationStore()
+        reclassified_current = store.get_classification(
+            site_id=reclassified.site_id,
+            asset_id=reclassified.asset_id,
+        )
+        conflicts = store.list_classifications(
+            status="conflicting",
+            limit=50,
+        )["items"]
+        with self.engine.begin() as connection:
+            history_count = int(
+                connection.execute(
+                    self.text(
+                        """
+                        SELECT COUNT(*)
+                        FROM asset_classification_history
+                        WHERE site_id = :site_id AND asset_id = :asset_id
+                        """
+                    ),
+                    {
+                        "site_id": reclassified.site_id,
+                        "asset_id": reclassified.asset_id,
+                    },
+                ).scalar_one()
+            )
+        return {
+            "initial_run_id": initial_reclassification.run_id,
+            "final_run_id": final.run_id,
+            "assets_evaluated": final.assets_evaluated,
+            "assets_changed": final.assets_changed,
+            "conflicts_found": final.conflicts_found,
+            "conflict_classification_ids": [
+                item["classification_id"] for item in conflicts
+            ],
+            "reclassification": {
+                "classification_id": (
+                    reclassified_current.get("classification_id")
+                    if reclassified_current
+                    else None
+                ),
+                "initial_category": "printer",
+                "final_category": (
+                    reclassified_current.get("category")
+                    if reclassified_current
+                    else None
+                ),
+                "history_count": history_count,
+            },
+        }
+
     def evaluate_findings(self, *, evaluated_at: datetime) -> dict[str, Any]:
         from app.finding_service import evaluate_findings
 
@@ -634,68 +911,7 @@ class SqlDemoSeedStore(DemoSeedStore):
             requested_by="control-tower-demo-seed",
             now=evaluated_at,
         )
-        lifecycle_asset_id = "asset-office-unknown-demo"
-        with self.engine.begin() as connection:
-            connection.execute(
-                self.text(
-                    """
-                    UPDATE control_tower_assets
-                    SET metadata_json = jsonb_set(metadata_json, '{category}', '"workstation"')
-                    WHERE site_id = 'demo-office' AND asset_id = :asset_id
-                    """
-                ),
-                {"asset_id": lifecycle_asset_id},
-            )
-        evaluate_findings(
-            trigger_type="demo-lifecycle-resolve",
-            requested_by="control-tower-demo-seed",
-            now=evaluated_at + timedelta(seconds=1),
-            site_id="demo-office",
-            asset_id=lifecycle_asset_id,
-            rule_ids=["unknown-asset"],
-        )
-        with self.engine.begin() as connection:
-            connection.execute(
-                self.text(
-                    """
-                    UPDATE control_tower_assets
-                    SET metadata_json = jsonb_set(metadata_json, '{category}', '"unknown"')
-                    WHERE site_id = 'demo-office' AND asset_id = :asset_id
-                    """
-                ),
-                {"asset_id": lifecycle_asset_id},
-            )
-        reopened = evaluate_findings(
-            trigger_type="demo-lifecycle-reopen",
-            requested_by="control-tower-demo-seed",
-            now=evaluated_at + timedelta(seconds=2),
-            site_id="demo-office",
-            asset_id=lifecycle_asset_id,
-            rule_ids=["unknown-asset"],
-        )
-        from app.finding_store import SqlFindingStore
-
-        lifecycle = next(
-            (
-                item
-                for item in SqlFindingStore().list_findings(
-                    site_id="demo-office",
-                    asset_id=lifecycle_asset_id,
-                    rule_id="unknown-asset",
-                    limit=1,
-                )["items"]
-            ),
-            {},
-        )
-        return {
-            **initial.as_dict(),
-            "lifecycle_demo": {
-                "finding_id": lifecycle.get("finding_id"),
-                "status": lifecycle.get("status"),
-                "reopen_count": lifecycle.get("reopen_count"),
-                "final_run_id": reopened.run_id,
-            },
-        }
+        return initial.as_dict()
 
 
 def assets_for_site(site_id: str) -> list[DemoAsset]:
@@ -731,6 +947,11 @@ def seed_demo_data(store: DemoSeedStore, *, base_time: datetime = DEMO_BASE_TIME
         )
     for asset in DEMO_ASSETS:
         store.upsert_asset(asset, seen_at=event_time(asset.last_seen_minutes_ago, base_time=base_time))
+    classification = (
+        store.evaluate_classifications(evaluated_at=base_time)
+        if hasattr(store, "evaluate_classifications")
+        else {}
+    )
     evaluation = (
         store.evaluate_findings(evaluated_at=base_time)
         if hasattr(store, "evaluate_findings")
@@ -743,6 +964,7 @@ def seed_demo_data(store: DemoSeedStore, *, base_time: datetime = DEMO_BASE_TIME
         "check_ins": len(DEMO_CHECKINS),
         "assets": len(DEMO_ASSETS),
         "evidence": sum(asset.evidence_count for asset in DEMO_ASSETS),
+        "deterministic_classification": classification,
         "deterministic_evaluation": evaluation,
         "summary": store.summary(),
     }

@@ -5,7 +5,8 @@ Tower data. The processing order is:
 
 ```text
 normalized evidence
-  -> reviewed deterministic rules
+  -> deterministic asset classification and provenance
+  -> reviewed deterministic finding rules
   -> persisted finding lifecycle
   -> deterministic asset and site risk
   -> read-only AI explanation
@@ -24,16 +25,19 @@ dynamic rule loading, expression evaluation, model-authored rule, or plugin
 execution path. Collected values are untrusted data and cannot select code or
 change a rule's severity.
 
-The first ruleset is `oaw.findings.v1`.
+The current ruleset is `oaw.findings.v2`. Classification semantics are owned
+by `oaw.classifier.v1`; see
+`docs/ASSET_CLASSIFICATION_AND_EVIDENCE_FUSION.md`.
 
 | Rule | Subject | Trigger | Severity | Important boundary |
 | --- | --- | --- | --- | --- |
 | `sensor-stale` | sensor | An enrolled, non-revoked sensor has no authenticated check-in or exceeds the configured threshold. | medium | Uses authenticated enrollment/check-in state. |
 | `asset-stale` | asset | Normalized `observed_at` exceeds the configured asset freshness threshold. | low | Stale evidence cannot resolve another finding. |
-| `unknown-asset` | asset | Normalized category is absent or explicitly starts with `unknown`. | medium when new, otherwise low | Does not guess a category from a hostname, address, or model. |
-| `passive-only-asset` | asset | A fresh managed-device record (`workstation`, `server`, `laptop`, and reviewed equivalents) comes only from a passive sensor. | low | IoT, mobile, printer, storage, camera, and network-device classes do not trigger merely because they cannot run an endpoint collector. |
-| `security-coverage-gap` | asset | Fresh endpoint-origin inventory explicitly says coverage is missing/degraded, or `endpoint_security` is false. | high | Missing fields, stale records, and passive-sensor assertions are insufficient. |
+| `unknown-asset` | asset | The current deterministic classification is unknown or insufficient. | medium when new, otherwise low | Does not guess a category from hostname, address, OUI, or model output; classification confidence becomes finding confidence. |
+| `passive-only-asset` | asset | A fresh class whose managed capability expects an endpoint collector currently has only passive evidence and no historical endpoint evidence. | low | IoT, printer, storage, camera, media, OT, and network-device classes do not trigger merely because they cannot run an endpoint collector. |
+| `security-coverage-gap` | asset | Fresh endpoint-origin inventory explicitly says coverage is missing/degraded for a class whose managed capability expects endpoint security. | high | Missing fields, stale records, passive-sensor assertions, and not-expected classes are insufficient. |
 | `identity-conflict` | asset | Two fresh, bounded same-site asset records share one valid unicast hardware-address correlation. | high | Hostname/IP equality plus malformed, all-zero, broadcast, and multicast addresses are ignored; finding evidence stores opaque references, not the address value. |
+| `classification-conflict` | asset | Current deterministic category, OS, version, or role classification contains a material independent-source conflict. | medium | Uses only server-issued classification evidence IDs; AI cannot resolve or override the conflict. |
 
 VLAN movement is deliberately deferred. The current normalized hub schema does
 not retain a durable, structured VLAN history. Deriving movement from display
@@ -65,7 +69,7 @@ reopens if the same deterministic condition returns. A missing candidate
 resolves only when fresh evidence for that exact rule and subject affirmatively
 proves the condition ended. For example, a coverage gap requires an explicit
 healthy endpoint-origin status; a missing coverage field or passive observation
-cannot resolve it. Identity conflicts do not auto-resolve in v1 because a
+cannot resolve it. Identity conflicts do not auto-resolve because a
 counterpart record disappearing is insufficient proof. Missing assets, missing
 sensors, revoked identities, stale evidence, and failed collection do not
 resolve findings. The current and previous rule versions plus the change time
@@ -75,14 +79,14 @@ finding from risk while active. Expired suppression returns to active on the
 next matching evaluation.
 
 Evaluation failures are recorded without failing evidence ingestion. New
-sensor, endpoint, and observation evidence queues a best-effort FastAPI
-post-response evaluation after the evidence transaction commits. Sensor
-check-ins use sensor scope and only the sensor-health rule. Observation batches
-use site scope because correlation rules require same-site context. Scope is
-pushed into indexed database reads, so a site evaluation does not load every
-site's assets. Administrators can also run a bounded sensor, site, asset,
-selected-rule, or full evaluation. The MVP intentionally does not introduce a
-scheduler or external background-work framework.
+endpoint and observation evidence first queues targeted classification of only
+affected assets. Semantic reclassification then queues targeted finding and
+risk replacement. Sensor check-ins still use sensor scope and only the
+sensor-health rule. Scope is pushed into indexed database reads, so a site
+evaluation does not load every site's assets. Administrators can also run a
+bounded sensor, site, asset, selected-rule, or full evaluation. The MVP
+intentionally does not introduce a scheduler or external background-work
+framework.
 
 ## Risk Formula
 
@@ -217,10 +221,14 @@ field and refresh; the value remains page-local and is not stored.
 
 ## AI Boundary
 
-`ReadOnlyHubTools` receives persisted findings and risk from PostgreSQL.
+`ReadOnlyHubTools` receives persisted classifications, classification evidence,
+findings, and risk from PostgreSQL.
 `findings_by_site`, `highest_risk_assets`, site summary, environment summary,
 finding evidence citations, and bounded risk-factor explanations use those
-records. Model context identifies deterministic records as authoritative. AI
+records. Classification summary, asset classification/evidence/conflict,
+unknown-category, managed-capability, and classification-confidence tools use
+the same bounded read-only gateway. Model context identifies deterministic
+records as authoritative. AI
 output is explicitly
 `advisory_only`, and responses identify
 `deterministic-findings-risk-engine` as their authoritative source.
@@ -287,6 +295,8 @@ remains necessary before raising any bound.
   values are rejected.
 - Finding evidence stores opaque references and bounded summaries, never raw
   packets.
+- Classification-conflict evidence cites server-issued `cev_...` references,
+  not packet bytes or credential-bearing metadata.
 - Evaluation performs no active scanning, URL fetching, SSRF-capable lookup,
   command execution, or arbitrary HTTP callback.
 - Ingestion succeeds even when post-response evaluation fails; logs retain only
@@ -298,9 +308,9 @@ remains necessary before raising any bound.
 - The current MVP runs post-response evaluations in-process. Large
   multi-tenant deployments will need a durable job mechanism, tenant-scoped
   authorization, migration tooling, retention policy, and operational metrics.
-- Current passive-only classification uses the latest normalized source
-  identity. Durable multi-source asset provenance is a follow-up before
-  claiming complete management coverage.
+- Passive-only classification now uses durable, source-aware evidence and
+  historical endpoint presence. A production retention policy and tenant model
+  remain follow-ups before claiming complete enterprise management coverage.
 - VLAN movement, exposed-service, vulnerability, patch, and configuration rules
   remain deferred until their required normalized evidence is durable and
   tested.

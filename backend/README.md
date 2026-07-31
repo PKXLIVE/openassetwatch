@@ -11,7 +11,12 @@ service backed by PostgreSQL through SQLAlchemy.
 - agent check-in ingestion
 - Go agent local inventory ingestion
 - raw inventory evidence persistence
-- basic Control Tower asset normalization
+- Control Tower asset normalization with source-aware classification evidence
+- versioned deterministic asset classification, history, and conflicts
+- server-derived direct-evidence trust, server-assigned identity for legacy
+  unauthenticated input, future-skew rejection, and source-fair bounded
+  evidence selection
+- local-only fictional vendor catalog with safe reviewed replacement
 - idempotent outbound observation batches with site/sensor provenance
 - one-time passive-sensor enrollment and bound, rotatable credentials
 - site and sensor health/freshness summaries
@@ -126,6 +131,12 @@ Control Tower tables include:
 - `asset_risk_scores`
 - `site_risk_scores`
 - `risk_factors`
+- `classification_evidence`
+- `classification_runs`
+- `asset_classifications`
+- `asset_classification_history`
+- `asset_classification_evidence`
+- `classification_conflicts`
 
 ## Tests
 
@@ -140,11 +151,23 @@ docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
 
 The unit tests mock the database boundary for endpoint behavior and test local
 normalization/schema helpers without requiring a live PostgreSQL instance.
+The transitional local-inventory route is compatibility ingestion and does not
+grant direct evidence authority from a client-declared agent or source type.
+Authenticated observation context is passed separately by the server.
 Static showcase and seed tests use only the standard library:
 
 ```powershell
 python scripts/test_control_tower_dashboard.py
 python scripts/test_control_tower_demo_seed.py
+```
+
+Run the deterministic classification, conflict, reclassification, and AI
+evidence showcase through the backend image:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace backend `
+  python scripts/demo_asset_classification.py
 ```
 
 See `docs/architecture/hub-spoke-ai-showcase.md` for provider configuration,
@@ -155,11 +178,16 @@ credential storage, rotation/revocation, and development shared-token boundary.
 See `docs/DETERMINISTIC_FINDINGS_AND_RISK.md` for the rule registry, finding
 lifecycle, score formula, API, configuration, AI authority boundary, and safe
 rule-extension process.
+See `docs/ASSET_CLASSIFICATION_AND_EVIDENCE_FUSION.md` for classifier
+precedence, confidence, provenance, conflicts, managed capability, catalog
+handling, APIs, demo, and safe extension steps.
 
 ## Safety Boundaries
 
 The backend does not perform active scanning, credential collection, remote
 command execution, package installation, self-update, or release download
 execution. Ingestion treats client-submitted data as passive observations, not
-privileged truth. Finding evaluation runs only reviewed static rules and cannot
-be extended through an API or model response.
+privileged truth. Classification and finding evaluation run only reviewed
+static rules and cannot be extended through an API or model response. The
+backend performs no runtime vendor lookup, SSDP URL fetch, or active
+fingerprinting.

@@ -53,6 +53,20 @@ from .database import (
     upsert_collector_policy,
     upsert_collector_metadata,
 )
+from .classification_contracts import (
+    ClassificationEvaluateRequest,
+    ClassificationEvaluationResponse,
+    ClassificationEvidenceListResponse,
+    ClassificationListResponse,
+    ClassificationResponse,
+    ClassificationSummaryResponse,
+    VendorCatalogStatusResponse,
+)
+from .classification_service import (
+    evaluate_assets_best_effort,
+    evaluate_classifications,
+)
+from .classification_store import SqlClassificationStore
 from .finding_contracts import (
     AssetRiskResponse,
     FindingAcknowledgeRequest,
@@ -102,6 +116,7 @@ from .sensor_identity import (
     revoke_sensor_enrollment,
     rotate_sensor_credential,
 )
+from .vendor_catalog import configured_catalog_status
 
 app = FastAPI(
     title="OpenAssetWatch API",
@@ -117,6 +132,7 @@ class BoundedRequestBodyMiddleware:
         "/api/v1/sensors/enroll": 8 << 10,
         "/api/v1/sensors/check-in": 16 << 10,
         "/api/v1/observations/batches": 2 << 20,
+        "/api/v1/admin/classifications/evaluate": 64 << 10,
     }
 
     def __init__(self, app: Any) -> None:
@@ -314,6 +330,40 @@ def _queue_site_evaluation(
             site_id=site_id,
             sensor_id=sensor_id,
         )
+
+
+def _queue_asset_classification(
+    background_tasks: BackgroundTasks | None,
+    *,
+    site_id: str,
+    asset_ids: list[str],
+) -> None:
+    if background_tasks is not None and asset_ids:
+        background_tasks.add_task(
+            evaluate_assets_best_effort,
+            site_id=site_id,
+            asset_ids=asset_ids,
+        )
+
+
+class _FullClassificationLimiter:
+    """Bound repeated process-local bulk rebuilds without blocking targeted runs."""
+
+    def __init__(self, *, cooldown_seconds: float = 60.0) -> None:
+        self.cooldown_seconds = cooldown_seconds
+        self._lock = threading.Lock()
+        self._last_started = 0.0
+
+    def allow(self, *, now: float | None = None) -> bool:
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            if current - self._last_started < self.cooldown_seconds:
+                return False
+            self._last_started = current
+            return True
+
+
+_full_classification_limiter = _FullClassificationLimiter()
 
 
 class CollectorCheckInRequest(BaseModel):
@@ -804,6 +854,181 @@ def _finding_store() -> SqlFindingStore:
     return SqlFindingStore()
 
 
+def _classification_store() -> SqlClassificationStore:
+    return SqlClassificationStore()
+
+
+@app.get("/api/v1/classifications", response_model=ClassificationListResponse)
+def api_classifications(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    category: str | None = Query(default=None, min_length=1, max_length=80),
+    manufacturer: str | None = Query(default=None, min_length=1, max_length=160),
+    os_family: str | None = Query(default=None, min_length=1, max_length=80),
+    managed_capability: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    minimum_confidence: float | None = Query(default=None, ge=0.0, le=1.0),
+    conflict_state: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    supported_categories = {
+        "workstation",
+        "server",
+        "mobile",
+        "network-device",
+        "printer",
+        "camera",
+        "media-device",
+        "storage",
+        "iot",
+        "ot-industrial",
+        "virtual-machine",
+        "unknown",
+    }
+    supported_statuses = {
+        "classified",
+        "partially-classified",
+        "unknown",
+        "conflicting",
+        "insufficient-evidence",
+    }
+    if category and category not in supported_categories:
+        raise HTTPException(status_code=400, detail="unsupported classification category")
+    if status and status not in supported_statuses:
+        raise HTTPException(status_code=400, detail="unsupported classification status")
+    if managed_capability and managed_capability not in {
+        "expected",
+        "not-expected",
+        "unknown",
+    }:
+        raise HTTPException(status_code=400, detail="unsupported managed capability")
+    if conflict_state and conflict_state not in {"open", "none"}:
+        raise HTTPException(status_code=400, detail="unsupported conflict state")
+    try:
+        return _classification_store().list_classifications(
+            site_id=site_id,
+            category=category,
+            manufacturer=manufacturer,
+            os_family=os_family,
+            managed_capability=managed_capability,
+            status=status,
+            minimum_confidence=minimum_confidence,
+            conflict_state=conflict_state,
+            limit=limit,
+            offset=offset,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic classifications") from exc
+
+
+@app.get(
+    "/api/v1/classifications/summary",
+    response_model=ClassificationSummaryResponse,
+)
+def api_classification_summary(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return _classification_store().site_summary(site_id=site_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load classification summary") from exc
+
+
+@app.get(
+    "/api/v1/classifications/catalog/status",
+    response_model=VendorCatalogStatusResponse,
+)
+def api_vendor_catalog_status(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    return configured_catalog_status()
+
+
+@app.get(
+    "/api/v1/classifications/assets/{asset_id}",
+    response_model=ClassificationResponse,
+)
+def api_asset_classification(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        classification = _classification_store().get_classification(
+            site_id=site_id,
+            asset_id=asset_id,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load asset classification") from exc
+    if classification is None:
+        raise HTTPException(
+            status_code=404,
+            detail="asset classification not found; run deterministic evaluation",
+        )
+    return classification
+
+
+@app.get(
+    "/api/v1/classifications/assets/{asset_id}/evidence",
+    response_model=ClassificationEvidenceListResponse,
+)
+def api_asset_classification_evidence(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return _classification_store().list_evidence(
+            site_id=site_id,
+            asset_id=asset_id,
+            limit=limit,
+            offset=offset,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load classification evidence") from exc
+
+
+@app.post(
+    "/api/v1/admin/classifications/evaluate",
+    response_model=ClassificationEvaluationResponse,
+)
+def admin_evaluate_classifications(
+    payload: ClassificationEvaluateRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="classification administration",
+    )
+    bulk_rebuild = payload.asset_id is None and payload.asset_ids is None
+    if bulk_rebuild and not _full_classification_limiter.allow():
+        raise HTTPException(
+            status_code=429,
+            detail="bulk classification rebuild is temporarily rate limited",
+        )
+    try:
+        return evaluate_classifications(
+            trigger_type="admin-request",
+            requested_by=payload.requested_by,
+            site_id=payload.site_id,
+            asset_id=payload.asset_id,
+            asset_ids=payload.asset_ids,
+        ).as_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="deterministic classification failed") from exc
+
+
 @app.get("/api/v1/findings/rules", response_model=RuleRegistryResponse)
 def api_finding_rules(
     admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
@@ -1011,6 +1236,7 @@ def api_site_risk(
 
 def build_read_only_hub_tools() -> ReadOnlyHubTools:
     store = _finding_store()
+    classification_store = _classification_store()
     findings = store.list_findings(limit=200, status="active")["items"]
     findings.extend(store.list_findings(limit=200, status="acknowledged")["items"])
     risk = store.risk_summary(limit=200)
@@ -1021,6 +1247,9 @@ def build_read_only_hub_tools() -> ReadOnlyHubTools:
         findings=findings,
         asset_risks=risk["assets"],
         site_risks=risk["sites"],
+        classification_evidence=classification_store.evidence_snapshot(
+            limit=1_000,
+        ),
     )
 
 
@@ -1626,11 +1855,16 @@ def local_inventory_collection(
             site_id=site_id,
             received_at=received_at,
             observed_asset_count=observed_asset_count,
+            source_authenticated=False,
         )
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist local inventory collection") from exc
 
-    _queue_site_evaluation(background_tasks, site_id=site_id)
+    _queue_asset_classification(
+        background_tasks,
+        site_id=site_id,
+        asset_ids=list(collection_result.get("asset_ids") or []),
+    )
     return LocalInventoryCollectionResponse(
         status="accepted",
         observation_batch_id=collection_result["collection_id"],
@@ -1665,7 +1899,11 @@ def observation_batch(
         raise HTTPException(status_code=500, detail="failed to persist observation batch") from exc
     duplicate = bool(result.get("duplicate"))
     if not duplicate:
-        _queue_site_evaluation(background_tasks, site_id=payload.site_id)
+        _queue_asset_classification(
+            background_tasks,
+            site_id=payload.site_id,
+            asset_ids=list(result.get("asset_ids") or []),
+        )
     return ObservationBatchResponse(
         status="duplicate" if duplicate else "accepted",
         observation_batch_id=payload.observation_batch_id,
