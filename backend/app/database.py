@@ -405,6 +405,15 @@ def ensure_database_schema() -> None:
         from .classification_store import ensure_classification_schema
 
         ensure_classification_schema(connection)
+        from .component_store import ensure_component_schema
+
+        ensure_component_schema(connection)
+        from .advisory_store import ensure_advisory_schema
+
+        ensure_advisory_schema(connection)
+        from .vulnerability_store import ensure_vulnerability_schema
+
+        ensure_vulnerability_schema(connection)
 
 
 def save_inventory_submission(
@@ -2190,6 +2199,56 @@ def _persist_classification_evidence_best_effort(
         )
 
 
+def _persist_component_inventory_best_effort(
+    *,
+    normalized_assets: list[dict[str, Any]],
+    payload: dict[str, Any],
+    received_at: datetime,
+    source_authenticated: bool,
+) -> None:
+    """Persist component evidence without making accepted ingestion depend on it."""
+
+    from .component_intelligence import (
+        complete_component_inventory_scope,
+        normalize_components_for_asset,
+    )
+    from .component_store import persist_components
+
+    try:
+        components = []
+        complete_assets = []
+        for asset in normalized_assets:
+            components.extend(
+                normalize_components_for_asset(
+                    asset=asset,
+                    payload=payload,
+                    received_at=received_at,
+                    source_authenticated=source_authenticated,
+                )
+            )
+            complete_scope = complete_component_inventory_scope(
+                asset=asset,
+                payload=payload,
+                received_at=received_at,
+                source_authenticated=source_authenticated,
+            )
+            if complete_scope is not None:
+                complete_assets.append(complete_scope)
+        if not components and not complete_assets:
+            return
+        with get_engine().begin() as connection:
+            persist_components(
+                connection,
+                components=components,
+                complete_assets=complete_assets,
+            )
+    except Exception as exc:  # noqa: BLE001 - accepted ingestion must remain accepted.
+        LOGGER.warning(
+            "component inventory persistence failed safely: %s",
+            type(exc).__name__,
+        )
+
+
 def record_local_inventory_collection(
     *,
     payload: dict[str, Any],
@@ -2301,6 +2360,12 @@ def record_local_inventory_collection(
         payload=payload,
         source_authenticated=source_authenticated,
     )
+    _persist_component_inventory_best_effort(
+        normalized_assets=normalized_assets,
+        payload=payload,
+        received_at=received_at,
+        source_authenticated=source_authenticated,
+    )
     return {
         "collection_id": int(collection_id),
         "normalized_asset_count": len(normalized_assets),
@@ -2313,6 +2378,7 @@ def record_observation_batch(
     *,
     payload: dict[str, Any],
     received_at: datetime,
+    source_authenticated: bool,
 ) -> dict[str, int | bool | list[str]]:
     sensor_id = str(payload["sensor_id"])
     site_id = str(payload["site_id"])
@@ -2336,7 +2402,7 @@ def record_observation_batch(
         site_id=site_id,
         received_at=received_at,
         observed_asset_count=observed_asset_count,
-        source_authenticated=True,
+        source_authenticated=source_authenticated,
     )
 
 

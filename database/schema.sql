@@ -521,3 +521,328 @@ CREATE INDEX IF NOT EXISTS idx_site_risk_score_desc
     ON site_risk_scores (score DESC, site_id);
 CREATE INDEX IF NOT EXISTS idx_risk_factors_subject
     ON risk_factors (subject_type, site_id, asset_id, ordinal);
+
+CREATE TABLE IF NOT EXISTS asset_components (
+    component_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    component_type TEXT NOT NULL,
+    ecosystem TEXT NOT NULL,
+    namespace TEXT,
+    vendor TEXT,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    version TEXT,
+    normalized_version TEXT,
+    architecture TEXT,
+    package_manager TEXT,
+    canonical_identifier TEXT,
+    cpe_hint TEXT,
+    install_scope TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    firmware_evidence_type TEXT NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL,
+    freshness TEXT NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL,
+    normalization_status TEXT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    not_observed_at TIMESTAMPTZ,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    model_version TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (
+        site_id,
+        asset_id,
+        canonical_identifier,
+        architecture,
+        install_scope
+    ),
+    FOREIGN KEY (site_id, asset_id)
+        REFERENCES control_tower_assets(site_id, asset_id) ON DELETE CASCADE,
+    CHECK (confidence >= 0.0 AND confidence <= 1.0),
+    CHECK (freshness IN ('fresh', 'aging', 'stale', 'unknown')),
+    CHECK (firmware_evidence_type IN (
+        'direct',
+        'vendor-reported',
+        'collector-reported',
+        'inferred',
+        'unknown'
+    )),
+    CHECK (normalization_status IN (
+        'normalized',
+        'identity-uncertain',
+        'version-unknown',
+        'unsupported-ecosystem',
+        'insufficient-firmware-evidence'
+    ))
+);
+
+CREATE TABLE IF NOT EXISTS asset_component_history (
+    history_id BIGSERIAL PRIMARY KEY,
+    component_id TEXT NOT NULL,
+    site_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    previous_version TEXT,
+    current_version TEXT,
+    snapshot_json JSONB NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (event_type IN (
+        'first-observed',
+        'version-changed',
+        'source-changed',
+        'confidence-changed',
+        'normalization-changed',
+        'not-observed',
+        'observed-again'
+    ))
+);
+
+CREATE TABLE IF NOT EXISTS component_evidence (
+    component_id TEXT NOT NULL
+        REFERENCES asset_components(component_id) ON DELETE CASCADE,
+    evidence_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    observation_count INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (component_id, evidence_id),
+    CHECK (observation_count >= 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_components_asset
+    ON asset_components (site_id, asset_id, active, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asset_components_identity
+    ON asset_components (ecosystem, canonical_identifier, active)
+    WHERE canonical_identifier IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_asset_components_name
+    ON asset_components (ecosystem, normalized_name, vendor);
+CREATE INDEX IF NOT EXISTS idx_asset_components_type
+    ON asset_components (component_type, active, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asset_components_source
+    ON asset_components (source_type, source_id, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asset_component_history_component
+    ON asset_component_history (component_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_component_evidence_component
+    ON component_evidence (component_id, last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS advisory_catalog_imports (
+    import_id TEXT PRIMARY KEY,
+    catalog_version TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_version TEXT NOT NULL,
+    source_license TEXT NOT NULL,
+    provenance TEXT NOT NULL,
+    checksum TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL,
+    imported_at TIMESTAMPTZ NOT NULL,
+    advisory_count INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    CHECK (status IN ('completed', 'failed')),
+    UNIQUE (source, catalog_version, checksum)
+);
+
+CREATE TABLE IF NOT EXISTS advisories (
+    advisory_id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    source_record_id TEXT NOT NULL,
+    source_version TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    cvss DOUBLE PRECISION,
+    known_exploited BOOLEAN NOT NULL DEFAULT FALSE,
+    published_at TIMESTAMPTZ NOT NULL,
+    modified_at TIMESTAMPTZ NOT NULL,
+    withdrawn_at TIMESTAMPTZ,
+    current BOOLEAN NOT NULL DEFAULT TRUE,
+    catalog_import_id TEXT NOT NULL
+        REFERENCES advisory_catalog_imports(import_id),
+    checksum TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (source, source_record_id),
+    CHECK (severity IN (
+        'critical',
+        'high',
+        'medium',
+        'low',
+        'informational'
+    )),
+    CHECK (cvss IS NULL OR (cvss >= 0.0 AND cvss <= 10.0))
+);
+
+CREATE TABLE IF NOT EXISTS advisory_aliases (
+    advisory_id TEXT NOT NULL
+        REFERENCES advisories(advisory_id) ON DELETE CASCADE,
+    alias TEXT NOT NULL,
+    PRIMARY KEY (advisory_id, alias)
+);
+
+CREATE TABLE IF NOT EXISTS advisory_affected_components (
+    affected_id TEXT PRIMARY KEY,
+    advisory_id TEXT NOT NULL
+        REFERENCES advisories(advisory_id) ON DELETE CASCADE,
+    ecosystem TEXT NOT NULL,
+    namespace TEXT,
+    vendor TEXT,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    canonical_identifier TEXT,
+    exact_versions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    fixed_versions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    architectures_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    platforms_json JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS advisory_version_ranges (
+    range_id TEXT PRIMARY KEY,
+    affected_id TEXT NOT NULL
+        REFERENCES advisory_affected_components(affected_id)
+        ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL,
+    introduced TEXT,
+    introduced_inclusive BOOLEAN NOT NULL DEFAULT TRUE,
+    fixed TEXT,
+    fixed_inclusive BOOLEAN NOT NULL DEFAULT FALSE,
+    last_affected TEXT,
+    last_affected_inclusive BOOLEAN NOT NULL DEFAULT TRUE,
+    UNIQUE (affected_id, ordinal)
+);
+
+CREATE TABLE IF NOT EXISTS advisory_references (
+    advisory_id TEXT NOT NULL
+        REFERENCES advisories(advisory_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL,
+    reference_type TEXT NOT NULL,
+    reference_url TEXT NOT NULL,
+    PRIMARY KEY (advisory_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_advisories_current_severity
+    ON advisories (current, withdrawn_at, severity, modified_at DESC);
+CREATE INDEX IF NOT EXISTS idx_advisories_known_exploited
+    ON advisories (known_exploited, current)
+    WHERE known_exploited = TRUE;
+CREATE INDEX IF NOT EXISTS idx_advisory_aliases_alias
+    ON advisory_aliases (alias);
+CREATE INDEX IF NOT EXISTS idx_advisory_affected_identity
+    ON advisory_affected_components (ecosystem, canonical_identifier)
+    WHERE canonical_identifier IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_advisory_affected_name
+    ON advisory_affected_components (ecosystem, normalized_name, vendor);
+CREATE INDEX IF NOT EXISTS idx_advisory_ranges_affected
+    ON advisory_version_ranges (affected_id, ordinal);
+CREATE INDEX IF NOT EXISTS idx_catalog_imports_imported
+    ON advisory_catalog_imports (imported_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_catalog_imports_source_version_checksum_ci
+    ON advisory_catalog_imports (
+        LOWER(source),
+        catalog_version,
+        checksum
+    );
+
+CREATE TABLE IF NOT EXISTS vulnerability_evaluation_runs (
+    run_id TEXT PRIMARY KEY,
+    trigger_type TEXT NOT NULL,
+    requested_by TEXT,
+    scope_site_id TEXT,
+    scope_asset_id TEXT,
+    scope_component_id TEXT,
+    scope_advisory_id TEXT,
+    engine_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ,
+    component_count INTEGER NOT NULL DEFAULT 0,
+    advisory_count INTEGER NOT NULL DEFAULT 0,
+    candidate_count INTEGER NOT NULL DEFAULT 0,
+    affected_count INTEGER NOT NULL DEFAULT 0,
+    changed_count INTEGER NOT NULL DEFAULT 0,
+    error_code TEXT,
+    CHECK (status IN ('running', 'completed', 'failed'))
+);
+
+CREATE TABLE IF NOT EXISTS vulnerability_matches (
+    match_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    component_id TEXT NOT NULL
+        REFERENCES asset_components(component_id) ON DELETE CASCADE,
+    advisory_id TEXT NOT NULL
+        REFERENCES advisories(advisory_id) ON DELETE CASCADE,
+    affected_id TEXT NOT NULL,
+    match_status TEXT NOT NULL,
+    match_confidence DOUBLE PRECISION NOT NULL,
+    matched_identifier TEXT,
+    installed_version TEXT,
+    affected_range TEXT,
+    fixed_version TEXT,
+    first_matched_at TIMESTAMPTZ,
+    last_matched_at TIMESTAMPTZ,
+    evaluated_at TIMESTAMPTZ NOT NULL,
+    resolved_at TIMESTAMPTZ,
+    evidence_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    reason_codes_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    engine_version TEXT NOT NULL,
+    last_run_id TEXT NOT NULL
+        REFERENCES vulnerability_evaluation_runs(run_id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (component_id, advisory_id),
+    CHECK (match_confidence >= 0.0 AND match_confidence <= 1.0),
+    CHECK (match_status IN (
+        'affected',
+        'not-affected',
+        'fixed',
+        'version-unknown',
+        'identity-uncertain',
+        'unsupported-comparison',
+        'insufficient-evidence',
+        'advisory-withdrawn'
+    ))
+);
+
+CREATE TABLE IF NOT EXISTS vulnerability_match_history (
+    history_id BIGSERIAL PRIMARY KEY,
+    match_id TEXT NOT NULL,
+    site_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    component_id TEXT NOT NULL,
+    advisory_id TEXT NOT NULL,
+    previous_status TEXT,
+    current_status TEXT NOT NULL,
+    previous_version TEXT,
+    current_version TEXT,
+    previous_advisory_checksum TEXT,
+    current_advisory_checksum TEXT,
+    snapshot_json JSONB NOT NULL,
+    evaluated_at TIMESTAMPTZ NOT NULL,
+    evaluation_run_id TEXT NOT NULL
+        REFERENCES vulnerability_evaluation_runs(run_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vulnerability_matches_asset
+    ON vulnerability_matches (
+        site_id,
+        asset_id,
+        match_status,
+        evaluated_at DESC
+    );
+CREATE INDEX IF NOT EXISTS idx_vulnerability_matches_component
+    ON vulnerability_matches (component_id, match_status);
+CREATE INDEX IF NOT EXISTS idx_vulnerability_matches_advisory
+    ON vulnerability_matches (advisory_id, match_status);
+CREATE INDEX IF NOT EXISTS idx_vulnerability_matches_status
+    ON vulnerability_matches (match_status, evaluated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vulnerability_history_match
+    ON vulnerability_match_history (match_id, evaluated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vulnerability_runs_started
+    ON vulnerability_evaluation_runs (started_at DESC);
