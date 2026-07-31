@@ -9,3 +9,4 @@ psycopg2-binary>=2.9.12,<3
 pydantic>=2.13.4,<3
 pydantic-settings>=2.14.2,<3
 python-dotenv>=1.2.2,<2
+cryptography>=49.0.0,<50
