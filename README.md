@@ -47,7 +47,8 @@ The current MVP focuses on:
 * Site/project model
 * Agent and future sensor enrollment model
 * Agent check-in and local inventory ingestion endpoints
-* Basic asset normalization and evidence counts
+* Asset normalization with source-aware classification evidence
+* Deterministic asset categories, confidence, history, and preserved conflicts
 * Hub-and-spoke normalized observation batch contract
 * Site/sensor health and freshness summaries
 * Deterministic, evidence-backed AI Advisor showcase
@@ -70,7 +71,7 @@ Site spokes (endpoint collectors / passive network sensors / connectors)
 Control Tower Hub API
         |
         v
-PostgreSQL evidence, identity, health, findings, and audit metadata
+PostgreSQL evidence, identity, health, classification, findings, risk, and audit metadata
         |
         v
 Bounded read-only tool gateway / AI Advisor / Dashboard / Integrations
@@ -242,6 +243,12 @@ Current and planned backend endpoints include:
 | `POST /api/v1/collections/local-inventory` | Available | Go agent local inventory ingestion |
 | `GET /api/v1/control-tower/summary` | Available | Dashboard counts |
 | `GET /api/v1/control-tower/assets` | Available | Normalized Control Tower assets |
+| `GET /api/v1/classifications` | Available | Bounded deterministic classifications with reviewed filters |
+| `GET /api/v1/classifications/summary` | Available | Category, status, managed-capability, and conflict summary |
+| `GET /api/v1/classifications/assets/{asset_id}` | Available | Site-scoped current classification |
+| `GET /api/v1/classifications/assets/{asset_id}/evidence` | Available | Site-scoped source-aware classification evidence |
+| `GET /api/v1/classifications/catalog/status` | Available | Local vendor catalog status without network lookup |
+| `POST /api/v1/admin/classifications/evaluate` | Available | Authenticated targeted, site, or full deterministic evaluation |
 | `POST /api/v1/observations/batches` | Available | Authenticated, idempotent normalized spoke observations |
 | `GET /api/v1/hub/sites/summary` | Available | Read-only cross-site intelligence summary |
 | `GET /api/v1/hub/sensors` | Available | Read-only sensor/spoke health and freshness |
