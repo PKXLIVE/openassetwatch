@@ -846,3 +846,131 @@ CREATE INDEX IF NOT EXISTS idx_vulnerability_history_match
     ON vulnerability_match_history (match_id, evaluated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_vulnerability_runs_started
     ON vulnerability_evaluation_runs (started_at DESC);
+
+CREATE TABLE IF NOT EXISTS advisory_feed_runs (
+    run_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    request_mode TEXT NOT NULL,
+    state TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    manifest_digest TEXT,
+    payload_digest TEXT,
+    publisher_key_id TEXT,
+    catalog_version TEXT,
+    catalog_sequence BIGINT,
+    license_identifier TEXT,
+    signature_status TEXT,
+    license_status TEXT,
+    attribution_status TEXT,
+    advisory_count INTEGER,
+    alias_count INTEGER,
+    reference_count INTEGER,
+    preview_json JSONB,
+    active_catalog_before TEXT,
+    activated_catalog_after TEXT,
+    approved_by TEXT,
+    approved_at TIMESTAMPTZ,
+    rejected_by TEXT,
+    rejected_at TIMESTAMPTZ,
+    rejection_reason TEXT,
+    reevaluation_status TEXT NOT NULL DEFAULT 'not-started',
+    reevaluation_run_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    error_code TEXT,
+    error_summary TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (request_mode IN ('remote-sync', 'local-reviewed-bundle')),
+    CHECK (state IN (
+        'created', 'downloading', 'downloaded', 'verifying', 'verified',
+        'preview_ready', 'pending_approval', 'approved', 'importing',
+        'activated', 'activated_degraded', 'rejected', 'failed', 'expired'
+    )),
+    CHECK (reevaluation_status IN ('not-started', 'pending', 'running', 'completed', 'failed')),
+    CHECK (manifest_digest IS NULL OR manifest_digest ~ '^[0-9a-f]{64}$'),
+    CHECK (payload_digest IS NULL OR payload_digest ~ '^[0-9a-f]{64}$'),
+    CHECK (catalog_sequence IS NULL OR catalog_sequence > 0),
+    CHECK (error_summary IS NULL OR LENGTH(error_summary) <= 240),
+    CHECK (rejection_reason IS NULL OR LENGTH(rejection_reason) <= 240)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_feed_runs_active_source
+    ON advisory_feed_runs (source_id)
+    WHERE state IN (
+        'created', 'downloading', 'downloaded', 'verifying', 'verified',
+        'preview_ready', 'pending_approval', 'approved', 'importing'
+    );
+CREATE INDEX IF NOT EXISTS idx_advisory_feed_runs_created
+    ON advisory_feed_runs (created_at DESC, run_id);
+CREATE INDEX IF NOT EXISTS idx_advisory_feed_runs_source_created
+    ON advisory_feed_runs (source_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS advisory_feed_catalogs (
+    catalog_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL UNIQUE REFERENCES advisory_feed_runs(run_id),
+    source_id TEXT NOT NULL,
+    catalog_version TEXT NOT NULL,
+    catalog_sequence BIGINT NOT NULL,
+    manifest_digest TEXT NOT NULL,
+    payload_digest TEXT NOT NULL,
+    catalog_checksum TEXT NOT NULL,
+    publisher_key_id TEXT NOT NULL,
+    license_identifier TEXT NOT NULL,
+    attribution TEXT NOT NULL,
+    provenance_json JSONB NOT NULL,
+    manifest_created_at TIMESTAMPTZ NOT NULL,
+    manifest_expires_at TIMESTAMPTZ NOT NULL,
+    manifest_bytes BYTEA NOT NULL,
+    signature_bytes BYTEA NOT NULL,
+    payload_bytes BYTEA NOT NULL,
+    catalog_bytes BYTEA NOT NULL,
+    preview_json JSONB NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT FALSE,
+    activation_count INTEGER NOT NULL DEFAULT 0,
+    first_activated_at TIMESTAMPTZ,
+    last_activated_at TIMESTAMPTZ,
+    retained_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (source_id, catalog_sequence),
+    UNIQUE (source_id, catalog_version),
+    UNIQUE (source_id, manifest_digest),
+    UNIQUE (source_id, payload_digest),
+    CHECK (catalog_sequence > 0),
+    CHECK (manifest_digest ~ '^[0-9a-f]{64}$'),
+    CHECK (payload_digest ~ '^[0-9a-f]{64}$'),
+    CHECK (catalog_checksum ~ '^[0-9a-f]{64}$'),
+    CHECK (activation_count >= 0)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_feed_catalogs_active_source
+    ON advisory_feed_catalogs (source_id) WHERE active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_advisory_feed_catalogs_retained
+    ON advisory_feed_catalogs (source_id, retained_at DESC);
+
+CREATE TABLE IF NOT EXISTS advisory_catalog_activations (
+    activation_id TEXT PRIMARY KEY,
+    action TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    catalog_id TEXT NOT NULL REFERENCES advisory_feed_catalogs(catalog_id),
+    previous_catalog_id TEXT REFERENCES advisory_feed_catalogs(catalog_id),
+    requested_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    reevaluation_status TEXT NOT NULL DEFAULT 'pending',
+    reevaluation_run_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    impact_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    affected_before INTEGER,
+    affected_after INTEGER,
+    findings_before INTEGER,
+    findings_after INTEGER,
+    risk_before INTEGER,
+    risk_after INTEGER,
+    error_code TEXT,
+    CHECK (action IN ('activate', 'rollback')),
+    CHECK (reevaluation_status IN ('pending', 'running', 'completed', 'failed')),
+    CHECK (error_code IS NULL OR LENGTH(error_code) <= 80)
+);
+
+CREATE INDEX IF NOT EXISTS idx_advisory_catalog_activations_created
+    ON advisory_catalog_activations (created_at DESC, activation_id);
+CREATE INDEX IF NOT EXISTS idx_advisory_catalog_activations_source
+    ON advisory_catalog_activations (source_id, created_at DESC);

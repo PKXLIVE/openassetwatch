@@ -30,6 +30,7 @@ services:
       OPENASSETWATCH_ADMIN_TOKEN: ${OPENASSETWATCH_ADMIN_TOKEN:-}
       OPENASSETWATCH_AI_PROVIDER: ${OPENASSETWATCH_AI_PROVIDER:-demo}
       OPENASSETWATCH_AI_EXTERNAL_ENABLED: ${OPENASSETWATCH_AI_EXTERNAL_ENABLED:-false}
+      OPENASSETWATCH_ADVISORY_STAGING_ROOT: /var/lib/openassetwatch/advisory-staging
       OPENASSETWATCH_AI_BASE_URL: ${OPENASSETWATCH_AI_BASE_URL:-}
       OPENASSETWATCH_AI_API_KEY: ${OPENASSETWATCH_AI_API_KEY:-}
       OPENASSETWATCH_AI_MODEL: ${OPENASSETWATCH_AI_MODEL:-}
@@ -58,6 +59,8 @@ services:
       OPENASSETWATCH_CORS_ORIGINS: ${OPENASSETWATCH_CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000,http://127.0.0.1:8000}
     volumes:
       - ./backend:/app
+    tmpfs:
+      - /var/lib/openassetwatch:mode=0700,size=16777216
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     ports:
       - "127.0.0.1:8000:8000"
