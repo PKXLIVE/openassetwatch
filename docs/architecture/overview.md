@@ -50,8 +50,9 @@ The repository-grounded integration assessment is maintained at:
 - `docs/RESEARCH_INTEGRATION_AND_ARCHITECTURE_GAP_MATRIX.md`
 
 The accepted research-aligned expansion direction and project-owner decisions
-are recorded at:
+are recorded under:
 
+- `docs/architecture/decisions/README.md`
 - `docs/architecture/decisions/0001-research-aligned-expansion.md`
 
 Third-party advisory and fingerprint source decisions are governed by:
