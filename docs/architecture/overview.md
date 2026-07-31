@@ -29,3 +29,20 @@ authenticated normalized evidence
 
 AI output is never an authoritative identity, classification, finding, or risk
 input.
+
+## Independent Research Inputs
+
+The July 2026 independent security and asset-intelligence research is indexed at
+`docs/research/2026-07-independent-security-research/README.md`.
+
+That research was performed without access to the OpenAssetWatch repository so
+it would not be influenced by existing architecture decisions. It covers the
+external product landscape, asset identity and confidence, IoT/OT/firmware
+intelligence, explainable risk, guided remediation, evidence-first agents,
+adaptive drilldown dashboards, evaluation, release gates, source licensing,
+and unresolved questions.
+
+Research documents are not canonical implementation claims. A later research
+integration and architecture gap matrix must classify each recommendation as
+covered, partially covered, missing, conflicting, deferred, or rejected before
+it becomes roadmap or Codex work.
