@@ -17,6 +17,11 @@ service backed by PostgreSQL through SQLAlchemy.
   unauthenticated input, future-skew rejection, and source-fair bounded
   evidence selection
 - local-only fictional vendor catalog with safe reviewed replacement
+- normalized software, package, operating-system, and reviewed firmware
+  inventory with material history
+- strict versioned offline advisory catalogs with licensing, provenance, and
+  checksums
+- ecosystem-aware deterministic vulnerability matches and match history
 - idempotent outbound observation batches with site/sensor provenance
 - one-time passive-sensor enrollment and bound, rotatable credentials
 - site and sensor health/freshness summaries
@@ -137,6 +142,18 @@ Control Tower tables include:
 - `asset_classification_history`
 - `asset_classification_evidence`
 - `classification_conflicts`
+- `asset_components`
+- `asset_component_history`
+- `component_evidence`
+- `advisory_catalog_imports`
+- `advisories`
+- `advisory_aliases`
+- `advisory_references`
+- `advisory_affected_components`
+- `advisory_version_ranges`
+- `vulnerability_evaluation_runs`
+- `vulnerability_matches`
+- `vulnerability_match_history`
 
 ## Tests
 
@@ -153,12 +170,20 @@ The unit tests mock the database boundary for endpoint behavior and test local
 normalization/schema helpers without requiring a live PostgreSQL instance.
 The transitional local-inventory route is compatibility ingestion and does not
 grant direct evidence authority from a client-declared agent or source type.
-Authenticated observation context is passed separately by the server.
+Authenticated observation context is passed separately by the server, and
+sensor type must agree with observation source. Only a bound sensor credential
+can trigger automatic vulnerability evaluation or grant authoritative
+component evidence; the development-shared token remains untrusted
+compatibility ingestion. Component and batch timestamps require timezones and
+bounded skew. Component state updates are timestamp-monotonic and
+source-trust-aware; freshness is derived at read and evaluation time.
 Static showcase and seed tests use only the standard library:
 
 ```powershell
 python scripts/test_control_tower_dashboard.py
 python scripts/test_control_tower_demo_seed.py
+python scripts/test_vulnerability_intelligence_demo.py
+python scripts/test_vulnerability_intelligence_performance.py
 ```
 
 Run the deterministic classification, conflict, reclassification, and AI
@@ -168,6 +193,20 @@ evidence showcase through the backend image:
 docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
   --workdir /workspace backend `
   python scripts/demo_asset_classification.py
+```
+
+Run the offline deterministic component/advisory showcase and representative
+bounded benchmark through the same image:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace backend `
+  python scripts/demo_vulnerability_intelligence.py
+
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace backend `
+  python scripts/benchmark_vulnerability_intelligence.py `
+    --assets 10000 --components-per-asset 10 --advisories 2000
 ```
 
 See `docs/architecture/hub-spoke-ai-showcase.md` for provider configuration,
@@ -181,6 +220,9 @@ rule-extension process.
 See `docs/ASSET_CLASSIFICATION_AND_EVIDENCE_FUSION.md` for classifier
 precedence, confidence, provenance, conflicts, managed capability, catalog
 handling, APIs, demo, and safe extension steps.
+See `docs/SOFTWARE_AND_VULNERABILITY_INTELLIGENCE.md` for component identity,
+version comparison, firmware trust, the reviewed offline catalog, matching,
+findings/risk, API, AI, dashboard, demo, benchmark, and adapter boundaries.
 
 ## Safety Boundaries
 
@@ -190,4 +232,5 @@ execution. Ingestion treats client-submitted data as passive observations, not
 privileged truth. Classification and finding evaluation run only reviewed
 static rules and cannot be extended through an API or model response. The
 backend performs no runtime vendor lookup, SSDP URL fetch, or active
-fingerprinting.
+fingerprinting. Vulnerability evaluation performs no active scan, exploit
+test, runtime advisory lookup, package installation, or automatic patching.

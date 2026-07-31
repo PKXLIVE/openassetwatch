@@ -10,6 +10,18 @@ should not be added here.
   sensor enrollment, bound uploads, rotation, revocation, retained evidence,
   and deterministic AI visibility. It reads administrator authorization only
   from a named environment variable and never prints issued secrets.
+- `import_advisory_catalog.py`: validates and atomically imports one already
+  reviewed bounded local advisory JSON file. It resolves the path to an
+  absolute regular single-link file, verifies descriptor/path identity,
+  performs no network request, and stores normalized records rather than the
+  raw feed.
+- `demo_vulnerability_intelligence.py`: database-free fictional proof of
+  normalized components, affected/fixed/uncertain firmware outcomes,
+  finding/risk change after upgrade, stable history, and read-only AI evidence
+  citations.
+- `benchmark_vulnerability_intelligence.py`: bounded fictional offline
+  normalization/catalog/indexed-matching benchmark. Defaults to 10,000 assets,
+  100,000 components, and 2,000 advisories and makes no network request.
 - `release/`: local release artifact helpers. These may build local binaries
   into ignored `dist/` paths, create local TAR.GZ archives from existing dist
   artifacts, create local Debian package artifacts from existing Linux dist
