@@ -82,6 +82,9 @@ class FindingRuleTests(unittest.TestCase):
                 "security-coverage-gap",
                 "classification-conflict",
                 "identity-conflict",
+                "vulnerable-component",
+                "component-version-unavailable",
+                "advisory-identity-uncertain",
             },
         )
         self.assertTrue(all(rule.required_evidence for rule in RULE_REGISTRY))
@@ -530,6 +533,57 @@ class FindingLifecycleTests(unittest.TestCase):
         self.assertEqual(reopened.reopened_count, 1)
         self.assertEqual(self.store.findings[finding_id]["status"], "active")
         self.assertEqual(self.store.findings[finding_id]["reopen_count"], 1)
+
+    def test_vulnerability_open_update_resolve_and_reopen_are_idempotent(
+        self,
+    ) -> None:
+        def match(status: str, evaluated_at: datetime) -> dict:
+            return {
+                "match_id": "vmt_" + "a" * 32,
+                "component_id": "cmp_" + "b" * 32,
+                "advisory_id": "adv_" + "c" * 32,
+                "match_status": status,
+                "match_confidence": 1.0,
+                "component_name": "asterion-agent",
+                "installed_version": "1.2.0",
+                "fixed_version": "1.4.2",
+                "severity": "high",
+                "known_exploited": False,
+                "component_freshness": "fresh",
+                "component_last_seen_at": evaluated_at,
+                "evaluated_at": evaluated_at,
+            }
+
+        def evaluate(status: str, evaluated_at: datetime):
+            record = asset("asset-vulnerability")
+            record["observed_at"] = evaluated_at
+            record["last_seen_at"] = evaluated_at
+            record["vulnerability_matches"] = [
+                match(status, evaluated_at)
+            ]
+            return evaluate_findings(
+                trigger_type="test-vulnerability",
+                requested_by="unit-test",
+                now=evaluated_at,
+                store=self.store,
+                sites=self.sites,
+                sensors=self.sensors,
+                assets=[record],
+                rule_ids=["vulnerable-component"],
+            )
+
+        first = evaluate("affected", NOW)
+        second = evaluate("affected", NOW + timedelta(minutes=1))
+        resolved = evaluate("fixed", NOW + timedelta(minutes=2))
+        reopened = evaluate("affected", NOW + timedelta(minutes=3))
+
+        self.assertEqual(first.opened_count, 1)
+        self.assertEqual(second.updated_count, 1)
+        self.assertEqual(resolved.resolved_count, 1)
+        self.assertEqual(reopened.reopened_count, 1)
+        finding = next(iter(self.store.findings.values()))
+        self.assertEqual(finding["status"], "active")
+        self.assertEqual(finding["reopen_count"], 1)
 
     def test_rule_version_change_remains_visible_on_logical_finding(self) -> None:
         initial = evaluate_rules(

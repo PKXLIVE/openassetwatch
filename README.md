@@ -49,6 +49,10 @@ The current MVP focuses on:
 * Agent check-in and local inventory ingestion endpoints
 * Asset normalization with source-aware classification evidence
 * Deterministic asset categories, confidence, history, and preserved conflicts
+* Normalized software, package, operating-system, and reviewed firmware
+  inventory
+* Versioned offline advisory catalogs and deterministic vulnerability matching
+* Vulnerability findings, match history, and explainable risk contribution
 * Hub-and-spoke normalized observation batch contract
 * Site/sensor health and freshness summaries
 * Deterministic, evidence-backed AI Advisor showcase
@@ -71,7 +75,7 @@ Site spokes (endpoint collectors / passive network sensors / connectors)
 Control Tower Hub API
         |
         v
-PostgreSQL evidence, identity, health, classification, findings, risk, and audit metadata
+PostgreSQL evidence, identity, health, classification, components, advisory matches, findings, risk, and audit metadata
         |
         v
 Bounded read-only tool gateway / AI Advisor / Dashboard / Integrations
@@ -249,6 +253,14 @@ Current and planned backend endpoints include:
 | `GET /api/v1/classifications/assets/{asset_id}/evidence` | Available | Site-scoped source-aware classification evidence |
 | `GET /api/v1/classifications/catalog/status` | Available | Local vendor catalog status without network lookup |
 | `POST /api/v1/admin/classifications/evaluate` | Available | Authenticated targeted, site, or full deterministic evaluation |
+| `GET /api/v1/components` | Available | Bounded normalized component inventory |
+| `GET /api/v1/components/assets/{asset_id}` | Available | Site-scoped asset components |
+| `GET /api/v1/vulnerabilities` | Available | Filtered deterministic advisory matches |
+| `GET /api/v1/vulnerabilities/assets/{asset_id}` | Available | Site-scoped asset vulnerability intelligence |
+| `GET /api/v1/vulnerabilities/advisories/{advisory_id}` | Available | Matches for one server-issued advisory ID |
+| `GET /api/v1/vulnerabilities/catalog/status` | Available | Local catalog provenance and counts without network access |
+| `POST /api/v1/admin/vulnerabilities/evaluate` | Available | Authenticated targeted or rate-limited full evaluation |
+| `POST /api/v1/admin/vulnerabilities/import` | Available | Authenticated bounded offline catalog import |
 | `POST /api/v1/observations/batches` | Available | Authenticated, idempotent normalized spoke observations |
 | `GET /api/v1/hub/sites/summary` | Available | Read-only cross-site intelligence summary |
 | `GET /api/v1/hub/sensors` | Available | Read-only sensor/spoke health and freshness |

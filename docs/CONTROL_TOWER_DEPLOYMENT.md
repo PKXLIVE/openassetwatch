@@ -175,7 +175,9 @@ or by setting `OPENASSETWATCH_DEMO_SEED_ALLOW_COMPOSE_HOST=1` with the seed
 script. Arbitrary external database hosts remain refused. The seed is
 idempotent for the known demo records: running it again refreshes the same demo
 sites, agents, check-ins, inventory collections, and assets without duplicating
-site or agent records.
+site or agent records. Destination-changing PostgreSQL query parameters such
+as `hostaddr`, `host`, `port`, or `service` are rejected, and authority or
+query-string credentials are redacted from diagnostic output.
 
 If local Python reports missing modules such as `sqlalchemy` or `psycopg2`, use
 the Compose seed command above or install `backend/requirements.txt` into your
@@ -263,6 +265,11 @@ and policy work.
 | `GET /api/v1/control-tower/summary` | Dashboard counts for sites, agents, check-ins, assets, and evidence. |
 | `GET /api/v1/control-tower/check-ins` | Recent agent check-ins. |
 | `GET /api/v1/control-tower/assets` | Normalized Control Tower asset records. |
+| `GET /api/v1/components` | Bounded normalized software, package, and reviewed firmware inventory. |
+| `GET /api/v1/vulnerabilities` | Bounded deterministic component-to-advisory results. |
+| `GET /api/v1/vulnerabilities/catalog/status` | Local advisory catalog provenance and counts; no runtime feed lookup. |
+| `POST /api/v1/admin/vulnerabilities/evaluate` | Authenticated targeted or rate-limited full deterministic evaluation. |
+| `POST /api/v1/admin/vulnerabilities/import` | Authenticated bounded offline catalog import. |
 | `GET /api/v1/releases/agent` | Agent release metadata placeholder. |
 | `GET /api/v1/hub/sites/summary` | Read-only site risk, finding, sensor, asset, and freshness summary. |
 | `GET /api/v1/hub/sensors` | Read-only enrolled spoke identity and health summary. |

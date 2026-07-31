@@ -28,6 +28,11 @@ The deterministic asset model, source-aware evidence fusion, confidence and
 conflict rules, managed-capability expectations, local vendor catalog, APIs,
 and AI authority boundary are documented in
 `docs/ASSET_CLASSIFICATION_AND_EVIDENCE_FUSION.md`.
+The normalized software/firmware model, conservative version comparison,
+reviewed offline advisory catalog, deterministic matcher, finding/risk
+integration, AI boundary, dashboard, performance harness, and future adapter
+contract are documented in
+`docs/SOFTWARE_AND_VULNERABILITY_INTELLIGENCE.md`.
 
 ## Hub-And-Spoke Control Plane
 

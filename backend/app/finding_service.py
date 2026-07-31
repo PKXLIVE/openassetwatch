@@ -45,6 +45,7 @@ class EvaluationResult:
 def _load_inputs(
     *,
     site_id: str | None,
+    include_vulnerability_matches: bool,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     from .database import list_agent_enrollments, list_control_tower_assets, list_sites
 
@@ -63,6 +64,24 @@ def _load_inputs(
         raise ValueError("deterministic evaluation sensor limit exceeded")
     if len(assets) > MAX_EVALUATION_ASSETS:
         raise ValueError("deterministic evaluation asset limit exceeded")
+    vulnerability_matches: list[dict[str, Any]] = []
+    if include_vulnerability_matches:
+        from .vulnerability_store import SqlVulnerabilityStore
+
+        vulnerability_matches = SqlVulnerabilityStore().active_match_snapshot(
+            site_id=site_id,
+        )
+    matches_by_asset: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for match in vulnerability_matches:
+        matches_by_asset.setdefault(
+            (str(match.get("site_id") or ""), str(match.get("asset_id") or "")),
+            [],
+        ).append(match)
+    for asset in assets:
+        asset["vulnerability_matches"] = matches_by_asset.get(
+            (str(asset.get("site_id") or ""), str(asset.get("asset_id") or "")),
+            [],
+        )
     return sites, sensors, assets
 
 
@@ -106,7 +125,18 @@ def evaluate_findings(
     )
     try:
         if sites is None or sensors is None or assets is None:
-            loaded_sites, loaded_sensors, loaded_assets = _load_inputs(site_id=site_id)
+            vulnerability_rule_ids = {
+                "vulnerable-component",
+                "component-version-unavailable",
+                "advisory-identity-uncertain",
+            }
+            loaded_sites, loaded_sensors, loaded_assets = _load_inputs(
+                site_id=site_id,
+                include_vulnerability_matches=(
+                    rule_ids is None
+                    or bool(set(rule_ids) & vulnerability_rule_ids)
+                ),
+            )
             sites = loaded_sites if sites is None else sites
             sensors = loaded_sensors if sensors is None else sensors
             assets = loaded_assets if assets is None else assets

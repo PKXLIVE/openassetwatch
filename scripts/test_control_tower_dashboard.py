@@ -26,6 +26,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "/api/v1/agents",
             "/api/v1/control-tower/check-ins",
             "/api/v1/control-tower/assets",
+            "/api/v1/components",
+            "/api/v1/vulnerabilities",
             "/api/v1/releases/agent",
             "/api/v1/ai/status",
             "/api/v1/ai/advisor/query",
@@ -366,6 +368,28 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "deterministic classification; AI commentary remains advisory",
             "identifiers.textContent =",
             "conflicts.textContent =",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+        self.assertNotIn(".innerHTML", self.dashboard)
+
+    def test_asset_detail_presents_vulnerability_intelligence_safely(
+        self,
+    ) -> None:
+        expected_code = (
+            "Software, packages, and firmware",
+            "Deterministic vulnerability intelligence",
+            "Installed components",
+            "Confirmed affected",
+            "Component review gaps",
+            "known-exploited",
+            "Fixed version",
+            "Uncertain identity or missing version is not a confirmed vulnerability",
+            "AI may explain but cannot change this result",
+            "title.textContent = `${text(component.name)}",
+            "title.textContent = `${text(match.component_name)}",
+            "identifiers.textContent = `Match",
         )
         for code in expected_code:
             with self.subTest(code=code):

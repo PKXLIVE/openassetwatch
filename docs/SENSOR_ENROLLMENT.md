@@ -207,6 +207,10 @@ value matching it remains accepted on sensor observation and check-in paths as
 `development-shared` authentication. An empty variable does not enable
 anonymous sensor ingestion. This mode is intended only for local demos and
 cannot prevent cross-sensor substitution by holders of the shared value.
+Accordingly, shared-mode observations are persisted as untrusted evidence,
+cannot claim complete endpoint inventory or reviewed-connector authority, and
+do not trigger automatic vulnerability evaluation. Use bound sensor
+credentials for authoritative component evidence.
 
 The public exchange has bounded Pydantic fields, an 8 KiB ASGI body limit
 (including chunked bodies), one-hour default/five-minute minimum token expiry,

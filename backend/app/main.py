@@ -117,6 +117,23 @@ from .sensor_identity import (
     rotate_sensor_credential,
 )
 from .vendor_catalog import configured_catalog_status
+from .advisory_catalog import CatalogValidationError, parse_catalog_bytes
+from .advisory_store import SqlAdvisoryStore
+from .component_intelligence import SUPPORTED_ECOSYSTEMS, normalized_token
+from .component_store import SqlComponentStore
+from .vulnerability_contracts import (
+    CatalogImportResponse,
+    CatalogStatusResponse,
+    ComponentListResponse,
+    VulnerabilityEvaluateRequest,
+    VulnerabilityEvaluationResponse,
+    VulnerabilityListResponse,
+)
+from .vulnerability_service import (
+    evaluate_site_vulnerabilities_best_effort,
+    evaluate_vulnerabilities,
+)
+from .vulnerability_store import SqlVulnerabilityStore
 
 app = FastAPI(
     title="OpenAssetWatch API",
@@ -132,7 +149,11 @@ class BoundedRequestBodyMiddleware:
         "/api/v1/sensors/enroll": 8 << 10,
         "/api/v1/sensors/check-in": 16 << 10,
         "/api/v1/observations/batches": 2 << 20,
+        "/api/v1/collections/local-inventory": 4 << 20,
+        "/api/v1/collectors/inventory": 4 << 20,
         "/api/v1/admin/classifications/evaluate": 64 << 10,
+        "/api/v1/admin/vulnerabilities/evaluate": 64 << 10,
+        "/api/v1/admin/vulnerabilities/import": 8 << 20,
     }
 
     def __init__(self, app: Any) -> None:
@@ -221,6 +242,7 @@ COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
 ADMIN_TOKEN_ENV = "OPENASSETWATCH_ADMIN_TOKEN"
 ADMIN_TOKEN_HEADER = "X-OpenAssetWatch-Admin-Token"
 MAX_SENSOR_ENROLLMENT_BODY_BYTES = 8 << 10
+MAX_LOCAL_INVENTORY_ASSETS = 1_000
 
 
 def require_collector_token(provided_token: str | None) -> None:
@@ -346,6 +368,116 @@ def _queue_asset_classification(
         )
 
 
+class _VulnerabilityEvaluationCoalescer:
+    """Serialize and coalesce bursty ingestion-triggered site evaluations."""
+
+    def __init__(
+        self,
+        *,
+        maximum_passes: int = 3,
+        maximum_pending_sites: int = 64,
+        cooldown_seconds: float = 30.0,
+        maximum_tracked_sites: int = 4_096,
+        clock=time.monotonic,
+    ) -> None:
+        self.maximum_passes = maximum_passes
+        self.maximum_pending_sites = maximum_pending_sites
+        self.cooldown_seconds = cooldown_seconds
+        self.maximum_tracked_sites = maximum_tracked_sites
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._generations: dict[str, int] = {}
+        self._last_completed: OrderedDict[str, float] = OrderedDict()
+
+    def schedule(self, site_id: str) -> bool:
+        with self._lock:
+            already_pending = site_id in self._generations
+            current = self._clock()
+            last_completed = self._last_completed.get(site_id)
+            if (
+                not already_pending
+                and last_completed is not None
+                and current - last_completed < self.cooldown_seconds
+            ):
+                return False
+            if (
+                not already_pending
+                and len(self._generations) >= self.maximum_pending_sites
+            ):
+                return False
+            generation = self._generations.get(site_id, 0) + 1
+            self._generations[site_id] = generation
+            return not already_pending
+
+    def cancel(self, site_id: str) -> None:
+        with self._lock:
+            self._generations.pop(site_id, None)
+
+    def _complete_locked(self, site_id: str) -> None:
+        self._generations.pop(site_id, None)
+        self._last_completed.pop(site_id, None)
+        self._last_completed[site_id] = self._clock()
+        while len(self._last_completed) > self.maximum_tracked_sites:
+            self._last_completed.popitem(last=False)
+
+    def _complete(self, site_id: str) -> None:
+        with self._lock:
+            self._complete_locked(site_id)
+
+    def run(
+        self,
+        *,
+        site_id: str,
+        trigger_type: str = "component-ingestion",
+        requested_by: str = "control-tower",
+    ) -> None:
+        try:
+            for _ in range(self.maximum_passes):
+                with self._lock:
+                    generation = self._generations.get(site_id)
+                if generation is None:
+                    return
+                evaluate_site_vulnerabilities_best_effort(
+                    trigger_type=trigger_type,
+                    requested_by=requested_by,
+                    site_id=site_id,
+                )
+                with self._lock:
+                    if self._generations.get(site_id) == generation:
+                        self._complete_locked(site_id)
+                        return
+            # Bound continuous spoke-driven work. A later ingestion can queue
+            # the next pass after this worker releases the site and cooldown.
+            self._complete(site_id)
+        except Exception:
+            self._complete(site_id)
+            raise
+
+
+_vulnerability_evaluation_coalescer = _VulnerabilityEvaluationCoalescer()
+
+
+def _queue_vulnerability_evaluation(
+    background_tasks: BackgroundTasks | None,
+    *,
+    site_id: str,
+) -> None:
+    if (
+        background_tasks is not None
+        and _vulnerability_evaluation_coalescer.schedule(site_id)
+    ):
+        try:
+            background_tasks.add_task(
+                _vulnerability_evaluation_coalescer.run,
+                site_id=site_id,
+                trigger_type="component-ingestion",
+                requested_by="control-tower",
+            )
+        except Exception:
+            _vulnerability_evaluation_coalescer.cancel(site_id)
+            raise
+
+
 class _FullClassificationLimiter:
     """Bound repeated process-local bulk rebuilds without blocking targeted runs."""
 
@@ -364,6 +496,9 @@ class _FullClassificationLimiter:
 
 
 _full_classification_limiter = _FullClassificationLimiter()
+_full_vulnerability_limiter = _FullClassificationLimiter(
+    cooldown_seconds=60.0
+)
 
 
 class CollectorCheckInRequest(BaseModel):
@@ -858,6 +993,296 @@ def _classification_store() -> SqlClassificationStore:
     return SqlClassificationStore()
 
 
+def _component_store() -> SqlComponentStore:
+    return SqlComponentStore()
+
+
+def _advisory_store() -> SqlAdvisoryStore:
+    return SqlAdvisoryStore()
+
+
+def _vulnerability_store() -> SqlVulnerabilityStore:
+    return SqlVulnerabilityStore()
+
+
+@app.get("/api/v1/components", response_model=ComponentListResponse)
+def api_components(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    component_type: str | None = Query(default=None),
+    ecosystem: str | None = Query(default=None),
+    vendor: str | None = Query(default=None, min_length=1, max_length=160),
+    package: str | None = Query(default=None, min_length=1, max_length=240),
+    freshness: str | None = Query(default=None),
+    active: bool | None = Query(default=True),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    supported_types = {
+        "application",
+        "operating-system-package",
+        "library",
+        "runtime",
+        "driver",
+        "firmware",
+        "operating-system",
+        "security-tool",
+        "unknown",
+    }
+    if component_type and component_type not in supported_types:
+        raise HTTPException(status_code=400, detail="unsupported component type")
+    if ecosystem and ecosystem not in SUPPORTED_ECOSYSTEMS:
+        raise HTTPException(status_code=400, detail="unsupported component ecosystem")
+    if freshness and freshness not in {"fresh", "aging", "stale", "unknown"}:
+        raise HTTPException(status_code=400, detail="unsupported component freshness")
+    try:
+        return _component_store().list_components(
+            site_id=site_id,
+            asset_id=asset_id,
+            component_type=component_type,
+            ecosystem=ecosystem,
+            vendor=vendor,
+            package=normalized_token(package) if package else None,
+            freshness=freshness,
+            active=active,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load component inventory") from exc
+
+
+@app.get(
+    "/api/v1/components/assets/{asset_id}",
+    response_model=ComponentListResponse,
+)
+def api_asset_components(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    active: bool | None = Query(default=True),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    return api_components(
+        site_id=site_id,
+        asset_id=asset_id,
+        component_type=None,
+        ecosystem=None,
+        vendor=None,
+        package=None,
+        freshness=None,
+        active=active,
+        limit=limit,
+        offset=offset,
+        admin_token=admin_token,
+    )
+
+
+@app.get("/api/v1/vulnerabilities", response_model=VulnerabilityListResponse)
+def api_vulnerabilities(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    component_type: str | None = Query(default=None),
+    ecosystem: str | None = Query(default=None),
+    vendor: str | None = Query(default=None, min_length=1, max_length=160),
+    package: str | None = Query(default=None, min_length=1, max_length=240),
+    severity: str | None = Query(default=None),
+    match_status: str | None = Query(default=None),
+    known_exploited: bool | None = Query(default=None),
+    fixed_version_available: bool | None = Query(default=None),
+    freshness: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    statuses = {
+        "affected",
+        "not-affected",
+        "fixed",
+        "version-unknown",
+        "identity-uncertain",
+        "unsupported-comparison",
+        "insufficient-evidence",
+        "advisory-withdrawn",
+    }
+    if match_status and match_status not in statuses:
+        raise HTTPException(status_code=400, detail="unsupported vulnerability match status")
+    if severity and severity not in {"critical", "high", "medium", "low", "informational"}:
+        raise HTTPException(status_code=400, detail="unsupported vulnerability severity")
+    if ecosystem and ecosystem not in SUPPORTED_ECOSYSTEMS:
+        raise HTTPException(status_code=400, detail="unsupported component ecosystem")
+    if freshness and freshness not in {"fresh", "aging", "stale", "unknown"}:
+        raise HTTPException(status_code=400, detail="unsupported component freshness")
+    try:
+        return _vulnerability_store().list_matches(
+            site_id=site_id,
+            asset_id=asset_id,
+            severity=severity,
+            match_status=match_status,
+            known_exploited=known_exploited,
+            fixed_available=fixed_version_available,
+            freshness=freshness,
+            component_type=component_type,
+            ecosystem=ecosystem,
+            vendor=vendor,
+            package=normalized_token(package) if package else None,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load vulnerability intelligence") from exc
+
+
+@app.get(
+    "/api/v1/vulnerabilities/assets/{asset_id}",
+    response_model=VulnerabilityListResponse,
+)
+def api_asset_vulnerabilities(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    return api_vulnerabilities(
+        site_id=site_id,
+        asset_id=asset_id,
+        component_type=None,
+        ecosystem=None,
+        vendor=None,
+        package=None,
+        severity=None,
+        match_status=None,
+        known_exploited=None,
+        fixed_version_available=None,
+        freshness=None,
+        limit=limit,
+        offset=offset,
+        admin_token=admin_token,
+    )
+
+
+@app.get(
+    "/api/v1/vulnerabilities/advisories/{advisory_id}",
+    response_model=VulnerabilityListResponse,
+)
+def api_advisory_vulnerabilities(
+    advisory_id: str = ApiPath(..., pattern=r"^adv_[0-9a-f]{32}$"),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return _vulnerability_store().list_matches(
+            advisory_id=advisory_id,
+            limit=limit,
+            offset=offset,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory matches") from exc
+
+
+@app.get(
+    "/api/v1/vulnerabilities/catalog/status",
+    response_model=CatalogStatusResponse,
+)
+def api_vulnerability_catalog_status(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return _advisory_store().catalog_status()
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory catalog status") from exc
+
+
+@app.post(
+    "/api/v1/admin/vulnerabilities/evaluate",
+    response_model=VulnerabilityEvaluationResponse,
+)
+def admin_evaluate_vulnerabilities(
+    payload: VulnerabilityEvaluateRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="vulnerability administration",
+    )
+    full_rebuild = not any(
+        (
+            payload.site_id,
+            payload.asset_id,
+            payload.component_id,
+            payload.advisory_id,
+        )
+    )
+    if full_rebuild and not _full_vulnerability_limiter.allow():
+        raise HTTPException(
+            status_code=429,
+            detail="full vulnerability evaluation is temporarily rate limited",
+        )
+    try:
+        return evaluate_vulnerabilities(
+            trigger_type="admin-request",
+            requested_by=payload.requested_by,
+            site_id=payload.site_id,
+            asset_id=payload.asset_id,
+            component_id=payload.component_id,
+            advisory_id=payload.advisory_id,
+        ).as_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="deterministic vulnerability evaluation failed") from exc
+
+
+@app.post(
+    "/api/v1/admin/vulnerabilities/import",
+    response_model=CatalogImportResponse,
+)
+async def admin_import_vulnerability_catalog(
+    request: Request,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="vulnerability catalog administration",
+    )
+    if not _full_vulnerability_limiter.allow():
+        raise HTTPException(
+            status_code=429,
+            detail="advisory import and full evaluation are temporarily rate limited",
+        )
+    try:
+        catalog, checksum = parse_catalog_bytes(await request.body())
+        result = _advisory_store().import_catalog(
+            catalog=catalog,
+            checksum=checksum,
+        )
+        if result["duplicate"]:
+            return {**result, "evaluation": None}
+        evaluation = evaluate_vulnerabilities(
+            trigger_type="advisory-import",
+            requested_by="admin",
+        )
+        return {**result, "evaluation": evaluation.as_dict()}
+    except CatalogValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="advisory catalog import failed") from exc
+
+
 @app.get("/api/v1/classifications", response_model=ClassificationListResponse)
 def api_classifications(
     site_id: str | None = Query(default=None, min_length=1, max_length=128),
@@ -1249,6 +1674,10 @@ def build_read_only_hub_tools() -> ReadOnlyHubTools:
         site_risks=risk["sites"],
         classification_evidence=classification_store.evidence_snapshot(
             limit=1_000,
+        ),
+        components=_component_store().component_snapshot(limit=2_000),
+        vulnerability_matches=_vulnerability_store().active_match_snapshot(
+            limit=20_000,
         ),
     )
 
@@ -1750,6 +2179,11 @@ def local_inventory_observed_asset_count(payload: dict[str, Any]) -> int:
         raise HTTPException(status_code=400, detail="assets must be a JSON array")
     if any(not isinstance(asset, dict) for asset in assets):
         raise HTTPException(status_code=400, detail="assets must contain JSON objects")
+    if len(assets) > MAX_LOCAL_INVENTORY_ASSETS:
+        raise HTTPException(
+            status_code=400,
+            detail="local inventory asset limit exceeded",
+        )
     return len(assets)
 
 
@@ -1883,7 +2317,7 @@ def observation_batch(
     collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
 ):
     try:
-        authenticate_sensor_request(
+        auth_context = authenticate_sensor_request(
             provided_token=collector_token,
             claimed_site_id=payload.site_id,
             claimed_sensor_id=payload.sensor_id,
@@ -1893,8 +2327,13 @@ def observation_batch(
         raise HTTPException(status_code=401, detail="valid sensor credential required") from exc
     received_at = datetime.now(timezone.utc)
     stored_payload = payload.model_dump(mode="json")
+    source_authenticated = auth_context.mode == "bound-sensor"
     try:
-        result = record_observation_batch(payload=stored_payload, received_at=received_at)
+        result = record_observation_batch(
+            payload=stored_payload,
+            received_at=received_at,
+            source_authenticated=source_authenticated,
+        )
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist observation batch") from exc
     duplicate = bool(result.get("duplicate"))
@@ -1904,6 +2343,11 @@ def observation_batch(
             site_id=payload.site_id,
             asset_ids=list(result.get("asset_ids") or []),
         )
+        if source_authenticated:
+            _queue_vulnerability_evaluation(
+                background_tasks,
+                site_id=payload.site_id,
+            )
     return ObservationBatchResponse(
         status="duplicate" if duplicate else "accepted",
         observation_batch_id=payload.observation_batch_id,
