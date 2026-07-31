@@ -8,7 +8,7 @@ normalized evidence
   -> deterministic asset classification and provenance
   -> reviewed deterministic finding rules
   -> persisted finding lifecycle
-  -> deterministic asset and site risk
+  -> deterministic asset and site attention scoring
   -> read-only AI explanation
   -> human review
 ```
@@ -25,9 +25,11 @@ dynamic rule loading, expression evaluation, model-authored rule, or plugin
 execution path. Collected values are untrusted data and cannot select code or
 change a rule's severity.
 
-The current ruleset is `oaw.findings.v2`. Classification semantics are owned
-by `oaw.classifier.v1`; see
-`docs/ASSET_CLASSIFICATION_AND_EVIDENCE_FUSION.md`.
+The current ruleset is `oaw.findings.v3`. Classification semantics are owned
+by `oaw.classifier.v1`; software and vulnerability semantics are owned by
+`oaw.components.v1` and `oaw.vulnerabilities.v1`. See
+`docs/ASSET_CLASSIFICATION_AND_EVIDENCE_FUSION.md` and
+`docs/SOFTWARE_AND_VULNERABILITY_INTELLIGENCE.md`.
 
 | Rule | Subject | Trigger | Severity | Important boundary |
 | --- | --- | --- | --- | --- |
@@ -38,6 +40,9 @@ by `oaw.classifier.v1`; see
 | `security-coverage-gap` | asset | Fresh endpoint-origin inventory explicitly says coverage is missing/degraded for a class whose managed capability expects endpoint security. | high | Missing fields, stale records, passive-sensor assertions, and not-expected classes are insufficient. |
 | `identity-conflict` | asset | Two fresh, bounded same-site asset records share one valid unicast hardware-address correlation. | high | Hostname/IP equality plus malformed, all-zero, broadcast, and multicast addresses are ignored; finding evidence stores opaque references, not the address value. |
 | `classification-conflict` | asset | Current deterministic category, OS, version, or role classification contains a material independent-source conflict. | medium | Uses only server-issued classification evidence IDs; AI cannot resolve or override the conflict. |
+| `vulnerable-component` | asset | A current trusted component/advisory match has deterministic status `affected`. | advisory severity, increased one band only when the reviewed advisory explicitly marks known exploitation | Only `affected` opens the authoritative vulnerability finding. Aliases and repeated sources do not create duplicate findings. |
+| `component-version-unavailable` | asset | A current component/advisory correlation cannot be resolved because the installed version is unavailable. | informational | Missing version is an inventory gap, not proof of vulnerability. |
+| `advisory-identity-uncertain` | asset | A reviewed advisory may relate to a component, but deterministic product identity is insufficient. | informational | Ambiguous vendor/name correlation cannot become an affected finding. |
 
 VLAN movement is deliberately deferred. The current normalized hub schema does
 not retain a durable, structured VLAN history. Deriving movement from display
@@ -46,8 +51,13 @@ rule only after the evidence contract and database preserve bounded VLAN
 history with observation timestamps and source identity.
 
 Severity expresses potential impact. Confidence expresses deterministic
-evidence quality. They remain separate fields throughout evaluation, storage,
-API output, UI rendering, and scoring.
+evidence quality. Freshness describes the age of the supporting evidence. The
+fields remain separately stored, returned, and rendered so users can inspect
+each input. The current `oaw.risk.v1` scalar combines reviewed severity weights,
+confidence, and freshness into an operational attention score; it is not a
+complete scientific measure of cyber risk. Future urgency, exploit probability,
+known-exploitation decision bands, asset importance, and remediation value must
+remain separately visible rather than being folded into this scalar.
 
 ## Finding Model and Lifecycle
 
@@ -78,19 +88,30 @@ does not remove risk. Suppression is an audited admin action and excludes the
 finding from risk while active. Expired suppression returns to active on the
 next matching evaluation.
 
+Vulnerability resolution is equally affirmative. The exact component/advisory
+match must become `fixed`, `not-affected`, `advisory-withdrawn`, or removed by a
+newer complete current inventory. Missing, passive, stale, partial, or failed
+inventory cannot resolve an affected component.
+
 Evaluation failures are recorded without failing evidence ingestion. New
 endpoint and observation evidence first queues targeted classification of only
 affected assets. Semantic reclassification then queues targeted finding and
-risk replacement. Sensor check-ins still use sensor scope and only the
-sensor-health rule. Scope is pushed into indexed database reads, so a site
-evaluation does not load every site's assets. Administrators can also run a
-bounded sensor, site, asset, selected-rule, or full evaluation. The MVP
-intentionally does not introduce a scheduler or external background-work
-framework.
+risk replacement. Component inventory and advisory changes queue bounded
+vulnerability evaluation before the affected findings are reconciled. Sensor
+check-ins still use sensor scope and only the sensor-health rule. Scope is
+pushed into indexed database reads, so a site evaluation does not load every
+site's assets. Administrators can also run a bounded sensor, site, asset,
+selected-rule, or full evaluation. The MVP intentionally does not introduce a
+scheduler or external background-work framework.
 
-## Risk Formula
+## Operational Attention Score
 
-The formula version is `oaw.risk.v1`. Risk is always an integer from 0 to 100.
+The current formula version is `oaw.risk.v1`. Existing API, table, and source
+names retain the term `risk` for compatibility, but the 0-100 scalar should be
+interpreted as a deterministic **Operational Attention Score**. It ranks where
+reviewed findings need attention; it does not replace the separately visible
+severity, confidence, freshness, exposure, exploitation, urgency, or business
+context.
 
 For each active or acknowledged asset finding:
 
@@ -107,9 +128,10 @@ unknown 0.35.
 
 Within a category, contributions are ordered deterministically and multiplied
 by 1.0, 0.6, 0.35, then 0.2 for the fourth and later findings. Category totals
-are capped: identity 35, coverage 30, inventory 25, freshness 20, movement 20,
-and other 20. The asset score is the capped sum of category contributions.
-This prevents duplicate findings in one category from dominating the score.
+are capped: vulnerability 50, identity 35, coverage 30, inventory 25,
+freshness 20, movement 20, and other 20. The asset score is the capped sum of
+category contributions. This prevents duplicate findings in one category from
+dominating the score.
 
 A site is not a sum of all asset scores:
 
@@ -122,8 +144,15 @@ asset portfolio =
 
 Direct site/sensor finding risk is combined against the portfolio's remaining
 headroom at a 0.35 factor. The persisted factors expose each input,
-intermediate weight, and adjusted contribution. Bands are minimal 0-14, low
-15-34, moderate 35-59, high 60-79, and critical 80-100.
+intermediate weight, and adjusted contribution. Existing compatibility bands
+are minimal 0-14, low 15-34, moderate 35-59, high 60-79, and critical 80-100.
+Future SSVC-style action bands are a separate decision layer and must not be
+inferred from these numeric bands without a reviewed ruleset.
+
+A low-confidence or unknown-freshness finding may contribute less to the
+scalar. That is a prioritization behavior, not evidence that the underlying
+condition is safe. The UI and future APIs must surface uncertainty explicitly,
+and lifecycle resolution still requires affirmative evidence.
 
 Environment overrides are bounded rather than open-ended:
 
@@ -205,38 +234,42 @@ addresses, and safe normalized evidence signals. It does not insert finding or
 risk rows directly. After seeding, it runs the production deterministic
 evaluator. The Office demo shows a stale sensor and unknown asset. The Lab demo
 shows a fresh passive-only server, an explicit endpoint coverage gap, and a
-safe same-site identity conflict. The seed also moves the Office unknown asset
-through known and back to unknown using production evaluation, leaving the
-same finding active with `reopen_count = 1`. Demo-owned evaluation history is
-cleared on reseed, so repeated seeding is deterministic. VLAN movement remains
-absent because the durable evidence contract does not support it.
+safe same-site identity conflict. The vulnerability demo imports a fictional
+reviewed catalog and exercises affected, fixed, version-missing,
+identity-uncertain, and firmware-evidence outcomes through the same production
+evaluators. The seed also moves the Office unknown asset through known and back
+to unknown using production evaluation, leaving the same finding active with
+`reopen_count = 1`. Demo-owned evaluation history is cleared on reseed, so
+repeated seeding is deterministic. VLAN movement remains absent because the
+durable evidence contract does not support it.
 
 The existing Findings view loads active and acknowledged persisted records. It
 shows the reviewed title, severity, confidence, lifecycle state, subject,
-remediation, evidence-reference count, first/last seen, and deterministic risk.
-Finding/rule IDs, freshness, formula version, and bounded score factors remain
-available under technical details. Site cards show the persisted site score.
-When an admin token is configured, enter it in the existing AI Advisor token
-field and refresh; the value remains page-local and is not stored.
+remediation, evidence-reference count, first/last seen, and deterministic
+attention score. Finding/rule IDs, freshness, formula version, and bounded score
+factors remain available under technical details. Site cards show the persisted
+site score. Current routes and labels may retain the word `risk` for
+compatibility. When an admin token is configured, enter it in the existing AI
+Advisor token field and refresh; the value remains page-local and is not
+stored.
 
 ## AI Boundary
 
 `ReadOnlyHubTools` receives persisted classifications, classification evidence,
-findings, and risk from PostgreSQL.
+components, vulnerability matches, findings, and risk factors from PostgreSQL.
 `findings_by_site`, `highest_risk_assets`, site summary, environment summary,
 finding evidence citations, and bounded risk-factor explanations use those
 records. Classification summary, asset classification/evidence/conflict,
-unknown-category, managed-capability, and classification-confidence tools use
-the same bounded read-only gateway. Model context identifies deterministic
-records as authoritative. AI
-output is explicitly
-`advisory_only`, and responses identify
-`deterministic-findings-risk-engine` as their authoritative source.
+unknown-category, managed-capability, classification-confidence,
+vulnerability, component, advisory-provenance, and inventory-gap tools use the
+same bounded read-only gateway. Model context identifies deterministic records
+as authoritative. AI output is explicitly `advisory_only`, and responses
+identify deterministic OpenAssetWatch engines as their authoritative sources.
 
 The provider prompt treats all collected values as untrusted data, rejects tool
 selection by the model, and requires supplied evidence IDs. A provider cannot
-invent a finding reference because unknown evidence IDs fail response
-validation.
+invent a finding, component, match, or advisory reference because unknown
+evidence IDs fail response validation.
 
 ## Adding a Rule Safely
 
@@ -273,8 +306,9 @@ python scripts/test_control_tower_dashboard.py
 
 Focused pure-engine coverage includes thousands of synthetic assets,
 reproducibility, confidence/freshness effects, duplicate-category caps,
-open/update/resolve/reopen behavior, stale-evidence non-resolution, API
-authorization, and AI authority/citation behavior.
+open/update/resolve/reopen behavior, stale-evidence non-resolution,
+vulnerability lifecycle, API authorization, and AI authority/citation
+behavior.
 
 ## Development Performance
 
@@ -288,6 +322,10 @@ is capped at 10,000, reconciliation at 20,000 records, and API pages at 200.
 Site scope is applied in SQL before loading. A production database/load test
 remains necessary before raising any bound.
 
+See `docs/SOFTWARE_AND_VULNERABILITY_INTELLIGENCE.md` for the separate
+synthetic vulnerability-intelligence workload and its explicit benchmark
+limitations.
+
 ## Security Properties and Limits
 
 - Rule code is reviewed and static; evidence cannot register or execute code.
@@ -299,6 +337,7 @@ remains necessary before raising any bound.
   not packet bytes or credential-bearing metadata.
 - Evaluation performs no active scanning, URL fetching, SSRF-capable lookup,
   command execution, or arbitrary HTTP callback.
+- Advisory references are display-only; the runtime does not fetch them.
 - Ingestion succeeds even when post-response evaluation fails; logs retain only
   the exception type, not arbitrary database or evidence text.
 - Suppression and acknowledgement are explicit audited admin mutations that
@@ -308,9 +347,12 @@ remains necessary before raising any bound.
 - The current MVP runs post-response evaluations in-process. Large
   multi-tenant deployments will need a durable job mechanism, tenant-scoped
   authorization, migration tooling, retention policy, and operational metrics.
-- Passive-only classification now uses durable, source-aware evidence and
+- Passive-only classification uses durable, source-aware evidence and
   historical endpoint presence. A production retention policy and tenant model
   remain follow-ups before claiming complete enterprise management coverage.
-- VLAN movement, exposed-service, vulnerability, patch, and configuration rules
-  remain deferred until their required normalized evidence is durable and
-  tested.
+- VLAN movement, exposed-service, patch, and configuration rules remain
+  deferred until their required normalized evidence is durable and tested.
+- EPSS, SSVC-style action bands, VEX, formal risk acceptance, bitemporal asset
+  identity, and probabilistic merge/split are not part of `oaw.risk.v1` or
+  `oaw.findings.v3`; their accepted direction and gates are documented in
+  `docs/architecture/decisions/0001-research-aligned-expansion.md`.
