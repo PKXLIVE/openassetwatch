@@ -445,6 +445,9 @@ class ReadOnlyHubTools:
             "component_inventory_gaps",
             "advisory_provenance",
             "vulnerability_risk_contribution",
+            "advisory_feed_status",
+            "advisory_feed_preview",
+            "advisory_activation_impact",
         }
     )
 
@@ -461,6 +464,7 @@ class ReadOnlyHubTools:
         classification_evidence: list[dict[str, Any]] | None = None,
         components: list[dict[str, Any]] | None = None,
         vulnerability_matches: list[dict[str, Any]] | None = None,
+        advisory_feed_evidence: list[dict[str, Any]] | None = None,
         now: datetime | None = None,
     ) -> None:
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -508,6 +512,61 @@ class ReadOnlyHubTools:
             self._project_vulnerability_match(item)
             for item in (vulnerability_matches or [])
         ]
+        self.advisory_feed_evidence = [
+            self._project_advisory_feed_evidence(item)
+            for item in (advisory_feed_evidence or [])[:20]
+        ]
+
+    def _project_advisory_feed_evidence(self, item: dict[str, Any]) -> dict[str, Any]:
+        preview = item.get("preview") if isinstance(item.get("preview"), dict) else {}
+        return {
+            "run_id": _text(item.get("run_id"), limit=80),
+            "activation_id": _text(item.get("activation_id"), limit=80) or None,
+            "activation_action": _text(item.get("action"), limit=16) or None,
+            "catalog_id": _text(item.get("catalog_id"), limit=80) or None,
+            "source_id": _text(item.get("source_id"), limit=64),
+            "state": _text(item.get("state"), limit=40),
+            "catalog_version": _text(item.get("catalog_version"), limit=120) or None,
+            "catalog_sequence": int(item.get("catalog_sequence") or 0),
+            "publisher_key_id": _text(item.get("publisher_key_id"), limit=96) or None,
+            "manifest_digest": _text(item.get("manifest_digest"), limit=64) or None,
+            "payload_digest": _text(item.get("payload_digest"), limit=64) or None,
+            "signature_status": _text(item.get("signature_status"), limit=32) or "unknown",
+            "license_identifier": _text(item.get("license_identifier"), limit=120) or None,
+            "license_status": _text(item.get("license_status"), limit=32) or "unknown",
+            "attribution_status": _text(item.get("attribution_status"), limit=32) or "unknown",
+            "reevaluation_status": _text(item.get("reevaluation_status"), limit=32) or "not-started",
+            "reevaluation_run_ids": [
+                _text(value, limit=80)
+                for value in (item.get("reevaluation_run_ids") or [])[:20]
+                if isinstance(value, str)
+            ],
+            "activation_impact": (
+                item.get("activation_impact")
+                if isinstance(item.get("activation_impact"), dict)
+                else {}
+            ),
+            "error_code": _text(item.get("error_code"), limit=80) or None,
+            "created_at": _datetime(item.get("created_at")),
+            "completed_at": _datetime(item.get("completed_at")),
+            "preview": {
+                "added_advisories": int(preview.get("added_advisories") or 0),
+                "updated_advisories": int(preview.get("updated_advisories") or 0),
+                "withdrawn_advisories": int(preview.get("withdrawn_advisories") or 0),
+                "known_exploited_count": int(preview.get("known_exploited_count") or 0),
+                "changed_advisory_ids": [
+                    _text(value, limit=120)
+                    for value in (preview.get("changed_advisory_ids") or [])[:32]
+                    if isinstance(value, str)
+                ],
+                "expected_match_impact": (
+                    preview.get("expected_match_impact")
+                    if isinstance(preview.get("expected_match_impact"), dict)
+                    else {}
+                ),
+            },
+            "authority": "normalized-evidence",
+        }
 
     def _project_component(self, item: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -1317,6 +1376,24 @@ class ReadOnlyHubTools:
                     for finding in vulnerability_findings
                 ]
             )
+        if tool_name == "advisory_feed_status":
+            return _bounded(self.advisory_feed_evidence)
+        if tool_name == "advisory_feed_preview":
+            return _bounded(
+                [
+                    item
+                    for item in self.advisory_feed_evidence
+                    if item["state"] in {"pending_approval", "approved"}
+                ]
+            )
+        if tool_name == "advisory_activation_impact":
+            return _bounded(
+                [
+                    item
+                    for item in self.advisory_feed_evidence
+                    if item["state"] in {"activated", "activated_degraded"}
+                ]
+            )
         if tool_name == "recent_inventory_changes":
             values = sorted(assets, key=lambda item: item["created_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
             return _bounded(values)
@@ -1474,6 +1551,75 @@ class ReadOnlyHubTools:
                     confidence=item["confidence"],
                 )
             )
+        for item in self.advisory_feed_evidence:
+            run_id = item["run_id"]
+            if not run_id:
+                continue
+            evidence.append(
+                EvidenceItem(
+                    evidence_id=run_id,
+                    evidence_type="signed_advisory_feed_run",
+                    summary=(
+                        f"{run_id}: source {item['source_id']} catalog "
+                        f"{item['catalog_version'] or 'unknown'} is {item['state']}; "
+                        f"signature {item['signature_status']}, license {item['license_status']}."
+                    ),
+                    authority="normalized-evidence",
+                    source="signed-advisory-feed-lifecycle",
+                    observed_at=item["completed_at"] or item["created_at"],
+                    freshness="unknown",
+                    confidence=1.0,
+                )
+            )
+            if item["catalog_id"]:
+                evidence.append(
+                    EvidenceItem(
+                        evidence_id=item["catalog_id"],
+                        evidence_type="signed_advisory_catalog",
+                        summary=(
+                            f"{item['catalog_id']}: retained catalog "
+                            f"{item['catalog_version'] or 'unknown'} from {item['source_id']}."
+                        ),
+                        authority="normalized-evidence",
+                        source="signed-advisory-feed-lifecycle",
+                        observed_at=item["completed_at"] or item["created_at"],
+                        freshness="unknown",
+                        confidence=1.0,
+                    )
+                )
+            if item["activation_id"]:
+                evidence.append(
+                    EvidenceItem(
+                        evidence_id=item["activation_id"],
+                        evidence_type="advisory_catalog_activation",
+                        summary=(
+                            f"{item['activation_id']}: {item['activation_action'] or 'activation'} "
+                            f"for {item['catalog_id']} has reevaluation "
+                            f"{item['reevaluation_status']}."
+                        ),
+                        authority="deterministic-engine",
+                        source="advisory-catalog-activation-audit",
+                        observed_at=item["completed_at"] or item["created_at"],
+                        freshness="unknown",
+                        confidence=1.0,
+                    )
+                )
+            for evaluation_id in item["reevaluation_run_ids"]:
+                evidence.append(
+                    EvidenceItem(
+                        evidence_id=evaluation_id,
+                        evidence_type="vulnerability_reevaluation_run",
+                        summary=(
+                            f"{evaluation_id}: deterministic vulnerability reevaluation "
+                            f"for {item['catalog_id'] or item['run_id']}."
+                        ),
+                        authority="deterministic-engine",
+                        source="deterministic-vulnerability-matcher",
+                        observed_at=item["completed_at"] or item["created_at"],
+                        freshness="unknown",
+                        confidence=1.0,
+                    )
+                )
         for sensor in ([] if self.authoritative_findings else self._filtered_sensors(site_id)):
             if sensor["sensor_status"] not in {"stale", "never-seen"}:
                 continue
@@ -1633,6 +1779,9 @@ def select_tools(question: str) -> list[str]:
         (("version unknown", "inventory gap", "identity uncertain"), "component_inventory_gaps"),
         (("advisory source", "advisory provenance", "license"), "advisory_provenance"),
         (("risk contribution", "risk factor"), "vulnerability_risk_contribution"),
+        (("feed status", "catalog status", "last sync", "signature status"), "advisory_feed_status"),
+        (("pending update", "feed preview", "catalog preview"), "advisory_feed_preview"),
+        (("activation impact", "risk changed", "newly affected", "resolved after"), "advisory_activation_impact"),
     )
     for words, tool_name in rules:
         if any(word in text for word in words) and tool_name not in selected:
