@@ -1808,8 +1808,34 @@
             <div class="settings-card"><h3>Release Metadata</h3><p id="settings-release" class="muted">loading</p></div>
             <div class="settings-card"><h3>Demo Mode</h3><p id="settings-demo-mode" class="muted">checking</p></div>
             <div class="settings-card"><h3>Demo Seed Command</h3><p id="settings-demo-seed" class="muted">docker compose --profile demo run --rm demo-seed</p></div>
-            <div class="settings-card"><h3>Local Safety</h3><p class="muted">Dashboard actions are limited to refresh and create-site metadata.</p></div>
+            <div class="settings-card"><h3>Local Safety</h3><p class="muted">Advisory controls require the configured admin token and an explicit operator action. AI cannot use them.</p></div>
             <div class="settings-card"><h3>Data Sources</h3><p class="muted">Health, summary, sites, agents, check-ins, assets, and release metadata endpoints.</p></div>
+            <div class="settings-card">
+              <h3>Advisory Intelligence</h3>
+              <p id="advisory-feed-status" class="muted">Enter the admin token in AI Advisor, then load feed status.</p>
+              <div class="button-row">
+                <button id="advisory-load" class="button secondary" type="button">Load status</button>
+                <button id="advisory-sync" class="button secondary" type="button">Request sync</button>
+              </div>
+              <p id="advisory-action-status" class="form-status" aria-live="polite"></p>
+            </div>
+            <div class="settings-card">
+              <h3>Pending advisory run</h3>
+              <p id="advisory-preview" class="muted">No verified preview loaded.</p>
+              <div class="button-row">
+                <button id="advisory-approve" class="button secondary" type="button" disabled>Approve</button>
+                <button id="advisory-reject" class="button secondary" type="button" disabled>Reject</button>
+                <button id="advisory-activate" class="button primary" type="button" disabled>Activate</button>
+              </div>
+            </div>
+            <div class="settings-card">
+              <h3>Last-known-good catalogs</h3>
+              <div id="advisory-catalogs" class="list"><p class="muted">No retained catalog status loaded.</p></div>
+            </div>
+            <div class="settings-card">
+              <h3>Run history</h3>
+              <div id="advisory-runs" class="list"><p class="muted">No run history loaded.</p></div>
+            </div>
           </div>
         </section>
 
@@ -1843,7 +1869,9 @@
       vulnerabilities: "/api/v1/vulnerabilities?limit=200",
       release: "/api/v1/releases/agent",
       advisorStatus: "/api/v1/ai/status",
-      advisorQuery: "/api/v1/ai/advisor/query"
+      advisorQuery: "/api/v1/ai/advisor/query",
+      advisoryFeeds: "/api/v1/admin/advisory-feeds",
+      advisoryRuns: "/api/v1/admin/advisory-feed-runs?limit=20&offset=0"
     };
     const DEMO_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed";
     const VIEW_IDS = ["dashboard", "assets", "collectors", "sites", "evidence", "findings", "ai-advisor", "policies", "reports", "settings"];
@@ -1866,7 +1894,10 @@
       selectedCollectorId: null,
       advisorStatus: null,
       advisorProgressTimer: null,
-      advisorProgressStartedAt: null
+      advisorProgressStartedAt: null,
+      advisorySourceId: null,
+      advisoryPendingRunId: null,
+      advisoryApprovedRunId: null
     };
 
     function byId(id) {
@@ -3076,6 +3107,124 @@
       byId("settings-loaded").textContent = "loaded";
     }
 
+    function advisoryActionBody(extra = {}) {
+      return JSON.stringify(extra);
+    }
+
+    function appendAdvisoryRow(target, primary, secondary, action) {
+      const row = document.createElement("div");
+      const strong = document.createElement("strong");
+      const detail = document.createElement("span");
+      row.className = "list-row";
+      strong.textContent = primary;
+      detail.textContent = secondary;
+      row.append(strong, detail);
+      if (action) row.appendChild(action);
+      target.appendChild(row);
+    }
+
+    async function loadAdvisoryIntelligence() {
+      const status = byId("advisory-action-status");
+      status.textContent = "Loading reviewed feed state...";
+      status.className = "form-status";
+      try {
+        const feeds = await loadJSON(endpoints.advisoryFeeds, {headers: advisorHeaders()});
+        const source = (feeds.items || [])[0];
+        state.advisorySourceId = source ? source.source_id : null;
+        byId("advisory-feed-status").textContent = source
+          ? `${source.display_name}; ${source.enabled ? "enabled" : "disabled"}; active ${text(source.active_catalog && source.active_catalog.catalog_version, "none")}; pending ${source.pending_approval_count || 0}; publisher trust ${text(source.trusted_publishers && source.trusted_publishers[0] && source.trusted_publishers[0].status, "unknown")}; last failure ${text(source.last_attempt && source.last_attempt.error_code, "none")}.`
+          : "No reviewed advisory source is configured.";
+        const runs = await loadJSON(endpoints.advisoryRuns, {headers: advisorHeaders()});
+        const runTarget = byId("advisory-runs");
+        clearNode(runTarget);
+        state.advisoryPendingRunId = null;
+        state.advisoryApprovedRunId = null;
+        (runs.items || []).forEach(run => {
+          appendAdvisoryRow(
+            runTarget,
+            `${run.run_id} · ${run.state}`,
+            `${text(run.catalog_version, "catalog pending")} · ${fmtDate(run.created_at)} · ${text(run.error_code, "no failure")}`
+          );
+          if (!state.advisoryPendingRunId && run.state === "pending_approval") state.advisoryPendingRunId = run.run_id;
+          if (!state.advisoryApprovedRunId && run.state === "approved") state.advisoryApprovedRunId = run.run_id;
+        });
+        if (!(runs.items || []).length) appendAdvisoryRow(runTarget, "No synchronization runs", "Request a reviewed source sync explicitly.");
+        const previewRun = state.advisoryPendingRunId || state.advisoryApprovedRunId;
+        if (previewRun) {
+          const preview = await loadJSON(`/api/v1/admin/advisory-feed-runs/${encodeURIComponent(previewRun)}/preview`, {headers: advisorHeaders()});
+          const item = preview.preview || {};
+          byId("advisory-preview").textContent = `${previewRun}; signature ${text(item.signature_status)}; license ${text(item.license_status)}; ${item.total_advisories || 0} advisories; +${item.added_advisories || 0} updated ${item.updated_advisories || 0} withdrawn ${item.withdrawn_advisories || 0}.`;
+        } else {
+          byId("advisory-preview").textContent = "No verified preview is pending operator action.";
+        }
+        byId("advisory-approve").disabled = !state.advisoryPendingRunId;
+        byId("advisory-reject").disabled = !state.advisoryPendingRunId;
+        byId("advisory-activate").disabled = !state.advisoryApprovedRunId;
+        const catalogTarget = byId("advisory-catalogs");
+        clearNode(catalogTarget);
+        if (state.advisorySourceId) {
+          const catalogs = await loadJSON(`/api/v1/admin/advisory-catalogs?source_id=${encodeURIComponent(state.advisorySourceId)}&limit=20`, {headers: advisorHeaders()});
+          (catalogs.items || []).forEach(catalog => {
+            let rollback = null;
+            if (!catalog.active) {
+              rollback = document.createElement("button");
+              rollback.type = "button";
+              rollback.className = "button secondary";
+              rollback.textContent = "Roll back";
+              rollback.addEventListener("click", () => advisoryControl("rollback", catalog.catalog_id));
+            }
+            appendAdvisoryRow(catalogTarget, `${catalog.catalog_version}${catalog.active ? " · active" : ""}`, `${catalog.catalog_id} · key ${catalog.publisher_key_id}`, rollback);
+          });
+          if (!(catalogs.items || []).length) appendAdvisoryRow(catalogTarget, "No last-known-good catalog", "A catalog appears here only after successful activation.");
+        }
+        status.textContent = "Advisory intelligence loaded. Feed-supplied values are rendered as text only.";
+        status.className = "form-status ok";
+      } catch (error) {
+        status.textContent = text(error.message, "Advisory feed state could not be loaded safely.");
+        status.className = "form-status error";
+      }
+    }
+
+    async function advisoryControl(action, catalogId = null) {
+      const status = byId("advisory-action-status");
+      let path;
+      let body;
+      if (action === "sync") {
+        if (!state.advisorySourceId) return loadAdvisoryIntelligence();
+        path = `/api/v1/admin/advisory-feeds/${encodeURIComponent(state.advisorySourceId)}/sync`;
+        body = JSON.stringify({});
+      } else if (action === "rollback") {
+        path = "/api/v1/admin/advisory-catalog/rollback";
+        body = advisoryActionBody({catalog_id: catalogId});
+      } else {
+        const runId = action === "activate" ? state.advisoryApprovedRunId : state.advisoryPendingRunId;
+        if (!runId) return;
+        path = `/api/v1/admin/advisory-feed-runs/${encodeURIComponent(runId)}/${action}`;
+        body = action === "reject"
+          ? advisoryActionBody({reason: "Rejected by Control Tower operator review"})
+          : advisoryActionBody();
+      }
+      status.textContent = `${action} request in progress...`;
+      status.className = "form-status";
+      try {
+        await loadJSON(path, {method: "POST", headers: advisorHeaders(true), body});
+        status.textContent = `${action} request accepted. Refresh status to observe the audited lifecycle result.`;
+        status.className = "form-status ok";
+        await loadAdvisoryIntelligence();
+      } catch (error) {
+        status.textContent = text(error.message, `${action} request failed safely.`);
+        status.className = "form-status error";
+      }
+    }
+
+    function setupAdvisoryIntelligence() {
+      byId("advisory-load").addEventListener("click", loadAdvisoryIntelligence);
+      byId("advisory-sync").addEventListener("click", () => advisoryControl("sync"));
+      byId("advisory-approve").addEventListener("click", () => advisoryControl("approve"));
+      byId("advisory-reject").addEventListener("click", () => advisoryControl("reject"));
+      byId("advisory-activate").addEventListener("click", () => advisoryControl("activate"));
+    }
+
     function renderAll() {
       const data = derivedData();
       renderAdvisorSiteOptions(data.sites);
@@ -3320,6 +3469,7 @@
     setupNavigation();
     setupSafeActions();
     setupAdvisor();
+    setupAdvisoryIntelligence();
     refresh();
   </script>
 </body>
