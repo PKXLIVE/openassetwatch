@@ -76,6 +76,7 @@ class ObservationBatchTests(unittest.TestCase):
         self.assertEqual(response.storage_id, 7)
         self.assertEqual(response.sensor_id, "sensor-home")
         self.assertEqual(record.call_args.kwargs["payload"]["delivery_state"], "cached-retry")
+        self.assertTrue(record.call_args.kwargs["source_authenticated"])
         self.assertEqual(authenticate.call_args.kwargs["claimed_site_id"], "home")
         self.assertEqual(authenticate.call_args.kwargs["claimed_sensor_id"], "sensor-home")
 
@@ -115,6 +116,16 @@ class ObservationBatchTests(unittest.TestCase):
                 clear=False,
             ),
             patch(
+                "app.main.authenticate_sensor_request",
+                return_value=SensorAuthContext(
+                    mode="bound-sensor",
+                    site_id="home",
+                    sensor_id="sensor-home",
+                    sensor_type="passive-network-sensor",
+                    credential_id="scred_test",
+                ),
+            ),
+            patch(
                 "app.main.record_observation_batch",
                 return_value={
                     "collection_id": 7,
@@ -131,6 +142,49 @@ class ObservationBatchTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status, "accepted")
+        self.assertEqual(len(background.tasks), 2)
+        self.assertEqual(
+            background.tasks[0].kwargs,
+            {"site_id": "home", "asset_ids": ["home-router"]},
+        )
+        self.assertEqual(
+            background.tasks[1].kwargs,
+            {
+                "site_id": "home",
+                "trigger_type": "component-ingestion",
+                "requested_by": "control-tower",
+            },
+        )
+
+    def test_development_shared_token_is_not_authoritative_or_auto_evaluated(
+        self,
+    ) -> None:
+        payload = ObservationBatchRequest(**batch_payload())
+        background = BackgroundTasks()
+        with (
+            patch.dict(
+                os.environ,
+                {"OPENASSETWATCH_COLLECTOR_TOKEN": "explicit-development-token"},
+                clear=False,
+            ),
+            patch(
+                "app.main.record_observation_batch",
+                return_value={
+                    "collection_id": 7,
+                    "normalized_asset_count": 1,
+                    "duplicate": False,
+                    "asset_ids": ["home-router"],
+                },
+            ) as record,
+        ):
+            response = observation_batch(
+                payload,
+                background_tasks=background,
+                collector_token="explicit-development-token",
+            )
+
+        self.assertEqual(response.status, "accepted")
+        self.assertFalse(record.call_args.kwargs["source_authenticated"])
         self.assertEqual(len(background.tasks), 1)
         self.assertEqual(
             background.tasks[0].kwargs,
@@ -255,6 +309,38 @@ class ObservationBatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, "future clock skew"):
             ObservationBatchRequest(**invalid)
 
+    def test_component_observed_at_requires_timezone_and_batch_bound(
+        self,
+    ) -> None:
+        naive = batch_payload()
+        naive["assets"][0]["components"] = [
+            {
+                "component_type": "application",
+                "ecosystem": "pypi",
+                "name": "asterion-agent",
+                "version": "1.2.0",
+                "observed_at": "2020-01-01T00:00:00",
+            }
+        ]
+        with self.assertRaisesRegex(ValidationError, "timezone"):
+            ObservationBatchRequest(**naive)
+
+        after_batch = batch_payload()
+        after_batch["assets"][0]["components"] = [
+            {
+                "component_type": "application",
+                "ecosystem": "pypi",
+                "name": "asterion-agent",
+                "version": "1.2.0",
+                "observed_at": "2026-07-20T12:06:00+00:00",
+            }
+        ]
+        with self.assertRaisesRegex(
+            ValidationError,
+            "batch observation time",
+        ):
+            ObservationBatchRequest(**after_batch)
+
     def test_authenticated_observation_context_is_server_derived(self) -> None:
         payload = batch_payload()
         with (
@@ -272,6 +358,7 @@ class ObservationBatchTests(unittest.TestCase):
             persist_observation_batch(
                 payload=payload,
                 received_at=datetime.now(timezone.utc),
+                source_authenticated=True,
             )
 
         self.assertTrue(record_local.call_args.kwargs["source_authenticated"])

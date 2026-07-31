@@ -186,6 +186,12 @@ class ControlTowerDemoSeedTests(unittest.TestCase):
             )
         )
         self.assertTrue(self.seed.local_database_url(self.seed.LOCAL_DATABASE_URL))
+        self.assertFalse(
+            self.seed.local_database_url(
+                "postgresql+psycopg2://demo:secret@localhost/openassetwatch"
+                "?hostaddr=203.0.113.99"
+            )
+        )
 
     def test_datetime_usage_is_python_310_compatible(self) -> None:
         source = SEED_SCRIPT.read_text(encoding="utf-8")
@@ -202,6 +208,15 @@ class ControlTowerDemoSeedTests(unittest.TestCase):
 
         self.assertFalse(self.seed.local_database_url(compose_url))
         self.assertTrue(self.seed.local_database_url(compose_url, allow_compose_host=True))
+
+    def test_database_url_diagnostics_redact_all_credentials(self) -> None:
+        sanitized = self.seed.sanitized_database_url(
+            "postgresql+psycopg2://demo:authority-secret@localhost/db"
+            "?password=query-secret&sslmode=require"
+        )
+        self.assertNotIn("authority-secret", sanitized)
+        self.assertNotIn("query-secret", sanitized)
+        self.assertIn("password=%2A%2A%2A", sanitized)
         self.assertTrue(self.seed.compose_host_allowed("1"))
         self.assertTrue(self.seed.compose_host_allowed("true"))
         self.assertFalse(self.seed.compose_host_allowed(""))
