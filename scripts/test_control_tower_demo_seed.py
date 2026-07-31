@@ -112,7 +112,7 @@ class ControlTowerDemoSeedTests(unittest.TestCase):
         self.assertEqual(len(store.agents), 6)
         self.assertEqual(len(store.checkins), len(self.seed.DEMO_CHECKINS))
         self.assertEqual(len(store.assets), len(self.seed.DEMO_ASSETS))
-        self.assertEqual(first["summary"]["evidence_count"], 57)
+        self.assertEqual(first["summary"]["evidence_count"], 62)
 
     def test_site_metadata_is_reapplied_after_agent_upserts(self) -> None:
         store = InMemoryDemoSeedStore()

@@ -157,6 +157,142 @@ class AIAdvisorTests(unittest.TestCase):
         self.assertIn("dns address-record router.example.test=192.0.2.10", protocol_items[0].summary)
         self.assertNotIn("raw_packet", protocol_items[0].summary)
 
+    def test_deterministic_classification_tools_and_citations_are_read_only(self) -> None:
+        classification_id = "cls_" + "a" * 32
+        evidence_id = "cev_" + "b" * 40
+        tools = ReadOnlyHubTools(
+            sites=[{"site_id": "home", "name": "Home Demo"}],
+            sensors=[],
+            assets=[
+                {
+                    "asset_id": "asset-home-1",
+                    "site_id": "home",
+                    "hostname": "demo-home-workstation",
+                    "last_seen_at": NOW,
+                    "observed_at": NOW,
+                    "observation_source": "endpoint-inventory",
+                    "delivery_state": "live",
+                    "confidence": 0.92,
+                    "evidence_count": 2,
+                    "metadata": {},
+                    "classification": {
+                        "classification_id": classification_id,
+                        "classifier_version": "oaw.classifier.v1",
+                        "category": "workstation",
+                        "subtype": None,
+                        "manufacturer": "Example Systems",
+                        "product_hint": None,
+                        "os_family": "Windows",
+                        "os_version_hint": "11",
+                        "managed_capability": {
+                            "endpoint_collector": "expected",
+                            "endpoint_security": "expected",
+                            "software_inventory": "expected",
+                            "patch_management": "expected",
+                        },
+                        "confidence": 0.94,
+                        "status": "classified",
+                        "supporting_evidence_ids": [evidence_id],
+                        "conflicting_evidence_ids": [],
+                        "independent_source_count": 1,
+                        "evidence_count": 2,
+                        "freshness": "fresh",
+                        "evaluated_at": NOW,
+                        "reason_codes": ["direct-category"],
+                        "conflicts": [],
+                        "endpoint_evidence_present": True,
+                    },
+                }
+            ],
+            classifications=None,
+            classification_evidence=[
+                {
+                    "evidence_id": evidence_id,
+                    "site_id": "home",
+                    "asset_id": "asset-home-1",
+                    "source_id": "endpoint-home",
+                    "source_type": "endpoint-collector",
+                    "collection_method": "endpoint-inventory",
+                    "kind": "category",
+                    "value": "workstation",
+                    "direct": True,
+                    "strength": "direct",
+                    "source_confidence": 0.95,
+                    "observation_count": 12,
+                    "agreement_state": "supporting",
+                    "classifier_used": True,
+                    "source_revoked": False,
+                    "last_seen_at": NOW,
+                }
+            ],
+            now=NOW,
+        )
+
+        projected = tools.run(
+            "asset_classification",
+            site_id="home",
+            asset_id="asset-home-1",
+        )["items"][0]
+        response = run_advisor(
+            request=AdvisorQueryRequest(
+                question="Why is asset-home-1 classified as a workstation?",
+                site_id="home",
+                asset_id="asset-home-1",
+            ),
+            tools=tools,
+            config=ProviderConfig("demo", False, None, None, None, 10),
+        )
+
+        self.assertEqual(projected["classification_id"], classification_id)
+        self.assertEqual(
+            projected["authority"],
+            "deterministic-classification-engine",
+        )
+        self.assertIn("asset_classification", response.tools_used)
+        self.assertTrue(
+            {item.evidence_id for item in response.evidence}
+            & {classification_id, evidence_id}
+        )
+        self.assertTrue(response.advisory_only)
+        self.assertEqual(
+            response.classification_authority,
+            "deterministic-classification-engine",
+        )
+        self.assertIn("only explaining", response.answer)
+
+    def test_classification_tools_enforce_site_scope(self) -> None:
+        tools = ReadOnlyHubTools(
+            sites=[],
+            sensors=[],
+            assets=[],
+            classifications=[
+                {
+                    "classification_id": "cls_" + "a" * 32,
+                    "site_id": "site-a",
+                    "asset_id": "asset-a",
+                    "category": "server",
+                    "status": "classified",
+                    "confidence": 0.9,
+                    "managed_capability": {},
+                },
+                {
+                    "classification_id": "cls_" + "b" * 32,
+                    "site_id": "site-b",
+                    "asset_id": "asset-b",
+                    "category": "printer",
+                    "status": "classified",
+                    "confidence": 0.8,
+                    "managed_capability": {},
+                },
+            ],
+            now=NOW,
+        )
+
+        scoped = tools.run("classification_summary", site_id="site-a")
+
+        self.assertEqual(scoped["classification_count"], 1)
+        self.assertEqual(scoped["categories"], {"server": 1})
+
     def test_persisted_findings_and_risk_replace_demo_metadata_authority(self) -> None:
         tools = sample_tools(asset_count=1)
         asset = {

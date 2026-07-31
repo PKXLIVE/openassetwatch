@@ -80,6 +80,7 @@ class FindingRuleTests(unittest.TestCase):
                 "unknown-asset",
                 "passive-only-asset",
                 "security-coverage-gap",
+                "classification-conflict",
                 "identity-conflict",
             },
         )
@@ -128,6 +129,96 @@ class FindingRuleTests(unittest.TestCase):
 
         self.assertNotIn("security-coverage-gap", {item.rule_id for item in snapshot.candidates})
         self.assertNotIn("passive-only-asset", {item.rule_id for item in snapshot.candidates})
+
+    def test_managed_capability_prevents_iot_endpoint_gap_and_requires_workstation_coverage(self) -> None:
+        iot = asset(
+            "camera-a",
+            category="iot",
+            source_agent_id="passive-a",
+            security_coverage="missing",
+        )
+        iot["classification"] = {
+            "classification_id": "cls_" + "a" * 32,
+            "category": "iot",
+            "status": "classified",
+            "confidence": 0.82,
+            "managed_capability": {
+                "endpoint_collector": "not-expected",
+                "endpoint_security": "not-expected",
+                "software_inventory": "not-expected",
+                "patch_management": "unknown",
+            },
+            "endpoint_evidence_present": False,
+            "evaluated_at": NOW,
+        }
+        workstation = asset(
+            "workstation-a",
+            category="workstation",
+            source_agent_id="passive-a",
+        )
+        workstation["classification"] = {
+            "classification_id": "cls_" + "b" * 32,
+            "category": "workstation",
+            "status": "classified",
+            "confidence": 0.91,
+            "managed_capability": {
+                "endpoint_collector": "expected",
+                "endpoint_security": "expected",
+                "software_inventory": "expected",
+                "patch_management": "expected",
+            },
+            "endpoint_evidence_present": False,
+            "evaluated_at": NOW,
+        }
+
+        snapshot = evaluate_rules(
+            sites=[site()],
+            sensors=[sensor("passive-a", agent_type="network-sensor")],
+            assets=[iot, workstation],
+            now=NOW,
+        )
+        candidates = {(item.rule_id, item.asset_id) for item in snapshot.candidates}
+
+        self.assertNotIn(("passive-only-asset", "camera-a"), candidates)
+        self.assertNotIn(("security-coverage-gap", "camera-a"), candidates)
+        self.assertIn(("passive-only-asset", "workstation-a"), candidates)
+
+    def test_classification_conflict_uses_server_issued_evidence_ids(self) -> None:
+        conflicting = asset("asset-a", category="server")
+        supporting_id = "cev_" + "a" * 40
+        conflicting_id = "cev_" + "b" * 40
+        conflicting["classification"] = {
+            "classification_id": "cls_" + "c" * 32,
+            "category": "server",
+            "status": "conflicting",
+            "confidence": 0.67,
+            "managed_capability": {
+                "endpoint_collector": "expected",
+                "endpoint_security": "expected",
+                "software_inventory": "expected",
+                "patch_management": "expected",
+            },
+            "supporting_evidence_ids": [supporting_id],
+            "conflicting_evidence_ids": [conflicting_id],
+            "evaluated_at": NOW,
+        }
+
+        snapshot = evaluate_rules(
+            sites=[site()],
+            sensors=[],
+            assets=[conflicting],
+            now=NOW,
+            rule_ids=["classification-conflict"],
+        )
+
+        self.assertEqual(len(snapshot.candidates), 1)
+        finding = snapshot.candidates[0]
+        self.assertEqual(finding.rule_id, "classification-conflict")
+        self.assertEqual(
+            {item.evidence_ref for item in finding.evidence},
+            {supporting_id, conflicting_id},
+        )
+        self.assertAlmostEqual(finding.confidence, 0.67)
 
     def test_passive_sensor_cannot_assert_endpoint_security_coverage_gap(self) -> None:
         snapshot = evaluate_rules(
@@ -459,7 +550,7 @@ class FindingLifecycleTests(unittest.TestCase):
         )
         version_two = replace(
             initial,
-            candidates=(replace(initial.candidates[0], rule_version=2),),
+            candidates=(replace(initial.candidates[0], rule_version=3),),
         )
         second_run = self.store.begin_run()
         self.store.reconcile(
@@ -472,8 +563,8 @@ class FindingLifecycleTests(unittest.TestCase):
         )
 
         finding = next(iter(self.store.findings.values()))
-        self.assertEqual(finding["rule_version"], 2)
-        self.assertEqual(finding["previous_rule_version"], 1)
+        self.assertEqual(finding["rule_version"], 3)
+        self.assertEqual(finding["previous_rule_version"], 2)
         self.assertEqual(
             finding["rule_version_changed_at"],
             NOW + timedelta(minutes=1),
