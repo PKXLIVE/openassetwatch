@@ -1961,8 +1961,22 @@
       return asset && typeof asset.metadata === "object" && asset.metadata ? asset.metadata : {};
     }
 
+    function classification(asset) {
+      return asset && typeof asset.classification === "object" && asset.classification ? asset.classification : null;
+    }
+
     function category(asset) {
-      return text(metadata(asset).category || asset.platform || asset.os, "unknown").toLowerCase();
+      const value = classification(asset);
+      return text((value && value.category) || metadata(asset).category || asset.platform || asset.os, "unknown").toLowerCase();
+    }
+
+    function classificationEvidenceLabel(asset) {
+      const value = classification(asset);
+      if (!value || value.category === "unknown" || value.status === "unknown" || value.status === "insufficient-evidence") return "unknown";
+      if (value.status === "conflicting") return "conflicting";
+      const reasons = Array.isArray(value.reason_codes) ? value.reason_codes : [];
+      if (reasons.some(reason => String(reason).startsWith("direct-"))) return "direct";
+      return "inferred";
     }
 
     function attention(asset) {
@@ -1970,12 +1984,18 @@
     }
 
     function isUnknown(asset) {
-      return category(asset).includes("unknown") || attention(asset).toLowerCase().includes("unknown");
+      const value = classification(asset);
+      return category(asset).includes("unknown")
+        || (value && ["unknown", "insufficient-evidence"].includes(value.status))
+        || attention(asset).toLowerCase().includes("unknown");
     }
 
     function isUnmanaged(asset) {
-      const value = `${category(asset)} ${attention(asset)}`.toLowerCase();
-      return value.includes("unmanaged") || value.includes("iot") || value.includes("mobile");
+      const value = classification(asset);
+      const expected = value && value.managed_capability ? value.managed_capability.endpoint_collector : "unknown";
+      if (expected === "not-expected") return false;
+      return expected === "expected" && !value.endpoint_evidence_present
+        || attention(asset).toLowerCase().includes("unmanaged");
     }
 
     function isIot(asset) {
@@ -2379,6 +2399,9 @@
           asset.mac,
           asset.os,
           asset.platform,
+          classification(asset) && classification(asset).manufacturer,
+          classification(asset) && classification(asset).os_family,
+          classification(asset) && classification(asset).status,
           attention(asset)
         ].join(" ").toLowerCase();
         return haystack.includes(query);
@@ -2446,15 +2469,30 @@
       }
       target.className = "panel-body";
       const dl = document.createElement("dl");
+      const value = classification(asset);
+      const managed = value && value.managed_capability ? value.managed_capability : {};
       const details = [
         ["Asset", asset.asset_id],
         ["Hostname", asset.hostname],
         ["Site", asset.site_id],
         ["Category", category(asset)],
+        ["Classification basis", classificationEvidenceLabel(asset)],
+        ["Role or subtype", value && value.subtype],
+        ["Manufacturer", value && value.manufacturer],
+        ["Product or model hint", value && value.product_hint],
+        ["OS family or hint", value ? `${text(value.os_family)} / ${text(value.os_version_hint)}` : text(asset.os)],
+        ["Managed capability", value ? `collector ${text(managed.endpoint_collector)}; security ${text(managed.endpoint_security)}; software ${text(managed.software_inventory)}; patching ${text(managed.patch_management)}` : "unknown"],
+        ["Classification status", value && value.status],
+        ["Classification confidence", value ? `${Math.round(Number(value.confidence || 0) * 100)}%` : "unknown"],
+        ["Independent sources", value && value.independent_source_count],
+        ["Classification evidence", value && value.evidence_count],
+        ["Classification freshness", value && value.freshness],
+        ["Conflict indicator", value && value.status === "conflicting" ? "conflicting evidence requires review" : "none reported"],
+        ["Explanation factors", value && Array.isArray(value.reason_codes) ? value.reason_codes.join(", ") : "none"],
         ["Attention", attention(asset) || "observed"],
         ["Evidence count", asset.evidence_count],
         ["Last seen", fmtDate(asset.last_seen_at)],
-        ["Evidence summary", `${metadata(asset).source || "inventory evidence"}; confidence: demo sample`]
+        ["Evidence summary", value ? "deterministic classification; AI commentary remains advisory" : `${metadata(asset).source || "inventory evidence"}; classification pending`]
       ];
       details.forEach(([label, value]) => {
         const dt = document.createElement("dt");
@@ -2464,6 +2502,19 @@
         dl.append(dt, dd);
       });
       target.appendChild(dl);
+      if (value) {
+        const technical = document.createElement("details");
+        const summary = document.createElement("summary");
+        const identifiers = document.createElement("p");
+        const conflicts = document.createElement("p");
+        summary.textContent = "Technical classification evidence";
+        identifiers.textContent = `Classification ${text(value.classification_id)}; supporting evidence ${Array.isArray(value.supporting_evidence_ids) && value.supporting_evidence_ids.length ? value.supporting_evidence_ids.join(", ") : "none"}; conflicting evidence ${Array.isArray(value.conflicting_evidence_ids) && value.conflicting_evidence_ids.length ? value.conflicting_evidence_ids.join(", ") : "none"}.`;
+        conflicts.textContent = value.status === "conflicting"
+          ? "Deterministic conflict is preserved. AI may explain it but cannot resolve or override it."
+          : "No current deterministic classification conflict is reported.";
+        technical.append(summary, identifiers, conflicts);
+        target.appendChild(technical);
+      }
     }
 
     function renderCollectors(data) {
