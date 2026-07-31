@@ -29,6 +29,7 @@ CATEGORY_CAPS = {
     "identity": 35.0,
     "inventory": 25.0,
     "movement": 20.0,
+    "vulnerability": 50.0,
     "other": 20.0,
 }
 DIMINISHING_FACTORS = (1.0, 0.6, 0.35, 0.2)

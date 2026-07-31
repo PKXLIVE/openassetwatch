@@ -18,7 +18,7 @@ Severity = Literal["critical", "high", "medium", "low", "informational"]
 Freshness = Literal["fresh", "aging", "stale", "unknown"]
 SubjectType = Literal["asset", "sensor", "site"]
 
-RULESET_VERSION = "oaw.findings.v2"
+RULESET_VERSION = "oaw.findings.v3"
 MAX_FINDING_CANDIDATES = 10_000
 MAX_EVIDENCE_REFERENCES = 8
 SUPPORTED_SEVERITIES = frozenset({"critical", "high", "medium", "low", "informational"})
@@ -148,6 +148,7 @@ ResolutionKey = tuple[str, SubjectType, str, str]
 class EvaluationSnapshot:
     candidates: tuple[FindingCandidate, ...]
     resolution_eligible: frozenset[ResolutionKey]
+    resolution_eligible_dedupe_keys: frozenset[str]
     evaluated_rule_ids: tuple[str, ...]
     data_as_of: datetime | None
     site_count: int
@@ -224,6 +225,13 @@ def _metadata(asset: Mapping[str, Any]) -> dict[str, Any]:
 def _classification(asset: Mapping[str, Any]) -> dict[str, Any]:
     value = asset.get("classification")
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _vulnerability_matches(asset: Mapping[str, Any]) -> list[dict[str, Any]]:
+    value = asset.get("vulnerability_matches")
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value[:2_000] if isinstance(item, dict)]
 
 
 def _managed_expectation(
@@ -385,12 +393,18 @@ def _candidate(
     observed_at: datetime | None,
     freshness: Freshness,
     evidence: Sequence[EvidenceReference],
+    dedupe_subject_id: str | None = None,
 ) -> FindingCandidate:
     subject_id = asset_id if subject_type == "asset" else sensor_id if subject_type == "sensor" else site_id
     if not subject_id:
         raise ValueError("finding candidate requires a subject identifier")
     return FindingCandidate(
-        dedupe_key=_dedupe_key(rule_id, subject_type, site_id, subject_id),
+        dedupe_key=_dedupe_key(
+            rule_id,
+            subject_type,
+            site_id,
+            dedupe_subject_id or subject_id,
+        ),
         rule_id=rule_id,
         rule_version=rule_version,
         category=category,
@@ -407,6 +421,273 @@ def _candidate(
         evidence_freshness=freshness,
         evidence=tuple(evidence[:MAX_EVIDENCE_REFERENCES]),
     )
+
+
+_VULNERABILITY_SEVERITY_ORDER: tuple[Severity, ...] = (
+    "informational",
+    "low",
+    "medium",
+    "high",
+    "critical",
+)
+
+
+def _vulnerability_severity(match: Mapping[str, Any]) -> Severity:
+    raw = _text(match.get("severity"), limit=32).lower()
+    severity: Severity = (
+        raw if raw in SUPPORTED_SEVERITIES else "informational"
+    )  # type: ignore[assignment]
+    if match.get("known_exploited"):
+        index = min(
+            _VULNERABILITY_SEVERITY_ORDER.index(severity) + 1,
+            len(_VULNERABILITY_SEVERITY_ORDER) - 1,
+        )
+        return _VULNERABILITY_SEVERITY_ORDER[index]
+    return severity
+
+
+def _vulnerability_evidence(
+    *,
+    match: Mapping[str, Any],
+    site_id: str,
+    asset_id: str,
+    observed_at: datetime | None,
+    freshness: Freshness,
+    confidence: float,
+) -> tuple[EvidenceReference, ...]:
+    values = (
+        (
+            _text(match.get("match_id"), limit=80),
+            "vulnerability-match",
+            "deterministic-vulnerability-matcher",
+            "Server-issued deterministic match result.",
+        ),
+        (
+            _text(match.get("component_id"), limit=80),
+            "normalized-component",
+            "asset_components",
+            "Server-issued normalized component inventory record.",
+        ),
+        (
+            _text(match.get("advisory_id"), limit=80),
+            "reviewed-advisory",
+            "local-advisory-catalog",
+            "Server-issued reviewed local advisory record.",
+        ),
+    )
+    return tuple(
+        EvidenceReference(
+            evidence_ref=evidence_ref,
+            evidence_type=evidence_type,
+            source=source,
+            observed_at=observed_at,
+            freshness=freshness,
+            confidence=confidence,
+            summary=summary,
+        )
+        for evidence_ref, evidence_type, source, summary in values
+        if evidence_ref
+    )
+
+
+def _confirmed_vulnerable_components(
+    context: RuleContext,
+) -> Iterable[FindingCandidate]:
+    rule_id = "vulnerable-component"
+    for asset in context.assets:
+        site_id = _text(asset.get("site_id"), limit=128)
+        asset_id = _text(asset.get("asset_id"), limit=160)
+        if not site_id or not asset_id:
+            continue
+        for match in _vulnerability_matches(asset):
+            if match.get("match_status") != "affected":
+                continue
+            match_id = _text(match.get("match_id"), limit=80)
+            component_id = _text(match.get("component_id"), limit=80)
+            advisory_id = _text(match.get("advisory_id"), limit=80)
+            if not match_id or not component_id or not advisory_id:
+                continue
+            observed_at = _utc(
+                match.get("component_last_seen_at")
+                or match.get("evaluated_at")
+            )
+            freshness_value = _text(
+                match.get("component_freshness"),
+                limit=32,
+            )
+            freshness: Freshness = (
+                freshness_value
+                if freshness_value in {"fresh", "aging", "stale", "unknown"}
+                else evidence_freshness(
+                    observed_at,
+                    now=context.now,
+                    config=context.config,
+                )
+            )  # type: ignore[assignment]
+            confidence = _confidence(match.get("match_confidence"), 0.0)
+            known_exploited = bool(match.get("known_exploited"))
+            component_name = _text(
+                match.get("component_name"),
+                limit=160,
+            ) or component_id
+            title = (
+                "Known-exploited vulnerable component"
+                if known_exploited
+                else "Confirmed vulnerable component"
+            )
+            fixed_version = _text(match.get("fixed_version"), limit=160)
+            description = (
+                f"Deterministic match {match_id} confirms {component_name} "
+                f"version {_text(match.get('installed_version'), limit=160) or 'unknown'} "
+                f"is affected by advisory {advisory_id}."
+            )
+            recommendation = (
+                f"Review and test upgrade to {fixed_version}; no automatic patching occurs."
+                if fixed_version
+                else "Review the cited advisory and establish a tested remediation plan; no automatic patching occurs."
+            )
+            yield _candidate(
+                rule_id=rule_id,
+                rule_version=1,
+                category="vulnerability",
+                subject_type="asset",
+                site_id=site_id,
+                asset_id=asset_id,
+                title=title,
+                description=description,
+                recommendation=recommendation,
+                severity=_vulnerability_severity(match),
+                confidence=confidence,
+                observed_at=observed_at,
+                freshness=freshness,
+                evidence=_vulnerability_evidence(
+                    match=match,
+                    site_id=site_id,
+                    asset_id=asset_id,
+                    observed_at=observed_at,
+                    freshness=freshness,
+                    confidence=confidence,
+                ),
+                dedupe_subject_id=match_id,
+            )
+
+
+def _component_version_unavailable(
+    context: RuleContext,
+) -> Iterable[FindingCandidate]:
+    rule_id = "component-version-unavailable"
+    for asset in context.assets:
+        site_id = _text(asset.get("site_id"), limit=128)
+        asset_id = _text(asset.get("asset_id"), limit=160)
+        seen_components: set[str] = set()
+        for match in _vulnerability_matches(asset):
+            if match.get("match_status") != "version-unknown":
+                continue
+            component_id = _text(match.get("component_id"), limit=80)
+            if (
+                not site_id
+                or not asset_id
+                or not component_id
+                or component_id in seen_components
+            ):
+                continue
+            seen_components.add(component_id)
+            observed_at = _utc(
+                match.get("component_last_seen_at")
+                or match.get("evaluated_at")
+            )
+            freshness = evidence_freshness(
+                observed_at,
+                now=context.now,
+                config=context.config,
+            )
+            confidence = _confidence(match.get("match_confidence"), 0.5)
+            yield _candidate(
+                rule_id=rule_id,
+                rule_version=1,
+                category="inventory",
+                subject_type="asset",
+                site_id=site_id,
+                asset_id=asset_id,
+                title="Component version unavailable",
+                description=(
+                    f"Normalized component {component_id} has no usable version, "
+                    "so it has not been classified as vulnerable."
+                ),
+                recommendation="Collect a current authoritative version for deterministic evaluation.",
+                severity="informational",
+                confidence=confidence,
+                observed_at=observed_at,
+                freshness=freshness,
+                evidence=_vulnerability_evidence(
+                    match=match,
+                    site_id=site_id,
+                    asset_id=asset_id,
+                    observed_at=observed_at,
+                    freshness=freshness,
+                    confidence=confidence,
+                ),
+                dedupe_subject_id=component_id,
+            )
+
+
+def _advisory_identity_uncertain(
+    context: RuleContext,
+) -> Iterable[FindingCandidate]:
+    rule_id = "advisory-identity-uncertain"
+    for asset in context.assets:
+        site_id = _text(asset.get("site_id"), limit=128)
+        asset_id = _text(asset.get("asset_id"), limit=160)
+        seen_components: set[str] = set()
+        for match in _vulnerability_matches(asset):
+            if match.get("match_status") != "identity-uncertain":
+                continue
+            component_id = _text(match.get("component_id"), limit=80)
+            if (
+                not site_id
+                or not asset_id
+                or not component_id
+                or component_id in seen_components
+            ):
+                continue
+            seen_components.add(component_id)
+            observed_at = _utc(
+                match.get("component_last_seen_at")
+                or match.get("evaluated_at")
+            )
+            freshness = evidence_freshness(
+                observed_at,
+                now=context.now,
+                config=context.config,
+            )
+            confidence = _confidence(match.get("match_confidence"), 0.4)
+            yield _candidate(
+                rule_id=rule_id,
+                rule_version=1,
+                category="inventory",
+                subject_type="asset",
+                site_id=site_id,
+                asset_id=asset_id,
+                title="Advisory identity requires review",
+                description=(
+                    f"Component {component_id} resembles a reviewed advisory identity "
+                    "but lacks a precise canonical identifier; no vulnerability is confirmed."
+                ),
+                recommendation="Review package identity and provenance before treating the advisory as applicable.",
+                severity="informational",
+                confidence=confidence,
+                observed_at=observed_at,
+                freshness=freshness,
+                evidence=_vulnerability_evidence(
+                    match=match,
+                    site_id=site_id,
+                    asset_id=asset_id,
+                    observed_at=observed_at,
+                    freshness=freshness,
+                    confidence=confidence,
+                ),
+                dedupe_subject_id=component_id,
+            )
 
 
 def _sensor_stale(context: RuleContext) -> Iterable[FindingCandidate]:
@@ -945,6 +1226,48 @@ RULE_REGISTRY: tuple[RuleDefinition, ...] = (
         resolution_behavior="Does not auto-resolve in v1 because a counterpart record disappearing is insufficient evidence.",
         evaluator=_identity_conflicts,
     ),
+    RuleDefinition(
+        rule_id="vulnerable-component",
+        version=1,
+        category="vulnerability",
+        title="Confirmed vulnerable component",
+        rationale="Only an affected result from the deterministic component-to-advisory matcher triggers this rule.",
+        severity="high",
+        scope="asset",
+        required_evidence=("normalized component", "reviewed advisory", "deterministic match"),
+        freshness_requirement="Requires current component evidence and a non-withdrawn reviewed advisory.",
+        remediation_guidance="Review and test the source-backed fixed version when supplied; no automatic patching occurs.",
+        resolution_behavior="Resolve only after current complete inventory confirms a fixed, non-affected, withdrawn, or removed component state.",
+        evaluator=_confirmed_vulnerable_components,
+    ),
+    RuleDefinition(
+        rule_id="component-version-unavailable",
+        version=1,
+        category="inventory",
+        title="Component version unavailable",
+        rationale="A missing version is an inventory-quality gap, never proof of vulnerability.",
+        severity="informational",
+        scope="asset",
+        required_evidence=("normalized component", "missing usable version"),
+        freshness_requirement="Uses current normalized component evidence.",
+        remediation_guidance="Collect a current authoritative component version.",
+        resolution_behavior="Resolve after a usable version is deterministically evaluated.",
+        evaluator=_component_version_unavailable,
+    ),
+    RuleDefinition(
+        rule_id="advisory-identity-uncertain",
+        version=1,
+        category="inventory",
+        title="Advisory identity requires review",
+        rationale="Name similarity without a precise reviewed identity cannot confirm vulnerability.",
+        severity="informational",
+        scope="asset",
+        required_evidence=("normalized component", "reviewed advisory candidate"),
+        freshness_requirement="Uses current normalized component evidence.",
+        remediation_guidance="Review canonical package, vendor, and product identity.",
+        resolution_behavior="Resolve after identity is precise or no reviewed advisory candidate remains.",
+        evaluator=_advisory_identity_uncertain,
+    ),
 )
 
 RULES_BY_ID = {rule.rule_id: rule for rule in RULE_REGISTRY}
@@ -1047,6 +1370,72 @@ def _resolution_eligible(
     return frozenset(keys)
 
 
+def _resolution_eligible_vulnerability_dedupe_keys(
+    context: RuleContext,
+    evaluated_rules: Sequence[RuleDefinition],
+) -> frozenset[str]:
+    keys: set[str] = set()
+    rule_ids = {rule.rule_id for rule in evaluated_rules}
+    for asset in context.assets:
+        site_id = _text(asset.get("site_id"), limit=128)
+        asset_id = _text(asset.get("asset_id"), limit=160)
+        if not site_id or not asset_id:
+            continue
+        by_component: dict[str, list[dict[str, Any]]] = {}
+        for match in _vulnerability_matches(asset):
+            component_id = _text(match.get("component_id"), limit=80)
+            if component_id:
+                by_component.setdefault(component_id, []).append(match)
+            match_id = _text(match.get("match_id"), limit=80)
+            status = _text(match.get("match_status"), limit=40)
+            if (
+                "vulnerable-component" in rule_ids
+                and match_id
+                and status
+                in {"fixed", "not-affected", "advisory-withdrawn"}
+            ):
+                keys.add(
+                    _dedupe_key(
+                        "vulnerable-component",
+                        "asset",
+                        site_id,
+                        match_id,
+                    )
+                )
+        for component_id, matches in by_component.items():
+            statuses = {
+                _text(match.get("match_status"), limit=40)
+                for match in matches
+            }
+            if (
+                "component-version-unavailable" in rule_ids
+                and statuses
+                and "version-unknown" not in statuses
+            ):
+                keys.add(
+                    _dedupe_key(
+                        "component-version-unavailable",
+                        "asset",
+                        site_id,
+                        component_id,
+                    )
+                )
+            if (
+                "advisory-identity-uncertain" in rule_ids
+                and statuses
+                and "identity-uncertain" not in statuses
+            ):
+                keys.add(
+                    _dedupe_key(
+                        "advisory-identity-uncertain",
+                        "asset",
+                        site_id,
+                        component_id,
+                    )
+                )
+    return frozenset(keys)
+
+
 def evaluate_rules(
     *,
     sites: Sequence[Mapping[str, Any]],
@@ -1112,12 +1501,42 @@ def evaluate_rules(
         ]
     candidates.sort(key=lambda item: (item.rule_id, item.site_id, item.subject_type, item.subject_id))
     resolution_eligible = _resolution_eligible(context, selected_rules)
+    resolution_eligible_dedupe_keys = (
+        _resolution_eligible_vulnerability_dedupe_keys(
+            context,
+            selected_rules,
+        )
+    )
     if asset_id:
         resolution_eligible = frozenset(
             key
             for key in resolution_eligible
             if key[1] == "asset" and key[3] == asset_id
         )
+        scoped_asset = next(
+            (
+                item
+                for item in site_assets
+                if item.get("asset_id") == asset_id
+            ),
+            None,
+        )
+        if scoped_asset is not None:
+            scoped_context = RuleContext(
+                now=context.now,
+                config=context.config,
+                sites=context.sites,
+                sensors=context.sensors,
+                assets=(scoped_asset,),
+            )
+            resolution_eligible_dedupe_keys = (
+                _resolution_eligible_vulnerability_dedupe_keys(
+                    scoped_context,
+                    selected_rules,
+                )
+            )
+        else:
+            resolution_eligible_dedupe_keys = frozenset()
     timestamps = [
         value
         for value in (
@@ -1135,6 +1554,7 @@ def evaluate_rules(
     return EvaluationSnapshot(
         candidates=tuple(candidates),
         resolution_eligible=resolution_eligible,
+        resolution_eligible_dedupe_keys=resolution_eligible_dedupe_keys,
         evaluated_rule_ids=tuple(rule.rule_id for rule in selected_rules),
         data_as_of=max(timestamps) if timestamps else None,
         site_count=len(filtered_sites),

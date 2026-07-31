@@ -500,7 +500,11 @@ class SqlFindingStore:
                     else row["site_id"]
                 )
                 resolution_key = (row["rule_id"], row["subject_type"], row["site_id"], subject_id)
-                if resolution_key not in snapshot.resolution_eligible:
+                if (
+                    resolution_key not in snapshot.resolution_eligible
+                    and row["dedupe_key"]
+                    not in snapshot.resolution_eligible_dedupe_keys
+                ):
                     continue
                 resolution_result = connection.execute(
                     text(
@@ -1232,7 +1236,11 @@ class InMemoryFindingStore:
                 else finding["site_id"]
             )
             key = (finding["rule_id"], finding["subject_type"], finding["site_id"], subject_id)
-            if key not in snapshot.resolution_eligible:
+            if (
+                key not in snapshot.resolution_eligible
+                and finding["dedupe_key"]
+                not in snapshot.resolution_eligible_dedupe_keys
+            ):
                 continue
             finding.update(
                 status="resolved",
