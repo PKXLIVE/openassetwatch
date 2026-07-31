@@ -1839,6 +1839,8 @@
       findings: "/api/v1/findings?status=active&limit=200",
       acknowledgedFindings: "/api/v1/findings?status=acknowledged&limit=200",
       risk: "/api/v1/risk/summary?limit=200",
+      components: "/api/v1/components?active=true&limit=200",
+      vulnerabilities: "/api/v1/vulnerabilities?limit=200",
       release: "/api/v1/releases/agent",
       advisorStatus: "/api/v1/ai/status",
       advisorQuery: "/api/v1/ai/advisor/query"
@@ -1855,8 +1857,9 @@
 
     const state = {
       loading: false,
-      data: {health: null, summary: null, sites: [], agents: [], checkins: [], assets: [], findings: [], risk: {sites: [], assets: []}, release: null},
+      data: {health: null, summary: null, sites: [], agents: [], checkins: [], assets: [], components: [], vulnerabilities: [], findings: [], risk: {sites: [], assets: []}, release: null},
       findingsError: null,
+      vulnerabilityError: null,
       assetFilter: "all",
       assetSearch: "",
       selectedAssetId: null,
@@ -2470,6 +2473,10 @@
       target.className = "panel-body";
       const dl = document.createElement("dl");
       const value = classification(asset);
+      const components = state.data.components.filter(item => item.site_id === asset.site_id && item.asset_id === asset.asset_id);
+      const vulnerabilities = state.data.vulnerabilities.filter(item => item.site_id === asset.site_id && item.asset_id === asset.asset_id);
+      const affected = vulnerabilities.filter(item => item.match_status === "affected");
+      const uncertain = vulnerabilities.filter(item => ["version-unknown", "identity-uncertain", "insufficient-evidence", "unsupported-comparison"].includes(item.match_status));
       const managed = value && value.managed_capability ? value.managed_capability : {};
       const details = [
         ["Asset", asset.asset_id],
@@ -2487,6 +2494,9 @@
         ["Independent sources", value && value.independent_source_count],
         ["Classification evidence", value && value.evidence_count],
         ["Classification freshness", value && value.freshness],
+        ["Installed components", components.length],
+        ["Confirmed affected", affected.length],
+        ["Component review gaps", uncertain.length],
         ["Conflict indicator", value && value.status === "conflicting" ? "conflicting evidence requires review" : "none reported"],
         ["Explanation factors", value && Array.isArray(value.reason_codes) ? value.reason_codes.join(", ") : "none"],
         ["Attention", attention(asset) || "observed"],
@@ -2515,6 +2525,83 @@
         technical.append(summary, identifiers, conflicts);
         target.appendChild(technical);
       }
+      const componentSection = document.createElement("section");
+      const componentHeading = document.createElement("h3");
+      componentHeading.textContent = "Software, packages, and firmware";
+      componentSection.appendChild(componentHeading);
+      if (!components.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = state.vulnerabilityError || "No normalized component evidence is available for this asset.";
+        componentSection.appendChild(empty);
+      } else {
+        components.slice(0, 50).forEach(component => {
+          const row = document.createElement("article");
+          row.className = "list-item";
+          const main = document.createElement("div");
+          const title = document.createElement("strong");
+          const detail = document.createElement("p");
+          const badges = document.createElement("div");
+          const technical = document.createElement("details");
+          const summary = document.createElement("summary");
+          const identifiers = document.createElement("p");
+          title.textContent = `${text(component.name)} ${text(component.version, "version unknown")}`;
+          detail.textContent = `${text(component.ecosystem)}; ${text(component.source_type)}; ${text(component.freshness)} evidence`;
+          badges.className = "badge-row";
+          badges.append(
+            makeBadge(component.component_type),
+            makeBadge(component.normalization_status, component.normalization_status === "normalized" ? "ok" : "warn")
+          );
+          summary.textContent = "Technical identity and provenance";
+          identifiers.textContent = `Component ${text(component.component_id)}; canonical identifier ${text(component.canonical_identifier)}; architecture ${text(component.architecture)}; source ${text(component.source_id)}; firmware evidence ${text(component.firmware_evidence_type)}.`;
+          technical.append(summary, identifiers);
+          main.append(title, detail, badges, technical);
+          row.appendChild(main);
+          componentSection.appendChild(row);
+        });
+      }
+      target.appendChild(componentSection);
+
+      const vulnerabilitySection = document.createElement("section");
+      const vulnerabilityHeading = document.createElement("h3");
+      vulnerabilityHeading.textContent = "Deterministic vulnerability intelligence";
+      vulnerabilitySection.appendChild(vulnerabilityHeading);
+      if (!vulnerabilities.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = state.vulnerabilityError || "No local advisory match has been evaluated for this asset.";
+        vulnerabilitySection.appendChild(empty);
+      } else {
+        vulnerabilities.slice(0, 50).forEach(match => {
+          const row = document.createElement("article");
+          row.className = "list-item";
+          const main = document.createElement("div");
+          const title = document.createElement("strong");
+          const detail = document.createElement("p");
+          const badges = document.createElement("div");
+          const technical = document.createElement("details");
+          const summary = document.createElement("summary");
+          const identifiers = document.createElement("p");
+          const limitations = document.createElement("p");
+          title.textContent = `${text(match.component_name)}: ${text(match.match_status)}`;
+          detail.textContent = `${text(match.title)}; Installed version ${text(match.installed_version, "unknown")}; Fixed version ${text(match.fixed_version, "not supplied")}`;
+          badges.className = "badge-row";
+          badges.append(
+            makeBadge(match.severity, ["critical", "high"].includes(match.severity) ? "warn" : ""),
+            makeBadge(match.match_status, match.match_status === "affected" ? "error" : match.match_status === "fixed" || match.match_status === "not-affected" ? "ok" : "warn"),
+            makeBadge(`confidence ${Math.round(Number(match.match_confidence || 0) * 100)}%`),
+            makeBadge(match.known_exploited ? "source marks known exploited" : "no known-exploited source flag", match.known_exploited ? "warn" : "")
+          );
+          summary.textContent = "Advisory range, identifiers, and provenance";
+          identifiers.textContent = `Match ${text(match.match_id)}; component ${text(match.component_id)}; advisory ${text(match.advisory_id)}; reviewed range ${text(match.affected_range)}; aliases ${Array.isArray(match.aliases) && match.aliases.length ? match.aliases.join(", ") : "none"}.`;
+          limitations.textContent = `Source ${text(match.source)} record ${text(match.source_record_id)}; catalog ${text(match.catalog_version)}; license ${text(match.source_license)}. Uncertain identity or missing version is not a confirmed vulnerability. AI may explain but cannot change this result.`;
+          technical.append(summary, identifiers, limitations);
+          main.append(title, detail, badges, technical);
+          row.appendChild(main);
+          vulnerabilitySection.appendChild(row);
+        });
+      }
+      target.appendChild(vulnerabilitySection);
     }
 
     function renderCollectors(data) {
@@ -3057,7 +3144,10 @@
         const release = await loadJSON(endpoints.release);
         let findings = [];
         let risk = {sites: [], assets: []};
+        let components = [];
+        let vulnerabilities = [];
         state.findingsError = null;
+        state.vulnerabilityError = null;
         try {
           const activeFindings = await loadJSON(endpoints.findings, {headers: advisorHeaders()});
           const acknowledgedFindings = await loadJSON(endpoints.acknowledgedFindings, {headers: advisorHeaders()});
@@ -3067,6 +3157,14 @@
         } catch (error) {
           state.findingsError = text(error.message, "Deterministic findings require admin authentication.");
         }
+        try {
+          const componentInventory = await loadJSON(endpoints.components, {headers: advisorHeaders()});
+          const vulnerabilityIntelligence = await loadJSON(endpoints.vulnerabilities, {headers: advisorHeaders()});
+          components = componentInventory.items || [];
+          vulnerabilities = vulnerabilityIntelligence.items || [];
+        } catch (error) {
+          state.vulnerabilityError = text(error.message, "Component and vulnerability intelligence require admin authentication.");
+        }
 
         state.data = {
           health,
@@ -3075,6 +3173,8 @@
           agents: agents.agents || [],
           checkins: checkins.check_ins || [],
           assets: assets.assets || [],
+          components,
+          vulnerabilities,
           findings,
           risk,
           release

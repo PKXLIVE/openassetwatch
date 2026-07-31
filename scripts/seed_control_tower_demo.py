@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import ParseResult, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +31,25 @@ FORBIDDEN_SEED_TERMS = (
     "active scan",
     "webshell",
     "credential collection",
+)
+POSTGRESQL_SCHEMES = {
+    "postgres",
+    "postgresql",
+    "postgresql+psycopg2",
+}
+DESTINATION_QUERY_KEYS = {
+    "host",
+    "hostaddr",
+    "port",
+    "service",
+    "servicefile",
+}
+SENSITIVE_QUERY_KEY_PARTS = (
+    "credential",
+    "key",
+    "pass",
+    "secret",
+    "token",
 )
 
 
@@ -325,6 +344,9 @@ class DemoSeedStore:
     def evaluate_classifications(self, *, evaluated_at: datetime) -> dict[str, Any]:
         return {}
 
+    def evaluate_vulnerabilities(self, *, evaluated_at: datetime) -> dict[str, Any]:
+        return {}
+
 
 class SqlDemoSeedStore(DemoSeedStore):
     def __init__(self, database_url: str) -> None:
@@ -355,6 +377,17 @@ class SqlDemoSeedStore(DemoSeedStore):
         agent_ids = [agent.agent_id for agent in DEMO_AGENTS] + list(LEGACY_DEMO_AGENT_IDS)
         asset_ids = [asset.asset_id for asset in DEMO_ASSETS] + list(LEGACY_DEMO_ASSET_IDS)
         with self.engine.begin() as connection:
+            connection.execute(
+                self.text(
+                    """
+                    DELETE FROM vulnerability_match_history
+                    WHERE site_id IN :site_ids
+                    """
+                ).bindparams(
+                    self.bindparam("site_ids", expanding=True),
+                ),
+                {"site_ids": site_ids},
+            )
             connection.execute(
                 self.text(
                     """
@@ -419,6 +452,14 @@ class SqlDemoSeedStore(DemoSeedStore):
                 self.text(
                     """
                     DELETE FROM finding_evaluation_runs
+                    WHERE requested_by = 'control-tower-demo-seed'
+                    """
+                )
+            )
+            connection.execute(
+                self.text(
+                    """
+                    DELETE FROM vulnerability_evaluation_runs
                     WHERE requested_by = 'control-tower-demo-seed'
                     """
                 )
@@ -913,6 +954,248 @@ class SqlDemoSeedStore(DemoSeedStore):
         )
         return initial.as_dict()
 
+    def evaluate_vulnerabilities(
+        self,
+        *,
+        evaluated_at: datetime,
+    ) -> dict[str, Any]:
+        from dataclasses import replace
+
+        from app.advisory_catalog import load_catalog
+        from app.advisory_store import SqlAdvisoryStore
+        from app.component_intelligence import normalize_components_for_asset
+        from app.component_store import SqlComponentStore
+        from app.finding_service import evaluate_findings
+        from app.finding_store import SqlFindingStore
+        from app.vulnerability_service import evaluate_vulnerabilities
+        from app.vulnerability_store import SqlVulnerabilityStore
+
+        entries: dict[str, list[dict[str, Any]]] = {
+            "asset-lab-server-demo": [
+                {
+                    "component_type": "application",
+                    "ecosystem": "pypi",
+                    "name": "asterion-agent",
+                    "version": "1.2.0",
+                    "purl": "pkg:pypi/asterion-agent",
+                    "architecture": "amd64",
+                    "confidence": 0.98,
+                    "evidence_ids": ["demo-component-evidence-asterion"],
+                }
+            ],
+            "asset-office-laptop-demo": [
+                {
+                    "component_type": "application",
+                    "ecosystem": "npm",
+                    "name": "lumina-widget",
+                    "version": "3.2.0",
+                    "purl": "pkg:npm/lumina-widget",
+                    "architecture": "arm64",
+                    "confidence": 0.96,
+                    "evidence_ids": ["demo-component-evidence-lumina"],
+                },
+                {
+                    "component_type": "application",
+                    "ecosystem": "generic",
+                    "vendor": "Fictional Orbit Systems",
+                    "name": "Orbit Desk",
+                    "version": "1.5",
+                    "confidence": 0.72,
+                    "evidence_ids": ["demo-component-evidence-orbit"],
+                },
+            ],
+            "asset-home-workstation-demo": [
+                {
+                    "component_type": "application",
+                    "ecosystem": "pypi",
+                    "name": "nebula-backup",
+                    "purl": "pkg:pypi/nebula-backup",
+                    "architecture": "amd64",
+                    "confidence": 0.95,
+                    "evidence_ids": ["demo-component-evidence-nebula"],
+                }
+            ],
+            "asset-home-router-demo": [
+                {
+                    "component_type": "firmware",
+                    "ecosystem": "firmware",
+                    "vendor": "Fictional Beacon Works",
+                    "name": "Beacon Router Firmware",
+                    "version": "5.0.8",
+                    "firmware_evidence_type": "vendor-reported",
+                    "confidence": 0.94,
+                    "evidence_ids": ["demo-component-evidence-beacon"],
+                }
+            ],
+            "asset-home-smart-tv-demo": [
+                {
+                    "component_type": "firmware",
+                    "ecosystem": "firmware",
+                    "vendor": "Fictional Screen Works",
+                    "name": "Screen Demo Firmware",
+                    "version": "observed-family-7",
+                    "firmware_evidence_type": "inferred",
+                    "confidence": 0.48,
+                    "evidence_ids": ["demo-component-evidence-screen-weak"],
+                }
+            ],
+        }
+        asset_by_id = {asset.asset_id: asset for asset in DEMO_ASSETS}
+        normalized_components = []
+        for asset_id, component_entries in entries.items():
+            asset = asset_by_id[asset_id]
+            endpoint = asset.source_agent_id.startswith("agent-")
+            reviewed_connector = asset_id == "asset-home-router-demo"
+            component_source_id = (
+                "connector-home-router-demo-01"
+                if reviewed_connector
+                else asset.source_agent_id
+            )
+            payload = {
+                "site_id": asset.site_id,
+                "sensor_id": component_source_id,
+                "sensor_type": (
+                    "endpoint-collector"
+                    if endpoint
+                    else "connector"
+                    if reviewed_connector
+                    else "passive-network-sensor"
+                ),
+                "observation_source": (
+                    "endpoint-inventory"
+                    if endpoint
+                    else "connector"
+                    if reviewed_connector
+                    else "passive-network"
+                ),
+                "confidence": 0.95,
+                "component_inventory_complete": endpoint,
+            }
+            normalized = normalize_components_for_asset(
+                asset={
+                    "site_id": asset.site_id,
+                    "asset_id": asset.asset_id,
+                    "source_agent_id": component_source_id,
+                    "components": component_entries,
+                    "component_inventory_complete": endpoint,
+                },
+                payload=payload,
+                received_at=evaluated_at - timedelta(minutes=4),
+                source_authenticated=True,
+            )
+            normalized_components.extend(normalized)
+
+        component_store = SqlComponentStore()
+        component_store.persist(components=normalized_components)
+        catalog, checksum = load_catalog(
+            BACKEND_ROOT
+            / "catalogs"
+            / "synthetic-advisory-catalog.json"
+        )
+        catalog_import = SqlAdvisoryStore().import_catalog(
+            catalog=catalog,
+            checksum=checksum,
+            imported_at=evaluated_at,
+        )
+        initial = evaluate_vulnerabilities(
+            trigger_type="demo-seed",
+            requested_by="control-tower-demo-seed",
+            now=evaluated_at - timedelta(minutes=4),
+            update_findings=False,
+        )
+        evaluate_findings(
+            trigger_type="demo-vulnerability-before-upgrade",
+            requested_by="control-tower-demo-seed",
+            now=evaluated_at - timedelta(minutes=4),
+        )
+        finding_store = SqlFindingStore()
+        before_risk = finding_store.get_asset_risk(
+            site_id="demo-lab",
+            asset_id="asset-lab-server-demo",
+        )
+
+        asterion = next(
+            component
+            for component in normalized_components
+            if component.name == "asterion-agent"
+        )
+        fixed_component = replace(
+            asterion,
+            version="1.4.2",
+            normalized_version="1.4.2",
+            observed_at=evaluated_at - timedelta(minutes=2),
+            last_seen_at=evaluated_at - timedelta(minutes=2),
+        )
+        component_store.persist(components=[fixed_component])
+        fixed = evaluate_vulnerabilities(
+            trigger_type="demo-upgrade",
+            requested_by="control-tower-demo-seed",
+            site_id="demo-lab",
+            now=evaluated_at - timedelta(minutes=2),
+            update_findings=False,
+        )
+        evaluate_findings(
+            trigger_type="demo-vulnerability-after-upgrade",
+            requested_by="control-tower-demo-seed",
+            site_id="demo-lab",
+            now=evaluated_at - timedelta(minutes=2),
+        )
+        after_risk = finding_store.get_asset_risk(
+            site_id="demo-lab",
+            asset_id="asset-lab-server-demo",
+        )
+
+        restored_component = replace(
+            asterion,
+            observed_at=evaluated_at,
+            last_seen_at=evaluated_at,
+        )
+        component_store.persist(components=[restored_component])
+        restored = evaluate_vulnerabilities(
+            trigger_type="demo-restore-affected",
+            requested_by="control-tower-demo-seed",
+            site_id="demo-lab",
+            now=evaluated_at,
+            update_findings=False,
+        )
+        vulnerability_store = SqlVulnerabilityStore()
+        matches = vulnerability_store.list_matches(
+            limit=200,
+        )["items"]
+        asterion_match = next(
+            match
+            for match in matches
+            if match["component_id"] == asterion.component_id
+            and match["match_status"] == "affected"
+        )
+        history = vulnerability_store.list_history(
+            match_id=asterion_match["match_id"],
+            limit=50,
+        )
+        weak_firmware_matches = [
+            match
+            for match in matches
+            if match["component_name"] == "Screen Demo Firmware"
+        ]
+        return {
+            "catalog_import_id": catalog_import["import_id"],
+            "catalog_checksum": checksum,
+            "component_count": len(normalized_components),
+            "initial_run_id": initial.run_id,
+            "fixed_run_id": fixed.run_id,
+            "restored_run_id": restored.run_id,
+            "affected_match_id": asterion_match["match_id"],
+            "history_count": len(history),
+            "risk_before_upgrade": (
+                before_risk["score"] if before_risk else None
+            ),
+            "risk_after_upgrade": (
+                after_risk["score"] if after_risk else None
+            ),
+            "weak_firmware_match_count": len(weak_firmware_matches),
+            "known_exploited": asterion_match["known_exploited"],
+        }
+
 
 def assets_for_site(site_id: str) -> list[DemoAsset]:
     return [asset for asset in DEMO_ASSETS if asset.site_id == site_id]
@@ -952,6 +1235,11 @@ def seed_demo_data(store: DemoSeedStore, *, base_time: datetime = DEMO_BASE_TIME
         if hasattr(store, "evaluate_classifications")
         else {}
     )
+    vulnerabilities = (
+        store.evaluate_vulnerabilities(evaluated_at=base_time)
+        if hasattr(store, "evaluate_vulnerabilities")
+        else {}
+    )
     evaluation = (
         store.evaluate_findings(evaluated_at=base_time)
         if hasattr(store, "evaluate_findings")
@@ -965,6 +1253,7 @@ def seed_demo_data(store: DemoSeedStore, *, base_time: datetime = DEMO_BASE_TIME
         "assets": len(DEMO_ASSETS),
         "evidence": sum(asset.evidence_count for asset in DEMO_ASSETS),
         "deterministic_classification": classification,
+        "deterministic_vulnerabilities": vulnerabilities,
         "deterministic_evaluation": evaluation,
         "summary": store.summary(),
     }
@@ -980,6 +1269,15 @@ def compose_host_allowed(value: str | None = None) -> bool:
 
 def local_database_url(value: str, *, allow_compose_host: bool = False) -> bool:
     parsed = urlparse(value)
+    if (
+        parsed.scheme.casefold() not in POSTGRESQL_SCHEMES
+        or parsed.fragment
+        or any(
+            key.casefold() in DESTINATION_QUERY_KEYS
+            for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+        )
+    ):
+        return False
     if parsed.hostname in LOCAL_DATABASE_HOSTS:
         return True
     return allow_compose_host and parsed.hostname in COMPOSE_DATABASE_HOSTS
@@ -994,14 +1292,40 @@ def dependency_error_message(module_name: str) -> str:
 
 def sanitized_database_url(value: str) -> str:
     parsed = urlparse(value)
-    if parsed.password is None:
-        return value
-    netloc = parsed.hostname or ""
+    host = parsed.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    netloc = host
     if parsed.username:
-        netloc = f"{parsed.username}:***@{netloc}"
+        username = quote(parsed.username, safe="")
+        password = ":***" if parsed.password is not None else ""
+        netloc = f"{username}{password}@{netloc}"
     if parsed.port:
         netloc = f"{netloc}:{parsed.port}"
-    return urlunparse(ParseResult(parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+    sanitized_query = urlencode(
+        [
+            (
+                key,
+                "***"
+                if any(
+                    part in key.casefold()
+                    for part in SENSITIVE_QUERY_KEY_PARTS
+                )
+                else query_value,
+            )
+            for key, query_value in parse_qsl(
+                parsed.query,
+                keep_blank_values=True,
+            )
+        ],
+        doseq=True,
+    )
+    return urlunparse(
+        parsed._replace(
+            netloc=netloc,
+            query=sanitized_query,
+        )
+    )
 
 
 def parse_args() -> argparse.Namespace:
