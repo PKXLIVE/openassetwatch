@@ -81,11 +81,7 @@ class DemoAsset:
     last_seen_minutes_ago: int
     category: str
     attention: str
-    management_status: str = "managed"
-    risk_score: int = 20
-    finding_id: str | None = None
-    finding_title: str | None = None
-    finding_severity: str | None = None
+    security_coverage: str | None = None
     confidence: float = 0.9
 
 
@@ -176,18 +172,18 @@ DEMO_CHECKINS = tuple(
 )
 
 DEMO_ASSETS = (
-    DemoAsset("asset-home-workstation-demo", "demo-home", "demo-home-workstation", "192.0.2.10", "02:00:5e:10:00:10", "Windows 11 Demo", "Windows/amd64", "agent-win-home-demo-01", 7, 4, "workstation", "healthy endpoint sample", "managed", 20),
-    DemoAsset("asset-home-smart-tv-demo", "demo-home", "demo-home-smart-tv", "192.0.2.44", "02:00:5e:10:00:44", "Smart TV Demo Firmware", "iot-demo", "sensor-home-demo-01", 3, 8, "iot", "unmanaged IoT device sample", "unmanaged", 76, "demo-home-unmanaged-iot", "Unmanaged smart TV observed", "high"),
-    DemoAsset("asset-home-mobile-demo", "demo-home", "demo-home-mobile", "192.0.2.66", "02:00:5e:10:00:66", "Mobile Demo OS", "mobile-demo", "sensor-home-demo-01", 3, 11, "mobile", "unmanaged mobile device sample", "weakly-managed", 58, "demo-home-mobile-coverage", "Mobile device has weak management coverage", "medium"),
-    DemoAsset("asset-home-router-demo", "demo-home", "demo-home-router", "192.0.2.1", "02:00:5e:10:00:01", "Router Demo Firmware", "network-device-demo", "sensor-home-demo-01", 5, 6, "router", "router inventory sample", "managed", 35),
-    DemoAsset("asset-office-laptop-demo", "demo-office", "demo-office-laptop", "198.51.100.20", "02:00:5e:20:00:20", "macOS Demo", "macOS/arm64", "agent-macos-office-demo-01", 6, 13, "laptop", "healthy endpoint sample", "managed", 24),
-    DemoAsset("asset-office-printer-demo", "demo-office", "demo-office-printer", "198.51.100.25", "02:00:5e:20:00:25", "Printer Demo Firmware", "embedded-demo", "sensor-office-demo-01", 4, 120, "printer", "printer inventory sample", "weakly-managed", 62, "demo-office-printer-review", "Printer ownership and firmware need review", "medium"),
-    DemoAsset("asset-office-switch-demo", "demo-office", "demo-office-switch", "198.51.100.2", "02:00:5e:20:00:02", "Switch Demo Firmware", "network-device-demo", "sensor-office-demo-01", 5, 130, "network-switch", "network switch sample", "managed", 30),
-    DemoAsset("asset-office-unknown-demo", "demo-office", "demo-office-unknown", "198.51.100.88", "02:00:5e:20:00:88", "Unknown Demo Device", "unknown-demo", "sensor-office-demo-01", 2, 125, "unknown", "unknown device sample", "unmanaged", 91, "demo-office-unknown-device", "Unknown device observed at Office", "critical"),
-    DemoAsset("asset-lab-server-demo", "demo-lab", "demo-lab-server", "203.0.113.30", "02:00:5e:30:00:30", "Linux Demo", "Linux/amd64", "agent-linux-lab-demo-01", 8, 10, "server", "missing security tooling sample", "weakly-managed", 72, "demo-lab-security-coverage", "Lab server is missing expected security tooling", "high"),
-    DemoAsset("asset-lab-runner-demo", "demo-lab", "demo-lab-runner", "203.0.113.31", "02:00:5e:30:00:31", "Linux Demo", "Linux/amd64", "sensor-lab-demo-01", 6, 18, "build-runner", "new asset sample", "managed", 48, "demo-lab-new-runner", "New build runner needs ownership validation", "medium"),
-    DemoAsset("asset-lab-nas-demo", "demo-lab", "demo-lab-nas", "203.0.113.40", "02:00:5e:30:00:40", "NAS Demo Firmware", "storage-demo", "sensor-lab-demo-01", 5, 50, "storage", "stale inventory sample", "managed", 55, "demo-lab-stale-inventory", "NAS evidence is aging", "medium"),
-    DemoAsset("asset-lab-camera-demo", "demo-lab", "demo-lab-camera", "203.0.113.55", "02:00:5e:30:00:55", "Camera Demo Firmware", "iot-demo", "sensor-lab-demo-01", 3, 34, "camera", "unmanaged IoT device sample", "unmanaged", 80, "demo-lab-unmanaged-camera", "Unmanaged camera observed in Lab", "high"),
+    DemoAsset("asset-home-workstation-demo", "demo-home", "demo-home-workstation", "192.0.2.10", "02:00:5e:10:00:10", "Windows 11 Demo", "Windows/amd64", "agent-win-home-demo-01", 7, 4, "workstation", "healthy endpoint sample"),
+    DemoAsset("asset-home-smart-tv-demo", "demo-home", "demo-home-smart-tv", "192.0.2.44", "02:00:5e:10:00:44", "Smart TV Demo Firmware", "iot-demo", "sensor-home-demo-01", 3, 8, "iot", "passive-only device sample"),
+    DemoAsset("asset-home-mobile-demo", "demo-home", "demo-home-mobile", "192.0.2.66", "02:00:5e:10:00:66", "Mobile Demo OS", "mobile-demo", "sensor-home-demo-01", 3, 11, "mobile", "passive-only mobile sample"),
+    DemoAsset("asset-home-router-demo", "demo-home", "demo-home-router", "192.0.2.1", "02:00:5e:10:00:01", "Router Demo Firmware", "network-device-demo", "sensor-home-demo-01", 5, 6, "router", "router inventory sample"),
+    DemoAsset("asset-office-laptop-demo", "demo-office", "demo-office-laptop", "198.51.100.20", "02:00:5e:20:00:20", "macOS Demo", "macOS/arm64", "agent-macos-office-demo-01", 6, 13, "laptop", "healthy endpoint sample"),
+    DemoAsset("asset-office-printer-demo", "demo-office", "demo-office-printer", "198.51.100.25", "02:00:5e:20:00:25", "Printer Demo Firmware", "embedded-demo", "sensor-office-demo-01", 4, 120, "printer", "passive printer inventory sample"),
+    DemoAsset("asset-office-switch-demo", "demo-office", "demo-office-switch", "198.51.100.2", "02:00:5e:20:00:02", "Switch Demo Firmware", "network-device-demo", "sensor-office-demo-01", 5, 130, "network-switch", "passive network switch sample"),
+    DemoAsset("asset-office-unknown-demo", "demo-office", "demo-office-unknown", "198.51.100.88", "02:00:5e:20:00:88", "Unknown Demo Device", "unknown-demo", "sensor-office-demo-01", 2, 125, "unknown", "unknown device sample"),
+    DemoAsset("asset-lab-server-demo", "demo-lab", "demo-lab-server", "203.0.113.30", "02:00:5e:30:00:30", "Linux Demo", "Linux/amd64", "agent-linux-lab-demo-01", 8, 10, "server", "explicit coverage gap sample", "missing"),
+    DemoAsset("asset-lab-runner-demo", "demo-lab", "demo-lab-runner", "203.0.113.31", "02:00:5e:30:00:30", "Linux Demo", "Linux/amd64", "sensor-lab-demo-01", 6, 18, "server", "passive server and identity-conflict sample"),
+    DemoAsset("asset-lab-nas-demo", "demo-lab", "demo-lab-nas", "203.0.113.40", "02:00:5e:30:00:40", "NAS Demo Firmware", "storage-demo", "sensor-lab-demo-01", 5, 50, "storage", "passive storage sample"),
+    DemoAsset("asset-lab-camera-demo", "demo-lab", "demo-lab-camera", "203.0.113.55", "02:00:5e:30:00:55", "Camera Demo Firmware", "iot-demo", "sensor-lab-demo-01", 3, 34, "camera", "passive camera sample"),
 )
 
 LEGACY_DEMO_SITE_IDS = ("home-lab", "small-office")
@@ -246,20 +242,8 @@ def seed_payloads() -> list[dict[str, Any]]:
                 "platform": asset.platform,
                 "source_agent_id": asset.source_agent_id,
                 "attention": asset.attention,
-                "management_status": asset.management_status,
-                "risk_score": asset.risk_score,
                 "confidence": asset.confidence,
-                "findings": (
-                    [
-                        {
-                            "finding_id": asset.finding_id,
-                            "title": asset.finding_title,
-                            "severity": asset.finding_severity,
-                        }
-                    ]
-                    if asset.finding_id
-                    else []
-                ),
+                "security_coverage": asset.security_coverage,
             }
         )
     return payloads
@@ -298,6 +282,9 @@ class DemoSeedStore:
 
     def summary(self) -> dict[str, int]:
         raise NotImplementedError
+
+    def evaluate_findings(self, *, evaluated_at: datetime) -> dict[str, Any]:
+        return {}
 
 
 class SqlDemoSeedStore(DemoSeedStore):
@@ -377,6 +364,14 @@ class SqlDemoSeedStore(DemoSeedStore):
                     self.bindparam("site_ids", expanding=True),
                 ),
                 {"site_ids": site_ids},
+            )
+            connection.execute(
+                self.text(
+                    """
+                    DELETE FROM finding_evaluation_runs
+                    WHERE requested_by = 'control-tower-demo-seed'
+                    """
+                )
             )
 
     def upsert_site(self, site: DemoSite) -> None:
@@ -540,20 +535,8 @@ class SqlDemoSeedStore(DemoSeedStore):
             "sample_data": True,
             "category": asset.category,
             "attention": asset.attention,
-            "management_status": asset.management_status,
-            "risk_score": asset.risk_score,
             "confidence": asset.confidence,
-            "findings": (
-                [
-                    {
-                        "finding_id": asset.finding_id,
-                        "title": asset.finding_title,
-                        "severity": asset.finding_severity,
-                    }
-                ]
-                if asset.finding_id
-                else []
-            ),
+            "security_coverage": asset.security_coverage,
             "source": "control-tower-demo-seed",
         }
         with self.engine.begin() as connection:
@@ -643,6 +626,77 @@ class SqlDemoSeedStore(DemoSeedStore):
     def summary(self) -> dict[str, int]:
         return self.control_tower_summary()
 
+    def evaluate_findings(self, *, evaluated_at: datetime) -> dict[str, Any]:
+        from app.finding_service import evaluate_findings
+
+        initial = evaluate_findings(
+            trigger_type="demo-seed",
+            requested_by="control-tower-demo-seed",
+            now=evaluated_at,
+        )
+        lifecycle_asset_id = "asset-office-unknown-demo"
+        with self.engine.begin() as connection:
+            connection.execute(
+                self.text(
+                    """
+                    UPDATE control_tower_assets
+                    SET metadata_json = jsonb_set(metadata_json, '{category}', '"workstation"')
+                    WHERE site_id = 'demo-office' AND asset_id = :asset_id
+                    """
+                ),
+                {"asset_id": lifecycle_asset_id},
+            )
+        evaluate_findings(
+            trigger_type="demo-lifecycle-resolve",
+            requested_by="control-tower-demo-seed",
+            now=evaluated_at + timedelta(seconds=1),
+            site_id="demo-office",
+            asset_id=lifecycle_asset_id,
+            rule_ids=["unknown-asset"],
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                self.text(
+                    """
+                    UPDATE control_tower_assets
+                    SET metadata_json = jsonb_set(metadata_json, '{category}', '"unknown"')
+                    WHERE site_id = 'demo-office' AND asset_id = :asset_id
+                    """
+                ),
+                {"asset_id": lifecycle_asset_id},
+            )
+        reopened = evaluate_findings(
+            trigger_type="demo-lifecycle-reopen",
+            requested_by="control-tower-demo-seed",
+            now=evaluated_at + timedelta(seconds=2),
+            site_id="demo-office",
+            asset_id=lifecycle_asset_id,
+            rule_ids=["unknown-asset"],
+        )
+        from app.finding_store import SqlFindingStore
+
+        lifecycle = next(
+            (
+                item
+                for item in SqlFindingStore().list_findings(
+                    site_id="demo-office",
+                    asset_id=lifecycle_asset_id,
+                    rule_id="unknown-asset",
+                    limit=1,
+                )["items"]
+            ),
+            {},
+        )
+        return {
+            **initial.as_dict(),
+            "lifecycle_demo": {
+                "finding_id": lifecycle.get("finding_id"),
+                "status": lifecycle.get("status"),
+                "reopen_count": lifecycle.get("reopen_count"),
+                "final_run_id": reopened.run_id,
+            },
+        }
+
 
 def assets_for_site(site_id: str) -> list[DemoAsset]:
     return [asset for asset in DEMO_ASSETS if asset.site_id == site_id]
@@ -677,6 +731,11 @@ def seed_demo_data(store: DemoSeedStore, *, base_time: datetime = DEMO_BASE_TIME
         )
     for asset in DEMO_ASSETS:
         store.upsert_asset(asset, seen_at=event_time(asset.last_seen_minutes_ago, base_time=base_time))
+    evaluation = (
+        store.evaluate_findings(evaluated_at=base_time)
+        if hasattr(store, "evaluate_findings")
+        else {}
+    )
 
     return {
         "sites": len(DEMO_SITES),
@@ -684,6 +743,7 @@ def seed_demo_data(store: DemoSeedStore, *, base_time: datetime = DEMO_BASE_TIME
         "check_ins": len(DEMO_CHECKINS),
         "assets": len(DEMO_ASSETS),
         "evidence": sum(asset.evidence_count for asset in DEMO_ASSETS),
+        "deterministic_evaluation": evaluation,
         "summary": store.summary(),
     }
 

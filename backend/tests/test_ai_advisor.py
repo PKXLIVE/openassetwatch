@@ -157,6 +157,66 @@ class AIAdvisorTests(unittest.TestCase):
         self.assertIn("dns address-record router.example.test=192.0.2.10", protocol_items[0].summary)
         self.assertNotIn("raw_packet", protocol_items[0].summary)
 
+    def test_persisted_findings_and_risk_replace_demo_metadata_authority(self) -> None:
+        tools = sample_tools(asset_count=1)
+        asset = {
+            **tools.assets[0],
+            "metadata": {
+                "risk_score": 99,
+                "findings": [{"finding_id": "fabricated", "title": "Fabricated metadata"}],
+            },
+        }
+        authoritative = ReadOnlyHubTools(
+            sites=tools.sites,
+            sensors=[],
+            assets=[asset],
+            findings=[
+                {
+                    "finding_id": "fnd_" + "a" * 32,
+                    "rule_id": "unknown-asset",
+                    "category": "inventory",
+                    "title": "Unknown asset requires review",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "status": "active",
+                    "site_id": asset["site_id"],
+                    "asset_id": asset["asset_id"],
+                    "sensor_id": None,
+                    "evidence_observed_at": NOW,
+                    "evidence_freshness": "fresh",
+                }
+            ],
+            asset_risks=[
+                {
+                    "site_id": asset["site_id"],
+                    "asset_id": asset["asset_id"],
+                    "score": 14,
+                    "formula_version": "oaw.risk.v1",
+                    "factors": [
+                        {
+                            "finding_id": "fnd_" + "a" * 32,
+                            "category": "inventory",
+                            "label": "Unknown asset requires review",
+                            "adjusted_weight": 14,
+                        }
+                    ],
+                }
+            ],
+            site_risks=[{"site_id": asset["site_id"], "score": 9}],
+            now=NOW,
+        )
+
+        projected = authoritative.run("asset_evidence")["items"][0]
+        findings = authoritative.run("findings_by_site")["items"]
+        evidence = authoritative.evidence_catalog()
+
+        self.assertEqual(projected["risk_score"], 14)
+        self.assertEqual(projected["risk_breakdown"][0]["adjusted_weight"], 14)
+        self.assertEqual(findings[0]["authority"], "deterministic-engine")
+        self.assertNotIn("fabricated", repr(findings))
+        self.assertEqual(evidence[0].finding_id, "fnd_" + "a" * 32)
+        self.assertEqual(evidence[0].authority, "deterministic-engine")
+
     def test_cross_site_summary_identifies_highest_risk_site(self) -> None:
         response = run_advisor(
             request=AdvisorQueryRequest(question="Which site has the highest risk?"),

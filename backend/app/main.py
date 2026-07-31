@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import Body, Header, HTTPException, FastAPI, Path as ApiPath, Query, Request
+from fastapi import BackgroundTasks, Body, Header, HTTPException, FastAPI, Path as ApiPath, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -53,6 +53,21 @@ from .database import (
     upsert_collector_policy,
     upsert_collector_metadata,
 )
+from .finding_contracts import (
+    AssetRiskResponse,
+    FindingAcknowledgeRequest,
+    FindingEvaluateRequest,
+    FindingEvaluationResponse,
+    FindingListResponse,
+    FindingResponse,
+    FindingSuppressRequest,
+    RiskSummaryResponse,
+    RuleRegistryResponse,
+    SiteRiskResponse,
+)
+from .finding_service import evaluate_findings, evaluate_site_best_effort
+from .finding_store import SqlFindingStore
+from .findings import RULESET_VERSION, rule_registry_public
 from .hub_contracts import (
     ObservationBatchRequest,
     ObservationBatchResponse,
@@ -214,20 +229,25 @@ def require_admin_token(provided_token: str | None) -> None:
     raise HTTPException(status_code=401, detail="valid admin token required")
 
 
-def require_sensor_admin_token(provided_token: str | None) -> None:
-    """Fail closed for credential-issuing administration.
-
-    Existing read-only local admin surfaces retain their development behavior;
-    issuance, rotation, and revocation require an explicitly configured admin
-    secret.
-    """
-
+def require_configured_admin_token(
+    provided_token: str | None,
+    *,
+    capability: str,
+) -> None:
+    """Require an explicitly configured secret for state-changing admin APIs."""
     expected_token = os.getenv(ADMIN_TOKEN_ENV)
     if not expected_token:
-        raise HTTPException(status_code=503, detail="sensor identity administration is not configured")
+        raise HTTPException(status_code=503, detail=f"{capability} is not configured")
     if isinstance(provided_token, str) and secrets.compare_digest(provided_token, expected_token):
         return
     raise HTTPException(status_code=401, detail="valid admin token required")
+
+
+def require_sensor_admin_token(provided_token: str | None) -> None:
+    require_configured_admin_token(
+        provided_token,
+        capability="sensor identity administration",
+    )
 
 
 class _EnrollmentAttemptLimiter:
@@ -280,6 +300,20 @@ def _raise_sensor_admin_error(exc: SensorIdentityNotFound | SensorIdentityConfli
     if isinstance(exc, SensorIdentityNotFound):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _queue_site_evaluation(
+    background_tasks: BackgroundTasks | None,
+    *,
+    site_id: str,
+    sensor_id: str | None = None,
+) -> None:
+    if background_tasks is not None:
+        background_tasks.add_task(
+            evaluate_site_best_effort,
+            site_id=site_id,
+            sensor_id=sensor_id,
+        )
 
 
 class CollectorCheckInRequest(BaseModel):
@@ -703,6 +737,7 @@ def sensor_enroll(
 @app.post("/api/v1/sensors/check-in", response_model=SensorCheckInResponse)
 def sensor_check_in(
     payload: SensorCheckInRequest,
+    background_tasks: BackgroundTasks = None,
     collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
 ):
     try:
@@ -726,6 +761,11 @@ def sensor_check_in(
         )
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist sensor check-in") from exc
+    _queue_site_evaluation(
+        background_tasks,
+        site_id=payload.site_id,
+        sensor_id=payload.sensor_id,
+    )
     return SensorCheckInResponse(
         status="accepted",
         site_id=payload.site_id,
@@ -760,11 +800,227 @@ def api_control_tower_assets():
         raise HTTPException(status_code=500, detail="failed to load control tower assets") from exc
 
 
+def _finding_store() -> SqlFindingStore:
+    return SqlFindingStore()
+
+
+@app.get("/api/v1/findings/rules", response_model=RuleRegistryResponse)
+def api_finding_rules(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    return {
+        "ruleset_version": RULESET_VERSION,
+        "rules": rule_registry_public(),
+        "deferred_rules": [
+            "VLAN movement is deferred until normalized, durable VLAN history exists; display strings are not evidence.",
+        ],
+    }
+
+
+@app.get("/api/v1/findings", response_model=FindingListResponse)
+def api_findings(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    sensor_id: str | None = Query(default=None, min_length=1, max_length=160),
+    status: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    rule_id: str | None = Query(default=None, min_length=1, max_length=64),
+    category: str | None = Query(default=None, min_length=1, max_length=64),
+    updated_after: datetime | None = Query(default=None),
+    updated_before: datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    for value in (updated_after, updated_before):
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise HTTPException(status_code=400, detail="finding time filters must include a timezone")
+    if updated_after is not None and updated_before is not None and updated_after > updated_before:
+        raise HTTPException(status_code=400, detail="updated_after must not exceed updated_before")
+    try:
+        return _finding_store().list_findings(
+            site_id=site_id,
+            asset_id=asset_id,
+            sensor_id=sensor_id,
+            status=status,
+            severity=severity,
+            rule_id=rule_id,
+            category=category,
+            updated_after=updated_after,
+            updated_before=updated_before,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic findings") from exc
+
+
+@app.get("/api/v1/findings/{finding_id}", response_model=FindingResponse)
+def api_finding(
+    finding_id: str = ApiPath(..., pattern=r"^fnd_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        finding = _finding_store().get_finding(finding_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic finding") from exc
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    return finding
+
+
+@app.post("/api/v1/admin/findings/evaluate", response_model=FindingEvaluationResponse)
+def admin_evaluate_findings(
+    payload: FindingEvaluateRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="finding administration",
+    )
+    try:
+        return evaluate_findings(
+            trigger_type="admin-request",
+            requested_by=payload.requested_by,
+            site_id=payload.site_id,
+            asset_id=payload.asset_id,
+            sensor_id=payload.sensor_id,
+            rule_ids=payload.rule_ids,
+        ).as_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="deterministic finding evaluation failed") from exc
+
+
+@app.post("/api/v1/admin/findings/{finding_id}/acknowledge", response_model=FindingResponse)
+def admin_acknowledge_finding(
+    payload: FindingAcknowledgeRequest,
+    finding_id: str = ApiPath(..., pattern=r"^fnd_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="finding administration",
+    )
+    store = _finding_store()
+    try:
+        finding = store.acknowledge(
+            finding_id,
+            actor=payload.actor,
+            at=datetime.now(timezone.utc),
+        )
+        if finding is not None:
+            return finding
+        if store.get_finding(finding_id) is None:
+            raise HTTPException(status_code=404, detail="finding not found")
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to acknowledge finding") from exc
+    raise HTTPException(status_code=409, detail="resolved findings cannot be acknowledged")
+
+
+@app.post("/api/v1/admin/findings/{finding_id}/suppress", response_model=FindingResponse)
+def admin_suppress_finding(
+    payload: FindingSuppressRequest,
+    finding_id: str = ApiPath(..., pattern=r"^fnd_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="finding administration",
+    )
+    store = _finding_store()
+    now = datetime.now(timezone.utc)
+    if payload.until is not None and payload.until <= now:
+        raise HTTPException(status_code=400, detail="suppression expiry must be in the future")
+    try:
+        finding = store.suppress(
+            finding_id,
+            actor=payload.actor,
+            reason=payload.reason,
+            until=payload.until,
+            at=now,
+        )
+        if finding is None:
+            if store.get_finding(finding_id) is None:
+                raise HTTPException(status_code=404, detail="finding not found")
+            raise HTTPException(status_code=409, detail="resolved findings cannot be suppressed")
+        evaluate_site_best_effort(
+            site_id=finding["site_id"],
+            trigger_type="finding-suppression",
+            requested_by=payload.actor,
+        )
+        refreshed = store.get_finding(finding_id)
+        return refreshed or finding
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to suppress finding") from exc
+
+
+@app.get("/api/v1/risk/summary", response_model=RiskSummaryResponse)
+def api_risk_summary(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    limit: int = Query(default=100, ge=1, le=200),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return _finding_store().risk_summary(site_id=site_id, limit=limit)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic risk summary") from exc
+
+
+@app.get("/api/v1/risk/assets/{asset_id}", response_model=AssetRiskResponse)
+def api_asset_risk(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        risk = _finding_store().get_asset_risk(site_id=site_id, asset_id=asset_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic asset risk") from exc
+    if risk is None:
+        raise HTTPException(status_code=404, detail="asset risk not found; run deterministic evaluation")
+    return risk
+
+
+@app.get("/api/v1/risk/sites/{site_id}", response_model=SiteRiskResponse)
+def api_site_risk(
+    site_id: str = ApiPath(..., min_length=1, max_length=128),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        risk = _finding_store().get_site_risk(site_id=site_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic site risk") from exc
+    if risk is None:
+        raise HTTPException(status_code=404, detail="site risk not found; run deterministic evaluation")
+    return risk
+
+
 def build_read_only_hub_tools() -> ReadOnlyHubTools:
+    store = _finding_store()
+    findings = store.list_findings(limit=200, status="active")["items"]
+    findings.extend(store.list_findings(limit=200, status="acknowledged")["items"])
+    risk = store.risk_summary(limit=200)
     return ReadOnlyHubTools(
         sites=list_sites(),
         sensors=list_agent_enrollments(),
         assets=list_control_tower_assets(),
+        findings=findings,
+        asset_risks=risk["assets"],
+        site_risks=risk["sites"],
     )
 
 
@@ -1298,7 +1554,10 @@ def forbidden_agent_checkin_fields(payload: dict[str, Any]) -> list[str]:
     response_model=AgentCheckInResponse,
     response_model_exclude_none=True,
 )
-def agent_check_in(raw_payload: Any = Body(...)):
+def agent_check_in(
+    raw_payload: Any = Body(...),
+    background_tasks: BackgroundTasks = None,
+):
     if not isinstance(raw_payload, dict):
         raise HTTPException(status_code=400, detail="agent check-in payload must be a JSON object")
     if not raw_payload:
@@ -1324,6 +1583,11 @@ def agent_check_in(raw_payload: Any = Body(...)):
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist agent check-in") from exc
 
+    _queue_site_evaluation(
+        background_tasks,
+        site_id=site_id,
+        sensor_id=agent_id,
+    )
     return AgentCheckInResponse(
         status="accepted",
         site_id=site_id,
@@ -1334,7 +1598,10 @@ def agent_check_in(raw_payload: Any = Body(...)):
 
 
 @app.post("/api/v1/collections/local-inventory", response_model=LocalInventoryCollectionResponse)
-def local_inventory_collection(raw_payload: Any = Body(...)):
+def local_inventory_collection(
+    raw_payload: Any = Body(...),
+    background_tasks: BackgroundTasks = None,
+):
     if not isinstance(raw_payload, dict):
         raise HTTPException(status_code=400, detail="local inventory collection payload must be a JSON object")
     if not raw_payload:
@@ -1363,6 +1630,7 @@ def local_inventory_collection(raw_payload: Any = Body(...)):
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist local inventory collection") from exc
 
+    _queue_site_evaluation(background_tasks, site_id=site_id)
     return LocalInventoryCollectionResponse(
         status="accepted",
         observation_batch_id=collection_result["collection_id"],
@@ -1377,6 +1645,7 @@ def local_inventory_collection(raw_payload: Any = Body(...)):
 @app.post("/api/v1/observations/batches", response_model=ObservationBatchResponse)
 def observation_batch(
     payload: ObservationBatchRequest,
+    background_tasks: BackgroundTasks = None,
     collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
 ):
     try:
@@ -1395,6 +1664,8 @@ def observation_batch(
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist observation batch") from exc
     duplicate = bool(result.get("duplicate"))
+    if not duplicate:
+        _queue_site_evaluation(background_tasks, site_id=payload.site_id)
     return ObservationBatchResponse(
         status="duplicate" if duplicate else "accepted",
         observation_batch_id=payload.observation_batch_id,

@@ -128,15 +128,56 @@ class ControlTowerDemoSeedTests(unittest.TestCase):
         self.assertEqual(store.sites["demo-office"].name, "Office Demo")
         self.assertEqual(store.sites["demo-lab"].name, "Lab Demo")
 
-    def test_demo_assets_include_cross_site_findings_and_risk(self) -> None:
-        risky_sites = {
-            asset.site_id
-            for asset in self.seed.DEMO_ASSETS
-            if asset.risk_score >= 70 and asset.finding_id
-        }
+    def test_demo_inputs_generate_cross_site_deterministic_findings(self) -> None:
+        if str(self.seed.BACKEND_ROOT) not in sys.path:
+            sys.path.insert(0, str(self.seed.BACKEND_ROOT))
+        from app.findings import evaluate_rules
 
-        self.assertEqual(risky_sites, {"demo-home", "demo-office", "demo-lab"})
-        self.assertTrue(any(agent.last_seen_minutes_ago > 90 for agent in self.seed.DEMO_AGENTS))
+        sensors = [
+            {
+                "agent_id": agent.agent_id,
+                "site_id": agent.site_id,
+                "agent_type": agent.agent_type,
+                "identity_status": "active",
+                "last_seen_at": self.seed.event_time(agent.last_seen_minutes_ago),
+            }
+            for agent in self.seed.DEMO_AGENTS
+        ]
+        assets = [
+            {
+                "asset_id": asset.asset_id,
+                "site_id": asset.site_id,
+                "source_agent_id": asset.source_agent_id,
+                "mac": asset.mac,
+                "observed_at": self.seed.event_time(asset.last_seen_minutes_ago),
+                "first_seen_at": self.seed.event_time(asset.last_seen_minutes_ago),
+                "confidence": asset.confidence,
+                "metadata": {
+                    "category": asset.category,
+                    "security_coverage": asset.security_coverage,
+                },
+            }
+            for asset in self.seed.DEMO_ASSETS
+        ]
+        snapshot = evaluate_rules(
+            sites=[site.__dict__ for site in self.seed.DEMO_SITES],
+            sensors=sensors,
+            assets=assets,
+            now=self.seed.DEMO_BASE_TIME,
+        )
+
+        # Home remains the healthy comparison site; Office and Lab carry
+        # deterministic review conditions.
+        self.assertEqual(
+            {finding.site_id for finding in snapshot.candidates},
+            {"demo-office", "demo-lab"},
+        )
+        self.assertIn("sensor-stale", {finding.rule_id for finding in snapshot.candidates})
+        self.assertIn("security-coverage-gap", {finding.rule_id for finding in snapshot.candidates})
+        self.assertIn("unknown-asset", {finding.rule_id for finding in snapshot.candidates})
+        self.assertIn("passive-only-asset", {finding.rule_id for finding in snapshot.candidates})
+        self.assertIn("identity-conflict", {finding.rule_id for finding in snapshot.candidates})
+        self.assertTrue(all(finding.dedupe_key.startswith("fdk_") for finding in snapshot.candidates))
 
     def test_non_local_database_url_is_rejected(self) -> None:
         self.assertFalse(
