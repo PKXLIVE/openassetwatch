@@ -21,6 +21,8 @@ service backed by PostgreSQL through SQLAlchemy.
   inventory with material history
 - strict versioned offline advisory catalogs with licensing, provenance, and
   checksums
+- reviewed signed-feed synchronization with Ed25519 verification, bounded
+  private staging, explicit approval, atomic activation, and rollback
 - ecosystem-aware deterministic vulnerability matches and match history
 - idempotent outbound observation batches with site/sensor provenance
 - one-time passive-sensor enrollment and bound, rotatable credentials
@@ -96,11 +98,15 @@ From the repository root, regenerate the lock in the same Python environment
 as the backend image:
 
 ```powershell
-$CompileCommand = "python -m piptools compile --upgrade --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in"
+$CompileCommand = "python -m piptools compile --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in"
 docker run --rm --volume "${PWD}:/workspace" --workdir /workspace `
   --env "CUSTOM_COMPILE_COMMAND=$CompileCommand" python:3.12-slim `
-  sh -c 'python -m pip install --disable-pip-version-check --no-cache-dir pip-tools==7.5.3 && python -m piptools compile --upgrade --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in'
+  sh -c 'python -m pip install --disable-pip-version-check --no-cache-dir pip-tools==7.5.3 && python -m piptools compile --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in'
 ```
+
+For an intentional targeted update, append a reviewed option such as
+`--upgrade-package cryptography`; do not use an unscoped `--upgrade` for routine
+lock regeneration.
 
 Review both files together. The lock targets Linux, so verify it in the same
 container environment rather than installing it into a Windows virtual
@@ -154,6 +160,9 @@ Control Tower tables include:
 - `vulnerability_evaluation_runs`
 - `vulnerability_matches`
 - `vulnerability_match_history`
+- `advisory_feed_runs`
+- `advisory_feed_catalogs`
+- `advisory_catalog_activations`
 
 ## Tests
 
@@ -184,6 +193,15 @@ python scripts/test_control_tower_dashboard.py
 python scripts/test_control_tower_demo_seed.py
 python scripts/test_vulnerability_intelligence_demo.py
 python scripts/test_vulnerability_intelligence_performance.py
+```
+
+Run the signed-feed security, lifecycle, API, UI, and AI tests:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace/backend backend `
+  python -m unittest -v tests.test_advisory_feed_security `
+    tests.test_advisory_sync_lifecycle tests.test_advisory_feed_ai_ui
 ```
 
 Run the deterministic classification, conflict, reclassification, and AI
@@ -223,6 +241,9 @@ handling, APIs, demo, and safe extension steps.
 See `docs/SOFTWARE_AND_VULNERABILITY_INTELLIGENCE.md` for component identity,
 version comparison, firmware trust, the reviewed offline catalog, matching,
 findings/risk, API, AI, dashboard, demo, benchmark, and adapter boundaries.
+See `docs/TRUSTED_ADVISORY_FEEDS.md` for reviewed sources, signed bundle/key
+formats, download and staging controls, approval, activation, rollback, CLI,
+admin API, Settings UI, AI evidence, offline behavior, and source onboarding.
 
 ## Safety Boundaries
 

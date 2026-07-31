@@ -10,11 +10,18 @@ should not be added here.
   sensor enrollment, bound uploads, rotation, revocation, retained evidence,
   and deterministic AI visibility. It reads administrator authorization only
   from a named environment variable and never prints issued secrets.
-- `import_advisory_catalog.py`: validates and atomically imports one already
-  reviewed bounded local advisory JSON file. It resolves the path to an
-  absolute regular single-link file, verifies descriptor/path identity,
-  performs no network request, and stores normalized records rather than the
-  raw feed.
+- `advisory_feed_sync.py`: one-shot reviewed-source administration for signed
+  bundle verification, synchronization, preview, approval/rejection,
+  activation, rollback, reevaluation retry, and bounded staging cleanup. It
+  accepts source and server-issued IDs only; it accepts no arbitrary URL/path,
+  secret, private key, unsigned mode, or skip-verification flag.
+- `benchmark_advisory_feed_sync.py`: offline synthetic Ed25519, bounded-gzip,
+  strict-catalog, preview-diff, and targeted-scope benchmark. It reports live
+  database import/reevaluation timings as unavailable rather than simulating
+  them when PostgreSQL is absent.
+- `import_advisory_catalog.py`: deprecated fail-closed entry point retained to
+  explain that unsigned imports are disabled and direct operators to the
+  signed-feed lifecycle.
 - `demo_vulnerability_intelligence.py`: database-free fictional proof of
   normalized components, affected/fixed/uncertain firmware outcomes,
   finding/risk change after upgrade, stable history, and read-only AI evidence
