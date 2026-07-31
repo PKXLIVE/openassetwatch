@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from ipaddress import ip_address
-from typing import Annotated, Any, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -97,6 +97,9 @@ class AdvisorResponse(StrictModel):
     classification_authority: Literal[
         "deterministic-classification-engine"
     ] = "deterministic-classification-engine"
+    vulnerability_authority: Literal[
+        "deterministic-vulnerability-matcher"
+    ] = "deterministic-vulnerability-matcher"
 
 
 class GeneratedAnswer(StrictModel):
@@ -434,6 +437,14 @@ class ReadOnlyHubTools:
             "assets_by_category",
             "managed_capability_gaps",
             "classification_confidence",
+            "vulnerable_assets",
+            "vulnerable_components",
+            "vulnerability_evidence",
+            "fixed_version_availability",
+            "known_exploited_matches",
+            "component_inventory_gaps",
+            "advisory_provenance",
+            "vulnerability_risk_contribution",
         }
     )
 
@@ -448,6 +459,8 @@ class ReadOnlyHubTools:
         site_risks: list[dict[str, Any]] | None = None,
         classifications: list[dict[str, Any]] | None = None,
         classification_evidence: list[dict[str, Any]] | None = None,
+        components: list[dict[str, Any]] | None = None,
+        vulnerability_matches: list[dict[str, Any]] | None = None,
         now: datetime | None = None,
     ) -> None:
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -488,6 +501,129 @@ class ReadOnlyHubTools:
             self._project_classification_evidence(item)
             for item in (classification_evidence or [])
         ]
+        self.components = [
+            self._project_component(item) for item in (components or [])
+        ]
+        self.vulnerability_matches = [
+            self._project_vulnerability_match(item)
+            for item in (vulnerability_matches or [])
+        ]
+
+    def _project_component(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "component_id": _text(item.get("component_id"), limit=80),
+            "site_id": _text(item.get("site_id"), limit=128),
+            "asset_id": _text(item.get("asset_id"), limit=160),
+            "component_type": _text(item.get("component_type"), limit=40),
+            "ecosystem": _text(item.get("ecosystem"), limit=40),
+            "vendor": _text(item.get("vendor"), limit=160) or None,
+            "name": _text(item.get("name"), limit=240),
+            "version": _text(item.get("version"), limit=160) or None,
+            "canonical_identifier": _text(
+                item.get("canonical_identifier"),
+                limit=600,
+            )
+            or None,
+            "source_type": _text(item.get("source_type"), limit=64),
+            "source_id": _text(item.get("source_id"), limit=160),
+            "firmware_evidence_type": _text(
+                item.get("firmware_evidence_type"),
+                limit=40,
+            ),
+            "normalization_status": _text(
+                item.get("normalization_status"),
+                limit=48,
+            ),
+            "freshness": _text(item.get("freshness"), limit=32) or "unknown",
+            "confidence": _bounded_number(
+                item.get("confidence"),
+                minimum=0.0,
+                maximum=1.0,
+            ),
+            "active": bool(item.get("active", True)),
+            "observed_at": _datetime(
+                item.get("observed_at") or item.get("last_seen_at")
+            ),
+            "authority": "normalized-evidence",
+        }
+
+    def _project_vulnerability_match(
+        self,
+        item: dict[str, Any],
+    ) -> dict[str, Any]:
+        aliases = item.get("aliases")
+        references = item.get("references")
+        return {
+            "match_id": _text(item.get("match_id"), limit=80),
+            "site_id": _text(item.get("site_id"), limit=128),
+            "asset_id": _text(item.get("asset_id"), limit=160),
+            "component_id": _text(item.get("component_id"), limit=80),
+            "advisory_id": _text(item.get("advisory_id"), limit=80),
+            "match_status": _text(item.get("match_status"), limit=40),
+            "match_confidence": _bounded_number(
+                item.get("match_confidence"),
+                minimum=0.0,
+                maximum=1.0,
+            ),
+            "installed_version": _text(
+                item.get("installed_version"),
+                limit=160,
+            )
+            or None,
+            "fixed_version": _text(item.get("fixed_version"), limit=160)
+            or None,
+            "affected_range": _text(item.get("affected_range"), limit=320)
+            or None,
+            "component_name": _text(item.get("component_name"), limit=240),
+            "ecosystem": _text(item.get("ecosystem"), limit=40),
+            "severity": _text(item.get("severity"), limit=32),
+            "known_exploited": bool(item.get("known_exploited")),
+            "source": _text(item.get("source"), limit=120),
+            "source_record_id": _text(
+                item.get("source_record_id"),
+                limit=120,
+            ),
+            "catalog_version": _text(
+                item.get("catalog_version"),
+                limit=120,
+            ),
+            "source_license": _text(
+                item.get("source_license"),
+                limit=120,
+            ),
+            "provenance": _text(item.get("provenance"), limit=500),
+            "aliases": [
+                _text(value, limit=120)
+                for value in (aliases if isinstance(aliases, list) else [])[:32]
+                if isinstance(value, str)
+            ],
+            "references": [
+                {
+                    "type": _text(value.get("type"), limit=40),
+                    "url": _text(value.get("url"), limit=500),
+                }
+                for value in (
+                    references if isinstance(references, list) else []
+                )[:16]
+                if isinstance(value, dict)
+            ],
+            "component_freshness": _text(
+                item.get("component_freshness"),
+                limit=32,
+            )
+            or "unknown",
+            "evaluated_at": _datetime(item.get("evaluated_at")),
+            "reason_codes": [
+                _text(value, limit=80)
+                for value in (
+                    item.get("reason_codes")
+                    if isinstance(item.get("reason_codes"), list)
+                    else []
+                )[:16]
+                if isinstance(value, str)
+            ],
+            "authority": "deterministic-vulnerability-matcher",
+        }
 
     def _project_finding(self, finding: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -797,6 +933,30 @@ class ReadOnlyHubTools:
             and (not asset_id or item["asset_id"] == asset_id)
         ]
 
+    def _filtered_components(
+        self,
+        site_id: str | None,
+        asset_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return [
+            item
+            for item in self.components
+            if (not site_id or item["site_id"] == site_id)
+            and (not asset_id or item["asset_id"] == asset_id)
+        ]
+
+    def _filtered_vulnerability_matches(
+        self,
+        site_id: str | None,
+        asset_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return [
+            item
+            for item in self.vulnerability_matches
+            if (not site_id or item["site_id"] == site_id)
+            and (not asset_id or item["asset_id"] == asset_id)
+        ]
+
     def _site_summaries(self, site_id: str | None) -> list[dict[str, Any]]:
         summaries: list[dict[str, Any]] = []
         for site in self.sites:
@@ -1026,6 +1186,137 @@ class ReadOnlyHubTools:
                     for item in self._filtered_classifications(site_id, asset_id)
                 ]
             )
+        if tool_name == "vulnerable_assets":
+            values: dict[tuple[str, str], dict[str, Any]] = {}
+            for item in self._filtered_vulnerability_matches(
+                site_id,
+                asset_id,
+            ):
+                if item["match_status"] != "affected":
+                    continue
+                key = (item["site_id"], item["asset_id"])
+                projected = values.setdefault(
+                    key,
+                    {
+                        "site_id": item["site_id"],
+                        "asset_id": item["asset_id"],
+                        "affected_match_ids": [],
+                        "known_exploited": False,
+                        "authority": "deterministic-vulnerability-matcher",
+                    },
+                )
+                projected["affected_match_ids"].append(item["match_id"])
+                projected["known_exploited"] = (
+                    projected["known_exploited"]
+                    or item["known_exploited"]
+                )
+            return _bounded(list(values.values()))
+        if tool_name == "vulnerable_components":
+            return _bounded(
+                [
+                    item
+                    for item in self._filtered_vulnerability_matches(
+                        site_id,
+                        asset_id,
+                    )
+                    if item["match_status"] == "affected"
+                ]
+            )
+        if tool_name == "vulnerability_evidence":
+            return _bounded(
+                self._filtered_vulnerability_matches(site_id, asset_id)
+            )
+        if tool_name == "fixed_version_availability":
+            return _bounded(
+                [
+                    {
+                        "match_id": item["match_id"],
+                        "component_id": item["component_id"],
+                        "advisory_id": item["advisory_id"],
+                        "site_id": item["site_id"],
+                        "asset_id": item["asset_id"],
+                        "fixed_version": item["fixed_version"],
+                        "source": item["source"],
+                        "authority": item["authority"],
+                    }
+                    for item in self._filtered_vulnerability_matches(
+                        site_id,
+                        asset_id,
+                    )
+                    if item["fixed_version"]
+                ]
+            )
+        if tool_name == "known_exploited_matches":
+            return _bounded(
+                [
+                    item
+                    for item in self._filtered_vulnerability_matches(
+                        site_id,
+                        asset_id,
+                    )
+                    if item["match_status"] == "affected"
+                    and item["known_exploited"]
+                ]
+            )
+        if tool_name == "component_inventory_gaps":
+            return _bounded(
+                [
+                    item
+                    for item in self._filtered_components(site_id, asset_id)
+                    if item["normalization_status"]
+                    in {
+                        "identity-uncertain",
+                        "version-unknown",
+                        "unsupported-ecosystem",
+                        "insufficient-firmware-evidence",
+                    }
+                ]
+            )
+        if tool_name == "advisory_provenance":
+            seen: set[str] = set()
+            values = []
+            for item in self._filtered_vulnerability_matches(
+                site_id,
+                asset_id,
+            ):
+                if item["advisory_id"] in seen:
+                    continue
+                seen.add(item["advisory_id"])
+                values.append(
+                    {
+                        "advisory_id": item["advisory_id"],
+                        "source": item["source"],
+                        "source_record_id": item["source_record_id"],
+                        "catalog_version": item["catalog_version"],
+                        "source_license": item["source_license"],
+                        "provenance": item["provenance"],
+                        "authority": item["authority"],
+                    }
+                )
+            return _bounded(values)
+        if tool_name == "vulnerability_risk_contribution":
+            vulnerability_findings = [
+                finding
+                for finding in self._filtered_findings(site_id, asset_id)
+                if finding["category"] == "vulnerability"
+            ]
+            return _bounded(
+                [
+                    {
+                        "finding_id": finding["finding_id"],
+                        "site_id": finding["site_id"],
+                        "asset_id": finding["asset_id"],
+                        "severity": finding["severity"],
+                        "confidence": finding["confidence"],
+                        "risk": self.asset_risks.get(
+                            (finding["site_id"], finding["asset_id"]),
+                            {"score": 0, "factors": []},
+                        ),
+                        "authority": "deterministic-findings-risk-engine",
+                    }
+                    for finding in vulnerability_findings
+                ]
+            )
         if tool_name == "recent_inventory_changes":
             values = sorted(assets, key=lambda item: item["created_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
             return _bounded(values)
@@ -1041,7 +1332,13 @@ class ReadOnlyHubTools:
             "cached_observation_count": sum(asset["delivery_state"] == "cached-retry" for asset in assets),
         }
 
-    def evidence_catalog(self, *, site_id: str | None = None, asset_id: str | None = None) -> list[EvidenceItem]:
+    def evidence_catalog(
+        self,
+        *,
+        site_id: str | None = None,
+        asset_id: str | None = None,
+        priority_ids: Sequence[str] = (),
+    ) -> list[EvidenceItem]:
         evidence: list[EvidenceItem] = []
         if self.authoritative_findings:
             for finding in self._filtered_findings(site_id, asset_id):
@@ -1112,6 +1409,71 @@ class ReadOnlyHubTools:
                     confidence=item["source_confidence"],
                 )
             )
+        advisory_evidence_ids: set[str] = set()
+        for item in self._filtered_vulnerability_matches(site_id, asset_id):
+            evidence.append(
+                EvidenceItem(
+                    evidence_id=item["match_id"],
+                    evidence_type="deterministic_vulnerability_match",
+                    summary=(
+                        f"{item['match_id']} links component "
+                        f"{item['component_id']} to advisory "
+                        f"{item['advisory_id']} as "
+                        f"{item['match_status']}."
+                    ),
+                    site_id=item["site_id"],
+                    asset_id=item["asset_id"],
+                    authority="deterministic-engine",
+                    source="deterministic-vulnerability-matcher",
+                    observed_at=item["evaluated_at"],
+                    freshness=item["component_freshness"],
+                    confidence=item["match_confidence"],
+                )
+            )
+            if (
+                item["advisory_id"]
+                and item["advisory_id"] not in advisory_evidence_ids
+            ):
+                advisory_evidence_ids.add(item["advisory_id"])
+                evidence.append(
+                    EvidenceItem(
+                        evidence_id=item["advisory_id"],
+                        evidence_type="reviewed_advisory_record",
+                        summary=(
+                            f"{item['advisory_id']} is reviewed catalog record "
+                            f"{item['source_record_id']} from {item['source']} "
+                            f"({item['catalog_version']}, "
+                            f"{item['source_license']})."
+                        ),
+                        site_id=item["site_id"],
+                        asset_id=item["asset_id"],
+                        authority="normalized-evidence",
+                        source="reviewed-advisory-catalog",
+                        observed_at=item["evaluated_at"],
+                        freshness="unknown",
+                        confidence=1.0,
+                    )
+                )
+        for item in self._filtered_components(site_id, asset_id):
+            evidence.append(
+                EvidenceItem(
+                    evidence_id=item["component_id"],
+                    evidence_type="normalized_component",
+                    summary=(
+                        f"{item['component_id']}: {item['name']} "
+                        f"{item['version'] or 'version unknown'} from "
+                        f"{item['source_type']}."
+                    ),
+                    site_id=item["site_id"],
+                    sensor_id=item["source_id"],
+                    asset_id=item["asset_id"],
+                    authority="normalized-evidence",
+                    source="asset_components",
+                    observed_at=item["observed_at"],
+                    freshness=item["freshness"],
+                    confidence=item["confidence"],
+                )
+            )
         for sensor in ([] if self.authoritative_findings else self._filtered_sensors(site_id)):
             if sensor["sensor_status"] not in {"stale", "never-seen"}:
                 continue
@@ -1177,7 +1539,21 @@ class ReadOnlyHubTools:
                         confidence=observation["confidence"],
                     )
                 )
-        evidence.sort(key=lambda item: (item.freshness == "fresh", item.confidence), reverse=True)
+        priority = {
+            evidence_id: index
+            for index, evidence_id in enumerate(
+                dict.fromkeys(priority_ids)
+            )
+        }
+        evidence.sort(
+            key=lambda item: (
+                0 if item.evidence_id in priority else 1,
+                priority.get(item.evidence_id, MAX_EVIDENCE_ITEMS),
+                -(1 if item.freshness == "fresh" else 0),
+                -item.confidence,
+                item.evidence_id,
+            )
+        )
         return evidence[:MAX_EVIDENCE_ITEMS]
 
     def data_as_of(self, *, site_id: str | None = None) -> datetime | None:
@@ -1186,6 +1562,11 @@ class ReadOnlyHubTools:
         values.extend(
             item["evaluated_at"]
             for item in self._filtered_classifications(site_id)
+            if item["evaluated_at"]
+        )
+        values.extend(
+            item["evaluated_at"]
+            for item in self._filtered_vulnerability_matches(site_id)
             if item["evaluated_at"]
         )
         return max(values) if values else None
@@ -1240,6 +1621,18 @@ def select_tools(question: str) -> list[str]:
         (("category", "categories", "grouped by"), "assets_by_category"),
         (("managed capability", "coverage gap", "collector expected"), "managed_capability_gaps"),
         (("classification confidence", "why classified", "classification freshness"), "classification_confidence"),
+        (("vulnerable", "vulnerability", "cve", "advisory"), "vulnerable_assets"),
+        (
+            ("vulnerable", "vulnerability", "cve", "advisory"),
+            "vulnerable_components",
+        ),
+        (("component", "package", "software", "firmware"), "vulnerable_components"),
+        (("vulnerability evidence", "match evidence"), "vulnerability_evidence"),
+        (("fixed version", "upgrade"), "fixed_version_availability"),
+        (("known exploited", "exploited"), "known_exploited_matches"),
+        (("version unknown", "inventory gap", "identity uncertain"), "component_inventory_gaps"),
+        (("advisory source", "advisory provenance", "license"), "advisory_provenance"),
+        (("risk contribution", "risk factor"), "vulnerability_risk_contribution"),
     )
     for words, tool_name in rules:
         if any(word in text for word in words) and tool_name not in selected:
@@ -1252,6 +1645,7 @@ def select_tools(question: str) -> list[str]:
                 "highest_risk_assets",
                 "findings_by_site",
                 "classification_summary",
+                "vulnerable_assets",
             ]
         )
     return selected
@@ -1266,7 +1660,31 @@ def build_tool_context(
 ) -> tuple[dict[str, Any], list[str], list[EvidenceItem]]:
     selected = select_tools(question)
     results = {name: tools.run(name, site_id=site_id, asset_id=asset_id) for name in selected}
-    evidence = tools.evidence_catalog(site_id=site_id, asset_id=asset_id)
+    priority_ids: list[str] = []
+    for tool_name in (
+        "vulnerable_components",
+        "known_exploited_matches",
+        "fixed_version_availability",
+        "vulnerability_evidence",
+        "component_inventory_gaps",
+    ):
+        for item in results.get(tool_name, {}).get("items", [])[:8]:
+            for field in ("match_id", "component_id", "advisory_id"):
+                value = item.get(field)
+                if isinstance(value, str):
+                    priority_ids.append(value)
+    for item in results.get(
+        "vulnerability_risk_contribution",
+        {},
+    ).get("items", [])[:8]:
+        finding_id = item.get("finding_id")
+        if isinstance(finding_id, str):
+            priority_ids.append(f"finding:{finding_id}")
+    evidence = tools.evidence_catalog(
+        site_id=site_id,
+        asset_id=asset_id,
+        priority_ids=priority_ids,
+    )
     context = {
         "tool_results": results,
         "evidence": [item.model_dump(mode="json") for item in evidence],
@@ -1322,6 +1740,82 @@ class DeterministicDemoProvider:
             )
             evidence_ids = matching_evidence(sensor_ids={sensor["sensor_id"] for sensor in stale})
             actions.append("Verify connectivity and the outbound observation queue for each stale sensor.")
+        elif any(
+            phrase in text
+            for phrase in (
+                "vulnerable",
+                "vulnerability",
+                "cve",
+                "advisory",
+                "fixed version",
+                "known exploited",
+            )
+        ):
+            matches = results.get("vulnerable_components", {}).get(
+                "items",
+                [],
+            )
+            match = matches[0] if matches else None
+            if match:
+                risk_items = results.get(
+                    "vulnerability_risk_contribution",
+                    {},
+                ).get("items", [])
+                risk_item = risk_items[0] if risk_items else None
+                finding_id = (
+                    risk_item.get("finding_id")
+                    if isinstance(risk_item, dict)
+                    else None
+                )
+                risk_score = (
+                    risk_item.get("risk", {}).get("score")
+                    if isinstance(risk_item, dict)
+                    and isinstance(risk_item.get("risk"), dict)
+                    else None
+                )
+                finding_clause = (
+                    f"Deterministic finding {finding_id} contributes to "
+                    f"asset risk {risk_score}. "
+                    if finding_id
+                    else ""
+                )
+                answer = (
+                    f"Deterministic match {match['match_id']} reports "
+                    f"component {match['component_id']} as affected by "
+                    f"advisory {match['advisory_id']} "
+                    f"({match['severity']}, installed "
+                    f"{match['installed_version'] or 'version unknown'}). "
+                    f"Fixed version "
+                    f"{match['fixed_version'] or 'is not supplied by the reviewed catalog'}. "
+                    f"{finding_clause}"
+                    "The Advisor is explaining server-issued evidence and did not decide applicability."
+                )
+                evidence_ids = [
+                    value
+                    for value in (
+                        match["match_id"],
+                        match["component_id"],
+                        match["advisory_id"],
+                        f"finding:{finding_id}" if finding_id else None,
+                    )
+                    if value
+                ]
+                actions.append(
+                    "Review the cited advisory provenance and test the source-backed fixed version before remediation."
+                )
+            else:
+                gaps = results.get("component_inventory_gaps", {}).get(
+                    "items",
+                    [],
+                )
+                answer = (
+                    "No confirmed affected component is present in the selected scope. "
+                    f"{len(gaps)} component inventory gap(s) remain; missing versions "
+                    "or uncertain identities are not vulnerabilities."
+                )
+                evidence_ids = [
+                    item["component_id"] for item in gaps[:8]
+                ]
         elif any(
             phrase in text
             for phrase in (
@@ -1432,7 +1926,8 @@ class DeterministicDemoProvider:
             confidence=0.88 if evidence_ids else 0.35,
             warnings=[] if evidence_ids else ["No supporting evidence items were available for this answer."],
             limitations=[
-                "Classifications, findings, and risk scores come only from deterministic engines; this Advisor can explain but cannot create, override, resolve, score, acknowledge, or suppress them.",
+                "Classifications, vulnerability matches, findings, and risk scores come only from deterministic engines; this Advisor can explain but cannot create, override, resolve, score, acknowledge, or suppress them.",
+                "The Advisor cannot invent component identity, affected versions, fixed versions, exploitation status, or contact external advisory services.",
                 "Advisor output is read-only model commentary and must be validated before remediation.",
             ],
         )
