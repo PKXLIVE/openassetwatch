@@ -42,6 +42,36 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+def _validate_feed_host(value: str) -> str:
+    if value != value.casefold() or not value.isascii():
+        raise ValueError("feed host must be lower-case ASCII")
+    parsed = urlsplit(f"https://{value}")
+    if parsed.hostname != value or parsed.port is not None:
+        raise ValueError("feed host must be an exact DNS hostname without a port")
+    if value.startswith(".") or value.endswith(".") or "*" in value:
+        raise ValueError("feed host must not be a wildcard or relative name")
+    return value
+
+
+def _validate_feed_path(value: str) -> str:
+    parsed = urlsplit(value)
+    if (
+        not value.isascii()
+        or any(ord(character) < 0x21 or ord(character) == 0x7F for character in value)
+        or not value.startswith("/")
+        or value.startswith("//")
+        or parsed.scheme
+        or parsed.netloc
+        or parsed.query
+        or parsed.fragment
+        or "\\" in value
+        or "%" in value
+        or any(segment in {".", ".."} for segment in value.split("/"))
+    ):
+        raise ValueError("feed paths must be exact absolute URL paths")
+    return value
+
+
 class FeedEndpoint(_StrictModel):
     host: str = Field(..., min_length=1, max_length=253)
     manifest_path: str = Field(..., min_length=1, max_length=500)
@@ -51,34 +81,52 @@ class FeedEndpoint(_StrictModel):
     @field_validator("host")
     @classmethod
     def validate_host(cls, value: str) -> str:
-        if value != value.casefold() or not value.isascii():
-            raise ValueError("feed host must be lower-case ASCII")
-        parsed = urlsplit(f"https://{value}")
-        if parsed.hostname != value or parsed.port is not None:
-            raise ValueError("feed host must be an exact DNS hostname without a port")
-        if value.startswith(".") or value.endswith(".") or "*" in value:
-            raise ValueError("feed host must not be a wildcard or relative name")
-        return value
+        return _validate_feed_host(value)
 
     @field_validator("manifest_path", "signature_path", "payload_path")
     @classmethod
     def validate_path(cls, value: str) -> str:
-        parsed = urlsplit(value)
-        if (
-            not value.isascii()
-            or any(ord(character) < 0x21 or ord(character) == 0x7F for character in value)
-            or not value.startswith("/")
-            or value.startswith("//")
-            or parsed.scheme
-            or parsed.netloc
-            or parsed.query
-            or parsed.fragment
-            or "\\" in value
-            or "%" in value
-            or any(segment in {".", ".."} for segment in value.split("/"))
-        ):
-            raise ValueError("feed paths must be exact absolute URL paths")
-        return value
+        return _validate_feed_path(value)
+
+
+class MirrorEndpoint(_StrictModel):
+    host: str = Field(..., min_length=1, max_length=253)
+    index_path: str = Field(..., min_length=1, max_length=500)
+    signature_path: str = Field(..., min_length=1, max_length=500)
+    trusted_index_key_ids: list[str] = Field(..., min_length=1, max_length=16)
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str) -> str:
+        return _validate_feed_host(value)
+
+    @field_validator("index_path", "signature_path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        return _validate_feed_path(value)
+
+    @field_validator("trusted_index_key_ids")
+    @classmethod
+    def validate_key_ids(cls, values: list[str]) -> list[str]:
+        if any(not KEY_ID_PATTERN.fullmatch(value) for value in values):
+            raise ValueError("invalid mirror-index key ID")
+        if len(values) != len(set(values)):
+            raise ValueError("duplicate mirror-index key ID")
+        return values
+
+    @model_validator(mode="after")
+    def validate_layout(self) -> "MirrorEndpoint":
+        index_parent, index_name = self.index_path.rsplit("/", 1)
+        signature_parent, signature_name = self.signature_path.rsplit("/", 1)
+        if index_parent != signature_parent:
+            raise ValueError("mirror index and signature must share one reviewed directory")
+        if index_name != "index.json" or signature_name != "index.ed25519":
+            raise ValueError("mirror index artifacts must use the fixed v1 file names")
+        return self
+
+    def artifact_path(self, relative_path: str) -> str:
+        parent = self.index_path.rsplit("/", 1)[0]
+        return f"{parent}/{relative_path}" if parent else f"/{relative_path}"
 
 
 class FeedLimits(_StrictModel):
@@ -91,6 +139,10 @@ class FeedLimits(_StrictModel):
     maximum_aliases: int = Field(..., ge=0, le=MAX_FEED_ALIASES)
     maximum_references: int = Field(..., ge=0, le=MAX_FEED_REFERENCES)
     maximum_response_header_bytes: int = Field(default=16 << 10, ge=1024, le=64 << 10)
+    maximum_mirror_index_bytes: int = Field(default=256 << 10, ge=1024, le=1 << 20)
+    maximum_mirror_catalogs: int = Field(default=16, ge=1, le=32)
+    maximum_mirror_snapshot_bytes: int = Field(default=64 << 20, ge=1 << 20, le=256 << 20)
+    maximum_mirror_index_age_seconds: int = Field(default=14 * 86_400, ge=60, le=31 * 86_400)
     connection_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30.0)
     read_timeout_seconds: float = Field(default=10.0, ge=0.5, le=60.0)
     total_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
@@ -101,6 +153,8 @@ class FeedLimits(_StrictModel):
     def validate_payload_limits(self) -> "FeedLimits":
         if self.maximum_compressed_bytes > self.maximum_uncompressed_bytes:
             raise ValueError("compressed-byte limit cannot exceed uncompressed-byte limit")
+        if self.maximum_compressed_bytes > self.maximum_mirror_snapshot_bytes:
+            raise ValueError("mirror snapshot limit must hold at least one compressed payload")
         if self.total_timeout_seconds < max(
             self.connection_timeout_seconds,
             self.read_timeout_seconds,
@@ -115,8 +169,16 @@ class FeedSource(_StrictModel):
     enabled: bool
     adapter_type: Literal["oaw-catalog-v1"]
     adapter_version: str = Field(..., min_length=1, max_length=40)
-    endpoint: FeedEndpoint
+    minimum_supported_openassetwatch_version: str | None = Field(
+        default=None,
+        pattern=r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$",
+        max_length=80,
+    )
+    retrieval_mode: Literal["direct-bundle", "signed-mirror-index"] = "direct-bundle"
+    endpoint: FeedEndpoint | None = None
+    mirror: MirrorEndpoint | None = None
     expected_manifest_schema: Literal["oaw.advisory-bundle.manifest.v1"]
+    expected_index_schema: Literal["oaw.advisory-mirror-index.v1"] | None = None
     expected_payload_schema: Literal["oaw.advisory-catalog.v1"]
     expected_payload_name: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$")
     expected_catalog_source: str = Field(..., min_length=1, max_length=120)
@@ -158,14 +220,34 @@ class FeedSource(_StrictModel):
     @field_validator("expected_content_types")
     @classmethod
     def validate_content_types(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
-        if set(value) != {"manifest", "signature", "payload"}:
-            raise ValueError("content types must cover manifest, signature, and payload")
+        allowed = {"manifest", "signature", "payload", "index", "index_signature"}
+        if not set(value).issubset(allowed):
+            raise ValueError("content types contain an unknown advisory artifact kind")
         for types in value.values():
             if not types or len(types) > 8:
                 raise ValueError("each artifact requires bounded content types")
             if any(not item or len(item) > 120 or item != item.casefold() for item in types):
                 raise ValueError("content types must be lower-case media types")
         return value
+
+    @model_validator(mode="after")
+    def validate_retrieval_configuration(self) -> "FeedSource":
+        required_types = {"manifest", "signature", "payload"}
+        if self.retrieval_mode == "direct-bundle":
+            if self.endpoint is None or self.mirror is not None:
+                raise ValueError("direct bundle sources require only an exact bundle endpoint")
+            if self.expected_index_schema is not None or self.minimum_supported_openassetwatch_version is not None:
+                raise ValueError("direct bundle sources must not declare mirror compatibility metadata")
+            if set(self.expected_content_types) != required_types:
+                raise ValueError("direct bundle content types must cover manifest, signature, and payload")
+        else:
+            if self.mirror is None or self.endpoint is not None:
+                raise ValueError("mirror sources require only an exact mirror endpoint")
+            if self.expected_index_schema is None or self.minimum_supported_openassetwatch_version is None:
+                raise ValueError("mirror sources require index and OpenAssetWatch compatibility metadata")
+            if set(self.expected_content_types) != required_types | {"index", "index_signature"}:
+                raise ValueError("mirror content types must also cover index and index signature")
+        return self
 
     @field_validator("documentation_url")
     @classmethod
@@ -279,9 +361,27 @@ class ReviewedFeedRegistry:
         self._sources = {source.source_id: source for source in source_document.sources}
         self._keys = {key.key_id: key for key in keyring_document.keys}
         for source in source_document.sources:
-            missing = [key_id for key_id in source.trusted_publisher_key_ids if key_id not in self._keys]
+            referenced_keys = list(source.trusted_publisher_key_ids)
+            if source.mirror is not None:
+                referenced_keys.extend(source.mirror.trusted_index_key_ids)
+            missing = [key_id for key_id in referenced_keys if key_id not in self._keys]
             if missing:
                 raise RegistryError("registry-key-missing", "reviewed source references an unknown publisher key")
+            if source.mirror is not None:
+                bundle_ids = set(source.trusted_publisher_key_ids)
+                index_ids = set(source.mirror.trusted_index_key_ids)
+                if bundle_ids & index_ids:
+                    raise RegistryError(
+                        "registry-key-role-conflict",
+                        "bundle and mirror-index signing key IDs must be distinct",
+                    )
+                bundle_material = {self._keys[key_id].public_key_base64 for key_id in bundle_ids}
+                index_material = {self._keys[key_id].public_key_base64 for key_id in index_ids}
+                if bundle_material & index_material:
+                    raise RegistryError(
+                        "registry-key-material-reused",
+                        "bundle and mirror-index signing key material must be distinct",
+                    )
 
     def source(self, source_id: str, *, require_enabled: bool = True) -> FeedSource:
         source = self._sources.get(source_id)
@@ -306,9 +406,14 @@ class ReviewedFeedRegistry:
                 "enabled": source.enabled,
                 "adapter_type": source.adapter_type,
                 "adapter_version": source.adapter_version,
+                "retrieval_mode": source.retrieval_mode,
                 "trusted_publishers": [
                     {"key_id": key_id, "status": key_statuses[key_id]}
                     for key_id in source.trusted_publisher_key_ids
+                ],
+                "trusted_index_publishers": [
+                    {"key_id": key_id, "status": key_statuses[key_id]}
+                    for key_id in (source.mirror.trusted_index_key_ids if source.mirror else [])
                 ],
                 "accepted_licenses": list(source.accepted_licenses),
                 "approval_policy": source.approval_policy,
