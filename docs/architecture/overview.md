@@ -16,6 +16,8 @@ boundary, then use these canonical documents for implemented subsystems:
   catalog, components, version comparison, matching, and vulnerability history
 - `docs/OSV_PYPI_PUBLISHER.md` - isolated licensed PyPI/PYSEC retrieval,
   normalization, signed publishing, cursor, and operator controls
+- `docs/ADVISORY_MIRROR.md` - vendor-neutral static hosting, signed discovery
+  index, retained immutable bundles, hub consumption, and publication gates
 - `docs/DETERMINISTIC_FINDINGS_AND_RISK.md` - authoritative findings,
   lifecycle, and the explainable Operational Attention Score
 - `docs/architecture/ai-advisor.md` and

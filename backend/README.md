@@ -218,6 +218,20 @@ started with the backend. See `docs/OSV_PYPI_PUBLISHER.md` for its reviewed
 source boundary, signing and registry workflow, recovery behavior, live smoke,
 offline demonstration, and synthetic benchmark.
 
+Run the signed advisory-mirror schema, builder, transport integration,
+workflow-policy, offline lifecycle, and AI-evidence tests:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace/backend backend `
+  python -m unittest -v tests.test_advisory_mirror `
+    tests.test_advisory_mirror_demo tests.test_advisory_mirror_workflow
+```
+
+The mirror is a static distribution boundary, not a backend scheduler or write
+API. See `docs/ADVISORY_MIRROR.md` for index v1, local commands, publication
+gates, retention, key rotation, recovery, hosting, licensing, and privacy.
+
 Run the deterministic classification, conflict, reclassification, and AI
 evidence showcase through the backend image:
 
@@ -258,6 +272,8 @@ findings/risk, API, AI, dashboard, demo, benchmark, and adapter boundaries.
 See `docs/TRUSTED_ADVISORY_FEEDS.md` for reviewed sources, signed bundle/key
 formats, download and staging controls, approval, activation, rollback, CLI,
 admin API, Settings UI, AI evidence, offline behavior, and source onboarding.
+See `docs/ADVISORY_MIRROR.md` for vendor-neutral static distribution of the
+same complete signed bundles through a separately signed discovery index.
 
 ## Safety Boundaries
 

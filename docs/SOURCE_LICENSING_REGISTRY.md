@@ -65,6 +65,14 @@ source link to `pypa/advisory-database` are approved here.
 | --- | --- | --- | --- | --- |
 | Python Packaging Advisory Database (`PYSEC-*` records only), transported by OSV.dev's PyPI GCS export | Python Packaging Authority; [database](https://github.com/pypa/advisory-database), [license](https://github.com/pypa/advisory-database/blob/main/LICENSE), [OSV data-source documentation](https://google.github.io/osv.dev/data/); exact transport paths `https://storage.googleapis.com/osv-vulnerabilities/PyPI/modified_id.csv` and `.../PyPI/PYSEC-*.json` | One-shot retrieval, normalization, local caching of normalized records, signing, commercial service use, and redistribution in an OpenAssetWatch catalog | `approved-with-obligations`; CC BY 4.0 permits sharing and adaptation, including commercial use, subject to its conditions | Preserve source record URL, `PYSEC` ID, retrieval/cursor time, checksums, CC-BY-4.0 identifier/link, contributor attribution, and OpenAssetWatch normalization notice. Do not relicense non-`PYSEC` OSV rows. Reject ambiguous provenance or unknown schema fields. No personal data is expected beyond public advisory credits; credits remain bounded attribution text. Treat source data as untrusted and note that the GCS export has HTTPS transport but no upstream dataset signature. Corrections and withdrawals arrive through modified records; per-record timestamps and withdrawals must remain monotonic, while removals require a reviewed full rebuild. Approved by project maintainer for this exact adapter scope on 2026-08-03; re-review by 2027-08-03 or immediately after ownership, license, schema, or endpoint change. |
 
+The official signed-mirror foundation does not broaden this decision. It may
+redistribute only the exact approved `PYSEC-*` normalized catalog and must keep
+the CC-BY-4.0 identifier, contributor attribution, normalization notice, source
+provenance, correction/withdrawal history, and immutable bundle evidence in the
+signed index and artifacts. Other OSV source families and CISA KEV remain
+outside the mirror until their own decisions are approved. The disabled source
+template and publication controls are documented in `docs/ADVISORY_MIRROR.md`.
+
 The following rows remain candidate sources. No live or offline adapter is
 approved by these rows until its decision moves out of `review-required`.
 
