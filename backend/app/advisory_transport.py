@@ -24,7 +24,15 @@ ArtifactKind = Literal["manifest", "signature", "payload"]
 MAX_DNS_ANSWERS = 32
 MAX_RESPONSE_HEADERS = 100
 READ_CHUNK_BYTES = 64 << 10
-SAFE_ARTIFACT_NAMES = frozenset({"manifest.json", "manifest.ed25519", "payload.bin"})
+SAFE_ARTIFACT_NAMES = frozenset(
+    {
+        "manifest.json",
+        "manifest.ed25519",
+        "payload.bin",
+        "catalog.json",
+        "publisher-report.json",
+    }
+)
 
 
 class DownloadSecurityError(ValueError):
@@ -74,8 +82,21 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
 class PinnedHttpsTransport:
     """Connect to a validated address while retaining hostname TLS checks."""
 
-    def __init__(self, *, ssl_context: ssl.SSLContext | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        ssl_context: ssl.SSLContext | None = None,
+        user_agent: str = "OpenAssetWatch-Advisory-Sync/1",
+    ) -> None:
+        if (
+            not user_agent
+            or len(user_agent) > 200
+            or not user_agent.isascii()
+            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in user_agent)
+        ):
+            raise ValueError("HTTPS transport user agent must be bounded printable ASCII")
         self.ssl_context = ssl_context or ssl.create_default_context()
+        self.user_agent = user_agent
 
     def get(
         self,
@@ -98,10 +119,20 @@ class PinnedHttpsTransport:
                 raise DownloadSecurityError("connection-failed", "HTTPS connection did not establish safely")
             peer_ip = str(connection.sock.getpeername()[0])
             connection.sock.settimeout(read_timeout)
-            connection.putrequest("GET", path, skip_accept_encoding=True)
+            # Supply exactly one reviewed Host header. putrequest would
+            # otherwise add another Host field before the explicit value.
+            connection.putrequest(
+                "GET",
+                path,
+                skip_host=True,
+                skip_accept_encoding=True,
+            )
             connection.putheader("Host", host)
-            connection.putheader("Accept", "application/json, application/octet-stream, application/gzip")
-            connection.putheader("User-Agent", "OpenAssetWatch-Advisory-Sync/1")
+            connection.putheader(
+                "Accept",
+                "application/json, text/csv, text/plain, application/octet-stream, application/gzip",
+            )
+            connection.putheader("User-Agent", self.user_agent)
             connection.putheader("Connection", "close")
             connection.endheaders()
             response = connection.getresponse()

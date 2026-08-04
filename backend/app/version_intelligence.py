@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from functools import total_ordering
 from typing import Any, Literal
 
+from packaging.version import InvalidVersion, Version
+
 from .component_intelligence import normalize_version_text
 
 
@@ -21,15 +23,6 @@ _SEMVER_RE = re.compile(
     r"(?:\.(?P<patch>0|[1-9]\d*))?"
     r"(?:-(?P<pre>[0-9A-Za-z.-]+))?"
     r"(?:\+[0-9A-Za-z.-]+)?$"
-)
-_PEP440_RE = re.compile(
-    r"^[vV]?"
-    r"(?:(?P<epoch>\d+)!)?"
-    r"(?P<release>\d+(?:\.\d+)*)"
-    r"(?:(?P<pre_tag>a|b|rc|alpha|beta|pre|preview)(?P<pre_num>\d*))?"
-    r"(?:(?:[.-]?post)(?P<post>\d+))?"
-    r"(?:(?:[.-]?dev)(?P<dev>\d+))?$",
-    re.IGNORECASE,
 )
 _SAFE_VERSION_RE = re.compile(r"^[0-9A-Za-z.!+:~_-]{1,160}$")
 
@@ -78,42 +71,6 @@ def _semver(value: str) -> tuple[Any, ...] | None:
         int(match.group("patch") or 0),
     )
     return release + (_prerelease_parts(match.group("pre")),)
-
-
-def _pep440(value: str) -> tuple[Any, ...] | None:
-    normalized = value.replace("-", "").replace("_", "")
-    match = _PEP440_RE.fullmatch(normalized)
-    if not match:
-        return None
-    release_values = tuple(int(item) for item in match.group("release").split("."))
-    if len(release_values) > MAX_VERSION_PARTS:
-        return None
-    tag = (match.group("pre_tag") or "").casefold()
-    tag = {"alpha": "a", "beta": "b", "pre": "rc", "preview": "rc"}.get(
-        tag,
-        tag,
-    )
-    pre_rank = {"a": 0, "b": 1, "rc": 2}.get(tag, 3)
-    pre_number = int(match.group("pre_num") or 0)
-    dev = match.group("dev")
-    post = match.group("post")
-    # PEP 440 ordering: development-only < prerelease < final, development
-    # releases sort before their corresponding stage, and post releases sort
-    # after their base release.
-    pre_stage = (
-        (-1, 0, 0)
-        if dev is not None and not tag and post is None
-        else (0, pre_rank, pre_number)
-        if tag
-        else (1, 0, 0)
-    )
-    return (
-        int(match.group("epoch") or 0),
-        _trim_release(release_values),
-        pre_stage,
-        (-1, 0) if post is None else (0, int(post)),
-        (1, 0) if dev is None else (0, int(dev)),
-    )
 
 
 def _split_epoch(value: str) -> tuple[int, str]:
@@ -290,9 +247,10 @@ def compare_versions(
         return VersionComparison("supported", 0, "exact-equality")
     try:
         if ecosystem == "pypi":
-            left_parsed = _pep440(left)
-            right_parsed = _pep440(right)
-            if left_parsed is None or right_parsed is None:
+            try:
+                left_parsed = Version(left)
+                right_parsed = Version(right)
+            except InvalidVersion:
                 return VersionComparison("unsupported", None, "unsupported-pep440-form")
             order = _compare_tuple(left_parsed, right_parsed)
         elif ecosystem in {"npm", "nuget", "golang"}:

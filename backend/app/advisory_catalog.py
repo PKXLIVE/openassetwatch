@@ -37,8 +37,12 @@ MAX_ALIASES = 32
 MAX_AFFECTED_COMPONENTS = 64
 MAX_RANGES = 32
 MAX_REFERENCES = 16
-MAX_FIXED_VERSIONS = 16
+MAX_EXACT_VERSIONS = 256
+MAX_FIXED_VERSIONS = 32
 MAX_PLATFORM_CONSTRAINTS = 16
+MAX_CREDITS = 32
+MAX_CREDIT_CONTACTS = 8
+MAX_SEVERITY_VECTORS = 16
 
 Severity = Literal["critical", "high", "medium", "low", "informational"]
 
@@ -71,8 +75,34 @@ class AdvisoryReference(StrictCatalogModel):
         return validated
 
 
+class AdvisoryCredit(StrictCatalogModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    type: str | None = Field(default=None, min_length=1, max_length=40)
+    contact: list[str] = Field(default_factory=list, max_length=MAX_CREDIT_CONTACTS)
+
+    @field_validator("contact")
+    @classmethod
+    def validate_contacts(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            validated = validate_reference_url(value)
+            if validated is None:
+                raise ValueError("credit contacts must be bounded HTTP(S) URLs")
+            normalized.append(validated)
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("credit contacts contain duplicates")
+        return normalized
+
+
+class AdvisorySeverityVector(StrictCatalogModel):
+    type: str = Field(..., min_length=1, max_length=40)
+    score: str = Field(..., min_length=1, max_length=300)
+    source: str | None = Field(default=None, min_length=1, max_length=120)
+
+
 class AdvisoryRange(StrictCatalogModel):
     introduced: str | None = Field(default=None, max_length=160)
+    introduced_unbounded: bool = False
     introduced_inclusive: bool = True
     fixed: str | None = Field(default=None, max_length=160)
     fixed_inclusive: bool = False
@@ -91,7 +121,14 @@ class AdvisoryRange(StrictCatalogModel):
 
     @model_validator(mode="after")
     def require_boundary(self) -> "AdvisoryRange":
-        if self.introduced is None and self.fixed is None and self.last_affected is None:
+        if self.introduced_unbounded and self.introduced is not None:
+            raise ValueError("unbounded range cannot have an introduced version")
+        if (
+            self.introduced is None
+            and not self.introduced_unbounded
+            and self.fixed is None
+            and self.last_affected is None
+        ):
             raise ValueError("range requires an introduced, fixed, or last_affected boundary")
         if self.fixed is not None and self.last_affected is not None:
             raise ValueError("range cannot use fixed and last_affected together")
@@ -110,7 +147,7 @@ class AffectedComponent(StrictCatalogModel):
     )
     exact_versions: list[str] = Field(
         default_factory=list,
-        max_length=MAX_FIXED_VERSIONS,
+        max_length=MAX_EXACT_VERSIONS,
     )
     fixed_versions: list[str] = Field(
         default_factory=list,
@@ -231,16 +268,43 @@ class AdvisoryRecord(StrictCatalogModel):
         default_factory=list,
         max_length=MAX_REFERENCES,
     )
+    upstream: list[str] = Field(default_factory=list, max_length=MAX_ALIASES)
+    related: list[str] = Field(default_factory=list, max_length=MAX_ALIASES)
+    source_record_url: str | None = Field(default=None, min_length=8, max_length=500)
+    source_license: str | None = Field(default=None, min_length=1, max_length=120)
+    severity_basis: Literal[
+        "legacy",
+        "upstream-categorical",
+        "upstream-vector",
+        "derived-cvss-v3",
+        "not-reported",
+    ] = "legacy"
+    upstream_severity: str | None = Field(default=None, min_length=1, max_length=80)
+    severity_vectors: list[AdvisorySeverityVector] = Field(
+        default_factory=list,
+        max_length=MAX_SEVERITY_VECTORS,
+    )
+    credits: list[AdvisoryCredit] = Field(default_factory=list, max_length=MAX_CREDITS)
 
-    @field_validator("aliases")
+    @field_validator("aliases", "upstream", "related")
     @classmethod
-    def validate_aliases(cls, values: list[str]) -> list[str]:
+    def validate_identifiers(cls, values: list[str]) -> list[str]:
         normalized = [value.strip().upper() for value in values]
         if any(not value or len(value) > 120 for value in normalized):
-            raise ValueError("alias must be between 1 and 120 characters")
+            raise ValueError("advisory identifier must be between 1 and 120 characters")
         if len(normalized) != len(set(normalized)):
-            raise ValueError("advisory aliases contain duplicates")
+            raise ValueError("advisory identifier list contains duplicates")
         return normalized
+
+    @field_validator("source_record_url")
+    @classmethod
+    def validate_source_record_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        validated = validate_reference_url(value)
+        if validated is None:
+            raise ValueError("source record URL must be bounded and credential-free")
+        return validated
 
     @field_validator("published_at", "modified_at", "withdrawn_at")
     @classmethod
@@ -255,6 +319,20 @@ class AdvisoryRecord(StrictCatalogModel):
             raise ValueError("modified_at must not precede published_at")
         if self.withdrawn_at is not None and self.withdrawn_at < self.published_at:
             raise ValueError("withdrawn_at must not precede published_at")
+        if (self.source_record_url is None) != (self.source_license is None):
+            raise ValueError("source record URL and source license must be supplied together")
+        if self.severity_basis == "upstream-categorical" and not self.upstream_severity:
+            raise ValueError("categorical severity requires its upstream value")
+        if self.severity_basis == "upstream-vector" and not self.severity_vectors:
+            raise ValueError("vector severity requires an upstream vector")
+        if self.severity_basis == "derived-cvss-v3" and (
+            not self.severity_vectors or self.cvss is None
+        ):
+            raise ValueError("derived CVSS severity requires a vector and base score")
+        if self.severity_basis == "not-reported" and (
+            self.upstream_severity is not None or self.severity_vectors
+        ):
+            raise ValueError("unreported severity cannot include upstream severity evidence")
         return self
 
 

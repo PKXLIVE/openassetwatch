@@ -56,8 +56,17 @@ permission.
 
 ## Vulnerability and lifecycle sources
 
-These are candidate sources only. No live or offline adapter is approved by
-this table until its row moves out of `review-required`.
+The following approval is deliberately narrower than the OSV ecosystem bucket.
+The PyPI bucket also contains records from source families with different
+terms. Only records identified as `PYSEC-*` and carrying a matching per-record
+source link to `pypa/advisory-database` are approved here.
+
+| Source | Owner and official locations | Capability and access | Decision and permitted use | Obligations, controls, and review |
+| --- | --- | --- | --- | --- |
+| Python Packaging Advisory Database (`PYSEC-*` records only), transported by OSV.dev's PyPI GCS export | Python Packaging Authority; [database](https://github.com/pypa/advisory-database), [license](https://github.com/pypa/advisory-database/blob/main/LICENSE), [OSV data-source documentation](https://google.github.io/osv.dev/data/); exact transport paths `https://storage.googleapis.com/osv-vulnerabilities/PyPI/modified_id.csv` and `.../PyPI/PYSEC-*.json` | One-shot retrieval, normalization, local caching of normalized records, signing, commercial service use, and redistribution in an OpenAssetWatch catalog | `approved-with-obligations`; CC BY 4.0 permits sharing and adaptation, including commercial use, subject to its conditions | Preserve source record URL, `PYSEC` ID, retrieval/cursor time, checksums, CC-BY-4.0 identifier/link, contributor attribution, and OpenAssetWatch normalization notice. Do not relicense non-`PYSEC` OSV rows. Reject ambiguous provenance or unknown schema fields. No personal data is expected beyond public advisory credits; credits remain bounded attribution text. Treat source data as untrusted and note that the GCS export has HTTPS transport but no upstream dataset signature. Corrections and withdrawals arrive through modified records; per-record timestamps and withdrawals must remain monotonic, while removals require a reviewed full rebuild. Approved by project maintainer for this exact adapter scope on 2026-08-03; re-review by 2027-08-03 or immediately after ownership, license, schema, or endpoint change. |
+
+The following rows remain candidate sources. No live or offline adapter is
+approved by these rows until its decision moves out of `review-required`.
 
 | Source | Intended capability | Initial decision | Known considerations | Required next action |
 | --- | --- | --- | --- | --- |
@@ -65,7 +74,7 @@ this table until its row moves out of `review-required`.
 | NIST NVD | Supplemental enrichment and historical metadata | `review-required` | Do not treat as sole authority; verify current terms, API limits, bulk data, and notice requirements. | Primary-source terms and current operations review. |
 | CISA Known Exploited Vulnerabilities | Known exploitation signal | `review-required` | Preferred first adapter candidate; confirm public-domain/CC0-style status and required attribution before bundling. | Complete source decision before adapter implementation. |
 | FIRST EPSS | Exploitation-probability field | `review-required` | Probability must remain separate from severity and risk; verify API/data terms and attribution. | Terms and redistribution review. |
-| OSV and aggregated upstream databases | Package vulnerability ranges | `review-required` | OSV aggregates sources with potentially different per-record licenses; preserve source attribution and provenance. | Define per-record license handling. |
+| OSV and aggregated upstream databases other than the exact PyPI/PYSEC approval above | Package vulnerability ranges | `review-required` | OSV aggregates sources with potentially different per-record licenses; ecosystem membership is not a license grant. | Complete one source-family decision record at a time. |
 | GitHub Advisory Database | Open-source package advisories | `review-required` | Research indicates CC-BY-style obligations; verify current repository license and API terms. | Primary-source verification. |
 | Vendor CSAF and PSIRT feeds | Product and firmware advisories | `review-required` | Terms differ by vendor; signatures and issuer identity may be relevant. | One decision record per vendor/source. |
 | EU Vulnerability Database | Supplemental European vulnerability data | `review-required` | Bulk-use and redistribution terms were unresolved in the July 2026 research. | Re-verify official terms before design approval. |

@@ -89,6 +89,7 @@ ADVISORY_SCHEMA_SQL = (
             REFERENCES advisory_affected_components(affected_id) ON DELETE CASCADE,
         ordinal INTEGER NOT NULL,
         introduced TEXT,
+        introduced_unbounded BOOLEAN NOT NULL DEFAULT FALSE,
         introduced_inclusive BOOLEAN NOT NULL DEFAULT TRUE,
         fixed TEXT,
         fixed_inclusive BOOLEAN NOT NULL DEFAULT FALSE,
@@ -97,6 +98,7 @@ ADVISORY_SCHEMA_SQL = (
         UNIQUE (affected_id, ordinal)
     )
     """,
+    "ALTER TABLE advisory_version_ranges ADD COLUMN IF NOT EXISTS introduced_unbounded BOOLEAN NOT NULL DEFAULT FALSE",
     """
     CREATE TABLE IF NOT EXISTS advisory_references (
         advisory_id TEXT NOT NULL
@@ -412,12 +414,12 @@ def import_catalog(
                         """
                         INSERT INTO advisory_version_ranges (
                             range_id, affected_id, ordinal, introduced,
-                            introduced_inclusive, fixed, fixed_inclusive,
+                            introduced_unbounded, introduced_inclusive, fixed, fixed_inclusive,
                             last_affected, last_affected_inclusive
                         )
                         VALUES (
                             :range_id, :affected_id, :ordinal, :introduced,
-                            :introduced_inclusive, :fixed, :fixed_inclusive,
+                            :introduced_unbounded, :introduced_inclusive, :fixed, :fixed_inclusive,
                             :last_affected, :last_affected_inclusive
                         )
                         """
@@ -579,6 +581,7 @@ class SqlAdvisoryStore:
                             jsonb_build_object(
                                 'range_id', avr.range_id,
                                 'introduced', avr.introduced,
+                                'introduced_unbounded', avr.introduced_unbounded,
                                 'introduced_inclusive', avr.introduced_inclusive,
                                 'fixed', avr.fixed,
                                 'fixed_inclusive', avr.fixed_inclusive,

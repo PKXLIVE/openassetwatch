@@ -14,6 +14,8 @@ boundary, then use these canonical documents for implemented subsystems:
   classification, source-aware provenance, conflicts, and local enrichment
 - `docs/SOFTWARE_AND_VULNERABILITY_INTELLIGENCE.md` - reviewed offline advisory
   catalog, components, version comparison, matching, and vulnerability history
+- `docs/OSV_PYPI_PUBLISHER.md` - isolated licensed PyPI/PYSEC retrieval,
+  normalization, signed publishing, cursor, and operator controls
 - `docs/DETERMINISTIC_FINDINGS_AND_RISK.md` - authoritative findings,
   lifecycle, and the explainable Operational Attention Score
 - `docs/architecture/ai-advisor.md` and

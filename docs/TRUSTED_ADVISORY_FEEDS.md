@@ -49,6 +49,14 @@ The included `openassetwatch-synthetic-signed` source is test-only. Its
 fixture under `backend/advisory_feeds/fixtures/` drives tests and demos. It
 contains one fictional advisory and no third-party corpus.
 
+The first approved real-source publisher is the isolated OSV PyPI/PYSEC
+adapter documented in `docs/OSV_PYPI_PUBLISHER.md`. It emits this same signed
+bundle format and proves acceptance with the same verifier. It is not imported
+by backend startup, request handling, matching, or AI code. Generated bundles
+remain local until an operator independently pins the publisher public key and
+exact hosted artifact paths in this canonical registry and then uses the normal
+preview, approval, activation, and rollback lifecycle.
+
 To add a source:
 
 1. Complete the decision record in `docs/SOURCE_LICENSING_REGISTRY.md` using
@@ -144,8 +152,10 @@ source record identity, and retained catalog metadata includes retrieval time,
 adapter version, manifest/payload digests, publisher key, license, attribution,
 and upstream dataset identity. Missing or conflicting data is rejected.
 
-The only enabled source is OpenAssetWatch-owned fictional Apache-2.0 material.
-No real third-party advisory data is bundled or redistributed by this feature.
+The only source currently enabled in the hub registry is OpenAssetWatch-owned
+fictional Apache-2.0 material. The approved OSV PyPI publisher remains isolated
+and local until a separately reviewed mirror, public key, and exact endpoints
+are registered; no real third-party corpus is committed with this feature.
 The new runtime `cryptography` dependency is Apache-2.0 OR BSD-3-Clause, both
 permitted by `LICENSE_POLICY.md`, and exists solely for reviewed Ed25519
 verification.
@@ -270,19 +280,20 @@ also uses retained local bytes and performs no network request.
 
 ## Real-source adapter decision
 
-No real adapter is enabled. OSV offers a stable machine-readable API, but it is
-an unsigned aggregation of upstream databases whose per-record licenses and
-redistribution obligations can differ. HTTPS transport cannot substitute for a
-publisher signature, and the existing source licensing registry therefore
-keeps OSV at `review-required`. See the official [OSV API documentation](https://google.github.io/osv.dev/api/)
-and [OSV data-source documentation](https://google.github.io/osv.dev/data/).
+The first approved real-source publisher is the isolated OSV PyPI/PYSEC
+adapter. Its legal and technical scope is deliberately narrower than the OSV
+PyPI export: it accepts only `PYSEC-*` records with a matching
+`pypa/advisory-database` source URL and CC-BY-4.0 attribution. Other OSV source
+families remain `review-required`. OSV is an unsigned aggregator; HTTPS protects
+transport but does not authenticate the dataset as a publisher. The local
+OpenAssetWatch signature attests normalized output, not upstream truth.
 
-The immediate follow-up is a separately operated OpenAssetWatch publisher or
-mirror pipeline: fetch one legally approved upstream, preserve per-record
-license/provenance, normalize it offline, enforce publisher-side bounds and
-duplicate controls, emit bundle v1, and sign the manifest with an offline or
-managed signing key. The hub would trust only that independently reviewed
-publisher public key. Core matching and bundle formats remain vendor-neutral.
+The immediate follow-up is a separately operated HTTPS mirror that exposes
+only complete bundle-v1 artifacts signed by a managed or offline key. The hub
+must receive that public key through an independent reviewed channel; a
+publisher report cannot enroll its own key. Future source adapters must keep
+their license, provenance, schema, and correction policy isolated while
+emitting the same vendor-neutral catalog and bundle contracts.
 
 ## Known limitations
 
@@ -296,5 +307,6 @@ publisher public key. Core matching and bundle formats remain vendor-neutral.
   responsibilities outside cryptographic verification.
 - Retained artifacts currently live in PostgreSQL. Retention count/age policy
   beyond last-known-good selection is an operational follow-up.
-- Gzip and catalog limits are source-wide; a future real adapter should lower
-  them from global maxima based on measured authoritative-source behavior.
+- Gzip and catalog limits remain source-wide in the hub; production enrollment
+  of the OSV PyPI mirror should lower them from global maxima using measured
+  publisher output.

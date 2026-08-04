@@ -19,6 +19,20 @@ should not be added here.
   strict-catalog, preview-diff, and targeted-scope benchmark. It reports live
   database import/reevaluation timings as unavailable rather than simulating
   them when PostgreSQL is absent.
+- `publish_osv_pypi_advisories.py`: isolated one-shot publisher for the
+  licensed PyPI Advisory Database `PYSEC-*` source family transported through
+  OSV.dev. It has fixed upstream paths, strict normalization, private durable
+  cursor state, full/incremental/dry-run modes, Ed25519 signing, and atomic
+  local outputs; it never imports or activates a catalog. Production signed
+  runs require Linux-private state/output storage and fail closed on native
+  Windows until private DACL validation is available.
+- `demo_osv_pypi_publisher.py`: fully offline, product-authored synthetic proof
+  of full and incremental publishing, signature verification, preview,
+  approval, activation, deterministic match/finding/risk change, rollback, and
+  read-only AI evidence. It contains no downloaded advisory data.
+- `benchmark_osv_pypi_publisher.py`: bounded, offline synthetic normalization,
+  deterministic catalog, signing, verification, time, payload-size, and peak
+  memory benchmark for thousands of records.
 - `import_advisory_catalog.py`: deprecated fail-closed entry point retained to
   explain that unsigned imports are disabled and direct operators to the
   signed-feed lifecycle.

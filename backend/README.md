@@ -204,6 +204,20 @@ docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
     tests.test_advisory_sync_lifecycle tests.test_advisory_feed_ai_ui
 ```
 
+Run the licensed OSV PyPI publisher's strict normalization, network, cursor,
+signing, output, offline lifecycle, and AI-evidence tests:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace/backend backend `
+  python -m unittest -v tests.test_osv_pypi_publisher tests.test_osv_pypi_demo
+```
+
+The publisher is a separate one-shot administrative process; it is never
+started with the backend. See `docs/OSV_PYPI_PUBLISHER.md` for its reviewed
+source boundary, signing and registry workflow, recovery behavior, live smoke,
+offline demonstration, and synthetic benchmark.
+
 Run the deterministic classification, conflict, reclassification, and AI
 evidence showcase through the backend image:
 
