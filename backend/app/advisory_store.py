@@ -171,6 +171,7 @@ def import_catalog(
     catalog: AdvisoryCatalog,
     checksum: str,
     imported_at: datetime | None = None,
+    reactivate_existing: bool = False,
 ) -> dict[str, Any]:
     """Atomically replace one source's reviewed catalog snapshot."""
 
@@ -205,7 +206,7 @@ def import_catalog(
             "checksum": checksum,
         },
     ).scalar_one_or_none()
-    if existing:
+    if existing and not reactivate_existing:
         return {
             "import_id": existing,
             "catalog_version": catalog.catalog_version,
@@ -213,36 +214,40 @@ def import_catalog(
             "checksum": checksum,
             "advisory_count": len(catalog.advisories),
             "duplicate": True,
+            "reactivated": False,
             "imported_at": imported,
         }
-    connection.execute(
-        text(
-            """
-            INSERT INTO advisory_catalog_imports (
-                import_id, catalog_version, source, source_version,
-                source_license, provenance, checksum, generated_at,
-                imported_at, advisory_count, status
-            )
-            VALUES (
-                :import_id, :catalog_version, :source, :source_version,
-                :source_license, :provenance, :checksum, :generated_at,
-                :imported_at, :advisory_count, 'completed'
-            )
-            """
-        ),
-        {
-            "import_id": import_id,
-            "catalog_version": catalog.catalog_version,
-            "source": source,
-            "source_version": catalog.source.version,
-            "source_license": catalog.source.license,
-            "provenance": catalog.source.provenance,
-            "checksum": checksum,
-            "generated_at": catalog.generated_at,
-            "imported_at": imported,
-            "advisory_count": len(catalog.advisories),
-        },
-    )
+    if existing:
+        import_id = str(existing)
+    else:
+        connection.execute(
+            text(
+                """
+                INSERT INTO advisory_catalog_imports (
+                    import_id, catalog_version, source, source_version,
+                    source_license, provenance, checksum, generated_at,
+                    imported_at, advisory_count, status
+                )
+                VALUES (
+                    :import_id, :catalog_version, :source, :source_version,
+                    :source_license, :provenance, :checksum, :generated_at,
+                    :imported_at, :advisory_count, 'completed'
+                )
+                """
+            ),
+            {
+                "import_id": import_id,
+                "catalog_version": catalog.catalog_version,
+                "source": source,
+                "source_version": catalog.source.version,
+                "source_license": catalog.source.license,
+                "provenance": catalog.source.provenance,
+                "checksum": checksum,
+                "generated_at": catalog.generated_at,
+                "imported_at": imported,
+                "advisory_count": len(catalog.advisories),
+            },
+        )
     imported_advisory_ids: list[str] = []
     for record in catalog.advisories:
         advisory_id = advisory_id_for(
@@ -450,7 +455,8 @@ def import_catalog(
         "source": source,
         "checksum": checksum,
         "advisory_count": len(catalog.advisories),
-        "duplicate": False,
+        "duplicate": existing is not None,
+        "reactivated": existing is not None,
         "imported_at": imported,
     }
 
@@ -533,6 +539,7 @@ class SqlAdvisoryStore:
         self,
         *,
         advisory_id: str | None = None,
+        advisory_ids: Sequence[str] | None = None,
         ecosystems: Sequence[str] | None = None,
         limit: int = 20_000,
     ) -> list[dict[str, Any]]:
@@ -542,10 +549,20 @@ class SqlAdvisoryStore:
                 "advisory matching row limit must be between 1 and 200001"
             )
         safe_limit = limit
+        advisory_id_values = sorted(set(advisory_ids or ()))
+        if advisory_id and advisory_id_values:
+            raise ValueError("advisory_id and advisory_ids are mutually exclusive")
+        if len(advisory_id_values) > 20_000:
+            raise ValueError("advisory ID filter limit exceeded")
         ecosystem_values = sorted(set(ecosystems or ()))
         ecosystem_filter = (
             "\n              AND aac.ecosystem IN :ecosystems"
             if ecosystem_values
+            else ""
+        )
+        advisory_ids_filter = (
+            "\n              AND a.advisory_id IN :advisory_ids"
+            if advisory_id_values
             else ""
         )
         statement = text(
@@ -589,6 +606,7 @@ class SqlAdvisoryStore:
               ON aac.advisory_id = a.advisory_id
             WHERE (:advisory_id IS NULL OR a.advisory_id = :advisory_id)
             """
+            + advisory_ids_filter
             + ecosystem_filter
             + """
             ORDER BY a.advisory_id, aac.affected_id
@@ -604,6 +622,11 @@ class SqlAdvisoryStore:
                 bindparam("ecosystems", expanding=True)
             )
             params["ecosystems"] = ecosystem_values
+        if advisory_id_values:
+            statement = statement.bindparams(
+                bindparam("advisory_ids", expanding=True)
+            )
+            params["advisory_ids"] = advisory_id_values
         with self._engine().begin() as connection:
             rows = connection.execute(statement, params).mappings().all()
         items = []

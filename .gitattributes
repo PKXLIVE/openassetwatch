@@ -14,3 +14,8 @@
 Dockerfile text eol=lf
 packaging/sensor/linux/systemd/*.service text eol=lf
 packaging/sensor/linux/examples/*.json text eol=lf
+
+# Signed advisory fixtures are verified as exact bytes on every platform.
+backend/advisory_feeds/*.json text eol=lf
+backend/advisory_feeds/fixtures/**/*.json text eol=lf
+backend/advisory_feeds/fixtures/**/*.ed25519 -text

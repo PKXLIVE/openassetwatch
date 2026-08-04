@@ -51,6 +51,7 @@ permission.
 | Source | Capability | Decision | Permitted use | Obligations and notes |
 | --- | --- | --- | --- | --- |
 | OpenAssetWatch synthetic advisory catalog | Demo and deterministic vulnerability tests | `approved` | Bundle, modify, redistribute, test | Apache-2.0; fictional data only; retain explicit synthetic and no-third-party-data labeling. |
+| OpenAssetWatch synthetic signed advisory bundle | Trusted-feed synchronization, approval, activation, rollback, and security tests | `approved` | Bundle, modify, redistribute, test | Apache-2.0; fictional product-owned data only; preserve signed provenance/attribution and never substitute a production signing key. |
 | OpenAssetWatch native rules, schemas, tests, and documentation | Product functionality | `approved` | Use under repository license | Preserve repository license and notices. |
 
 ## Vulnerability and lifecycle sources

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import secrets
 import threading
@@ -117,12 +118,20 @@ from .sensor_identity import (
     rotate_sensor_credential,
 )
 from .vendor_catalog import configured_catalog_status
-from .advisory_catalog import CatalogValidationError, parse_catalog_bytes
 from .advisory_store import SqlAdvisoryStore
+from .advisory_feed_registry import RegistryError
+from .advisory_sync_contracts import (
+    AdvisoryApprovalRequest,
+    AdvisoryReevaluationRetryRequest,
+    AdvisoryRejectionRequest,
+    AdvisoryRollbackRequest,
+    AdvisorySyncRequest,
+)
+from .advisory_sync_service import AdvisorySyncError, AdvisorySyncService
+from .advisory_sync_store import AdvisorySyncStoreError, SqlAdvisorySyncStore
 from .component_intelligence import SUPPORTED_ECOSYSTEMS, normalized_token
 from .component_store import SqlComponentStore
 from .vulnerability_contracts import (
-    CatalogImportResponse,
     CatalogStatusResponse,
     ComponentListResponse,
     VulnerabilityEvaluateRequest,
@@ -140,6 +149,7 @@ app = FastAPI(
     description="Open-source family network asset intelligence platform.",
     version="0.1.0",
 )
+LOGGER = logging.getLogger(__name__)
 
 
 class BoundedRequestBodyMiddleware:
@@ -155,6 +165,10 @@ class BoundedRequestBodyMiddleware:
         "/api/v1/admin/vulnerabilities/evaluate": 64 << 10,
         "/api/v1/admin/vulnerabilities/import": 8 << 20,
     }
+    PREFIX_LIMITS = {
+        "/api/v1/admin/advisory-feed": 16 << 10,
+        "/api/v1/admin/advisory-catalog": 16 << 10,
+    }
 
     def __init__(self, app: Any) -> None:
         self.app = app
@@ -163,7 +177,17 @@ class BoundedRequestBodyMiddleware:
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
-        limit = self.LIMITS.get(scope.get("path"))
+        path = str(scope.get("path") or "")
+        limit = self.LIMITS.get(path)
+        if limit is None:
+            limit = next(
+                (
+                    value
+                    for prefix, value in self.PREFIX_LIMITS.items()
+                    if path.startswith(prefix)
+                ),
+                None,
+            )
         if limit is None:
             await self.app(scope, receive, send)
             return
@@ -241,6 +265,7 @@ COLLECTOR_TOKEN_ENV = "OPENASSETWATCH_COLLECTOR_TOKEN"
 COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
 ADMIN_TOKEN_ENV = "OPENASSETWATCH_ADMIN_TOKEN"
 ADMIN_TOKEN_HEADER = "X-OpenAssetWatch-Admin-Token"
+ADVISORY_API_ACTOR = "api-admin-token"
 MAX_SENSOR_ENROLLMENT_BODY_BYTES = 8 << 10
 MAX_LOCAL_INVENTORY_ASSETS = 1_000
 
@@ -1001,6 +1026,14 @@ def _advisory_store() -> SqlAdvisoryStore:
     return SqlAdvisoryStore()
 
 
+def _advisory_sync_store() -> SqlAdvisorySyncStore:
+    return SqlAdvisorySyncStore()
+
+
+def _advisory_sync_service() -> AdvisorySyncService:
+    return AdvisorySyncService(store=_advisory_sync_store())
+
+
 def _vulnerability_store() -> SqlVulnerabilityStore:
     return SqlVulnerabilityStore()
 
@@ -1245,10 +1278,7 @@ def admin_evaluate_vulnerabilities(
         raise HTTPException(status_code=500, detail="deterministic vulnerability evaluation failed") from exc
 
 
-@app.post(
-    "/api/v1/admin/vulnerabilities/import",
-    response_model=CatalogImportResponse,
-)
+@app.post("/api/v1/admin/vulnerabilities/import", deprecated=True)
 async def admin_import_vulnerability_catalog(
     request: Request,
     admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
@@ -1257,30 +1287,268 @@ async def admin_import_vulnerability_catalog(
         admin_token,
         capability="vulnerability catalog administration",
     )
-    if not _full_vulnerability_limiter.allow():
-        raise HTTPException(
-            status_code=429,
-            detail="advisory import and full evaluation are temporarily rate limited",
-        )
+    _ = request
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "unsigned advisory catalog import is disabled; use the reviewed "
+            "signed advisory feed synchronization lifecycle"
+        ),
+    )
+
+
+def _raise_advisory_sync_api_error(
+    exc: RegistryError | AdvisorySyncStoreError | AdvisorySyncError,
+) -> None:
+    if exc.code in {"source-unknown", "run-not-found", "catalog-not-found", "activation-not-found"}:
+        status_code = 404
+    elif exc.code in {"sync-rate-limited", "control-action-rate-limited"}:
+        status_code = 429
+    elif exc.code in {
+        "source-disabled",
+        "sync-already-active",
+        "run-state-conflict",
+        "rollback-target-active",
+        "reevaluation-state-conflict",
+    }:
+        status_code = 409
+    else:
+        status_code = 400
+    raise HTTPException(status_code=status_code, detail=exc.summary) from exc
+
+
+def _run_advisory_sync_background(service: AdvisorySyncService, run_id: str) -> None:
     try:
-        catalog, checksum = parse_catalog_bytes(await request.body())
-        result = _advisory_store().import_catalog(
-            catalog=catalog,
-            checksum=checksum,
-        )
-        if result["duplicate"]:
-            return {**result, "evaluation": None}
-        evaluation = evaluate_vulnerabilities(
-            trigger_type="advisory-import",
-            requested_by="admin",
-        )
-        return {**result, "evaluation": evaluation.as_dict()}
-    except CatalogValidationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        service.execute_remote_run(run_id)
+    except AdvisorySyncError as exc:
+        LOGGER.warning("advisory feed synchronization failed safely: %s", exc.code)
+
+
+def _activate_advisory_background(
+    service: AdvisorySyncService,
+    run_id: str,
+    actor: str,
+) -> None:
+    try:
+        service.activate(run_id, actor=actor)
+    except (AdvisorySyncError, AdvisorySyncStoreError, RegistryError) as exc:
+        LOGGER.warning("advisory catalog activation failed safely: %s", exc.code)
+    except Exception as exc:  # noqa: BLE001 - response already returned; never log feed text.
+        LOGGER.error("advisory catalog activation failed safely: %s", type(exc).__name__)
+
+
+def _rollback_advisory_background(
+    service: AdvisorySyncService,
+    catalog_id: str,
+    actor: str,
+) -> None:
+    try:
+        service.rollback(catalog_id, actor=actor)
+    except (AdvisorySyncError, AdvisorySyncStoreError, RegistryError) as exc:
+        LOGGER.warning("advisory catalog rollback failed safely: %s", exc.code)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.error("advisory catalog rollback failed safely: %s", type(exc).__name__)
+
+
+@app.get("/api/v1/admin/advisory-feeds")
+def admin_advisory_feeds(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return {"items": _advisory_sync_service().list_sources()}
+    except (RegistryError, AdvisorySyncStoreError) as exc:
+        _raise_advisory_sync_api_error(exc)
     except SQLAlchemyError as exc:
-        raise HTTPException(status_code=500, detail="advisory catalog import failed") from exc
+        raise HTTPException(status_code=500, detail="failed to load advisory feed status") from exc
+
+
+@app.get("/api/v1/admin/advisory-feeds/{source_id}")
+def admin_advisory_feed_status(
+    source_id: str = ApiPath(..., pattern=r"^[a-z0-9][a-z0-9._-]{2,63}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_service().source_status(source_id)
+    except (RegistryError, AdvisorySyncStoreError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory feed status") from exc
+
+
+@app.post("/api/v1/admin/advisory-feeds/{source_id}/sync", status_code=202)
+def admin_sync_advisory_feed(
+    payload: AdvisorySyncRequest,
+    background_tasks: BackgroundTasks,
+    source_id: str = ApiPath(..., pattern=r"^[a-z0-9][a-z0-9._-]{2,63}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    service = _advisory_sync_service()
+    try:
+        run = service.request_sync(source_id=source_id, requested_by=ADVISORY_API_ACTOR)
+        background_tasks.add_task(_run_advisory_sync_background, service, run["run_id"])
+        return run
+    except (RegistryError, AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to request advisory synchronization") from exc
+
+
+@app.get("/api/v1/admin/advisory-feed-runs")
+def admin_advisory_feed_runs(
+    source_id: str | None = Query(default=None, min_length=3, max_length=64),
+    state: str | None = Query(default=None, min_length=3, max_length=40),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_store().list_runs(
+            source_id=source_id,
+            state=state,
+            limit=limit,
+            offset=offset,
+        )
+    except AdvisorySyncStoreError as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory synchronization runs") from exc
+
+
+@app.get("/api/v1/admin/advisory-feed-runs/{run_id}")
+def admin_advisory_feed_run(
+    run_id: str = ApiPath(..., pattern=r"^afrun_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_store().get_run(run_id)
+    except AdvisorySyncStoreError as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory synchronization run") from exc
+
+
+@app.get("/api/v1/admin/advisory-feed-runs/{run_id}/preview")
+def admin_advisory_feed_preview(
+    run_id: str = ApiPath(..., pattern=r"^afrun_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        run = _advisory_sync_store().get_run(run_id, include_preview=True)
+        if run.get("preview") is None:
+            raise AdvisorySyncStoreError("preview-unavailable", "verified advisory preview is not available")
+        return {"run_id": run_id, "state": run["state"], "preview": run["preview"]}
+    except AdvisorySyncStoreError as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory preview") from exc
+
+
+@app.post("/api/v1/admin/advisory-feed-runs/{run_id}/approve")
+def admin_approve_advisory_feed_run(
+    payload: AdvisoryApprovalRequest,
+    run_id: str = ApiPath(..., pattern=r"^afrun_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_service().approve(run_id, actor=ADVISORY_API_ACTOR)
+    except (AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to approve advisory feed run") from exc
+
+
+@app.post("/api/v1/admin/advisory-feed-runs/{run_id}/reject")
+def admin_reject_advisory_feed_run(
+    payload: AdvisoryRejectionRequest,
+    run_id: str = ApiPath(..., pattern=r"^afrun_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_service().reject(run_id, actor=ADVISORY_API_ACTOR, reason=payload.reason)
+    except (AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to reject advisory feed run") from exc
+
+
+@app.post("/api/v1/admin/advisory-feed-runs/{run_id}/activate", status_code=202)
+def admin_activate_advisory_feed_run(
+    payload: AdvisoryApprovalRequest,
+    background_tasks: BackgroundTasks,
+    run_id: str = ApiPath(..., pattern=r"^afrun_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    service = _advisory_sync_service()
+    try:
+        run = service.store.get_run(run_id)
+        if run["state"] != "approved":
+            raise AdvisorySyncStoreError("run-state-conflict", "only an approved verified run can be activated")
+        background_tasks.add_task(_activate_advisory_background, service, run_id, ADVISORY_API_ACTOR)
+        return {"run_id": run_id, "state": "approved", "activation_status": "scheduled"}
+    except (AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to schedule advisory catalog activation") from exc
+
+
+@app.post("/api/v1/admin/advisory-catalog/rollback", status_code=202)
+def admin_rollback_advisory_catalog(
+    payload: AdvisoryRollbackRequest,
+    background_tasks: BackgroundTasks,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    service = _advisory_sync_service()
+    try:
+        retained = service.store.get_catalog(payload.catalog_id)
+        if retained["active"]:
+            raise AdvisorySyncStoreError("rollback-target-active", "rollback target is already active")
+        background_tasks.add_task(_rollback_advisory_background, service, payload.catalog_id, ADVISORY_API_ACTOR)
+        return {"catalog_id": payload.catalog_id, "rollback_status": "scheduled"}
+    except (AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to schedule advisory catalog rollback") from exc
+
+
+@app.post("/api/v1/admin/advisory-catalog-activations/{activation_id}/retry-reevaluation")
+def admin_retry_advisory_reevaluation(
+    payload: AdvisoryReevaluationRetryRequest,
+    activation_id: str = ApiPath(..., pattern=r"^afact_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_service().retry_reevaluation(activation_id, actor=ADVISORY_API_ACTOR)
+    except (AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to retry advisory reevaluation") from exc
+
+
+@app.get("/api/v1/admin/advisory-catalogs")
+def admin_advisory_catalogs(
+    source_id: str = Query(..., min_length=3, max_length=64),
+    limit: int = Query(default=50, ge=1, le=100),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        _advisory_sync_service().registry.source(source_id, require_enabled=False)
+        return {"items": _advisory_sync_store().list_catalogs(source_id=source_id, limit=limit)}
+    except (RegistryError, AdvisorySyncStoreError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load retained advisory catalogs") from exc
 
 
 @app.get("/api/v1/classifications", response_model=ClassificationListResponse)
@@ -1659,7 +1927,7 @@ def api_site_risk(
     return risk
 
 
-def build_read_only_hub_tools() -> ReadOnlyHubTools:
+def build_read_only_hub_tools(*, include_advisory_feed_evidence: bool = False) -> ReadOnlyHubTools:
     store = _finding_store()
     classification_store = _classification_store()
     findings = store.list_findings(limit=200, status="active")["items"]
@@ -1678,6 +1946,11 @@ def build_read_only_hub_tools() -> ReadOnlyHubTools:
         components=_component_store().component_snapshot(limit=2_000),
         vulnerability_matches=_vulnerability_store().active_match_snapshot(
             limit=20_000,
+        ),
+        advisory_feed_evidence=(
+            _advisory_sync_store().ai_snapshot(limit=20)
+            if include_advisory_feed_evidence
+            else []
         ),
     )
 
@@ -1747,7 +2020,15 @@ def api_ai_advisor_query(
     require_admin_token(admin_token)
     status = provider_status()
     try:
-        tools = build_read_only_hub_tools()
+        expected_admin_token = os.getenv(ADMIN_TOKEN_ENV)
+        include_advisory_feed_evidence = bool(
+            expected_admin_token
+            and isinstance(admin_token, str)
+            and secrets.compare_digest(admin_token, expected_admin_token)
+        )
+        tools = build_read_only_hub_tools(
+            include_advisory_feed_evidence=include_advisory_feed_evidence
+        )
         response = run_advisor(request=payload, tools=tools)
         _record_advisor_audit(
             run_id=response.run_id,

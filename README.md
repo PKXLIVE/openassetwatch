@@ -51,7 +51,7 @@ The current MVP focuses on:
 * Deterministic asset categories, confidence, history, and preserved conflicts
 * Normalized software, package, operating-system, and reviewed firmware
   inventory
-* Versioned offline advisory catalogs and deterministic vulnerability matching
+* Signed, operator-approved advisory catalogs and deterministic vulnerability matching
 * Vulnerability findings, match history, and explainable risk contribution
 * Hub-and-spoke normalized observation batch contract
 * Site/sensor health and freshness summaries
@@ -260,7 +260,13 @@ Current and planned backend endpoints include:
 | `GET /api/v1/vulnerabilities/advisories/{advisory_id}` | Available | Matches for one server-issued advisory ID |
 | `GET /api/v1/vulnerabilities/catalog/status` | Available | Local catalog provenance and counts without network access |
 | `POST /api/v1/admin/vulnerabilities/evaluate` | Available | Authenticated targeted or rate-limited full evaluation |
-| `POST /api/v1/admin/vulnerabilities/import` | Available | Authenticated bounded offline catalog import |
+| `POST /api/v1/admin/vulnerabilities/import` | Disabled | Legacy unsigned import fails closed; use signed feed administration |
+| `GET /api/v1/admin/advisory-feeds` | Available | Admin-protected reviewed source, trust, and lifecycle status |
+| `POST /api/v1/admin/advisory-feeds/{source_id}/sync` | Available | Explicit bounded one-shot synchronization of a configured source |
+| `GET /api/v1/admin/advisory-feed-runs` | Available | Filtered and paginated synchronization history |
+| `POST /api/v1/admin/advisory-feed-runs/{run_id}/approve` | Available | Explicit operator approval of a verified preview |
+| `POST /api/v1/admin/advisory-feed-runs/{run_id}/activate` | Available | Serialized atomic activation and targeted reevaluation |
+| `POST /api/v1/admin/advisory-catalog/rollback` | Available | Explicit local last-known-good rollback |
 | `POST /api/v1/observations/batches` | Available | Authenticated, idempotent normalized spoke observations |
 | `GET /api/v1/hub/sites/summary` | Available | Read-only cross-site intelligence summary |
 | `GET /api/v1/hub/sensors` | Available | Read-only sensor/spoke health and freshness |

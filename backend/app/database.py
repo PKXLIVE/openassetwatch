@@ -411,6 +411,9 @@ def ensure_database_schema() -> None:
         from .advisory_store import ensure_advisory_schema
 
         ensure_advisory_schema(connection)
+        from .advisory_sync_store import ensure_advisory_sync_schema
+
+        ensure_advisory_sync_schema(connection)
         from .vulnerability_store import ensure_vulnerability_schema
 
         ensure_vulnerability_schema(connection)
