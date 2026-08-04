@@ -709,6 +709,7 @@ CREATE TABLE IF NOT EXISTS advisory_version_ranges (
         ON DELETE CASCADE,
     ordinal INTEGER NOT NULL,
     introduced TEXT,
+    introduced_unbounded BOOLEAN NOT NULL DEFAULT FALSE,
     introduced_inclusive BOOLEAN NOT NULL DEFAULT TRUE,
     fixed TEXT,
     fixed_inclusive BOOLEAN NOT NULL DEFAULT FALSE,
