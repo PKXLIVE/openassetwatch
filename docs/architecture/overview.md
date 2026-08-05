@@ -30,6 +30,9 @@ The additive external-intelligence design expansion is documented separately at:
   Certificate Transparency, passive-DNS, external-observation, relationship,
   redaction, and provider-adapter direction that extends existing evidence
   workflows without replacing current collectors or architecture
+- `docs/EXTERNAL_INTELLIGENCE_SOURCE_REVIEW.md` - preliminary source-specific
+  constraints and review-gated dispositions for Exploratores, crt.sh,
+  urlscan.io, LeakIX, ThreatCrowd, ONYPHE, and Netlas
 
 The implemented authority order is:
 
