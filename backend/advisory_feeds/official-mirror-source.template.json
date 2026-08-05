@@ -1,0 +1,75 @@
+{
+  "source_id": "osv-pypi-pysec-signed",
+  "display_name": "OpenAssetWatch Official OSV PyPI Signed Mirror",
+  "enabled": false,
+  "adapter_type": "oaw-catalog-v1",
+  "adapter_version": "1",
+  "minimum_supported_openassetwatch_version": "0.1.0",
+  "retrieval_mode": "signed-mirror-index",
+  "mirror": {
+    "host": "advisories.openassetwatch.invalid",
+    "index_path": "/v1/osv-pypi/index.json",
+    "signature_path": "/v1/osv-pypi/index.ed25519",
+    "trusted_index_key_ids": [
+      "replace-with-reviewed-index-key"
+    ]
+  },
+  "expected_manifest_schema": "oaw.advisory-bundle.manifest.v1",
+  "expected_index_schema": "oaw.advisory-mirror-index.v1",
+  "expected_payload_schema": "oaw.advisory-catalog.v1",
+  "expected_payload_name": "catalog.json",
+  "expected_catalog_source": "PyPI Advisory Database via OSV.dev",
+  "trusted_publisher_key_ids": [
+    "replace-with-reviewed-bundle-key"
+  ],
+  "accepted_licenses": [
+    "CC-BY-4.0"
+  ],
+  "required_attribution": "Python Packaging Advisory Database contributors; retrieved through OSV.dev; licensed CC BY 4.0; normalized by the OpenAssetWatch OSV PyPI publisher.",
+  "downgrade_policy": "forbid",
+  "approval_policy": "explicit-admin",
+  "expected_content_types": {
+    "index": [
+      "application/json",
+      "application/vnd.openassetwatch.advisory-mirror-index+json"
+    ],
+    "index_signature": [
+      "application/octet-stream",
+      "text/plain"
+    ],
+    "manifest": [
+      "application/json",
+      "application/vnd.openassetwatch.advisory-manifest+json"
+    ],
+    "signature": [
+      "application/octet-stream",
+      "text/plain"
+    ],
+    "payload": [
+      "application/json",
+      "application/vnd.openassetwatch.advisory-catalog+json"
+    ]
+  },
+  "limits": {
+    "maximum_manifest_bytes": 65536,
+    "maximum_signature_bytes": 256,
+    "maximum_compressed_bytes": 8388608,
+    "maximum_uncompressed_bytes": 8388608,
+    "maximum_expansion_ratio": 20,
+    "maximum_advisories": 20000,
+    "maximum_aliases": 640000,
+    "maximum_references": 320000,
+    "maximum_response_header_bytes": 16384,
+    "maximum_mirror_index_bytes": 262144,
+    "maximum_mirror_catalogs": 16,
+    "maximum_mirror_snapshot_bytes": 67108864,
+    "maximum_mirror_index_age_seconds": 1209600,
+    "connection_timeout_seconds": 5,
+    "read_timeout_seconds": 15,
+    "total_timeout_seconds": 120,
+    "minimum_sync_interval_seconds": 3600,
+    "control_action_cooldown_seconds": 30
+  },
+  "documentation_url": "https://github.com/PKXLIVE/openassetwatch/blob/main/docs/ADVISORY_MIRROR.md",
+  "documentation_note": "Template only. Keep disabled until the real HTTPS host, public keys, key IDs, and hosting controls have completed maintainer review."
+}

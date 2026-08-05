@@ -20,6 +20,13 @@ from .advisory_bundle import (
 )
 from .advisory_catalog import AdvisoryCatalog, CatalogValidationError, parse_catalog_bytes
 from .advisory_feed_registry import FeedSource, RegistryError, ReviewedFeedRegistry, load_reviewed_feed_registry
+from .advisory_mirror import (
+    MirrorCatalogEntry,
+    MirrorSecurityError,
+    verify_bundle_against_mirror_entry,
+    verify_mirror_artifact,
+    verify_mirror_index,
+)
 from .advisory_store import SqlAdvisoryStore, advisory_id_for
 from .advisory_sync_store import AdvisorySyncStoreError, SqlAdvisorySyncStore
 from .advisory_transport import (
@@ -75,6 +82,7 @@ def _known_error(exc: Exception) -> tuple[str, str]:
             AdvisorySyncStoreError,
             BundleVerificationError,
             DownloadSecurityError,
+            MirrorSecurityError,
             RegistryError,
             StagingSecurityError,
         ),
@@ -208,16 +216,51 @@ class AdvisorySyncService:
                 now=self.now(),
             )
             run_directory = self.staging.create_run_directory(run_id)
-            manifest = self.downloader.fetch(
-                source,
-                "manifest",
-                total_timeout_seconds=self._deadline_remaining(started, source),
-            )
-            signature = self.downloader.fetch(
-                source,
-                "signature",
-                total_timeout_seconds=self._deadline_remaining(started, source),
-            )
+            mirror_entry: MirrorCatalogEntry | None = None
+            if source.retrieval_mode == "signed-mirror-index":
+                index = self.downloader.fetch(
+                    source,
+                    "index",
+                    total_timeout_seconds=self._deadline_remaining(started, source),
+                )
+                index_signature = self.downloader.fetch(
+                    source,
+                    "index_signature",
+                    total_timeout_seconds=self._deadline_remaining(started, source),
+                )
+                verified_index = verify_mirror_index(
+                    index_bytes=index.body,
+                    signature_bytes=index_signature.body,
+                    source=source,
+                    registry=self.registry,
+                    now=self.now(),
+                )
+                mirror_entry = verified_index.index.latest
+                manifest = self.downloader.fetch_mirror_artifact(
+                    source,
+                    "manifest",
+                    mirror_entry.manifest_path,
+                    total_timeout_seconds=self._deadline_remaining(started, source),
+                )
+                signature = self.downloader.fetch_mirror_artifact(
+                    source,
+                    "signature",
+                    mirror_entry.signature_path,
+                    total_timeout_seconds=self._deadline_remaining(started, source),
+                )
+                verify_mirror_artifact(mirror_entry, "manifest", manifest.body)
+                verify_mirror_artifact(mirror_entry, "signature", signature.body)
+            else:
+                manifest = self.downloader.fetch(
+                    source,
+                    "manifest",
+                    total_timeout_seconds=self._deadline_remaining(started, source),
+                )
+                signature = self.downloader.fetch(
+                    source,
+                    "signature",
+                    total_timeout_seconds=self._deadline_remaining(started, source),
+                )
             self._deadline_check(started, source)
             self.store.transition(run_id, expected_states=("downloading",), state="downloaded", now=self.now())
             self.store.transition(run_id, expected_states=("downloaded",), state="verifying", now=self.now())
@@ -229,11 +272,20 @@ class AdvisorySyncService:
                 registry=self.registry,
                 now=self.now(),
             )
-            payload = self.downloader.fetch(
-                source,
-                "payload",
-                total_timeout_seconds=self._deadline_remaining(started, source),
-            )
+            if mirror_entry is not None:
+                payload = self.downloader.fetch_mirror_artifact(
+                    source,
+                    "payload",
+                    mirror_entry.payload_path,
+                    total_timeout_seconds=self._deadline_remaining(started, source),
+                )
+                verify_mirror_artifact(mirror_entry, "payload", payload.body)
+            else:
+                payload = self.downloader.fetch(
+                    source,
+                    "payload",
+                    total_timeout_seconds=self._deadline_remaining(started, source),
+                )
             self._deadline_check(started, source)
             return self._verify_and_retain(
                 run_id=run_id,
@@ -242,6 +294,7 @@ class AdvisorySyncService:
                 manifest_bytes=manifest.body,
                 signature_bytes=signature.body,
                 payload_bytes=payload.body,
+                mirror_entry=mirror_entry,
             )
         except Exception as exc:
             code, summary = _known_error(exc)
@@ -333,6 +386,7 @@ class AdvisorySyncService:
         manifest_bytes: bytes,
         signature_bytes: bytes,
         payload_bytes: bytes,
+        mirror_entry: MirrorCatalogEntry | None = None,
     ) -> dict[str, Any]:
         self.staging.write_artifact(run_directory, "manifest.json", manifest_bytes)
         self.staging.write_artifact(run_directory, "manifest.ed25519", signature_bytes)
@@ -345,6 +399,8 @@ class AdvisorySyncService:
             registry=self.registry,
             now=self.now(),
         )
+        if mirror_entry is not None:
+            verify_bundle_against_mirror_entry(bundle, mirror_entry)
         adapter = ADAPTERS.get(source.adapter_type)
         if adapter is None or adapter.adapter_version != source.adapter_version:
             raise AdvisorySyncError("adapter-unavailable", "reviewed source adapter is unavailable")

@@ -616,6 +616,7 @@ class PublisherStateSigningAndOutputTests(unittest.TestCase):
         *,
         full: bool = False,
         now: datetime = NOW,
+        sequence_floor: int = 0,
     ):
         return publish_once(
             source,
@@ -625,6 +626,7 @@ class PublisherStateSigningAndOutputTests(unittest.TestCase):
                 full=full,
                 key_id=KEY_ID,
                 signing_key_env=KEY_ENV,
+                sequence_floor=sequence_floor,
             ),
             limits=self.limits,
             now=lambda: now,
@@ -682,6 +684,18 @@ class PublisherStateSigningAndOutputTests(unittest.TestCase):
             all_output = b"".join(item.read_bytes() for item in output.iterdir())
             self.assertNotIn(self.key_base64.encode(), all_output)
             self.assertNotIn(b"BEGIN PRIVATE KEY", all_output)
+
+    def test_verified_mirror_sequence_floor_seeds_stateless_full_publication(self) -> None:
+        source = MemorySource(
+            index_bytes([(NOW, "PYSEC-2026-1001")]),
+            {"PYSEC-2026-1001": record_bytes()},
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            result = self.publish(source, root, full=True, sequence_floor=41)
+            self.assertEqual(result.verified_bundle.manifest.catalog_sequence, 42)
+            state = load_publisher_state(root / "state" / "publisher-state.json")
+            self.assertEqual(state.run_sequence, 42)
 
     def test_same_timestamp_new_record_is_not_skipped(self) -> None:
         first = MemorySource(

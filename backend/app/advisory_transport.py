@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 from .advisory_feed_registry import FeedSource
 
 
-ArtifactKind = Literal["manifest", "signature", "payload"]
+ArtifactKind = Literal["index", "index_signature", "manifest", "signature", "payload"]
 MAX_DNS_ANSWERS = 32
 MAX_RESPONSE_HEADERS = 100
 READ_CHUNK_BYTES = 64 << 10
@@ -209,6 +209,10 @@ def validate_download_url(source: FeedSource, kind: ArtifactKind, url: str) -> t
     policy explicit and independently testable for future transport adapters.
     """
 
+    if source.retrieval_mode != "direct-bundle" or source.endpoint is None:
+        raise DownloadSecurityError("url-source-mode-rejected", "source does not use direct bundle URLs")
+    if kind not in {"manifest", "signature", "payload"}:
+        raise DownloadSecurityError("url-artifact-kind-rejected", "artifact kind is not valid for direct bundle URLs")
     expected_path = {
         "manifest": source.endpoint.manifest_path,
         "signature": source.endpoint.signature_path,
@@ -256,12 +260,72 @@ class AdvisoryDownloader:
         *,
         total_timeout_seconds: float | None = None,
     ) -> DownloadedArtifact:
-        path = {
-            "manifest": source.endpoint.manifest_path,
-            "signature": source.endpoint.signature_path,
-            "payload": source.endpoint.payload_path,
+        if source.retrieval_mode == "direct-bundle":
+            if source.endpoint is None or kind not in {"manifest", "signature", "payload"}:
+                raise DownloadSecurityError("artifact-kind-rejected", "artifact kind is not valid for this source")
+            host = source.endpoint.host
+            path = {
+                "manifest": source.endpoint.manifest_path,
+                "signature": source.endpoint.signature_path,
+                "payload": source.endpoint.payload_path,
+            }[kind]
+        else:
+            if source.mirror is None or kind not in {"index", "index_signature"}:
+                raise DownloadSecurityError("artifact-kind-rejected", "artifact kind is not valid for this source")
+            host = source.mirror.host
+            path = {
+                "index": source.mirror.index_path,
+                "index_signature": source.mirror.signature_path,
+            }[kind]
+        return self._fetch_path(
+            source,
+            kind,
+            host=host,
+            path=path,
+            total_timeout_seconds=total_timeout_seconds,
+        )
+
+    def fetch_mirror_artifact(
+        self,
+        source: FeedSource,
+        kind: Literal["manifest", "signature", "payload"],
+        relative_path: str,
+        *,
+        total_timeout_seconds: float | None = None,
+    ) -> DownloadedArtifact:
+        """Fetch one path authenticated by a verified mirror index from its reviewed host."""
+
+        if source.retrieval_mode != "signed-mirror-index" or source.mirror is None:
+            raise DownloadSecurityError("mirror-source-mode-rejected", "source does not use a signed mirror index")
+        if not _valid_mirror_relative_path(relative_path):
+            raise DownloadSecurityError("mirror-path-rejected", "signed mirror artifact path is unsafe")
+        expected_name = {
+            "manifest": "manifest.json",
+            "signature": "manifest.ed25519",
+            "payload": source.expected_payload_name,
         }[kind]
+        if relative_path.rsplit("/", 1)[-1] != expected_name:
+            raise DownloadSecurityError("mirror-path-kind-mismatch", "signed mirror path does not match its artifact kind")
+        return self._fetch_path(
+            source,
+            kind,
+            host=source.mirror.host,
+            path=source.mirror.artifact_path(relative_path),
+            total_timeout_seconds=total_timeout_seconds,
+        )
+
+    def _fetch_path(
+        self,
+        source: FeedSource,
+        kind: ArtifactKind,
+        *,
+        host: str,
+        path: str,
+        total_timeout_seconds: float | None,
+    ) -> DownloadedArtifact:
         maximum = {
+            "index": source.limits.maximum_mirror_index_bytes,
+            "index_signature": source.limits.maximum_signature_bytes,
             "manifest": source.limits.maximum_manifest_bytes,
             "signature": source.limits.maximum_signature_bytes,
             "payload": source.limits.maximum_compressed_bytes,
@@ -275,11 +339,11 @@ class AdvisoryDownloader:
         )
         if total_timeout <= 0:
             raise DownloadSecurityError("download-timeout", "feed artifact exceeded the total download timeout")
-        addresses = resolve_public_addresses(source.endpoint.host, resolver=self.resolver)
+        addresses = resolve_public_addresses(host, resolver=self.resolver)
         pinned_ip = addresses[0]
         try:
             response = self.transport.get(
-                host=source.endpoint.host,
+                host=host,
                 path=path,
                 pinned_ip=pinned_ip,
                 connection_timeout=source.limits.connection_timeout_seconds,
@@ -350,6 +414,25 @@ class AdvisoryDownloader:
             raise DownloadSecurityError("download-failed", "feed artifact body could not be read safely") from exc
         finally:
             response.close()
+
+
+def _valid_mirror_relative_path(value: str) -> bool:
+    if (
+        not value
+        or len(value) > 500
+        or not value.isascii()
+        or value.startswith("/")
+        or value.endswith("/")
+        or "\\" in value
+        or "%" in value
+        or "?" in value
+        or "#" in value
+        or "//" in value
+        or any(ord(character) < 0x21 or ord(character) == 0x7F for character in value)
+    ):
+        return False
+    segments = value.split("/")
+    return all(segment not in {"", ".", ".."} for segment in segments)
 
 
 class StagingSecurityError(ValueError):

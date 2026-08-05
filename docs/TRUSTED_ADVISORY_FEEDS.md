@@ -153,9 +153,11 @@ adapter version, manifest/payload digests, publisher key, license, attribution,
 and upstream dataset identity. Missing or conflicting data is rejected.
 
 The only source currently enabled in the hub registry is OpenAssetWatch-owned
-fictional Apache-2.0 material. The approved OSV PyPI publisher remains isolated
-and local until a separately reviewed mirror, public key, and exact endpoints
-are registered; no real third-party corpus is committed with this feature.
+fictional Apache-2.0 material. The approved OSV PyPI publisher now has a static
+signed-mirror foundation, but its source template remains disabled until a real
+host, public keys, key IDs, and protected publication controls are reviewed.
+No real third-party corpus is committed with either feature. See
+`docs/ADVISORY_MIRROR.md` for the mirror index and activation boundary.
 The new runtime `cryptography` dependency is Apache-2.0 OR BSD-3-Clause, both
 permitted by `LICENSE_POLICY.md`, and exists solely for reviewed Ed25519
 verification.
@@ -288,12 +290,14 @@ families remain `review-required`. OSV is an unsigned aggregator; HTTPS protects
 transport but does not authenticate the dataset as a publisher. The local
 OpenAssetWatch signature attests normalized output, not upstream truth.
 
-The immediate follow-up is a separately operated HTTPS mirror that exposes
-only complete bundle-v1 artifacts signed by a managed or offline key. The hub
-must receive that public key through an independent reviewed channel; a
-publisher report cannot enroll its own key. Future source adapters must keep
-their license, provenance, schema, and correction policy isolated while
-emitting the same vendor-neutral catalog and bundle contracts.
+The static mirror foundation exposes only complete bundle-v1 artifacts plus a
+strict exact-byte signed discovery index. The hub receives bundle and index
+public keys through the independently reviewed registry; a publisher report or
+mirror index cannot enroll its own key. Index selection feeds the existing
+bundle verifier and explicit approval lifecycle rather than creating a second
+importer. Future source adapters must keep their license, provenance, schema,
+and correction policy isolated while emitting the same vendor-neutral catalog,
+bundle, and optional mirror-index contracts.
 
 ## Known limitations
 
@@ -303,10 +307,12 @@ emitting the same vendor-neutral catalog and bundle contracts.
 - Synchronization execution currently uses an explicit CLI process or FastAPI
   background task. A future cron/systemd timer can invoke the same one-shot CLI;
   there is no embedded scheduler or durable job broker.
-- Publisher correctness, source governance, and key custody remain operational
-  responsibilities outside cryptographic verification.
-- Retained artifacts currently live in PostgreSQL. Retention count/age policy
-  beyond last-known-good selection is an operational follow-up.
+- Publisher correctness, source governance, static-host availability, and key
+  custody remain operational responsibilities outside cryptographic
+  verification.
+- The mirror builder retains the latest plus at least three prior public
+  catalogs when that history exists. Independently imported hub artifacts
+  remain retained in PostgreSQL for activation rollback.
 - Gzip and catalog limits remain source-wide in the hub; production enrollment
   of the OSV PyPI mirror should lower them from global maxima using measured
   publisher output.
