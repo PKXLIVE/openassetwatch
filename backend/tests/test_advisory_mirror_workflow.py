@@ -39,6 +39,11 @@ class AdvisoryMirrorWorkflowPolicyTests(unittest.TestCase):
         offline = text.split("  offline-validation:", 1)[1].split("  build-publication:", 1)[0]
         self.assertIn("if: github.event_name == 'pull_request'", offline)
         self.assertIn("demo_advisory_mirror.py", offline)
+        self.assertIn("working-directory: backend", offline)
+        self.assertIn("tests.test_advisory_mirror", offline)
+        self.assertIn("tests.test_advisory_mirror_demo", offline)
+        self.assertIn("tests.test_advisory_mirror_workflow", offline)
+        self.assertNotIn("backend.tests.test_advisory_mirror", offline)
         self.assertNotIn("secrets.", offline)
         self.assertNotIn("publish_osv_pypi_advisories.py sync", offline)
         self.assertNotIn("deploy-pages", offline)

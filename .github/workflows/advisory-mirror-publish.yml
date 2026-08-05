@@ -65,10 +65,12 @@ jobs:
           scripts/demo_advisory_mirror.py
 
       - name: Run focused mirror tests
+        working-directory: backend
         run: >-
           python -m unittest
-          backend.tests.test_advisory_mirror
-          backend.tests.test_advisory_mirror_demo
+          tests.test_advisory_mirror
+          tests.test_advisory_mirror_demo
+          tests.test_advisory_mirror_workflow
 
       - name: Run offline publication-to-AI demonstration
         run: python scripts/demo_advisory_mirror.py
