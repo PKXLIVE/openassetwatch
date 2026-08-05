@@ -33,6 +33,14 @@ reviewed offline advisory catalog, deterministic matcher, finding/risk
 integration, AI boundary, dashboard, performance harness, and future adapter
 contract are documented in
 `docs/SOFTWARE_AND_VULNERABILITY_INTELLIGENCE.md`.
+The optional additive design for Certificate Transparency, passive DNS,
+Internet-exposure observations, relationship projections, local redaction, and
+provider-neutral external-intelligence adapters is documented in
+`docs/architecture/external-intelligence-enrichment-roadmap.md` and governed by
+`docs/architecture/decisions/0002-additive-external-intelligence-enrichment.md`.
+It extends existing evidence workflows and must not replace current collectors,
+sensors, asset authority, findings, risk, AI boundaries, or local-first
+operation.
 
 ## Hub-And-Spoke Control Plane
 
@@ -46,6 +54,11 @@ vulnerability, identity, and SIEM connectors are spokes. A spoke belongs to a
 site, keeps a stable identity, and sends authenticated outbound observations.
 Spokes should cache bounded observations during outages and retry idempotently;
 they should expose no inbound management port by default.
+
+Optional external-intelligence adapters are future bounded enrichment spokes.
+They may submit provenance-tagged observations only after verified-scope,
+source-license, privacy, and capability checks. They are not authoritative asset
+inventories and must degrade independently when a provider is unavailable.
 
 The AI primarily runs at the hub over normalized evidence. It receives no
 arbitrary shell, SQL, filesystem, operating-system, packet-capture, or spoke
@@ -84,6 +97,8 @@ OpenAssetWatch should support multiple enterprise deployment models:
 
 All deployment models must preserve passive-first collection, scoped
 configuration, auditability, tenant/site boundaries, and evidence provenance.
+Optional external providers must never become required for core discovery,
+classification, findings, risk, reporting, or AI explanation.
 
 ## Deployment Identity
 
@@ -130,9 +145,9 @@ Future license checks should support:
 - offline and self-hosted operation
 - auditable entitlement decisions
 
-License keys, signing keys, entitlement secrets, and customer secrets must not
-be stored in the repository. Future implementations should use CI/CD secret
-references and deployment-specific secret stores.
+License keys, signing keys, entitlement secrets, provider API keys, and customer
+secrets must not be stored in the repository. Future implementations should use
+CI/CD secret references and deployment-specific secret stores.
 
 ## Product Inspiration Boundaries
 
@@ -148,11 +163,15 @@ product and control-plane inspiration only. They may inform planning for:
 - audit integrity
 - prompt-injection defense
 - self-hosted/privacy-first posture
+- provider-neutral external-intelligence enrichment
+- Certificate Transparency and public-record monitoring
+- local redaction and safe investigation launchers
 
 These ideas must be adapted to OpenAssetWatch's purpose and safety posture.
 They do not justify copying another product wholesale, importing unsafe source
 project tools, or changing OpenAssetWatch into an offensive testing, unsafe
-payload, credential attack, C2, terminal, or raw scanner platform.
+payload, credential attack, C2, terminal, raw scanner, people-search, or
+restricted-data redistribution platform.
 
 ## Current Non-Goals
 
@@ -165,3 +184,6 @@ This architecture note does not add product features. In this pass, do not:
 - change quarantine policy
 - add raw command wrappers or arbitrary arguments
 - add credentials or secrets
+- add active Internet scanning or third-party scan orchestration
+- submit discovered URLs or customer data to external providers
+- treat external observations as confirmed assets or findings
