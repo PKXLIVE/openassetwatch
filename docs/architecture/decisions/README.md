@@ -8,6 +8,7 @@ multiple OpenAssetWatch subsystems or constrain future implementation.
 | ADR | Status | Decision |
 | --- | --- | --- |
 | [`0001-research-aligned-expansion.md`](0001-research-aligned-expansion.md) | Accepted | Preserve the deterministic local-first foundation and adopt the phased research-aligned expansion direction. |
+| [`0002-additive-external-intelligence-enrichment.md`](0002-additive-external-intelligence-enrichment.md) | Accepted | Add optional external intelligence through existing evidence boundaries without replacing the current platform, collectors, risk workflows, or product direction. |
 
 ## Status meanings
 
