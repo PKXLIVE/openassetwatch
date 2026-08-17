@@ -8,8 +8,10 @@ config namespaces.
   launch scanners or mutate assets.
 - `connectors/`: passive or import-only connector patterns.
 - `roles/`: role and permission examples.
-- `skills/`: reserved for later; Skills are intentionally out of scope in this
-  pass.
+- `skills/`: reserved for future first-party OpenAssetWatch Skill Packs defined
+  by `docs/architecture/skill-pack-contract.md`. The namespace does not yet
+  imply an enabled loader/runtime, and initial Skill Packs are configuration-
+  only rather than arbitrary executable scripts.
 - `quarantine/`: reference-only legacy/source material. OpenAssetWatch loaders
   must refuse this path.
 
