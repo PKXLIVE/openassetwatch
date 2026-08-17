@@ -10,6 +10,11 @@ its existing evidence, policy, and deterministic authority boundaries rather
 than create a competing source of truth or redirect the product into unrelated
 security tooling.
 
+OpenAssetWatch is not copying any external project wholesale. Private research
+material and reference architecture patterns are inputs only. OpenAssetWatch
+keeps defensive concepts that fit its own product direction and rejects unsafe
+or offensive platform behavior.
+
 The first implemented hub-and-spoke AI showcase, its normalized observation
 batch contract, provider boundary, and current limitations are documented in
 `docs/architecture/hub-spoke-ai-showcase.md`.
@@ -32,6 +37,14 @@ reviewed offline advisory catalog, deterministic matcher, finding/risk
 integration, AI boundary, dashboard, performance harness, and future adapter
 contract are documented in
 `docs/SOFTWARE_AND_VULNERABILITY_INTELLIGENCE.md`.
+The optional additive design for Certificate Transparency, passive DNS,
+Internet-exposure observations, relationship projections, local redaction, and
+provider-neutral external-intelligence adapters is documented in
+`docs/architecture/external-intelligence-enrichment-roadmap.md` and governed by
+`docs/architecture/decisions/0002-additive-external-intelligence-enrichment.md`.
+It extends existing evidence workflows and must not replace current collectors,
+sensors, asset authority, findings, risk, AI boundaries, or local-first
+operation.
 
 Accepted native design expansions are documented in:
 
@@ -70,6 +83,11 @@ site, keeps a stable identity, and sends authenticated outbound observations.
 Spokes should cache bounded observations during outages and retry idempotently;
 they should expose no inbound management port by default.
 
+Optional external-intelligence adapters are future bounded enrichment spokes.
+They may submit provenance-tagged observations only after verified-scope,
+source-license, privacy, and capability checks. They are not authoritative asset
+inventories and must degrade independently when a provider is unavailable.
+
 The AI primarily runs at the hub over normalized evidence. It receives no
 arbitrary shell, SQL, filesystem, operating-system, packet-capture, or spoke
 management access.
@@ -97,7 +115,7 @@ OpenAssetWatch is intentionally hybrid:
 - Go is used for agent, sensor, collector, CLI, local inventory, network
   observations, service wrappers, installers, and safe diagnostics.
 - Python is used for AI Advisor, enrichment, scoring, reporting,
-  Splunk/export experiments, evaluation harness, investigation orchestration,
+  SIEM/export experiments, evaluation harness, investigation orchestration,
   temporal analytics, and LLM workflows.
 
 This split keeps local endpoint and sensor collection small, portable, and easy
@@ -192,6 +210,8 @@ OpenAssetWatch should support multiple enterprise deployment models:
 
 All deployment models must preserve passive-first collection, scoped
 configuration, auditability, tenant/site boundaries, and evidence provenance.
+Optional external providers must never become required for core discovery,
+classification, findings, risk, reporting, or AI explanation.
 
 ## Deployment Identity
 
@@ -215,8 +235,7 @@ The intended identity fields are:
 - `asset_id`: OpenAssetWatch asset identity after normalization and matching.
 - `external_ci_id`: optional external CMDB CI identifier for future
   reconciliation.
-- `external_ci_source`: optional CMDB source name such as `ServiceNow`,
-  `Jira Assets`, or `Device42`.
+- `external_ci_source`: optional external CMDB source name.
 
 Signed binaries and installers should remain generic where possible. Enrollment
 tokens, license keys, signing keys, and customer secrets must be represented as
@@ -239,9 +258,9 @@ Future license checks should support:
 - offline and self-hosted operation
 - auditable entitlement decisions
 
-License keys, signing keys, entitlement secrets, and customer secrets must not
-be stored in the repository. Future implementations should use CI/CD secret
-references and deployment-specific secret stores.
+License keys, signing keys, entitlement secrets, provider API keys, and customer
+secrets must not be stored in the repository. Future implementations should use
+CI/CD secret references and deployment-specific secret stores.
 
 ## Native Extension Boundaries
 
@@ -265,19 +284,56 @@ New capability design must not turn OpenAssetWatch into an offensive testing,
 unsafe payload, credential attack, command-and-control, terminal, or raw scanner
 platform.
 
+## Product Inspiration Boundaries
+
+External products may be reviewed privately for general inspiration, but
+OpenAssetWatch documentation must describe vendor-neutral design principles and
+original project direction. Private research and reference architecture
+patterns may inform planning for:
+
+- Advisor Run Ledger
+- Evidence Ledger
+- evaluation harness
+- asset, finding, and evidence graph
+- workbench UX
+- connector security
+- audit integrity
+- prompt-injection defense
+- self-hosted/privacy-first posture
+- provider-neutral external-intelligence enrichment
+- Certificate Transparency and public-record monitoring
+- local redaction and safe investigation launchers
+- MCP toolset design and vendor-neutral telemetry
+
+For the SMB/personal asset intelligence product direction, see
+`docs/architecture/smb-asset-intelligence-product-direction.md`.
+
+For the AI/MCP toolset, gateway, and OpenTelemetry/OTLP integration direction,
+see
+`docs/architecture/ai-mcp-and-telemetry-integration-direction.md`.
+
+These ideas must be adapted to OpenAssetWatch's purpose and safety posture.
+They do not justify copying another product wholesale, importing unsafe source
+project tools, or changing OpenAssetWatch into an offensive testing, unsafe
+payload, credential attack, C2, terminal, raw scanner, people-search, or
+restricted-data redistribution platform.
+
 ## Current Non-Goals
 
 This architecture note does not by itself implement the accepted future
 capabilities. In the current design expansion, do not:
 
-- implement license enforcement;
-- add new hosted service behavior;
-- add offensive tools;
-- enable executable or user-installed Skill Packs;
-- add recursive specialist spawning;
-- add write-capable specialist tools;
-- make advanced forecasting a required dependency;
-- make forecast/model output authoritative;
-- change quarantine policy;
-- add raw command wrappers or arbitrary arguments; or
-- add credentials or secrets.
+- implement license enforcement
+- add new hosted service behavior
+- add offensive tools
+- enable executable or user-installed Skill Packs
+- add recursive specialist spawning
+- add write-capable specialist tools
+- make advanced forecasting a required dependency
+- make forecast/model output authoritative
+- change quarantine policy
+- add raw command wrappers or arbitrary arguments
+- add credentials or secrets
+- add active Internet scanning or third-party scan orchestration
+- submit discovered URLs or customer data to external providers
+- treat external observations as confirmed assets or findings

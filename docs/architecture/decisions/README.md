@@ -8,6 +8,7 @@ multiple OpenAssetWatch subsystems or constrain future implementation.
 | ADR | Status | Decision |
 | --- | --- | --- |
 | [`0001-research-aligned-expansion.md`](0001-research-aligned-expansion.md) | Accepted | Preserve the deterministic local-first foundation and adopt the phased research-aligned expansion direction. |
+| [`0002-additive-external-intelligence-enrichment.md`](0002-additive-external-intelligence-enrichment.md) | Accepted | Add optional external intelligence through existing evidence boundaries without replacing the current platform, collectors, risk workflows, or product direction. |
 | [`0003-native-agent-investigation-and-temporal-intelligence.md`](0003-native-agent-investigation-and-temporal-intelligence.md) | Accepted | Add OpenAssetWatch-owned investigation control, Skill Pack, capability/provider, evaluation, and temporal-intelligence contracts without changing deterministic authority. |
 | [`0004-native-design-provenance-boundary.md`](0004-native-design-provenance-boundary.md) | Accepted | Keep canonical architecture in OpenAssetWatch-native terminology while preserving normal licensing/provenance obligations for any actual third-party material. |
 

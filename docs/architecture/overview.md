@@ -24,6 +24,16 @@ boundary, then use these canonical documents for implemented subsystems:
   `docs/architecture/ai-agent-architecture.md` - advisory-only AI behavior and
   bounded-agent direction
 
+The additive external-intelligence design expansion is documented separately at:
+
+- `docs/architecture/external-intelligence-enrichment-roadmap.md` - optional
+  Certificate Transparency, passive-DNS, external-observation, relationship,
+  redaction, and provider-adapter direction that extends existing evidence
+  workflows without replacing current collectors or architecture
+- `docs/EXTERNAL_INTELLIGENCE_SOURCE_REVIEW.md` - preliminary source-specific
+  constraints and review-gated dispositions for Exploratores, crt.sh,
+  urlscan.io, LeakIX, ThreatCrowd, ONYPHE, and Netlas
+
 The implemented authority order is:
 
 ```text
@@ -35,7 +45,9 @@ authenticated normalized evidence
 ```
 
 AI output is never an authoritative identity, classification, vulnerability
-match, finding, score, decision, or action.
+match, finding, score, decision, or action. External intelligence is likewise
+non-authoritative until it is corroborated and verified through existing
+OpenAssetWatch evidence and review boundaries.
 
 ## Accepted Native Expansion Designs
 
@@ -83,12 +95,14 @@ are recorded under:
 
 - `docs/architecture/decisions/README.md`
 - `docs/architecture/decisions/0001-research-aligned-expansion.md`
+- `docs/architecture/decisions/0002-additive-external-intelligence-enrichment.md`
 
-Third-party advisory and fingerprint source decisions are governed by:
+Third-party advisory, fingerprint, and external-intelligence source decisions
+are governed by:
 
 - `docs/SOURCE_LICENSING_REGISTRY.md`
 
 Research documents remain external evidence inputs, not implementation claims.
-The gap matrix records current coverage and prerequisites, while the ADR records
+The gap matrix records current coverage and prerequisites, while the ADRs record
 which directions are approved. Canonical subsystem documents and source code
 continue to control current behavior.
