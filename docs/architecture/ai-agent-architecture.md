@@ -1,4 +1,4 @@
-# AI Advisor Agent Architecture
+# OpenAssetWatch AI Advisor Architecture
 
 ## Purpose
 
@@ -11,6 +11,239 @@ normalized, enriched, and scored data. It should not replace collector logic,
 normalization, deterministic detection rules, or rule-based risk scoring.
 Instead, it should explain what OpenAssetWatch already knows, highlight gaps,
 prioritize next steps, and produce evidence-backed summaries and reports.
+
+This document defines the official AI Advisor architecture direction for
+OpenAssetWatch. It is architecture planning only; it does not implement AI
+runtime code, MCP servers, database tables, collector behavior, or remediation
+workflows.
+
+## Why this architecture
+
+OpenAssetWatch needs AI that can scale from family and lab deployments to SMB
+environments without becoming an uncontrolled agent swarm. The AI Advisor
+should help users understand assets, risk, coverage gaps, segmentation ideas,
+reports, and detection logic while keeping deterministic OpenAssetWatch data
+and rules authoritative.
+
+The architecture must support:
+
+- endpoint collectors, passive network sensors, integrations, and
+  `open_detector` as independent collection spokes
+- a Control Tower hub that normalizes evidence, coordinates policy, and
+  exposes operator workflows
+- a shared evidence layer that keeps raw submissions, normalized assets,
+  observations, findings, timelines, and scores auditable
+- AI modules that read evidence and findings but do not invent facts
+- reviewer/evaluator checks before AI output is surfaced to users
+- read-only defaults, tenant boundaries, privacy controls, and audit trails
+- local/offline operation first, with future optional BYOK provider support
+
+## Official architecture pattern
+
+The official AI architecture pattern is:
+
+```text
+Hierarchical Hub-and-Spoke + Shared Evidence Blackboard
+```
+
+Control Tower is the hub and coordinator. Endpoint collectors, passive network
+sensors, integrations, `open_detector`, MCP-style tools, and AI modules are
+spokes. Raw submissions and normalized evidence flow into the shared Asset
+Intelligence Store / Evidence Blackboard. AI Advisor modules read from that
+blackboard and produce evidence-linked explanations, recommendations, reports,
+and detection ideas.
+
+Deterministic rules, normalization, and risk scoring remain the source of
+truth. AI may explain, summarize, prioritize, and recommend, but it must not
+replace repeatable detection logic or present unsupported assumptions as facts.
+
+## Visual architecture artifact
+
+A docs-friendly visual artifact for this architecture is available at:
+
+- `docs/architecture/assets/openassetwatch-ai-advisor-architecture.svg`
+- `docs/architecture/assets/openassetwatch-ai-advisor-architecture.html`
+
+The visual companion page is
+`docs/architecture/ai-advisor-architecture.md`.
+
+## High-level system diagram
+
+```mermaid
+flowchart TB
+  subgraph DataPlane["Collection Data Plane"]
+    Agent["Endpoint Collectors<br/>Windows / macOS / Linux"]
+    Sensor["Passive Network Sensors<br/>SPAN / Mirror Port"]
+    Detector["open_detector<br/>Security Tool Detection"]
+    Integrations["Future Integrations<br/>SIEM / Vuln Mgmt / EDR / MDM"]
+  end
+
+  subgraph ControlTower["OpenAssetWatch Control Tower"]
+    API["Control Tower API<br/>Hub / Coordinator"]
+    Normalizer["Normalizer<br/>Evidence Standardization"]
+    RiskEngine["Deterministic Risk Engine"]
+    Policy["Policy + Approval Layer"]
+  end
+
+  subgraph Blackboard["Shared Evidence Blackboard"]
+    Raw["Raw Submissions"]
+    Assets["Normalized Assets"]
+    Evidence["Evidence Records"]
+    Findings["Findings"]
+    Timeline["Asset Timeline"]
+    Scores["Risk Scores"]
+  end
+
+  subgraph AI["AI Advisor Layer"]
+    Router["AI Router / Coordinator"]
+    InventoryAdvisor["Inventory Advisor"]
+    RiskAdvisor["Risk Explanation Advisor"]
+    CoverageAdvisor["Security Coverage Advisor"]
+    IoTAdvisor["IoT / OT Advisor"]
+    SplunkAdvisor["Splunk + Detection Advisor"]
+    ReportWriter["Report Writer"]
+    Reviewer["Reviewer / Evaluator"]
+  end
+
+  subgraph Human["Human Operator"]
+    UI["Dashboard / Reports"]
+    Approval["Human Approval"]
+  end
+
+  Agent --> API
+  Sensor --> API
+  Detector --> API
+  Integrations --> API
+  API --> Normalizer
+  Normalizer --> Raw
+  Normalizer --> Assets
+  Normalizer --> Evidence
+  Assets --> RiskEngine
+  Evidence --> RiskEngine
+  RiskEngine --> Findings
+  RiskEngine --> Scores
+  Findings --> Timeline
+
+  Blackboard --> Router
+  Router --> InventoryAdvisor
+  Router --> RiskAdvisor
+  Router --> CoverageAdvisor
+  Router --> IoTAdvisor
+  Router --> SplunkAdvisor
+  Router --> ReportWriter
+  InventoryAdvisor --> Reviewer
+  RiskAdvisor --> Reviewer
+  CoverageAdvisor --> Reviewer
+  IoTAdvisor --> Reviewer
+  SplunkAdvisor --> Reviewer
+  ReportWriter --> Reviewer
+  Reviewer --> UI
+  UI --> Approval
+  Approval --> Policy
+```
+
+## Component responsibilities
+
+- Control Tower API: acts as the hub/coordinator for ingestion, normalized
+  asset views, finding retrieval, advisor requests, policy checks, and future
+  approval flows.
+- Endpoint collectors: submit host inventory, software, platform, local
+  identity, collector status, and security tooling evidence.
+- Passive network sensors: submit passive observations, neighbor data, service
+  clues, network placement evidence, and future asset communication context.
+- `open_detector`: identifies security tooling and coverage evidence without
+  turning AI into the source of truth for installed tools.
+- Integrations: contribute future enrichment from SIEM, vulnerability,
+  endpoint, identity, MDM, CMDB, and ticketing systems.
+- Normalizer: converts raw submissions into stable OpenAssetWatch assets,
+  observations, evidence records, and source references.
+- Deterministic risk engine: creates repeatable findings, scores, and rule
+  results from normalized evidence.
+- Shared Evidence Blackboard: stores the current evidence context AI is allowed
+  to read and cite. It is the source of truth for AI-readable evidence context.
+- AI Router / Coordinator: selects the appropriate read-only AI module for an
+  advisory task and constrains the evidence window.
+- Reviewer / Evaluator: checks AI output for missing evidence, hallucination,
+  unsafe recommendations, tenant leakage, prompt-injection exposure, and audit
+  readiness before the result reaches the UI.
+- Policy + Approval Layer: enforces read-only defaults today and would gate any
+  future high-impact action with explicit policy and human approval.
+
+## Data flow
+
+1. Collectors, passive sensors, `open_detector`, and integrations submit raw
+   evidence to Control Tower.
+2. Control Tower normalizes submissions into assets, observations, evidence
+   records, detector results, timelines, findings, and risk scores.
+3. Deterministic rules and scoring create repeatable findings from normalized
+   evidence.
+4. AI Advisor requests are routed through the AI Router / Coordinator with a
+   scoped evidence set from the Shared Evidence Blackboard.
+5. Specialist advisor modules produce draft summaries, explanations,
+   recommendations, reports, or detection ideas.
+6. The Reviewer / Evaluator checks the draft for evidence support, safety,
+   tenant boundaries, prompt-injection exposure, and audit metadata.
+7. Approved advisory output is shown in the dashboard, report surface, or
+   future export path with links back to evidence records and findings.
+8. Any future action request must stop at the Policy + Approval Layer until a
+   human approves a scoped workflow.
+
+## Shared Evidence Blackboard
+
+The Shared Evidence Blackboard is the normalized evidence surface AI may use.
+It is the source of truth for AI-readable evidence context. It is not a
+separate truth engine and does not make AI authoritative over deterministic
+rules, findings, or risk scores. It is the auditable context window for advisor
+work.
+
+The blackboard should include:
+
+- raw submission references
+- normalized assets
+- evidence records
+- detector results
+- network observations
+- software and security tooling coverage
+- findings
+- risk scores
+- asset timelines
+- enrichment references
+- tenant, site, deployment, collector, and source identifiers
+
+AI output must link back to records on the blackboard whenever practical. If
+evidence is stale, incomplete, low confidence, or conflicting, the AI Advisor
+should say so and avoid presenting the answer as settled fact.
+
+The blackboard should also protect safety boundaries:
+
+- no cross-tenant evidence access
+- no secrets or sensitive raw payloads in generated output
+- untrusted collector, integration, and user-supplied text treated as data, not
+  instructions
+- deterministic findings and scores preserved as source-of-truth inputs
+
+## AI Advisor modules
+
+The AI Advisor layer is hierarchical. A router/coordinator receives user or
+workflow requests, chooses the narrowest useful module, and passes only the
+tenant-scoped evidence needed for that task.
+
+Initial modules should include:
+
+- Inventory Advisor for unmanaged, unknown, duplicate, stale, or changing
+  assets.
+- Risk Explanation Advisor for explaining deterministic findings, evidence,
+  severity, and practical priority.
+- Security Coverage Advisor for missing EDR, MDM, vulnerability, logging, or
+  other security tooling coverage.
+- IoT / OT Advisor for likely embedded, appliance, printer, camera, OT-like,
+  and special-purpose devices.
+- Splunk + Detection Advisor for Splunk searches, dashboard ideas, CIM mapping
+  notes, and detection logic suggestions.
+- Report Writer for executive summaries, technical reports, remediation plans,
+  and recurring review notes.
+- Reviewer / Evaluator for evidence, safety, privacy, prompt-injection, and
+  audit checks across all advisor outputs.
 
 ## User Value
 
@@ -263,7 +496,22 @@ framework references merely to make a finding look more severe.
 - AI must separate observed facts from recommendations.
 - AI must avoid exposing secrets or sensitive raw data in reports.
 
-## Safety Principles
+## Safety and trust boundaries
+
+The AI Advisor should treat OpenAssetWatch as a visibility and decision-support
+platform, not as an autonomous remediation system. Safety and policy controls
+must sit between AI reasoning and any future tool use.
+
+Core trust boundaries:
+
+- Control Tower owns ingestion, normalization, policy, identity, and audit
+  decisions.
+- The deterministic risk engine owns repeatable findings and scores.
+- The Shared Evidence Blackboard owns the evidence context available to AI.
+- AI modules are advisory readers and writers of reviewed advisory output.
+- The Reviewer / Evaluator checks AI output before it reaches users.
+- The Policy + Approval Layer blocks any future high-impact action until a
+  scoped human approval workflow exists.
 
 The AI Advisor should follow these safety principles:
 
@@ -277,28 +525,154 @@ The AI Advisor should follow these safety principles:
 - human approval for high-impact actions
 - audit logging for AI decisions and tool use
 
-The AI Advisor should treat OpenAssetWatch as a visibility and decision-support
-platform, not as an autonomous remediation system. Safety and policy controls
-must sit between AI reasoning and any future tool use.
+## Prompt-injection and untrusted-data handling
 
-## Text Architecture Diagram
+Collector data, network observations, hostnames, banners, package names,
+software names, user notes, integration output, and MCP tool output are
+untrusted inputs. The AI Advisor must treat them as evidence data, not as
+instructions.
+
+Prompt-injection controls should include:
+
+- separate system, policy, and developer instructions from retrieved evidence
+- quote or structure untrusted evidence so it cannot override policy
+- ignore instructions embedded in hostnames, banners, package names, notes, or
+  tool responses
+- constrain retrieval to tenant-scoped evidence records
+- require evidence IDs for claims and recommendations
+- run Reviewer / Evaluator checks for instruction-following attempts,
+  unsupported claims, unsafe recommendations, and tenant leakage
+- log rejected or suspicious prompt-injection attempts where practical
+
+The AI Advisor should never follow instructions that originate from collected
+asset data, network traffic metadata, external integrations, or tool output
+unless the instruction is also present in trusted OpenAssetWatch policy.
+
+## Tenant and privacy boundaries
+
+Tenant, site, deployment, collector, asset, and source identifiers are part of
+the evidence contract. AI requests must be scoped to the authorized tenant or
+self-hosted deployment context before evidence is retrieved.
+
+Privacy boundaries:
+
+- no cross-tenant evidence, memory, findings, prompts, or generated output
+- redact secrets, credentials, tokens, private keys, hashes, and sensitive raw
+  payloads
+- minimize evidence sent to any external provider
+- keep local/offline processing available for privacy-focused deployments
+- include tenant and evidence identifiers in audit records
+- ensure report output does not expose unrelated tenant, asset, or user data
+
+For hosted or managed deployments, tenant ownership must come from
+server-side identity, enrollment, authorization, and policy context. The AI
+Advisor must not trust user-supplied `tenant_id` values by themselves.
+
+## Auditability and explainability
+
+Every AI action should produce an audit trail sufficient to answer what was
+asked, what evidence was used, what model or provider produced the output, how
+the output was reviewed, and what the user did next.
+
+Audit records should capture:
+
+- request ID
+- actor or workflow
+- tenant, site, deployment, and asset scope
+- advisor module name
+- evidence IDs and finding IDs used
+- model provider, model name, and runtime mode, if applicable
+- output summary or output reference
+- confidence
+- Reviewer / Evaluator result
+- policy decision and approval ID, if applicable
+- user action, dismissal, export, or report delivery event
+- timestamps
+
+Explainability should use concise reasoning summaries rather than hidden
+chain-of-thought. AI output should separate observed facts, deterministic
+findings, evidence gaps, recommendations, confidence, and safe validation
+steps.
+
+## Local/offline LLM and BYOK future support
+
+OpenAssetWatch should support local/offline AI first where practical. Families,
+labs, home networks, and privacy-focused SMBs should be able to keep asset and
+risk evidence inside their own environment.
+
+Future provider support should be pluggable and policy-controlled:
+
+- local/offline model runtime for privacy-first deployments
+- self-hosted model runtime on a dedicated AI/MCP node
+- hosted OpenAssetWatch-managed model runtime for managed deployments
+- optional bring-your-own-key external LLM support
+
+External or BYOK providers must be disabled by default unless a deployment
+explicitly enables them. Sensitive evidence should be redacted, minimized, and
+scoped before external use. Provider selection must be auditable and visible in
+AI output metadata.
+
+## MCP integration model
+
+MCP-style integrations are future spokes in the Hub-and-Spoke architecture.
+They may expose evidence review, enrichment, reporting, export, or detection
+support capabilities, but they must not bypass Control Tower policy.
+
+The integration model is:
 
 ```text
-OpenAssetWatch Data
--> Evidence Layer
--> AI Advisor / Agent Orchestrator
--> Specialist Agents
--> Tool Gateway
--> Safety and Policy Layer
--> Reports and Recommendations
+AI module -> AI Tool Gateway -> Policy + Approval Layer -> approved MCP tool
 ```
 
-The Evidence Layer should assemble normalized assets, observations, findings,
-enrichment records, timestamps, and source references. The AI Advisor / Agent
-Orchestrator should route questions and tasks to constrained specialist agents
-when useful. The Tool Gateway should expose only approved, read-only or
-human-approved actions. The Safety and Policy Layer should enforce tenant
-isolation, capability boundaries, redaction, entitlement, and audit behavior.
+MCP tools should be treated as untrusted until reviewed and enabled. Tool
+descriptions, tool output, and external server metadata must not become policy.
+MCP tool use must be routed through the same gateway controls as native
+OpenAssetWatch tools: allowlists, input validation, output validation, tenant
+scope, audit logging, and approval where required.
+
+## What AI is allowed to do
+
+By default, the AI Advisor may:
+
+- read normalized evidence it is authorized to access
+- explain deterministic findings and risk scores
+- summarize asset inventory and recent changes
+- identify unmanaged, unknown, stale, duplicate, or suspicious assets
+- identify likely security tooling coverage gaps
+- recommend safe segmentation review steps
+- suggest safe validation steps
+- generate executive and technical reports
+- suggest Splunk searches, dashboard ideas, CIM mapping notes, and detection
+  logic
+- produce evidence-linked recommendations and confidence levels
+- ask for human approval when a future workflow requires it
+
+Allowed AI output must remain advisory, evidence-grounded, tenant-scoped,
+auditable, and clear about uncertainty.
+
+## What AI is not allowed to do
+
+By default, the AI Advisor must not:
+
+- execute shell commands
+- run active scans
+- start packet capture
+- exploit systems
+- collect credentials, password hashes, tokens, or private keys
+- modify endpoints
+- change collector configuration or packages
+- change firewall, router, VLAN, segmentation, identity, cloud, or MDM policy
+- isolate devices
+- remediate findings automatically
+- notify external parties or create external tickets without policy approval
+- send sensitive evidence to external providers without explicit configuration
+  and minimization
+- access cross-tenant evidence, memory, findings, prompts, or output
+- treat AI output as the source of truth over deterministic evidence and rules
+
+Any future workflow that could affect systems, networks, collectors, users, or
+external parties must require an explicit policy, a scoped human approval
+workflow, audit logging, and safe stop or rollback conditions.
 
 ## AI Tool Gateway and MCP Safety Model
 
@@ -601,6 +975,22 @@ Example outputs:
 - CIM mapping notes
 - detection engineering recommendations
 
+### Reviewer / Evaluator
+
+Purpose:
+
+Review AI outputs before they are shown to users or written to an audit trail.
+
+Checks should include:
+
+- every factual claim links to evidence
+- recommendations stay within policy
+- uncertainty is clear
+- tenant boundaries are preserved
+- prompt-injection attempts are ignored
+- unsafe actions are blocked or routed to approval
+- report output avoids secrets and sensitive raw data
+
 ### Data Quality Agent
 
 Purpose:
@@ -770,14 +1160,16 @@ The first implementation should prefer simple, auditable storage over opaque
 memory behavior. Users should be able to inspect, export, and delete memory
 records according to tenant policy.
 
-## AI Advisor Implementation Roadmap
+## Future roadmap
 
 ### Phase 1: Architecture and Schemas
 
 Phase 1 defines the foundation before any AI runtime is introduced.
 
+- official Hub-and-Spoke + Shared Evidence Blackboard architecture
 - AI Advisor foundation
 - evidence/finding schema
+- Reviewer / Evaluator contract
 - specialist agent roles
 - Tool Gateway safety model
 - memory/audit/handoff model
@@ -861,6 +1253,28 @@ deployments.
 - Evidence must be cited or referenced.
 - Tenant isolation is mandatory.
 - Memory must remain evidence-linked and auditable.
+
+## Implementation checklist
+
+Before implementing AI Advisor runtime behavior, OpenAssetWatch should have:
+
+- canonical evidence records with stable IDs and source references
+- normalized assets, observations, detector results, findings, timelines, and
+  risk scores available through read-only APIs
+- tenant, site, deployment, collector, asset, and source identity boundaries
+- deterministic risk scoring that remains authoritative
+- read-only advisor request and response contracts
+- evidence-linked AI finding and report schemas
+- Reviewer / Evaluator checks for evidence support, safety, privacy, tenant
+  leakage, prompt-injection exposure, and output quality
+- audit records for requests, evidence IDs, model/provider metadata, reviewer
+  results, confidence, approvals, and user actions
+- model/provider configuration with local/offline defaults and BYOK controls
+- MCP/tool gateway metadata, allowlists, input validation, output validation,
+  and policy checks before any tool is enabled
+- explicit human approval workflow before any future high-impact action
+- tests or evaluation fixtures that prove AI output refuses unsupported claims
+  and cites evidence
 
 ## Out of Scope
 
