@@ -194,6 +194,7 @@ class PublishRequest:
     signing_key_file: Path | None = None
     signing_key_env: str | None = None
     manifest_validity_days: int = DEFAULT_MANIFEST_VALIDITY_DAYS
+    sequence_floor: int = 0
 
     def __post_init__(self) -> None:
         if not self.state_path.is_absolute():
@@ -218,6 +219,8 @@ class PublishRequest:
             raise ValueError("publisher signing-key environment reference is unsafe")
         if not 1 <= self.manifest_validity_days <= 366:
             raise ValueError("manifest validity is outside the verifier bound")
+        if not 0 <= self.sequence_floor < 9_223_372_036_854_775_807:
+            raise ValueError("publisher sequence floor is outside the manifest bound")
 
 
 @dataclass(frozen=True)
@@ -1194,7 +1197,7 @@ def _publish_once(
         if isinstance(source, OsvHttpClient)
         else len(index_bytes) + sum(len(value) for value in bodies.values())
     )
-    sequence = (state.run_sequence + 1) if state else 1
+    sequence = max(state.run_sequence if state else 0, request.sequence_floor) + 1
     if request.dry_run:
         report = _output_report(
             policy=policy,

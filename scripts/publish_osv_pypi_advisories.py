@@ -95,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Name of a protected environment variable containing canonical raw-key base64.",
     )
     sync.add_argument("--manifest-validity-days", type=int, default=30)
+    sync.add_argument(
+        "--sequence-floor",
+        type=int,
+        default=0,
+        help="Verified prior mirror sequence used only when private publisher state is unavailable.",
+    )
     sync.add_argument("--json", action="store_true", help="Emit one bounded JSON status object.")
     _add_bounds(sync)
 
@@ -146,6 +152,7 @@ def _sync(args: argparse.Namespace) -> dict[str, Any]:
         signing_key_file=args.signing_key_file,
         signing_key_env=args.signing_key_env,
         manifest_validity_days=args.manifest_validity_days,
+        sequence_floor=args.sequence_floor,
     )
     result = publish_once(source, request, limits=limits)
     output = dict(result.report)

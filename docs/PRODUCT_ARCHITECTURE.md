@@ -64,6 +64,12 @@ This split keeps local endpoint and sensor collection small, portable, and easy
 to package while preserving Python for analysis, reporting, evaluation, and AI
 workflows that benefit from the Python ecosystem.
 
+Advisory publication is a separate product-owned static distribution service,
+not part of a customer hub runtime. It serves only signed public advisory
+indexes and immutable signed bundles. Self-hosted, hosted, and hybrid hubs
+consume those vendor-neutral artifacts through the same reviewed trust,
+approval, activation, finding, risk, and AI evidence contracts.
+
 ## Deployment Models
 
 OpenAssetWatch should support multiple enterprise deployment models:

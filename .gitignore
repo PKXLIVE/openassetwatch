@@ -230,3 +230,4 @@ __marimo__/
 
 # Local advisory publisher state, signing material, and generated bundles
 /.oaw-advisory-publisher/
+/.oaw-advisory-mirror/

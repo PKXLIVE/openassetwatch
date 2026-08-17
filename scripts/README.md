@@ -26,6 +26,16 @@ should not be added here.
   local outputs; it never imports or activates a catalog. Production signed
   runs require Linux-private state/output storage and fail closed on native
   Windows until private DACL validation is available.
+- `build_advisory_mirror.py`: local-only atomic builder and verifier for the
+  strict signed mirror index and immutable bundle snapshots. Its separate
+  `snapshot` command retrieves only a reviewed fixed-host mirror for bounded
+  retention input, and reports exact retained/removed sequences; no command
+  imports or activates a catalog.
+- `demo_advisory_mirror.py`: public-network-free product-authored synthetic
+  proof of full/incremental publisher output, signed mirror publication,
+  fixed-path loopback HTTP synchronization, approval, affected-to-fixed
+  finding/risk change, offline last-known-good behavior, rollback, and
+  server-issued AI evidence. It persists no signing key or public artifact.
 - `demo_osv_pypi_publisher.py`: fully offline, product-authored synthetic proof
   of full and incremental publishing, signature verification, preview,
   approval, activation, deterministic match/finding/risk change, rollback, and

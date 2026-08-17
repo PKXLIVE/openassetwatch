@@ -167,6 +167,12 @@ the old cursor remains, so a retry reprocesses overlap rather than skipping
 data. A failed fetch, parse, validation, signing, or staging step leaves the
 last successful state and complete outputs untouched.
 
+Stateless protected publication runners may pass `--sequence-floor` only from
+the latest sequence of a successfully verified signed mirror snapshot. A full
+rebuild then signs `floor + 1` and writes that value into new private state.
+Arbitrary or unauthenticated sequence floors are prohibited; the mirror builder
+also rejects an update that does not advance its verified prior sequence.
+
 Inspect non-secret cursor metadata:
 
 ```powershell
@@ -184,16 +190,19 @@ Local verification during publishing uses the exact production
 `verify_bundle` types. There is no compatibility verifier or second catalog
 model. That local proof does not create trust-on-first-use in the hub.
 
-Before distribution or hub synchronization, an operator must independently:
+Before official distribution or hub synchronization, an operator must follow
+the reviewed static-mirror process in `docs/ADVISORY_MIRROR.md`:
 
-1. place the complete bundle files on an administrator-controlled HTTPS host;
-2. obtain the public key through an independent administrator-approved channel,
+1. verify the complete bundle into an immutable static mirror snapshot and
+   sign the canonical mirror index;
+2. obtain the bundle and index public keys through an independent administrator-approved channel,
    compare its key ID and fingerprint with the report only as a secondary
    check, and add it to `backend/advisory_feeds/publishers.json` through normal
    review;
-3. add source ID `osv-pypi-pysec-signed`, exact hosted manifest/signature/payload
-   paths, accepted CC-BY-4.0 license and attribution, and conservative bounds
-   to `backend/advisory_feeds/sources.json`;
+3. replace the disabled `.invalid` mirror source template with the reviewed
+   host, stable index/signature paths, trusted key IDs, accepted CC-BY-4.0
+   license/attribution, and conservative bounds in
+   `backend/advisory_feeds/sources.json`;
 4. review and test that registry change as a separate trust-policy change;
 5. run the existing `scripts/advisory_feed_sync.py` preview, approval, and
    activation workflow.
@@ -252,9 +261,10 @@ claim PostgreSQL import performance.
   output and hub catalog in place; monitor failed exit status, stale
   `last_successful_run_at`, cursor age, source row-count shifts, out-of-scope
   prefix shifts, and repeated full-rebuild requirements.
-- Publisher key generation, escrow, rotation, revocation, hosted artifact
-  deployment, registry review, and scheduling are operator responsibilities.
-  This command intentionally provides none of those ambient authorities.
+- Publisher key generation, escrow, rotation, revocation, registry review, and
+  publication authorization remain operator responsibilities. The separate
+  mirror workflow provides a gated, static-host foundation but does not enable
+  hosting, enroll keys, or grant this command ambient authority.
 
 ## Adding another reviewed publisher adapter
 
@@ -263,6 +273,5 @@ policy, exact endpoints, schema and version semantics, provenance checks,
 normalizer, synthetic fixtures, bounds, correction/withdrawal rules, and
 security review. It must emit the existing vendor-neutral catalog and signed
 bundle types; it must not add a source-specific model to matching, findings,
-risk, or AI. The immediate operational follow-up for this adapter is a separately
-managed HTTPS mirror that publishes only complete signed bundle files after key
-custody and independent registry enrollment are reviewed.
+risk, or AI. Optional distribution uses the same separately managed signed
+mirror-index contract; it must not introduce source-specific hub behavior.
