@@ -139,6 +139,71 @@ class ControlTowerTests(unittest.TestCase):
         self.assertEqual(assets[0]["os"], "windows")
         self.assertGreaterEqual(assets[0]["evidence_count"], 3)
 
+    def test_local_inventory_cannot_supply_hub_owned_risk_metadata(self) -> None:
+        received_at = datetime.now(timezone.utc)
+        payload = {
+            "site_id": "site-local",
+            "agent_id": "agent-1",
+            "assets": [
+                {
+                    "asset_id": "local-host",
+                    "hostname": "workstation-01",
+                    "risk_score": 100,
+                    "management_status": "unmanaged",
+                    "findings": [{"finding_id": "spoofed"}],
+                    "confidence": 1.0,
+                    "demo": True,
+                    "sample_data": True,
+                    "source": "control-tower-demo-seed",
+                }
+            ],
+        }
+
+        assets = normalize_local_inventory_assets(payload, site_id="site-local", received_at=received_at)
+
+        self.assertEqual(assets[0]["hostname"], "workstation-01")
+        self.assertTrue(
+            {
+                "risk_score",
+                "management_status",
+                "findings",
+                "confidence",
+                "demo",
+                "sample_data",
+                "source",
+            }.isdisjoint(assets[0]["metadata"])
+        )
+
+    def test_passive_protocol_evidence_is_counted_and_preserved_as_spoke_metadata(self) -> None:
+        received_at = datetime.now(timezone.utc)
+        evidence = [
+            {
+                "protocol": "mdns",
+                "kind": "address-record",
+                "value": "printer.local=192.0.2.40",
+                "confidence": 0.85,
+            }
+        ]
+        payload = {
+            "site_id": "site-local",
+            "sensor_id": "sensor-passive",
+            "observation_source": "passive-network",
+            "assets": [
+                {
+                    "asset_id": "mac-02005e102030-vlan-100",
+                    "mac": "02:00:5e:10:20:30",
+                    "evidence": evidence,
+                    "risk_score": 100,
+                }
+            ],
+        }
+
+        assets = normalize_local_inventory_assets(payload, site_id="site-local", received_at=received_at)
+
+        self.assertEqual(assets[0]["metadata"]["evidence"], evidence)
+        self.assertNotIn("risk_score", assets[0]["metadata"])
+        self.assertEqual(assets[0]["evidence_count"], 2)
+
     def test_schema_initialization_includes_control_tower_tables(self) -> None:
         connection = Mock()
         fake_engine = Mock()
@@ -150,9 +215,31 @@ class ControlTowerTests(unittest.TestCase):
         executed_sql = "\n".join(str(call.args[0]) for call in connection.execute.call_args_list)
         self.assertIn("CREATE TABLE IF NOT EXISTS sites", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS agent_enrollments", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS sensor_enrollments", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS sensor_credentials", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS sensor_identity_audit_events", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS agent_checkins", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS local_inventory_collections", executed_sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS control_tower_assets", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS ai_advisor_runs", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS finding_evaluation_runs", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS findings", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS finding_evidence", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS asset_risk_scores", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS site_risk_scores", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS risk_factors", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS classification_evidence", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS classification_runs", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS asset_classifications", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS asset_classification_history", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS asset_classification_evidence", executed_sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS classification_conflicts", executed_sql)
+        self.assertIn("idx_local_inventory_observation_batch", executed_sql)
+        self.assertIn("idx_sensor_credentials_sensor_status", executed_sql)
+        self.assertIn("idx_findings_site_status", executed_sql)
+        self.assertIn("idx_classification_evidence_asset", executed_sql)
+        self.assertIn("idx_asset_classifications_filters", executed_sql)
+        self.assertIn("idx_classification_conflicts_open", executed_sql)
 
     def test_release_status_is_metadata_only(self) -> None:
         response = api_agent_release_status()

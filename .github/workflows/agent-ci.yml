@@ -8,10 +8,13 @@ on:
     paths:
       - ".github/workflows/agent-ci.yml"
       - "cmd/oaw-agent/**"
+      - "cmd/oaw-sensor/**"
       - "internal/agent/**"
+      - "internal/sensor/**"
       - "pkg/**"
       - "scripts/release/**"
       - "packaging/agent/**"
+      - "packaging/sensor/**"
       - "go.mod"
       - "go.sum"
 
@@ -19,6 +22,40 @@ permissions:
   contents: read
 
 jobs:
+  linux-sensor-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Build Linux sensor
+        run: go build -o "$RUNNER_TEMP/oaw-sensor" ./cmd/oaw-sensor
+      - name: Test sensor deployment lifecycle
+        run: |
+          python3 -m unittest scripts.release.test_sensor_linux_install
+          ROOT="$RUNNER_TEMP/oaw-sensor-root"
+          mkdir -p "$ROOT"
+          python3 scripts/release/install_sensor_linux.py \
+            --test-mode \
+            --root "$ROOT" \
+            install \
+            --binary "$RUNNER_TEMP/oaw-sensor" \
+            --hub-url https://hub.example.test \
+            --site-id ci-site \
+            --interface eth1
+          mkdir -p "$ROOT/usr/lib/systemd/system"
+          for unit in sysinit.target basic.target network-online.target multi-user.target; do
+            printf '[Unit]\nDescription=CI synthetic %s\n' "$unit" > "$ROOT/usr/lib/systemd/system/$unit"
+          done
+          systemd-analyze --root="$ROOT" verify oaw-sensor.service
+      - name: Sensor package tests
+        run: go test ./cmd/oaw-sensor ./internal/sensor/...
+
   ubuntu-agent:
     runs-on: ubuntu-latest
     steps:

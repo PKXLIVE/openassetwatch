@@ -1,17 +1,34 @@
 import hashlib
 import json
+import logging
 import os
 import secrets
+import threading
+import time
+from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-from fastapi import Body, Header, HTTPException, FastAPI
+from fastapi import BackgroundTasks, Body, Header, HTTPException, FastAPI, Path as ApiPath, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
+
+from .ai_advisor import (
+    AdvisorQueryRequest,
+    AdvisorResponse,
+    ProviderOutputError,
+    ProviderStatusResponse,
+    ProviderUnavailableError,
+    ReadOnlyHubTools,
+    provider_status,
+    run_advisor,
+    select_tools,
+)
 
 from .database import (
     control_tower_summary,
@@ -30,17 +47,193 @@ from .database import (
     list_sites,
     normalize_inventory_submission,
     record_agent_checkin,
+    record_ai_advisor_run,
     record_local_inventory_collection,
+    record_observation_batch,
     save_inventory_submission,
     upsert_collector_policy,
     upsert_collector_metadata,
 )
+from .classification_contracts import (
+    ClassificationEvaluateRequest,
+    ClassificationEvaluationResponse,
+    ClassificationEvidenceListResponse,
+    ClassificationListResponse,
+    ClassificationResponse,
+    ClassificationSummaryResponse,
+    VendorCatalogStatusResponse,
+)
+from .classification_service import (
+    evaluate_assets_best_effort,
+    evaluate_classifications,
+)
+from .classification_store import SqlClassificationStore
+from .finding_contracts import (
+    AssetRiskResponse,
+    FindingAcknowledgeRequest,
+    FindingEvaluateRequest,
+    FindingEvaluationResponse,
+    FindingListResponse,
+    FindingResponse,
+    FindingSuppressRequest,
+    RiskSummaryResponse,
+    RuleRegistryResponse,
+    SiteRiskResponse,
+)
+from .finding_service import evaluate_findings, evaluate_site_best_effort
+from .finding_store import SqlFindingStore
+from .findings import RULESET_VERSION, rule_registry_public
+from .hub_contracts import (
+    ObservationBatchRequest,
+    ObservationBatchResponse,
+    SensorCheckInRequest,
+    SensorCheckInResponse,
+    SensorCredentialIssueResponse,
+    SensorCredentialListResponse,
+    SensorEnrollmentCreateRequest,
+    SensorEnrollmentCreateResponse,
+    SensorEnrollmentExchangeRequest,
+    SensorEnrollmentExchangeResponse,
+    SensorEnrollmentListResponse,
+    SensorEnrollmentPublic,
+    SensorSummaryResponse,
+    SiteIntelligenceSummaryResponse,
+)
+from .sensor_identity import (
+    SensorAuthenticationRejected,
+    SensorEnrollmentRejected,
+    SensorIdentityConflict,
+    SensorIdentityNotFound,
+    authenticate_sensor_request,
+    create_sensor_enrollment,
+    exchange_sensor_enrollment,
+    get_sensor_enrollment,
+    list_sensor_credentials,
+    list_sensor_enrollments,
+    list_sensor_identity_audit,
+    record_sensor_checkin,
+    revoke_sensor,
+    revoke_sensor_credential,
+    revoke_sensor_enrollment,
+    rotate_sensor_credential,
+)
+from .vendor_catalog import configured_catalog_status
+from .advisory_store import SqlAdvisoryStore
+from .advisory_feed_registry import RegistryError
+from .advisory_sync_contracts import (
+    AdvisoryApprovalRequest,
+    AdvisoryReevaluationRetryRequest,
+    AdvisoryRejectionRequest,
+    AdvisoryRollbackRequest,
+    AdvisorySyncRequest,
+)
+from .advisory_sync_service import AdvisorySyncError, AdvisorySyncService
+from .advisory_sync_store import AdvisorySyncStoreError, SqlAdvisorySyncStore
+from .component_intelligence import SUPPORTED_ECOSYSTEMS, normalized_token
+from .component_store import SqlComponentStore
+from .vulnerability_contracts import (
+    CatalogStatusResponse,
+    ComponentListResponse,
+    VulnerabilityEvaluateRequest,
+    VulnerabilityEvaluationResponse,
+    VulnerabilityListResponse,
+)
+from .vulnerability_service import (
+    evaluate_site_vulnerabilities_best_effort,
+    evaluate_vulnerabilities,
+)
+from .vulnerability_store import SqlVulnerabilityStore
 
 app = FastAPI(
     title="OpenAssetWatch API",
     description="Open-source family network asset intelligence platform.",
     version="0.1.0",
 )
+LOGGER = logging.getLogger(__name__)
+
+
+class BoundedRequestBodyMiddleware:
+    """Enforce sensitive ingestion limits even for chunked request bodies."""
+
+    LIMITS = {
+        "/api/v1/sensors/enroll": 8 << 10,
+        "/api/v1/sensors/check-in": 16 << 10,
+        "/api/v1/observations/batches": 2 << 20,
+        "/api/v1/collections/local-inventory": 4 << 20,
+        "/api/v1/collectors/inventory": 4 << 20,
+        "/api/v1/admin/classifications/evaluate": 64 << 10,
+        "/api/v1/admin/vulnerabilities/evaluate": 64 << 10,
+        "/api/v1/admin/vulnerabilities/import": 8 << 20,
+    }
+    PREFIX_LIMITS = {
+        "/api/v1/admin/advisory-feed": 16 << 10,
+        "/api/v1/admin/advisory-catalog": 16 << 10,
+    }
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        path = str(scope.get("path") or "")
+        limit = self.LIMITS.get(path)
+        if limit is None:
+            limit = next(
+                (
+                    value
+                    for prefix, value in self.PREFIX_LIMITS.items()
+                    if path.startswith(prefix)
+                ),
+                None,
+            )
+        if limit is None:
+            await self.app(scope, receive, send)
+            return
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        content_length = headers.get(b"content-length")
+        if content_length is not None:
+            try:
+                declared = int(content_length.decode("ascii"), 10)
+            except (UnicodeDecodeError, ValueError):
+                response = JSONResponse(status_code=400, content={"detail": "invalid request metadata"})
+                await response(scope, receive, send)
+                return
+            if declared < 0 or declared > limit:
+                response = JSONResponse(status_code=413, content={"detail": "request body is too large"})
+                await response(scope, receive, send)
+                return
+
+        buffered = bytearray()
+        while True:
+            message = await receive()
+            if message.get("type") != "http.request":
+                async def disconnected_receive() -> dict[str, Any]:
+                    return message
+
+                await self.app(scope, disconnected_receive, send)
+                return
+            buffered.extend(message.get("body", b""))
+            if len(buffered) > limit:
+                response = JSONResponse(status_code=413, content={"detail": "request body is too large"})
+                await response(scope, receive, send)
+                return
+            if not message.get("more_body", False):
+                break
+        replayed = False
+
+        async def replay_receive() -> dict[str, Any]:
+            nonlocal replayed
+            if replayed:
+                return {"type": "http.disconnect"}
+            replayed = True
+            return {"type": "http.request", "body": bytes(buffered), "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+
+app.add_middleware(BoundedRequestBodyMiddleware)
 
 
 CONTROL_TOWER_VERSION = os.getenv("OPENASSETWATCH_CONTROL_TOWER_VERSION", "0.1.0")
@@ -61,7 +254,7 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-OpenAssetWatch-Collector-Token"],
+    allow_headers=["Content-Type", "X-OpenAssetWatch-Collector-Token", "X-OpenAssetWatch-Admin-Token"],
 )
 
 if UI_STATIC_DIR.exists():
@@ -70,6 +263,11 @@ if UI_STATIC_DIR.exists():
 
 COLLECTOR_TOKEN_ENV = "OPENASSETWATCH_COLLECTOR_TOKEN"
 COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
+ADMIN_TOKEN_ENV = "OPENASSETWATCH_ADMIN_TOKEN"
+ADMIN_TOKEN_HEADER = "X-OpenAssetWatch-Admin-Token"
+ADVISORY_API_ACTOR = "api-admin-token"
+MAX_SENSOR_ENROLLMENT_BODY_BYTES = 8 << 10
+MAX_LOCAL_INVENTORY_ASSETS = 1_000
 
 
 def require_collector_token(provided_token: str | None) -> None:
@@ -81,6 +279,251 @@ def require_collector_token(provided_token: str | None) -> None:
     if provided_token and secrets.compare_digest(provided_token, expected_token):
         return
     raise HTTPException(status_code=401, detail="valid collector token required")
+
+
+def require_admin_token(provided_token: str | None) -> None:
+    expected_token = os.getenv(ADMIN_TOKEN_ENV)
+    if not expected_token:
+        return
+    if not isinstance(provided_token, str):
+        provided_token = None
+    if provided_token and secrets.compare_digest(provided_token, expected_token):
+        return
+    raise HTTPException(status_code=401, detail="valid admin token required")
+
+
+def require_configured_admin_token(
+    provided_token: str | None,
+    *,
+    capability: str,
+) -> None:
+    """Require an explicitly configured secret for state-changing admin APIs."""
+    expected_token = os.getenv(ADMIN_TOKEN_ENV)
+    if not expected_token:
+        raise HTTPException(status_code=503, detail=f"{capability} is not configured")
+    if isinstance(provided_token, str) and secrets.compare_digest(provided_token, expected_token):
+        return
+    raise HTTPException(status_code=401, detail="valid admin token required")
+
+
+def require_sensor_admin_token(provided_token: str | None) -> None:
+    require_configured_admin_token(
+        provided_token,
+        capability="sensor identity administration",
+    )
+
+
+class _EnrollmentAttemptLimiter:
+    """Small per-process limiter for the unauthenticated token exchange."""
+
+    def __init__(self, *, limit: int = 20, window_seconds: float = 60.0, max_sources: int = 4096) -> None:
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self.max_sources = max_sources
+        self._lock = threading.Lock()
+        self._attempts: OrderedDict[str, deque[float]] = OrderedDict()
+
+    def allow(self, source: str, *, now: float | None = None) -> bool:
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            attempts = self._attempts.pop(source, deque())
+            cutoff = current - self.window_seconds
+            while attempts and attempts[0] <= cutoff:
+                attempts.popleft()
+            allowed = len(attempts) < self.limit
+            if allowed:
+                attempts.append(current)
+            self._attempts[source] = attempts
+            while len(self._attempts) > self.max_sources:
+                self._attempts.popitem(last=False)
+            return allowed
+
+
+_sensor_enrollment_attempts = _EnrollmentAttemptLimiter()
+
+
+def _sensor_request_source(request: Request) -> str:
+    if request.client is None or not request.client.host:
+        return "unknown"
+    return request.client.host[:128]
+
+
+def _require_bounded_enrollment_request(content_length: str | None) -> None:
+    if not isinstance(content_length, str):
+        return
+    try:
+        length = int(content_length, 10)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid request metadata") from exc
+    if length < 0 or length > MAX_SENSOR_ENROLLMENT_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="sensor enrollment request is too large")
+
+
+def _raise_sensor_admin_error(exc: SensorIdentityNotFound | SensorIdentityConflict) -> None:
+    if isinstance(exc, SensorIdentityNotFound):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _queue_site_evaluation(
+    background_tasks: BackgroundTasks | None,
+    *,
+    site_id: str,
+    sensor_id: str | None = None,
+) -> None:
+    if background_tasks is not None:
+        background_tasks.add_task(
+            evaluate_site_best_effort,
+            site_id=site_id,
+            sensor_id=sensor_id,
+        )
+
+
+def _queue_asset_classification(
+    background_tasks: BackgroundTasks | None,
+    *,
+    site_id: str,
+    asset_ids: list[str],
+) -> None:
+    if background_tasks is not None and asset_ids:
+        background_tasks.add_task(
+            evaluate_assets_best_effort,
+            site_id=site_id,
+            asset_ids=asset_ids,
+        )
+
+
+class _VulnerabilityEvaluationCoalescer:
+    """Serialize and coalesce bursty ingestion-triggered site evaluations."""
+
+    def __init__(
+        self,
+        *,
+        maximum_passes: int = 3,
+        maximum_pending_sites: int = 64,
+        cooldown_seconds: float = 30.0,
+        maximum_tracked_sites: int = 4_096,
+        clock=time.monotonic,
+    ) -> None:
+        self.maximum_passes = maximum_passes
+        self.maximum_pending_sites = maximum_pending_sites
+        self.cooldown_seconds = cooldown_seconds
+        self.maximum_tracked_sites = maximum_tracked_sites
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._generations: dict[str, int] = {}
+        self._last_completed: OrderedDict[str, float] = OrderedDict()
+
+    def schedule(self, site_id: str) -> bool:
+        with self._lock:
+            already_pending = site_id in self._generations
+            current = self._clock()
+            last_completed = self._last_completed.get(site_id)
+            if (
+                not already_pending
+                and last_completed is not None
+                and current - last_completed < self.cooldown_seconds
+            ):
+                return False
+            if (
+                not already_pending
+                and len(self._generations) >= self.maximum_pending_sites
+            ):
+                return False
+            generation = self._generations.get(site_id, 0) + 1
+            self._generations[site_id] = generation
+            return not already_pending
+
+    def cancel(self, site_id: str) -> None:
+        with self._lock:
+            self._generations.pop(site_id, None)
+
+    def _complete_locked(self, site_id: str) -> None:
+        self._generations.pop(site_id, None)
+        self._last_completed.pop(site_id, None)
+        self._last_completed[site_id] = self._clock()
+        while len(self._last_completed) > self.maximum_tracked_sites:
+            self._last_completed.popitem(last=False)
+
+    def _complete(self, site_id: str) -> None:
+        with self._lock:
+            self._complete_locked(site_id)
+
+    def run(
+        self,
+        *,
+        site_id: str,
+        trigger_type: str = "component-ingestion",
+        requested_by: str = "control-tower",
+    ) -> None:
+        try:
+            for _ in range(self.maximum_passes):
+                with self._lock:
+                    generation = self._generations.get(site_id)
+                if generation is None:
+                    return
+                evaluate_site_vulnerabilities_best_effort(
+                    trigger_type=trigger_type,
+                    requested_by=requested_by,
+                    site_id=site_id,
+                )
+                with self._lock:
+                    if self._generations.get(site_id) == generation:
+                        self._complete_locked(site_id)
+                        return
+            # Bound continuous spoke-driven work. A later ingestion can queue
+            # the next pass after this worker releases the site and cooldown.
+            self._complete(site_id)
+        except Exception:
+            self._complete(site_id)
+            raise
+
+
+_vulnerability_evaluation_coalescer = _VulnerabilityEvaluationCoalescer()
+
+
+def _queue_vulnerability_evaluation(
+    background_tasks: BackgroundTasks | None,
+    *,
+    site_id: str,
+) -> None:
+    if (
+        background_tasks is not None
+        and _vulnerability_evaluation_coalescer.schedule(site_id)
+    ):
+        try:
+            background_tasks.add_task(
+                _vulnerability_evaluation_coalescer.run,
+                site_id=site_id,
+                trigger_type="component-ingestion",
+                requested_by="control-tower",
+            )
+        except Exception:
+            _vulnerability_evaluation_coalescer.cancel(site_id)
+            raise
+
+
+class _FullClassificationLimiter:
+    """Bound repeated process-local bulk rebuilds without blocking targeted runs."""
+
+    def __init__(self, *, cooldown_seconds: float = 60.0) -> None:
+        self.cooldown_seconds = cooldown_seconds
+        self._lock = threading.Lock()
+        self._last_started = 0.0
+
+    def allow(self, *, now: float | None = None) -> bool:
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            if current - self._last_started < self.cooldown_seconds:
+                return False
+            self._last_started = current
+            return True
+
+
+_full_classification_limiter = _FullClassificationLimiter()
+_full_vulnerability_limiter = _FullClassificationLimiter(
+    cooldown_seconds=60.0
+)
 
 
 class CollectorCheckInRequest(BaseModel):
@@ -335,6 +778,213 @@ def api_create_agent_enrollment(payload: AgentEnrollmentRequest):
         raise HTTPException(status_code=500, detail="failed to save agent enrollment") from exc
 
 
+@app.post(
+    "/api/v1/admin/sensor-enrollments",
+    response_model=SensorEnrollmentCreateResponse,
+    response_model_exclude_none=True,
+)
+def admin_create_sensor_enrollment(
+    payload: SensorEnrollmentCreateRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return create_sensor_enrollment(
+            site_id=payload.site_id,
+            requested_sensor_id=payload.requested_sensor_id,
+            requested_sensor_name=payload.requested_sensor_name,
+            sensor_type=payload.sensor_type,
+            expires_in_minutes=payload.expires_in_minutes,
+        )
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to create sensor enrollment") from exc
+
+
+@app.get("/api/v1/admin/sensor-enrollments", response_model=SensorEnrollmentListResponse)
+def admin_list_sensor_enrollments(
+    limit: int = Query(default=100, ge=1, le=500),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return {"enrollments": list_sensor_enrollments(limit=limit)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sensor enrollments") from exc
+
+
+@app.get(
+    "/api/v1/admin/sensor-enrollments/{enrollment_id}",
+    response_model=SensorEnrollmentPublic,
+    response_model_exclude_none=True,
+)
+def admin_get_sensor_enrollment(
+    enrollment_id: str = ApiPath(..., pattern=r"^senr_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return get_sensor_enrollment(enrollment_id)
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sensor enrollment") from exc
+
+
+@app.post(
+    "/api/v1/admin/sensor-enrollments/{enrollment_id}/revoke",
+    response_model=SensorEnrollmentPublic,
+    response_model_exclude_none=True,
+)
+def admin_revoke_sensor_enrollment(
+    enrollment_id: str = ApiPath(..., pattern=r"^senr_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return revoke_sensor_enrollment(enrollment_id)
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to revoke sensor enrollment") from exc
+
+
+@app.get("/api/v1/admin/sensors", response_model=SensorCredentialListResponse)
+def admin_list_sensor_credentials(
+    limit: int = Query(default=500, ge=1, le=500),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return {"credentials": list_sensor_credentials(limit=limit)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sensor credentials") from exc
+
+
+@app.post(
+    "/api/v1/admin/sensors/{sensor_id}/credentials/rotate",
+    response_model=SensorCredentialIssueResponse,
+)
+def admin_rotate_sensor_credential(
+    sensor_id: str = ApiPath(..., min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return rotate_sensor_credential(sensor_id)
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to rotate sensor credential") from exc
+
+
+@app.post("/api/v1/admin/sensors/{sensor_id}/credentials/{credential_id}/revoke")
+def admin_revoke_sensor_credential(
+    sensor_id: str = ApiPath(..., min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$"),
+    credential_id: str = ApiPath(..., pattern=r"^scred_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return revoke_sensor_credential(sensor_id, credential_id)
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to revoke sensor credential") from exc
+
+
+@app.post("/api/v1/admin/sensors/{sensor_id}/revoke")
+def admin_revoke_sensor(
+    sensor_id: str = ApiPath(..., min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return revoke_sensor(sensor_id)
+    except (SensorIdentityNotFound, SensorIdentityConflict) as exc:
+        _raise_sensor_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to revoke sensor") from exc
+
+
+@app.get("/api/v1/admin/sensor-identity/audit")
+def admin_sensor_identity_audit(
+    limit: int = Query(default=100, ge=1, le=500),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_sensor_admin_token(admin_token)
+    try:
+        return {"events": list_sensor_identity_audit(limit=limit)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sensor identity audit") from exc
+
+
+@app.post("/api/v1/sensors/enroll", response_model=SensorEnrollmentExchangeResponse)
+def sensor_enroll(
+    payload: SensorEnrollmentExchangeRequest,
+    request: Request,
+    content_length: str | None = Header(default=None, alias="Content-Length"),
+):
+    _require_bounded_enrollment_request(content_length)
+    if not _sensor_enrollment_attempts.allow(_sensor_request_source(request)):
+        raise HTTPException(status_code=429, detail="sensor enrollment temporarily unavailable")
+    try:
+        return exchange_sensor_enrollment(
+            enrollment_token=payload.enrollment_token.get_secret_value(),
+            sensor_id=payload.sensor_id,
+            sensor_name=payload.sensor_name,
+            sensor_type=payload.sensor_type,
+            sensor_version=payload.sensor_version,
+            platform=payload.platform,
+        )
+    except SensorEnrollmentRejected as exc:
+        raise HTTPException(status_code=401, detail="sensor enrollment failed") from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="sensor enrollment failed") from exc
+
+
+@app.post("/api/v1/sensors/check-in", response_model=SensorCheckInResponse)
+def sensor_check_in(
+    payload: SensorCheckInRequest,
+    background_tasks: BackgroundTasks = None,
+    collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
+):
+    try:
+        authenticate_sensor_request(
+            provided_token=collector_token,
+            claimed_site_id=payload.site_id,
+            claimed_sensor_id=payload.sensor_id,
+            claimed_sensor_type=payload.sensor_type,
+        )
+    except SensorAuthenticationRejected as exc:
+        raise HTTPException(status_code=401, detail="valid sensor credential required") from exc
+    received_at = datetime.now(timezone.utc)
+    try:
+        record_sensor_checkin(
+            site_id=payload.site_id,
+            sensor_id=payload.sensor_id,
+            sensor_name=payload.sensor_name,
+            sensor_version=payload.sensor_version,
+            status=payload.status,
+            received_at=received_at,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to persist sensor check-in") from exc
+    _queue_site_evaluation(
+        background_tasks,
+        site_id=payload.site_id,
+        sensor_id=payload.sensor_id,
+    )
+    return SensorCheckInResponse(
+        status="accepted",
+        site_id=payload.site_id,
+        sensor_id=payload.sensor_id,
+        received_at=received_at,
+        message="sensor check-in accepted",
+    )
+
+
 @app.get("/api/v1/control-tower/summary", response_model=ControlTowerSummaryResponse)
 def api_control_tower_summary():
     try:
@@ -358,6 +1008,1068 @@ def api_control_tower_assets():
         return {"assets": list_control_tower_assets()}
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to load control tower assets") from exc
+
+
+def _finding_store() -> SqlFindingStore:
+    return SqlFindingStore()
+
+
+def _classification_store() -> SqlClassificationStore:
+    return SqlClassificationStore()
+
+
+def _component_store() -> SqlComponentStore:
+    return SqlComponentStore()
+
+
+def _advisory_store() -> SqlAdvisoryStore:
+    return SqlAdvisoryStore()
+
+
+def _advisory_sync_store() -> SqlAdvisorySyncStore:
+    return SqlAdvisorySyncStore()
+
+
+def _advisory_sync_service() -> AdvisorySyncService:
+    return AdvisorySyncService(store=_advisory_sync_store())
+
+
+def _vulnerability_store() -> SqlVulnerabilityStore:
+    return SqlVulnerabilityStore()
+
+
+@app.get("/api/v1/components", response_model=ComponentListResponse)
+def api_components(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    component_type: str | None = Query(default=None),
+    ecosystem: str | None = Query(default=None),
+    vendor: str | None = Query(default=None, min_length=1, max_length=160),
+    package: str | None = Query(default=None, min_length=1, max_length=240),
+    freshness: str | None = Query(default=None),
+    active: bool | None = Query(default=True),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    supported_types = {
+        "application",
+        "operating-system-package",
+        "library",
+        "runtime",
+        "driver",
+        "firmware",
+        "operating-system",
+        "security-tool",
+        "unknown",
+    }
+    if component_type and component_type not in supported_types:
+        raise HTTPException(status_code=400, detail="unsupported component type")
+    if ecosystem and ecosystem not in SUPPORTED_ECOSYSTEMS:
+        raise HTTPException(status_code=400, detail="unsupported component ecosystem")
+    if freshness and freshness not in {"fresh", "aging", "stale", "unknown"}:
+        raise HTTPException(status_code=400, detail="unsupported component freshness")
+    try:
+        return _component_store().list_components(
+            site_id=site_id,
+            asset_id=asset_id,
+            component_type=component_type,
+            ecosystem=ecosystem,
+            vendor=vendor,
+            package=normalized_token(package) if package else None,
+            freshness=freshness,
+            active=active,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load component inventory") from exc
+
+
+@app.get(
+    "/api/v1/components/assets/{asset_id}",
+    response_model=ComponentListResponse,
+)
+def api_asset_components(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    active: bool | None = Query(default=True),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    return api_components(
+        site_id=site_id,
+        asset_id=asset_id,
+        component_type=None,
+        ecosystem=None,
+        vendor=None,
+        package=None,
+        freshness=None,
+        active=active,
+        limit=limit,
+        offset=offset,
+        admin_token=admin_token,
+    )
+
+
+@app.get("/api/v1/vulnerabilities", response_model=VulnerabilityListResponse)
+def api_vulnerabilities(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    component_type: str | None = Query(default=None),
+    ecosystem: str | None = Query(default=None),
+    vendor: str | None = Query(default=None, min_length=1, max_length=160),
+    package: str | None = Query(default=None, min_length=1, max_length=240),
+    severity: str | None = Query(default=None),
+    match_status: str | None = Query(default=None),
+    known_exploited: bool | None = Query(default=None),
+    fixed_version_available: bool | None = Query(default=None),
+    freshness: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    statuses = {
+        "affected",
+        "not-affected",
+        "fixed",
+        "version-unknown",
+        "identity-uncertain",
+        "unsupported-comparison",
+        "insufficient-evidence",
+        "advisory-withdrawn",
+    }
+    if match_status and match_status not in statuses:
+        raise HTTPException(status_code=400, detail="unsupported vulnerability match status")
+    if severity and severity not in {"critical", "high", "medium", "low", "informational"}:
+        raise HTTPException(status_code=400, detail="unsupported vulnerability severity")
+    if ecosystem and ecosystem not in SUPPORTED_ECOSYSTEMS:
+        raise HTTPException(status_code=400, detail="unsupported component ecosystem")
+    if freshness and freshness not in {"fresh", "aging", "stale", "unknown"}:
+        raise HTTPException(status_code=400, detail="unsupported component freshness")
+    try:
+        return _vulnerability_store().list_matches(
+            site_id=site_id,
+            asset_id=asset_id,
+            severity=severity,
+            match_status=match_status,
+            known_exploited=known_exploited,
+            fixed_available=fixed_version_available,
+            freshness=freshness,
+            component_type=component_type,
+            ecosystem=ecosystem,
+            vendor=vendor,
+            package=normalized_token(package) if package else None,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load vulnerability intelligence") from exc
+
+
+@app.get(
+    "/api/v1/vulnerabilities/assets/{asset_id}",
+    response_model=VulnerabilityListResponse,
+)
+def api_asset_vulnerabilities(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    return api_vulnerabilities(
+        site_id=site_id,
+        asset_id=asset_id,
+        component_type=None,
+        ecosystem=None,
+        vendor=None,
+        package=None,
+        severity=None,
+        match_status=None,
+        known_exploited=None,
+        fixed_version_available=None,
+        freshness=None,
+        limit=limit,
+        offset=offset,
+        admin_token=admin_token,
+    )
+
+
+@app.get(
+    "/api/v1/vulnerabilities/advisories/{advisory_id}",
+    response_model=VulnerabilityListResponse,
+)
+def api_advisory_vulnerabilities(
+    advisory_id: str = ApiPath(..., pattern=r"^adv_[0-9a-f]{32}$"),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return _vulnerability_store().list_matches(
+            advisory_id=advisory_id,
+            limit=limit,
+            offset=offset,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory matches") from exc
+
+
+@app.get(
+    "/api/v1/vulnerabilities/catalog/status",
+    response_model=CatalogStatusResponse,
+)
+def api_vulnerability_catalog_status(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return _advisory_store().catalog_status()
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory catalog status") from exc
+
+
+@app.post(
+    "/api/v1/admin/vulnerabilities/evaluate",
+    response_model=VulnerabilityEvaluationResponse,
+)
+def admin_evaluate_vulnerabilities(
+    payload: VulnerabilityEvaluateRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="vulnerability administration",
+    )
+    full_rebuild = not any(
+        (
+            payload.site_id,
+            payload.asset_id,
+            payload.component_id,
+            payload.advisory_id,
+        )
+    )
+    if full_rebuild and not _full_vulnerability_limiter.allow():
+        raise HTTPException(
+            status_code=429,
+            detail="full vulnerability evaluation is temporarily rate limited",
+        )
+    try:
+        return evaluate_vulnerabilities(
+            trigger_type="admin-request",
+            requested_by=payload.requested_by,
+            site_id=payload.site_id,
+            asset_id=payload.asset_id,
+            component_id=payload.component_id,
+            advisory_id=payload.advisory_id,
+        ).as_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="deterministic vulnerability evaluation failed") from exc
+
+
+@app.post("/api/v1/admin/vulnerabilities/import", deprecated=True)
+async def admin_import_vulnerability_catalog(
+    request: Request,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="vulnerability catalog administration",
+    )
+    _ = request
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "unsigned advisory catalog import is disabled; use the reviewed "
+            "signed advisory feed synchronization lifecycle"
+        ),
+    )
+
+
+def _raise_advisory_sync_api_error(
+    exc: RegistryError | AdvisorySyncStoreError | AdvisorySyncError,
+) -> None:
+    if exc.code in {"source-unknown", "run-not-found", "catalog-not-found", "activation-not-found"}:
+        status_code = 404
+    elif exc.code in {"sync-rate-limited", "control-action-rate-limited"}:
+        status_code = 429
+    elif exc.code in {
+        "source-disabled",
+        "sync-already-active",
+        "run-state-conflict",
+        "rollback-target-active",
+        "reevaluation-state-conflict",
+    }:
+        status_code = 409
+    else:
+        status_code = 400
+    raise HTTPException(status_code=status_code, detail=exc.summary) from exc
+
+
+def _run_advisory_sync_background(service: AdvisorySyncService, run_id: str) -> None:
+    try:
+        service.execute_remote_run(run_id)
+    except AdvisorySyncError as exc:
+        LOGGER.warning("advisory feed synchronization failed safely: %s", exc.code)
+
+
+def _activate_advisory_background(
+    service: AdvisorySyncService,
+    run_id: str,
+    actor: str,
+) -> None:
+    try:
+        service.activate(run_id, actor=actor)
+    except (AdvisorySyncError, AdvisorySyncStoreError, RegistryError) as exc:
+        LOGGER.warning("advisory catalog activation failed safely: %s", exc.code)
+    except Exception as exc:  # noqa: BLE001 - response already returned; never log feed text.
+        LOGGER.error("advisory catalog activation failed safely: %s", type(exc).__name__)
+
+
+def _rollback_advisory_background(
+    service: AdvisorySyncService,
+    catalog_id: str,
+    actor: str,
+) -> None:
+    try:
+        service.rollback(catalog_id, actor=actor)
+    except (AdvisorySyncError, AdvisorySyncStoreError, RegistryError) as exc:
+        LOGGER.warning("advisory catalog rollback failed safely: %s", exc.code)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.error("advisory catalog rollback failed safely: %s", type(exc).__name__)
+
+
+@app.get("/api/v1/admin/advisory-feeds")
+def admin_advisory_feeds(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return {"items": _advisory_sync_service().list_sources()}
+    except (RegistryError, AdvisorySyncStoreError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory feed status") from exc
+
+
+@app.get("/api/v1/admin/advisory-feeds/{source_id}")
+def admin_advisory_feed_status(
+    source_id: str = ApiPath(..., pattern=r"^[a-z0-9][a-z0-9._-]{2,63}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_service().source_status(source_id)
+    except (RegistryError, AdvisorySyncStoreError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory feed status") from exc
+
+
+@app.post("/api/v1/admin/advisory-feeds/{source_id}/sync", status_code=202)
+def admin_sync_advisory_feed(
+    payload: AdvisorySyncRequest,
+    background_tasks: BackgroundTasks,
+    source_id: str = ApiPath(..., pattern=r"^[a-z0-9][a-z0-9._-]{2,63}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    service = _advisory_sync_service()
+    try:
+        run = service.request_sync(source_id=source_id, requested_by=ADVISORY_API_ACTOR)
+        background_tasks.add_task(_run_advisory_sync_background, service, run["run_id"])
+        return run
+    except (RegistryError, AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to request advisory synchronization") from exc
+
+
+@app.get("/api/v1/admin/advisory-feed-runs")
+def admin_advisory_feed_runs(
+    source_id: str | None = Query(default=None, min_length=3, max_length=64),
+    state: str | None = Query(default=None, min_length=3, max_length=40),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_store().list_runs(
+            source_id=source_id,
+            state=state,
+            limit=limit,
+            offset=offset,
+        )
+    except AdvisorySyncStoreError as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory synchronization runs") from exc
+
+
+@app.get("/api/v1/admin/advisory-feed-runs/{run_id}")
+def admin_advisory_feed_run(
+    run_id: str = ApiPath(..., pattern=r"^afrun_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_store().get_run(run_id)
+    except AdvisorySyncStoreError as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory synchronization run") from exc
+
+
+@app.get("/api/v1/admin/advisory-feed-runs/{run_id}/preview")
+def admin_advisory_feed_preview(
+    run_id: str = ApiPath(..., pattern=r"^afrun_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        run = _advisory_sync_store().get_run(run_id, include_preview=True)
+        if run.get("preview") is None:
+            raise AdvisorySyncStoreError("preview-unavailable", "verified advisory preview is not available")
+        return {"run_id": run_id, "state": run["state"], "preview": run["preview"]}
+    except AdvisorySyncStoreError as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load advisory preview") from exc
+
+
+@app.post("/api/v1/admin/advisory-feed-runs/{run_id}/approve")
+def admin_approve_advisory_feed_run(
+    payload: AdvisoryApprovalRequest,
+    run_id: str = ApiPath(..., pattern=r"^afrun_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_service().approve(run_id, actor=ADVISORY_API_ACTOR)
+    except (AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to approve advisory feed run") from exc
+
+
+@app.post("/api/v1/admin/advisory-feed-runs/{run_id}/reject")
+def admin_reject_advisory_feed_run(
+    payload: AdvisoryRejectionRequest,
+    run_id: str = ApiPath(..., pattern=r"^afrun_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_service().reject(run_id, actor=ADVISORY_API_ACTOR, reason=payload.reason)
+    except (AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to reject advisory feed run") from exc
+
+
+@app.post("/api/v1/admin/advisory-feed-runs/{run_id}/activate", status_code=202)
+def admin_activate_advisory_feed_run(
+    payload: AdvisoryApprovalRequest,
+    background_tasks: BackgroundTasks,
+    run_id: str = ApiPath(..., pattern=r"^afrun_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    service = _advisory_sync_service()
+    try:
+        run = service.store.get_run(run_id)
+        if run["state"] != "approved":
+            raise AdvisorySyncStoreError("run-state-conflict", "only an approved verified run can be activated")
+        background_tasks.add_task(_activate_advisory_background, service, run_id, ADVISORY_API_ACTOR)
+        return {"run_id": run_id, "state": "approved", "activation_status": "scheduled"}
+    except (AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to schedule advisory catalog activation") from exc
+
+
+@app.post("/api/v1/admin/advisory-catalog/rollback", status_code=202)
+def admin_rollback_advisory_catalog(
+    payload: AdvisoryRollbackRequest,
+    background_tasks: BackgroundTasks,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    service = _advisory_sync_service()
+    try:
+        retained = service.store.get_catalog(payload.catalog_id)
+        if retained["active"]:
+            raise AdvisorySyncStoreError("rollback-target-active", "rollback target is already active")
+        background_tasks.add_task(_rollback_advisory_background, service, payload.catalog_id, ADVISORY_API_ACTOR)
+        return {"catalog_id": payload.catalog_id, "rollback_status": "scheduled"}
+    except (AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to schedule advisory catalog rollback") from exc
+
+
+@app.post("/api/v1/admin/advisory-catalog-activations/{activation_id}/retry-reevaluation")
+def admin_retry_advisory_reevaluation(
+    payload: AdvisoryReevaluationRetryRequest,
+    activation_id: str = ApiPath(..., pattern=r"^afact_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        return _advisory_sync_service().retry_reevaluation(activation_id, actor=ADVISORY_API_ACTOR)
+    except (AdvisorySyncStoreError, AdvisorySyncError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to retry advisory reevaluation") from exc
+
+
+@app.get("/api/v1/admin/advisory-catalogs")
+def admin_advisory_catalogs(
+    source_id: str = Query(..., min_length=3, max_length=64),
+    limit: int = Query(default=50, ge=1, le=100),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="advisory feed administration")
+    try:
+        _advisory_sync_service().registry.source(source_id, require_enabled=False)
+        return {"items": _advisory_sync_store().list_catalogs(source_id=source_id, limit=limit)}
+    except (RegistryError, AdvisorySyncStoreError) as exc:
+        _raise_advisory_sync_api_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load retained advisory catalogs") from exc
+
+
+@app.get("/api/v1/classifications", response_model=ClassificationListResponse)
+def api_classifications(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    category: str | None = Query(default=None, min_length=1, max_length=80),
+    manufacturer: str | None = Query(default=None, min_length=1, max_length=160),
+    os_family: str | None = Query(default=None, min_length=1, max_length=80),
+    managed_capability: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    minimum_confidence: float | None = Query(default=None, ge=0.0, le=1.0),
+    conflict_state: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    supported_categories = {
+        "workstation",
+        "server",
+        "mobile",
+        "network-device",
+        "printer",
+        "camera",
+        "media-device",
+        "storage",
+        "iot",
+        "ot-industrial",
+        "virtual-machine",
+        "unknown",
+    }
+    supported_statuses = {
+        "classified",
+        "partially-classified",
+        "unknown",
+        "conflicting",
+        "insufficient-evidence",
+    }
+    if category and category not in supported_categories:
+        raise HTTPException(status_code=400, detail="unsupported classification category")
+    if status and status not in supported_statuses:
+        raise HTTPException(status_code=400, detail="unsupported classification status")
+    if managed_capability and managed_capability not in {
+        "expected",
+        "not-expected",
+        "unknown",
+    }:
+        raise HTTPException(status_code=400, detail="unsupported managed capability")
+    if conflict_state and conflict_state not in {"open", "none"}:
+        raise HTTPException(status_code=400, detail="unsupported conflict state")
+    try:
+        return _classification_store().list_classifications(
+            site_id=site_id,
+            category=category,
+            manufacturer=manufacturer,
+            os_family=os_family,
+            managed_capability=managed_capability,
+            status=status,
+            minimum_confidence=minimum_confidence,
+            conflict_state=conflict_state,
+            limit=limit,
+            offset=offset,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic classifications") from exc
+
+
+@app.get(
+    "/api/v1/classifications/summary",
+    response_model=ClassificationSummaryResponse,
+)
+def api_classification_summary(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return _classification_store().site_summary(site_id=site_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load classification summary") from exc
+
+
+@app.get(
+    "/api/v1/classifications/catalog/status",
+    response_model=VendorCatalogStatusResponse,
+)
+def api_vendor_catalog_status(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    return configured_catalog_status()
+
+
+@app.get(
+    "/api/v1/classifications/assets/{asset_id}",
+    response_model=ClassificationResponse,
+)
+def api_asset_classification(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        classification = _classification_store().get_classification(
+            site_id=site_id,
+            asset_id=asset_id,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load asset classification") from exc
+    if classification is None:
+        raise HTTPException(
+            status_code=404,
+            detail="asset classification not found; run deterministic evaluation",
+        )
+    return classification
+
+
+@app.get(
+    "/api/v1/classifications/assets/{asset_id}/evidence",
+    response_model=ClassificationEvidenceListResponse,
+)
+def api_asset_classification_evidence(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return _classification_store().list_evidence(
+            site_id=site_id,
+            asset_id=asset_id,
+            limit=limit,
+            offset=offset,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load classification evidence") from exc
+
+
+@app.post(
+    "/api/v1/admin/classifications/evaluate",
+    response_model=ClassificationEvaluationResponse,
+)
+def admin_evaluate_classifications(
+    payload: ClassificationEvaluateRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="classification administration",
+    )
+    bulk_rebuild = payload.asset_id is None and payload.asset_ids is None
+    if bulk_rebuild and not _full_classification_limiter.allow():
+        raise HTTPException(
+            status_code=429,
+            detail="bulk classification rebuild is temporarily rate limited",
+        )
+    try:
+        return evaluate_classifications(
+            trigger_type="admin-request",
+            requested_by=payload.requested_by,
+            site_id=payload.site_id,
+            asset_id=payload.asset_id,
+            asset_ids=payload.asset_ids,
+        ).as_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="deterministic classification failed") from exc
+
+
+@app.get("/api/v1/findings/rules", response_model=RuleRegistryResponse)
+def api_finding_rules(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    return {
+        "ruleset_version": RULESET_VERSION,
+        "rules": rule_registry_public(),
+        "deferred_rules": [
+            "VLAN movement is deferred until normalized, durable VLAN history exists; display strings are not evidence.",
+        ],
+    }
+
+
+@app.get("/api/v1/findings", response_model=FindingListResponse)
+def api_findings(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    sensor_id: str | None = Query(default=None, min_length=1, max_length=160),
+    status: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    rule_id: str | None = Query(default=None, min_length=1, max_length=64),
+    category: str | None = Query(default=None, min_length=1, max_length=64),
+    updated_after: datetime | None = Query(default=None),
+    updated_before: datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    for value in (updated_after, updated_before):
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise HTTPException(status_code=400, detail="finding time filters must include a timezone")
+    if updated_after is not None and updated_before is not None and updated_after > updated_before:
+        raise HTTPException(status_code=400, detail="updated_after must not exceed updated_before")
+    try:
+        return _finding_store().list_findings(
+            site_id=site_id,
+            asset_id=asset_id,
+            sensor_id=sensor_id,
+            status=status,
+            severity=severity,
+            rule_id=rule_id,
+            category=category,
+            updated_after=updated_after,
+            updated_before=updated_before,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic findings") from exc
+
+
+@app.get("/api/v1/findings/{finding_id}", response_model=FindingResponse)
+def api_finding(
+    finding_id: str = ApiPath(..., pattern=r"^fnd_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        finding = _finding_store().get_finding(finding_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic finding") from exc
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    return finding
+
+
+@app.post("/api/v1/admin/findings/evaluate", response_model=FindingEvaluationResponse)
+def admin_evaluate_findings(
+    payload: FindingEvaluateRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="finding administration",
+    )
+    try:
+        return evaluate_findings(
+            trigger_type="admin-request",
+            requested_by=payload.requested_by,
+            site_id=payload.site_id,
+            asset_id=payload.asset_id,
+            sensor_id=payload.sensor_id,
+            rule_ids=payload.rule_ids,
+        ).as_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="deterministic finding evaluation failed") from exc
+
+
+@app.post("/api/v1/admin/findings/{finding_id}/acknowledge", response_model=FindingResponse)
+def admin_acknowledge_finding(
+    payload: FindingAcknowledgeRequest,
+    finding_id: str = ApiPath(..., pattern=r"^fnd_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="finding administration",
+    )
+    store = _finding_store()
+    try:
+        finding = store.acknowledge(
+            finding_id,
+            actor=payload.actor,
+            at=datetime.now(timezone.utc),
+        )
+        if finding is not None:
+            return finding
+        if store.get_finding(finding_id) is None:
+            raise HTTPException(status_code=404, detail="finding not found")
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to acknowledge finding") from exc
+    raise HTTPException(status_code=409, detail="resolved findings cannot be acknowledged")
+
+
+@app.post("/api/v1/admin/findings/{finding_id}/suppress", response_model=FindingResponse)
+def admin_suppress_finding(
+    payload: FindingSuppressRequest,
+    finding_id: str = ApiPath(..., pattern=r"^fnd_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="finding administration",
+    )
+    store = _finding_store()
+    now = datetime.now(timezone.utc)
+    if payload.until is not None and payload.until <= now:
+        raise HTTPException(status_code=400, detail="suppression expiry must be in the future")
+    try:
+        finding = store.suppress(
+            finding_id,
+            actor=payload.actor,
+            reason=payload.reason,
+            until=payload.until,
+            at=now,
+        )
+        if finding is None:
+            if store.get_finding(finding_id) is None:
+                raise HTTPException(status_code=404, detail="finding not found")
+            raise HTTPException(status_code=409, detail="resolved findings cannot be suppressed")
+        evaluate_site_best_effort(
+            site_id=finding["site_id"],
+            trigger_type="finding-suppression",
+            requested_by=payload.actor,
+        )
+        refreshed = store.get_finding(finding_id)
+        return refreshed or finding
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to suppress finding") from exc
+
+
+@app.get("/api/v1/risk/summary", response_model=RiskSummaryResponse)
+def api_risk_summary(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    limit: int = Query(default=100, ge=1, le=200),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return _finding_store().risk_summary(site_id=site_id, limit=limit)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic risk summary") from exc
+
+
+@app.get("/api/v1/risk/assets/{asset_id}", response_model=AssetRiskResponse)
+def api_asset_risk(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        risk = _finding_store().get_asset_risk(site_id=site_id, asset_id=asset_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic asset risk") from exc
+    if risk is None:
+        raise HTTPException(status_code=404, detail="asset risk not found; run deterministic evaluation")
+    return risk
+
+
+@app.get("/api/v1/risk/sites/{site_id}", response_model=SiteRiskResponse)
+def api_site_risk(
+    site_id: str = ApiPath(..., min_length=1, max_length=128),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        risk = _finding_store().get_site_risk(site_id=site_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load deterministic site risk") from exc
+    if risk is None:
+        raise HTTPException(status_code=404, detail="site risk not found; run deterministic evaluation")
+    return risk
+
+
+def build_read_only_hub_tools(*, include_advisory_feed_evidence: bool = False) -> ReadOnlyHubTools:
+    store = _finding_store()
+    classification_store = _classification_store()
+    findings = store.list_findings(limit=200, status="active")["items"]
+    findings.extend(store.list_findings(limit=200, status="acknowledged")["items"])
+    risk = store.risk_summary(limit=200)
+    return ReadOnlyHubTools(
+        sites=list_sites(),
+        sensors=list_agent_enrollments(),
+        assets=list_control_tower_assets(),
+        findings=findings,
+        asset_risks=risk["assets"],
+        site_risks=risk["sites"],
+        classification_evidence=classification_store.evidence_snapshot(
+            limit=1_000,
+        ),
+        components=_component_store().component_snapshot(limit=2_000),
+        vulnerability_matches=_vulnerability_store().active_match_snapshot(
+            limit=20_000,
+        ),
+        advisory_feed_evidence=(
+            _advisory_sync_store().ai_snapshot(limit=20)
+            if include_advisory_feed_evidence
+            else []
+        ),
+    )
+
+
+@app.get("/api/v1/hub/sites/summary", response_model=SiteIntelligenceSummaryResponse)
+def api_hub_site_summaries(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        tools = build_read_only_hub_tools()
+        return {
+            "sites": tools.run("site_summary")["items"],
+            "data_as_of": tools.data_as_of(),
+        }
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load site intelligence summary") from exc
+
+
+@app.get("/api/v1/hub/sensors", response_model=SensorSummaryResponse)
+def api_hub_sensors(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        tools = build_read_only_hub_tools()
+        return {"sensors": tools.run("sensor_health")["items"], "data_as_of": tools.data_as_of()}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load sensor intelligence summary") from exc
+
+
+@app.get("/api/v1/ai/status", response_model=ProviderStatusResponse)
+def api_ai_provider_status(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    return provider_status()
+
+
+def _record_advisor_audit(
+    *,
+    run_id: str,
+    request: AdvisorQueryRequest,
+    provider: str,
+    mode: str,
+    tool_names: list[str],
+    evidence_count: int,
+    status: str,
+) -> None:
+    record_ai_advisor_run(
+        run_id=run_id,
+        question_sha256=hashlib.sha256(request.question.encode("utf-8")).hexdigest(),
+        site_id=request.site_id,
+        provider=provider,
+        mode=mode,
+        tool_names=tool_names,
+        evidence_count=evidence_count,
+        status=status,
+    )
+
+
+@app.post("/api/v1/ai/advisor/query", response_model=AdvisorResponse)
+def api_ai_advisor_query(
+    payload: AdvisorQueryRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    status = provider_status()
+    try:
+        expected_admin_token = os.getenv(ADMIN_TOKEN_ENV)
+        include_advisory_feed_evidence = bool(
+            expected_admin_token
+            and isinstance(admin_token, str)
+            and secrets.compare_digest(admin_token, expected_admin_token)
+        )
+        tools = build_read_only_hub_tools(
+            include_advisory_feed_evidence=include_advisory_feed_evidence
+        )
+        response = run_advisor(request=payload, tools=tools)
+        _record_advisor_audit(
+            run_id=response.run_id,
+            request=payload,
+            provider=response.provider,
+            mode=response.mode,
+            tool_names=response.tools_used,
+            evidence_count=len(response.evidence),
+            status="completed",
+        )
+        return response
+    except ProviderUnavailableError as exc:
+        try:
+            _record_advisor_audit(
+                run_id=str(uuid4()),
+                request=payload,
+                provider=status.provider,
+                mode=status.mode,
+                tool_names=select_tools(payload.question),
+                evidence_count=0,
+                status="provider-unavailable",
+            )
+        except SQLAlchemyError:
+            pass
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ProviderOutputError as exc:
+        try:
+            _record_advisor_audit(
+                run_id=str(uuid4()),
+                request=payload,
+                provider=status.provider,
+                mode=status.mode,
+                tool_names=select_tools(payload.question),
+                evidence_count=0,
+                status="invalid-provider-output",
+            )
+        except SQLAlchemyError:
+            pass
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load or audit AI Advisor evidence") from exc
 
 
 @app.get("/api/v1/releases/agent", response_model=ReleaseStatusResponse)
@@ -748,6 +2460,11 @@ def local_inventory_observed_asset_count(payload: dict[str, Any]) -> int:
         raise HTTPException(status_code=400, detail="assets must be a JSON array")
     if any(not isinstance(asset, dict) for asset in assets):
         raise HTTPException(status_code=400, detail="assets must contain JSON objects")
+    if len(assets) > MAX_LOCAL_INVENTORY_ASSETS:
+        raise HTTPException(
+            status_code=400,
+            detail="local inventory asset limit exceeded",
+        )
     return len(assets)
 
 
@@ -781,7 +2498,10 @@ def forbidden_agent_checkin_fields(payload: dict[str, Any]) -> list[str]:
     response_model=AgentCheckInResponse,
     response_model_exclude_none=True,
 )
-def agent_check_in(raw_payload: Any = Body(...)):
+def agent_check_in(
+    raw_payload: Any = Body(...),
+    background_tasks: BackgroundTasks = None,
+):
     if not isinstance(raw_payload, dict):
         raise HTTPException(status_code=400, detail="agent check-in payload must be a JSON object")
     if not raw_payload:
@@ -807,6 +2527,11 @@ def agent_check_in(raw_payload: Any = Body(...)):
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist agent check-in") from exc
 
+    _queue_site_evaluation(
+        background_tasks,
+        site_id=site_id,
+        sensor_id=agent_id,
+    )
     return AgentCheckInResponse(
         status="accepted",
         site_id=site_id,
@@ -817,7 +2542,10 @@ def agent_check_in(raw_payload: Any = Body(...)):
 
 
 @app.post("/api/v1/collections/local-inventory", response_model=LocalInventoryCollectionResponse)
-def local_inventory_collection(raw_payload: Any = Body(...)):
+def local_inventory_collection(
+    raw_payload: Any = Body(...),
+    background_tasks: BackgroundTasks = None,
+):
     if not isinstance(raw_payload, dict):
         raise HTTPException(status_code=400, detail="local inventory collection payload must be a JSON object")
     if not raw_payload:
@@ -842,10 +2570,16 @@ def local_inventory_collection(raw_payload: Any = Body(...)):
             site_id=site_id,
             received_at=received_at,
             observed_asset_count=observed_asset_count,
+            source_authenticated=False,
         )
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist local inventory collection") from exc
 
+    _queue_asset_classification(
+        background_tasks,
+        site_id=site_id,
+        asset_ids=list(collection_result.get("asset_ids") or []),
+    )
     return LocalInventoryCollectionResponse(
         status="accepted",
         observation_batch_id=collection_result["collection_id"],
@@ -854,6 +2588,61 @@ def local_inventory_collection(raw_payload: Any = Body(...)):
         observed_asset_count=observed_asset_count,
         normalized_asset_count=collection_result["normalized_asset_count"],
         message="local inventory collection accepted as passive observations",
+    )
+
+
+@app.post("/api/v1/observations/batches", response_model=ObservationBatchResponse)
+def observation_batch(
+    payload: ObservationBatchRequest,
+    background_tasks: BackgroundTasks = None,
+    collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
+):
+    try:
+        auth_context = authenticate_sensor_request(
+            provided_token=collector_token,
+            claimed_site_id=payload.site_id,
+            claimed_sensor_id=payload.sensor_id,
+            claimed_sensor_type=payload.sensor_type,
+        )
+    except SensorAuthenticationRejected as exc:
+        raise HTTPException(status_code=401, detail="valid sensor credential required") from exc
+    received_at = datetime.now(timezone.utc)
+    stored_payload = payload.model_dump(mode="json")
+    source_authenticated = auth_context.mode == "bound-sensor"
+    try:
+        result = record_observation_batch(
+            payload=stored_payload,
+            received_at=received_at,
+            source_authenticated=source_authenticated,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to persist observation batch") from exc
+    duplicate = bool(result.get("duplicate"))
+    if not duplicate:
+        _queue_asset_classification(
+            background_tasks,
+            site_id=payload.site_id,
+            asset_ids=list(result.get("asset_ids") or []),
+        )
+        if source_authenticated:
+            _queue_vulnerability_evaluation(
+                background_tasks,
+                site_id=payload.site_id,
+            )
+    return ObservationBatchResponse(
+        status="duplicate" if duplicate else "accepted",
+        observation_batch_id=payload.observation_batch_id,
+        storage_id=int(result["collection_id"]),
+        site_id=payload.site_id,
+        sensor_id=payload.sensor_id,
+        received_at=received_at,
+        observed_asset_count=len(payload.assets),
+        normalized_asset_count=int(result["normalized_asset_count"]),
+        message=(
+            "observation batch was already stored; no duplicate asset evidence was added"
+            if duplicate
+            else "normalized outbound observation batch accepted"
+        ),
     )
 
 

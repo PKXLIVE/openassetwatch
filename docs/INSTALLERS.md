@@ -22,6 +22,10 @@ packages, and they do not install offensive tools. They are retained because
 they still document earlier multi-component agent, sensor, collector, and
 Docker service shapes. Current production agent package source lives under
 `packaging/agent/`, with build and validation helpers under `scripts/release/`.
+Current Linux passive-sensor deployment source lives under
+`packaging/sensor/linux/` and uses
+`scripts/release/install_sensor_linux.py`; see
+`docs/SENSOR_LINUX_DEPLOYMENT.md`.
 
 The Go build should produce the `oaw-agent`, `oaw-sensor`, `oaw-cli`,
 `oaw-server`, `oaw-mcp-stdio`, and `oaw-test-config` binaries. Packaging tools
@@ -128,6 +132,14 @@ validation artifacts from `packaging/agent/linux/` and `scripts/release/`.
 Production release still requires signing and disposable Linux install,
 upgrade, downgrade, and uninstall validation.
 
+The passive sensor has a distinct hardened systemd unit, locked
+`openassetwatch-sensor` account, `/usr/bin/oaw-sensor` binary,
+`/etc/openassetwatch/sensor` configuration, and
+`/var/lib/openassetwatch/sensor` state. Its installer supports fixed-path
+install, repair, upgrade, uninstall, and explicit purge. Sensor DEB/RPM
+packaging remains an immediate follow-up; it must not reuse the endpoint-agent
+package identity or state.
+
 ## macOS
 
 The current macOS scaffold uses a LaunchDaemon and defaults to:
@@ -167,3 +179,4 @@ release versions.
 
 - `docs/SIGNED_RELEASES.md`
 - `docs/RELEASE_PIPELINE.md`
+- `docs/SENSOR_LINUX_DEPLOYMENT.md`

@@ -227,3 +227,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local advisory publisher state, signing material, and generated bundles
+/.oaw-advisory-publisher/
+/.oaw-advisory-mirror/

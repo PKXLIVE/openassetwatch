@@ -42,7 +42,10 @@ class ControlTowerComposeReadinessTests(unittest.TestCase):
         self.assertIn("context: ./backend", self.compose_text)
         self.assertIn("openassetwatch-control-tower-backend:local", self.compose_text)
         self.assertNotRegex(self.compose_text, r"(?i)pip\s+install")
-        self.assertIn("RUN pip install --no-cache-dir -r /tmp/openassetwatch-requirements.txt", dockerfile)
+        self.assertIn(
+            "RUN pip install --no-cache-dir --require-hashes -r /tmp/openassetwatch-requirements.txt",
+            dockerfile,
+        )
 
     def test_host_ports_are_localhost_only(self) -> None:
         self.assertIn('"127.0.0.1:5432:5432"', self.compose_text)

@@ -10,6 +10,46 @@ material and reference architecture patterns are inputs only. OpenAssetWatch
 keeps defensive concepts that fit its own product direction and rejects unsafe
 or offensive platform behavior.
 
+The first implemented hub-and-spoke AI showcase, its normalized observation
+batch contract, provider boundary, and current limitations are documented in
+`docs/architecture/hub-spoke-ai-showcase.md`.
+The Linux-first passive sensor, cross-platform replay, privacy boundary, and
+deployment model are documented in `docs/PASSIVE_SENSOR_MVP.md`. Hardened
+systemd deployment and authorized SPAN validation are documented in
+`docs/SENSOR_LINUX_DEPLOYMENT.md`.
+Its one-time enrollment, site/sensor-bound bearer credential, rotation,
+revocation, and certificate-migration boundary are documented in
+`docs/SENSOR_ENROLLMENT.md`.
+The authoritative deterministic rule registry, finding lifecycle, explainable
+asset/site risk formula, API, AI boundary, and safe extension process are
+documented in `docs/DETERMINISTIC_FINDINGS_AND_RISK.md`.
+The deterministic asset model, source-aware evidence fusion, confidence and
+conflict rules, managed-capability expectations, local vendor catalog, APIs,
+and AI authority boundary are documented in
+`docs/ASSET_CLASSIFICATION_AND_EVIDENCE_FUSION.md`.
+The normalized software/firmware model, conservative version comparison,
+reviewed offline advisory catalog, deterministic matcher, finding/risk
+integration, AI boundary, dashboard, performance harness, and future adapter
+contract are documented in
+`docs/SOFTWARE_AND_VULNERABILITY_INTELLIGENCE.md`.
+
+## Hub-And-Spoke Control Plane
+
+The Control Tower hub owns the API, PostgreSQL evidence store, site and sensor
+identity, health/freshness, deterministic classification and history, risk and
+findings projection, AI Advisor, controlled tool gateway, authentication
+boundary, audit metadata, and cross-site views.
+
+Endpoint collectors, passive network sensors, and future SNMP, cloud,
+vulnerability, identity, and SIEM connectors are spokes. A spoke belongs to a
+site, keeps a stable identity, and sends authenticated outbound observations.
+Spokes should cache bounded observations during outages and retry idempotently;
+they should expose no inbound management port by default.
+
+The AI primarily runs at the hub over normalized evidence. It receives no
+arbitrary shell, SQL, filesystem, operating-system, packet-capture, or spoke
+management access.
+
 ## Hybrid Runtime
 
 OpenAssetWatch is intentionally hybrid:
@@ -22,6 +62,12 @@ OpenAssetWatch is intentionally hybrid:
 This split keeps local endpoint and sensor collection small, portable, and easy
 to package while preserving Python for analysis, reporting, evaluation, and AI
 workflows that benefit from the Python ecosystem.
+
+Advisory publication is a separate product-owned static distribution service,
+not part of a customer hub runtime. It serves only signed public advisory
+indexes and immutable signed bundles. Self-hosted, hosted, and hybrid hubs
+consume those vendor-neutral artifacts through the same reviewed trust,
+approval, activation, finding, risk, and AI evidence contracts.
 
 ## Deployment Models
 

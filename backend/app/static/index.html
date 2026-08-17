@@ -49,6 +49,7 @@
 
     button,
     input,
+    select,
     textarea {
       font: inherit;
     }
@@ -627,6 +628,7 @@
     }
 
     input,
+    select,
     textarea {
       width: 100%;
       border: 1px solid var(--line);
@@ -824,6 +826,239 @@
       overflow-wrap: anywhere;
     }
 
+    .advisor-layout {
+      display: grid;
+      grid-template-columns: minmax(18rem, 0.75fr) minmax(0, 1.25fr);
+      gap: 1rem;
+      align-items: start;
+    }
+
+    .advisor-form,
+    .advisor-result,
+    .advisor-context {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .advisor-prompts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+
+    .advisor-prompts button {
+      min-height: 2rem;
+      border-color: var(--line);
+      background: var(--panel-soft);
+      color: var(--ink);
+      font-weight: 750;
+    }
+
+    .advisor-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+
+    .advisor-trust-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.55rem;
+    }
+
+    .advisor-trust-strip[hidden] {
+      display: none;
+    }
+
+    .advisor-trust-item {
+      display: grid;
+      gap: 0.2rem;
+      min-width: 0;
+      padding: 0.7rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .advisor-trust-item span,
+    .advisor-technical-grid span {
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 850;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .advisor-trust-item strong {
+      overflow-wrap: anywhere;
+    }
+
+    .advisor-trust-item.privacy {
+      border-color: #8ac7b5;
+      background: var(--green-bg);
+    }
+
+    .advisor-trust-item.external {
+      border-color: #e5b86e;
+      background: var(--amber-bg);
+    }
+
+    .advisor-progress {
+      display: grid;
+      gap: 0.45rem;
+      padding: 0.7rem;
+      border: 1px solid #d8c9f2;
+      border-radius: 7px;
+      background: var(--violet-bg);
+    }
+
+    .advisor-progress[hidden] {
+      display: none;
+    }
+
+    .advisor-progress-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    .advisor-progress-line strong,
+    .advisor-progress-line span {
+      overflow-wrap: anywhere;
+    }
+
+    .advisor-progress-track {
+      height: 4px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #ddd3ed;
+    }
+
+    .advisor-progress-track span {
+      display: block;
+      width: 32%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--violet);
+      animation: advisor-wait 1.8s ease-in-out infinite alternate;
+    }
+
+    @keyframes advisor-wait {
+      from { transform: translateX(-35%); }
+      to { transform: translateX(245%); }
+    }
+
+    .advisor-answer-section,
+    .advisor-result-section {
+      display: grid;
+      gap: 0.55rem;
+    }
+
+    .advisor-answer-section h3,
+    .advisor-result-section h3 {
+      margin: 0;
+    }
+
+    .advisor-trust-note {
+      display: grid;
+      gap: 0.2rem;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid #d8c9f2;
+      border-radius: 7px;
+      background: #faf7ff;
+    }
+
+    .advisor-trust-note span {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .advisor-entity-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.55rem;
+    }
+
+    .advisor-entity-card {
+      display: grid;
+      gap: 0.25rem;
+      padding: 0.7rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .advisor-entity-card span {
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .advisor-technical,
+    .advisor-provider-help {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .advisor-technical summary,
+    .advisor-provider-help summary {
+      cursor: pointer;
+      padding: 0.7rem;
+      font-weight: 850;
+    }
+
+    .advisor-technical-grid {
+      display: grid;
+      gap: 0.55rem;
+      padding: 0 0.7rem 0.7rem;
+    }
+
+    .advisor-technical-grid div {
+      display: grid;
+      gap: 0.15rem;
+    }
+
+    .advisor-technical-grid code {
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+
+    .advisor-provider-help p {
+      margin: 0;
+      padding: 0 0.7rem 0.7rem;
+    }
+
+    .advisor-answer {
+      border-left: 4px solid var(--violet);
+      border-radius: 6px;
+      padding: 0.85rem;
+      background: var(--violet-bg);
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .advisor-evidence {
+      display: grid;
+      gap: 0.55rem;
+    }
+
+    .advisor-evidence article {
+      display: grid;
+      gap: 0.28rem;
+      padding: 0.7rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel-soft);
+    }
+
+    .advisor-evidence small {
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
     .table-scroll {
       overflow-x: auto;
     }
@@ -846,7 +1081,9 @@
 
       .summary-grid,
       .split,
-      .asset-layout {
+      .asset-layout,
+      .advisor-layout,
+      .advisor-entity-grid {
         grid-template-columns: 1fr;
       }
 
@@ -909,6 +1146,25 @@
       .mini-stats {
         grid-template-columns: 1fr;
       }
+
+      .advisor-trust-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .advisor-progress-line {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.2rem;
+      }
+
+      #ai-advisor .panel-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      #ai-advisor .panel-header span {
+        white-space: normal;
+      }
     }
   </style>
 </head>
@@ -930,6 +1186,7 @@
         <a class="nav-link" href="#sites" data-nav="sites">Sites <span class="nav-dot"></span></a>
         <a class="nav-link" href="#evidence" data-nav="evidence">Evidence <span class="nav-dot"></span></a>
         <a class="nav-link" href="#findings" data-nav="findings">Findings <span class="nav-dot"></span></a>
+        <a class="nav-link" href="#ai-advisor" data-nav="ai-advisor">AI Advisor <span class="nav-dot"></span></a>
         <a class="nav-link" href="#policies" data-nav="policies">Policies <span class="nav-dot"></span></a>
         <a class="nav-link" href="#reports" data-nav="reports">Reports <span class="nav-dot"></span></a>
         <a class="nav-link" href="#settings" data-nav="settings">Settings <span class="nav-dot"></span></a>
@@ -1301,7 +1558,7 @@
           <div class="section-title">
             <div>
               <h2>Findings</h2>
-              <p>Demo-only findings are derived from safe asset attention labels and synthetic metadata.</p>
+              <p>Authoritative deterministic findings with evidence freshness, confidence, lifecycle state, and explainable risk.</p>
             </div>
             <span id="findings-summary-count" class="pill">loading</span>
           </div>
@@ -1310,6 +1567,178 @@
               <div class="empty-state"><strong>Loading findings</strong>Safe demo attention items will appear here.</div>
             </div>
           </section>
+        </section>
+
+        <section id="ai-advisor" class="view-section">
+          <div class="section-title">
+            <div>
+              <h2>Ask OpenAssetWatch</h2>
+              <p>Read-only, evidence-backed analysis across normalized hub data. Collected text is treated as untrusted data, never instructions.</p>
+            </div>
+            <span id="advisor-provider-pill" class="pill warn">checking provider</span>
+          </div>
+
+          <div class="advisor-layout" data-mobile-stack="advisor">
+            <section class="panel">
+              <div class="panel-header">
+                <h3>AI Advisor question</h3>
+                <span>bounded read-only tools</span>
+              </div>
+              <form id="advisor-form" class="panel-body advisor-form">
+                <div class="advisor-prompts" aria-label="Example AI Advisor questions">
+                  <button type="button" data-advisor-prompt="What needs my attention first?">Attention first</button>
+                  <button type="button" data-advisor-prompt="Summarize my entire environment.">Environment summary</button>
+                  <button type="button" data-advisor-prompt="Which site has the highest risk?">Highest-risk site</button>
+                  <button type="button" data-advisor-prompt="Which sensors have stopped checking in?">Stale sensors</button>
+                  <button type="button" data-advisor-prompt="Compare security posture across sites.">Compare sites</button>
+                </div>
+                <label for="advisor-site">Site scope
+                  <select id="advisor-site">
+                    <option value="">All sites</option>
+                  </select>
+                </label>
+                <label for="advisor-question">Question
+                  <textarea id="advisor-question" maxlength="500" required placeholder="Ask about sites, sensors, assets, findings, changes, or data freshness."></textarea>
+                </label>
+                <label for="advisor-token">Admin token (only if configured)
+                  <input id="advisor-token" type="password" autocomplete="off" placeholder="Kept only in this page; never stored">
+                </label>
+                <div class="form-actions">
+                  <button id="advisor-submit" type="submit">Ask OpenAssetWatch</button>
+                  <button id="advisor-status-refresh" class="secondary" type="button">Refresh provider status</button>
+                </div>
+                <span id="advisor-form-status" class="form-status" role="status" aria-live="polite">Ready for a read-only question.</span>
+                <div id="advisor-progress" class="advisor-progress" role="status" aria-live="polite" hidden>
+                  <div class="advisor-progress-line">
+                    <strong id="advisor-progress-stage">Gathering hub evidence</strong>
+                    <span id="advisor-elapsed">0 seconds elapsed</span>
+                  </div>
+                  <div class="advisor-progress-track" aria-hidden="true"><span></span></div>
+                  <small>Client-side waiting guide only; the backend does not stream exact stage progress.</small>
+                </div>
+                <p class="muted">The showcase exposes no terminal or OS process controls, configuration changes, packet capture, or remediation.</p>
+              </form>
+            </section>
+
+            <div class="advisor-result">
+              <section class="panel">
+                <div class="panel-header">
+                  <h3>Provider and data state</h3>
+                  <span id="advisor-provider-mode">not loaded</span>
+                </div>
+                <div class="panel-body advisor-context">
+                  <div id="advisor-local-trust" class="advisor-trust-strip" hidden>
+                    <div class="advisor-trust-item">
+                      <span>Local model</span>
+                      <strong id="advisor-local-model">model not reported</strong>
+                    </div>
+                    <div class="advisor-trust-item">
+                      <span>Runtime</span>
+                      <strong>OpenAI-compatible local runtime</strong>
+                    </div>
+                    <div class="advisor-trust-item privacy">
+                      <span>Privacy</span>
+                      <strong>Data stays on this machine</strong>
+                      <small>No external sharing</small>
+                    </div>
+                  </div>
+                  <div id="advisor-demo-trust" class="advisor-trust-strip" hidden>
+                    <div class="advisor-trust-item">
+                      <span>Provider mode</span>
+                      <strong>Deterministic demo</strong>
+                    </div>
+                    <div class="advisor-trust-item">
+                      <span>Runtime</span>
+                      <strong>Bounded backend logic</strong>
+                    </div>
+                    <div class="advisor-trust-item privacy">
+                      <span>Privacy</span>
+                      <strong>Local processing</strong>
+                      <small>No external sharing</small>
+                    </div>
+                  </div>
+                  <div id="advisor-hosted-trust" class="advisor-trust-strip" hidden>
+                    <div class="advisor-trust-item">
+                      <span>Provider mode</span>
+                      <strong>Hosted external model</strong>
+                    </div>
+                    <div class="advisor-trust-item">
+                      <span>Model</span>
+                      <strong id="advisor-hosted-model">model not reported</strong>
+                    </div>
+                    <div class="advisor-trust-item external">
+                      <span>Data sharing</span>
+                      <strong>External sharing enabled</strong>
+                      <small>Bounded normalized evidence may leave this machine.</small>
+                    </div>
+                  </div>
+                  <div class="advisor-meta">
+                    <span id="advisor-provider" class="badge">provider unknown</span>
+                    <span id="advisor-data-state" class="badge">data state unknown</span>
+                    <span id="advisor-freshness" class="badge">data as of unknown</span>
+                    <span id="advisor-confidence" class="badge warn">Model-reported confidence unavailable · Uncalibrated</span>
+                  </div>
+                  <p id="advisor-provider-message" class="muted">Provider status has not loaded.</p>
+                  <details class="advisor-provider-help">
+                    <summary>Provider details and fallback</summary>
+                    <p id="advisor-fallback-help" class="muted">Deterministic mode can be restored through backend runtime configuration.</p>
+                  </details>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-header">
+                  <h3>Structured answer</h3>
+                  <span id="advisor-citation-count">0 validated citations</span>
+                </div>
+                <div class="panel-body advisor-result">
+                  <section class="advisor-answer-section" aria-labelledby="advisor-answer-heading">
+                    <h3 id="advisor-answer-heading">Executive answer</h3>
+                    <div id="advisor-answer" class="advisor-answer">Ask a question to generate an evidence-backed Advisor answer in the configured provider mode.</div>
+                    <div class="advisor-trust-note">
+                      <strong>Evidence-backed answer</strong>
+                      <span>OpenAssetWatch validates cited evidence identifiers. The model's interpretation, confidence, and recommendations remain advisory.</span>
+                    </div>
+                  </section>
+                  <section class="advisor-result-section" aria-labelledby="advisor-affected-heading">
+                    <h3 id="advisor-affected-heading">Affected site, sensor, and asset</h3>
+                    <div id="advisor-affected" class="advisor-entity-grid">
+                      <div class="empty-state"><strong>No affected records yet</strong>Context will appear only when supported by cited evidence.</div>
+                    </div>
+                  </section>
+                  <section class="advisor-result-section" aria-labelledby="advisor-evidence-heading">
+                    <h3 id="advisor-evidence-heading">Validated evidence</h3>
+                    <div id="advisor-evidence" class="advisor-evidence">
+                      <div class="empty-state"><strong>No evidence yet</strong>The Advisor will not present unsupported claims as verified facts.</div>
+                    </div>
+                  </section>
+                  <section class="advisor-result-section" aria-labelledby="advisor-actions-heading">
+                    <h3 id="advisor-actions-heading">Recommended actions</h3>
+                    <div id="advisor-actions" class="list">
+                      <div class="empty-state"><strong>No recommendations yet</strong>Recommendations remain advisory and read-only.</div>
+                    </div>
+                  </section>
+                  <section class="advisor-result-section" aria-labelledby="advisor-limitations-heading">
+                    <h3 id="advisor-limitations-heading">Limitations and advisory notice</h3>
+                    <div id="advisor-limitations" class="list">
+                      <div class="list-row"><span>AI interpretation and recommendations remain advisory until validated against current evidence.</span></div>
+                    </div>
+                  </section>
+                  <details id="advisor-technical-details" class="advisor-technical">
+                    <summary>Technical details</summary>
+                    <div class="advisor-technical-grid">
+                      <div><span>AI run ID</span><code id="advisor-run-id">no run</code></div>
+                      <div><span>Site IDs</span><code id="advisor-site-ids">none</code></div>
+                      <div><span>Sensor IDs</span><code id="advisor-sensor-ids">none</code></div>
+                      <div><span>Asset IDs</span><code id="advisor-asset-ids">none</code></div>
+                      <div><span>Evidence IDs</span><code id="advisor-evidence-ids">none</code></div>
+                      <div><span>Read-only tools</span><code id="advisor-tools">none</code></div>
+                    </div>
+                  </details>
+                </div>
+              </section>
+            </div>
+          </div>
         </section>
 
         <section id="policies" class="view-section">
@@ -1379,8 +1808,34 @@
             <div class="settings-card"><h3>Release Metadata</h3><p id="settings-release" class="muted">loading</p></div>
             <div class="settings-card"><h3>Demo Mode</h3><p id="settings-demo-mode" class="muted">checking</p></div>
             <div class="settings-card"><h3>Demo Seed Command</h3><p id="settings-demo-seed" class="muted">docker compose --profile demo run --rm demo-seed</p></div>
-            <div class="settings-card"><h3>Local Safety</h3><p class="muted">Dashboard actions are limited to refresh and create-site metadata.</p></div>
+            <div class="settings-card"><h3>Local Safety</h3><p class="muted">Advisory controls require the configured admin token and an explicit operator action. AI cannot use them.</p></div>
             <div class="settings-card"><h3>Data Sources</h3><p class="muted">Health, summary, sites, agents, check-ins, assets, and release metadata endpoints.</p></div>
+            <div class="settings-card">
+              <h3>Advisory Intelligence</h3>
+              <p id="advisory-feed-status" class="muted">Enter the admin token in AI Advisor, then load feed status.</p>
+              <div class="button-row">
+                <button id="advisory-load" class="button secondary" type="button">Load status</button>
+                <button id="advisory-sync" class="button secondary" type="button">Request sync</button>
+              </div>
+              <p id="advisory-action-status" class="form-status" aria-live="polite"></p>
+            </div>
+            <div class="settings-card">
+              <h3>Pending advisory run</h3>
+              <p id="advisory-preview" class="muted">No verified preview loaded.</p>
+              <div class="button-row">
+                <button id="advisory-approve" class="button secondary" type="button" disabled>Approve</button>
+                <button id="advisory-reject" class="button secondary" type="button" disabled>Reject</button>
+                <button id="advisory-activate" class="button primary" type="button" disabled>Activate</button>
+              </div>
+            </div>
+            <div class="settings-card">
+              <h3>Last-known-good catalogs</h3>
+              <div id="advisory-catalogs" class="list"><p class="muted">No retained catalog status loaded.</p></div>
+            </div>
+            <div class="settings-card">
+              <h3>Run history</h3>
+              <div id="advisory-runs" class="list"><p class="muted">No run history loaded.</p></div>
+            </div>
           </div>
         </section>
 
@@ -1407,18 +1862,42 @@
       agents: "/api/v1/agents",
       checkins: "/api/v1/control-tower/check-ins",
       assets: "/api/v1/control-tower/assets",
-      release: "/api/v1/releases/agent"
+      findings: "/api/v1/findings?status=active&limit=200",
+      acknowledgedFindings: "/api/v1/findings?status=acknowledged&limit=200",
+      risk: "/api/v1/risk/summary?limit=200",
+      components: "/api/v1/components?active=true&limit=200",
+      vulnerabilities: "/api/v1/vulnerabilities?limit=200",
+      release: "/api/v1/releases/agent",
+      advisorStatus: "/api/v1/ai/status",
+      advisorQuery: "/api/v1/ai/advisor/query",
+      advisoryFeeds: "/api/v1/admin/advisory-feeds",
+      advisoryRuns: "/api/v1/admin/advisory-feed-runs?limit=20&offset=0"
     };
     const DEMO_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed";
-    const VIEW_IDS = ["dashboard", "assets", "collectors", "sites", "evidence", "findings", "policies", "reports", "settings"];
+    const VIEW_IDS = ["dashboard", "assets", "collectors", "sites", "evidence", "findings", "ai-advisor", "policies", "reports", "settings"];
+    const ADVISOR_WAIT_STAGES = [
+      {afterSeconds: 0, label: "Gathering hub evidence"},
+      {afterSeconds: 3, label: "Preparing bounded context"},
+      {afterSeconds: 8, label: "Asking local model"},
+      {afterSeconds: 35, label: "Validating structured response"},
+      {afterSeconds: 45, label: "Reconciling citations"}
+    ];
 
     const state = {
       loading: false,
-      data: {health: null, summary: null, sites: [], agents: [], checkins: [], assets: [], release: null},
+      data: {health: null, summary: null, sites: [], agents: [], checkins: [], assets: [], components: [], vulnerabilities: [], findings: [], risk: {sites: [], assets: []}, release: null},
+      findingsError: null,
+      vulnerabilityError: null,
       assetFilter: "all",
       assetSearch: "",
       selectedAssetId: null,
-      selectedCollectorId: null
+      selectedCollectorId: null,
+      advisorStatus: null,
+      advisorProgressTimer: null,
+      advisorProgressStartedAt: null,
+      advisorySourceId: null,
+      advisoryPendingRunId: null,
+      advisoryApprovedRunId: null
     };
 
     function byId(id) {
@@ -1516,8 +1995,22 @@
       return asset && typeof asset.metadata === "object" && asset.metadata ? asset.metadata : {};
     }
 
+    function classification(asset) {
+      return asset && typeof asset.classification === "object" && asset.classification ? asset.classification : null;
+    }
+
     function category(asset) {
-      return text(metadata(asset).category || asset.platform || asset.os, "unknown").toLowerCase();
+      const value = classification(asset);
+      return text((value && value.category) || metadata(asset).category || asset.platform || asset.os, "unknown").toLowerCase();
+    }
+
+    function classificationEvidenceLabel(asset) {
+      const value = classification(asset);
+      if (!value || value.category === "unknown" || value.status === "unknown" || value.status === "insufficient-evidence") return "unknown";
+      if (value.status === "conflicting") return "conflicting";
+      const reasons = Array.isArray(value.reason_codes) ? value.reason_codes : [];
+      if (reasons.some(reason => String(reason).startsWith("direct-"))) return "direct";
+      return "inferred";
     }
 
     function attention(asset) {
@@ -1525,12 +2018,18 @@
     }
 
     function isUnknown(asset) {
-      return category(asset).includes("unknown") || attention(asset).toLowerCase().includes("unknown");
+      const value = classification(asset);
+      return category(asset).includes("unknown")
+        || (value && ["unknown", "insufficient-evidence"].includes(value.status))
+        || attention(asset).toLowerCase().includes("unknown");
     }
 
     function isUnmanaged(asset) {
-      const value = `${category(asset)} ${attention(asset)}`.toLowerCase();
-      return value.includes("unmanaged") || value.includes("iot") || value.includes("mobile");
+      const value = classification(asset);
+      const expected = value && value.managed_capability ? value.managed_capability.endpoint_collector : "unknown";
+      if (expected === "not-expected") return false;
+      return expected === "expected" && !value.endpoint_evidence_present
+        || attention(asset).toLowerCase().includes("unmanaged");
     }
 
     function isIot(asset) {
@@ -1597,42 +2096,34 @@
     }
 
     function derivedData() {
-      const {health, summary, sites, agents, checkins, assets, release} = state.data;
+      const {health, summary, sites, agents, checkins, assets, findings, risk, release} = state.data;
       const statuses = agents.map(agent => ({agent, status: collectorStatus(agent, checkins)}));
       const staleCollectors = statuses.filter(item => item.status.label === "stale");
       const activeCollectors = statuses.filter(item => item.status.label === "active");
-      const unknownAssets = assets.filter(isUnknown);
-      const unmanagedAssets = assets.filter(isUnmanaged);
+      const unknownKeys = new Set(
+        findings
+          .filter(finding => finding.rule_id === "unknown-asset" && finding.asset_id)
+          .map(finding => `${finding.site_id}\u0000${finding.asset_id}`)
+      );
+      const coverageKeys = new Set(
+        findings
+          .filter(finding => ["passive-only-asset", "security-coverage-gap"].includes(finding.rule_id) && finding.asset_id)
+          .map(finding => `${finding.site_id}\u0000${finding.asset_id}`)
+      );
+      const unknownAssets = assets.filter(asset => unknownKeys.has(`${asset.site_id}\u0000${asset.asset_id}`));
+      const unmanagedAssets = assets.filter(asset => coverageKeys.has(`${asset.site_id}\u0000${asset.asset_id}`));
       const evidenceTotal = summary && Number.isFinite(summary.evidence_count)
         ? summary.evidence_count
         : assets.reduce((total, asset) => total + Number(asset.evidence_count || 0), 0);
-      const findings = deriveFindings(assets, staleCollectors);
-      return {health, summary, sites, agents, checkins, assets, release, statuses, staleCollectors, activeCollectors, unknownAssets, unmanagedAssets, evidenceTotal, findings};
-    }
-
-    function deriveFindings(assets, staleCollectors) {
-      const findings = [];
-      assets.forEach(asset => {
-        const label = attention(asset).toLowerCase();
-        const base = {asset, site_id: asset.site_id, source: "asset attention metadata"};
-        if (isUnknown(asset)) findings.push({...base, title: "Unknown device observed", severity: "Review", detail: "Identify owner, expected role, and whether the device should remain visible."});
-        if (label.includes("unmanaged iot")) findings.push({...base, title: "Unmanaged IoT device", severity: "Review", detail: "Confirm expected placement and whether monitoring coverage is sufficient."});
-        if (label.includes("unmanaged mobile")) findings.push({...base, title: "Unmanaged mobile device", severity: "Review", detail: "Confirm whether this mobile device is expected in the site inventory."});
-        if (label.includes("missing security tooling")) findings.push({...base, title: "Missing security tooling sample", severity: "Coverage", detail: "Review whether endpoint coverage is expected for this asset class."});
-        if (label.includes("stale collector")) findings.push({...base, title: "Stale collector sample", severity: "Freshness", detail: "Review recent check-in timing before trusting stale inventory."});
-        if (category(asset).includes("printer")) findings.push({...base, title: "Printer inventory review", severity: "Review", detail: "Validate location, ownership, and expected firmware inventory metadata."});
-      });
-      staleCollectors.forEach(({agent, status}) => {
-        findings.push({
-          asset: null,
-          site_id: agent.site_id,
-          source: "collector check-in timing",
-          title: "Stale collector sample",
-          severity: "Freshness",
-          detail: `${agent.agent_id} last checked in ${status.minutes === null ? "outside the current window" : `${status.minutes} synthetic minutes behind the latest check-in`}.`
-        });
-      });
-      return findings;
+      const assetRisk = new Map((risk.assets || []).map(item => [`${item.site_id}\u0000${item.asset_id}`, item]));
+      const projectedFindings = findings.map(finding => ({
+        ...finding,
+        detail: finding.description,
+        risk: finding.asset_id
+          ? assetRisk.get(`${finding.site_id}\u0000${finding.asset_id}`)
+          : (risk.sites || []).find(item => item.site_id === finding.site_id)
+      }));
+      return {health, summary, sites, agents, checkins, assets, risk, release, statuses, staleCollectors, activeCollectors, unknownAssets, unmanagedAssets, evidenceTotal, findings: projectedFindings};
     }
 
     function countBy(values, getKey) {
@@ -1694,15 +2185,11 @@
 
     function renderAttention(data) {
       const banner = byId("attention-banner");
-      const attentionTypes = [];
-      if (data.unknownAssets.length) attentionTypes.push("unknown device");
-      if (data.assets.some(asset => attention(asset).toLowerCase().includes("unmanaged iot"))) attentionTypes.push("unmanaged IoT");
-      if (data.staleCollectors.length || data.assets.some(isStaleAsset)) attentionTypes.push("stale collector");
-      if (data.assets.some(isMissingTooling)) attentionTypes.push("missing security tooling");
-      banner.hidden = attentionTypes.length === 0;
-      byId("attention-summary").textContent = attentionTypes.length
-        ? `Synthetic demo results include ${attentionTypes.join(", ")} signals. Review read-only findings and asset details before deciding next steps.`
-        : "No attention items detected in the currently loaded data.";
+      const categories = Array.from(new Set(data.findings.map(finding => finding.category))).sort();
+      banner.hidden = data.findings.length === 0;
+      byId("attention-summary").textContent = data.findings.length
+        ? `${data.findings.length} active or acknowledged deterministic finding${data.findings.length === 1 ? "" : "s"} span ${categories.join(", ")}. Scores are deterministic; AI commentary remains advisory.`
+        : "No active deterministic findings are present in the currently loaded data.";
     }
 
     function isZeroData(data) {
@@ -1824,7 +2311,7 @@
       });
       byId("evidence-loaded").textContent = `${evidence.length} records`;
 
-      renderListRows("top-findings", data.findings.slice(0, 5), "No findings yet", "Demo findings are derived from synthetic attention labels.", findingCard);
+      renderListRows("top-findings", data.findings.slice(0, 5), "No findings yet", "Run the deterministic evaluator after evidence is collected.", findingCard);
       byId("findings-loaded").textContent = `${data.findings.length} items`;
     }
 
@@ -1833,30 +2320,53 @@
       const main = document.createElement("div");
       const title = document.createElement("strong");
       const detail = document.createElement("span");
+      const guidance = document.createElement("span");
+      const technical = document.createElement("details");
+      const technicalSummary = document.createElement("summary");
+      const technicalBody = document.createElement("span");
       row.className = "list-row";
       main.className = "list-row-main";
       title.textContent = finding.title;
-      main.append(title, makeBadge(finding.severity, finding.severity === "Coverage" ? "violet" : "warn"));
-      detail.textContent = `${finding.site_id} - ${finding.detail}`;
-      row.append(main, detail);
+      const severityKind = finding.severity === "critical" ? "error" : finding.severity === "high" ? "warn" : "violet";
+      main.append(
+        title,
+        makeBadge(finding.severity, severityKind),
+        makeBadge(`confidence ${Math.round(Number(finding.confidence || 0) * 100)}%`),
+        makeBadge(finding.status || "active")
+      );
+      if (finding.risk) main.append(makeBadge(`risk ${finding.risk.score}/100`, finding.risk.score >= 60 ? "warn" : ""));
+      const subject = finding.asset_id || finding.sensor_id || "site";
+      const evidenceCount = Array.isArray(finding.evidence) ? finding.evidence.length : 0;
+      detail.textContent = `${finding.site_id} / ${subject} - ${finding.detail}`;
+      guidance.textContent = `Remediation: ${finding.recommendation}`;
+      technicalSummary.textContent = "Evidence and score details";
+      const riskFactors = finding.risk && Array.isArray(finding.risk.factors)
+        ? finding.risk.factors.slice(0, 4).map(factor => `${factor.label}: +${Number(factor.adjusted_weight || 0).toFixed(1)}`).join("; ")
+        : "not evaluated";
+      technicalBody.textContent = `Deterministic finding ${finding.finding_id}; rule ${finding.rule_id} v${finding.rule_version}; ${evidenceCount} evidence reference${evidenceCount === 1 ? "" : "s"}; ${finding.evidence_freshness} evidence; first seen ${fmtDate(finding.first_seen_at)}; last seen ${fmtDate(finding.last_seen_at)}; score formula ${finding.risk ? finding.risk.formula_version : "not evaluated"}; breakdown ${riskFactors}.`;
+      technical.append(technicalSummary, technicalBody);
+      row.append(main, detail, guidance, technical);
       return row;
     }
 
     function renderSites(data) {
       const bySite = new Map();
       data.sites.forEach(site => {
-        bySite.set(site.site_id, {site, assets: [], agents: [], checkins: []});
+        bySite.set(site.site_id, {site, assets: [], agents: [], checkins: [], risk: null});
+      });
+      (data.risk.sites || []).forEach(risk => {
+        if (bySite.has(risk.site_id)) bySite.get(risk.site_id).risk = risk;
       });
       data.assets.forEach(asset => {
-        if (!bySite.has(asset.site_id)) bySite.set(asset.site_id, {site: {site_id: asset.site_id, name: asset.site_id}, assets: [], agents: [], checkins: []});
+        if (!bySite.has(asset.site_id)) bySite.set(asset.site_id, {site: {site_id: asset.site_id, name: asset.site_id}, assets: [], agents: [], checkins: [], risk: null});
         bySite.get(asset.site_id).assets.push(asset);
       });
       data.agents.forEach(agent => {
-        if (!bySite.has(agent.site_id)) bySite.set(agent.site_id, {site: {site_id: agent.site_id, name: agent.site_id}, assets: [], agents: [], checkins: []});
+        if (!bySite.has(agent.site_id)) bySite.set(agent.site_id, {site: {site_id: agent.site_id, name: agent.site_id}, assets: [], agents: [], checkins: [], risk: null});
         bySite.get(agent.site_id).agents.push(agent);
       });
       data.checkins.forEach(checkin => {
-        if (!bySite.has(checkin.site_id)) bySite.set(checkin.site_id, {site: {site_id: checkin.site_id, name: checkin.site_id}, assets: [], agents: [], checkins: []});
+        if (!bySite.has(checkin.site_id)) bySite.set(checkin.site_id, {site: {site_id: checkin.site_id, name: checkin.site_id}, assets: [], agents: [], checkins: [], risk: null});
         bySite.get(checkin.site_id).checkins.push(checkin);
       });
 
@@ -1875,7 +2385,7 @@
         renderEmpty(target, "No sites yet", "Create a site to anchor future collector enrollment and inventory submissions.");
         return;
       }
-      cards.forEach(({site, assets, agents, checkins}) => {
+      cards.forEach(({site, assets, agents, checkins, risk}) => {
         const card = document.createElement("article");
         const latest = checkins.map(item => parseDate(item.received_at)).filter(Boolean).sort((a, b) => b - a)[0];
         card.className = "site-card";
@@ -1886,7 +2396,12 @@
         desc.className = "muted";
         desc.textContent = site.description || site.site_id;
         stats.className = "mini-stats";
-        stats.append(miniStat("Assets", assets.length), miniStat("Collectors", agents.length), miniStat("Latest", latest ? fmtDate(latest) : "none"));
+        stats.append(
+          miniStat("Assets", assets.length),
+          miniStat("Collectors", agents.length),
+          miniStat("Risk", risk ? `${risk.score}/100 ${risk.band}` : "not evaluated"),
+          miniStat("Latest", latest ? fmtDate(latest) : "none")
+        );
         card.append(title, desc, stats);
         target.appendChild(card);
       });
@@ -1918,6 +2433,9 @@
           asset.mac,
           asset.os,
           asset.platform,
+          classification(asset) && classification(asset).manufacturer,
+          classification(asset) && classification(asset).os_family,
+          classification(asset) && classification(asset).status,
           attention(asset)
         ].join(" ").toLowerCase();
         return haystack.includes(query);
@@ -1985,15 +2503,37 @@
       }
       target.className = "panel-body";
       const dl = document.createElement("dl");
+      const value = classification(asset);
+      const components = state.data.components.filter(item => item.site_id === asset.site_id && item.asset_id === asset.asset_id);
+      const vulnerabilities = state.data.vulnerabilities.filter(item => item.site_id === asset.site_id && item.asset_id === asset.asset_id);
+      const affected = vulnerabilities.filter(item => item.match_status === "affected");
+      const uncertain = vulnerabilities.filter(item => ["version-unknown", "identity-uncertain", "insufficient-evidence", "unsupported-comparison"].includes(item.match_status));
+      const managed = value && value.managed_capability ? value.managed_capability : {};
       const details = [
         ["Asset", asset.asset_id],
         ["Hostname", asset.hostname],
         ["Site", asset.site_id],
         ["Category", category(asset)],
+        ["Classification basis", classificationEvidenceLabel(asset)],
+        ["Role or subtype", value && value.subtype],
+        ["Manufacturer", value && value.manufacturer],
+        ["Product or model hint", value && value.product_hint],
+        ["OS family or hint", value ? `${text(value.os_family)} / ${text(value.os_version_hint)}` : text(asset.os)],
+        ["Managed capability", value ? `collector ${text(managed.endpoint_collector)}; security ${text(managed.endpoint_security)}; software ${text(managed.software_inventory)}; patching ${text(managed.patch_management)}` : "unknown"],
+        ["Classification status", value && value.status],
+        ["Classification confidence", value ? `${Math.round(Number(value.confidence || 0) * 100)}%` : "unknown"],
+        ["Independent sources", value && value.independent_source_count],
+        ["Classification evidence", value && value.evidence_count],
+        ["Classification freshness", value && value.freshness],
+        ["Installed components", components.length],
+        ["Confirmed affected", affected.length],
+        ["Component review gaps", uncertain.length],
+        ["Conflict indicator", value && value.status === "conflicting" ? "conflicting evidence requires review" : "none reported"],
+        ["Explanation factors", value && Array.isArray(value.reason_codes) ? value.reason_codes.join(", ") : "none"],
         ["Attention", attention(asset) || "observed"],
         ["Evidence count", asset.evidence_count],
         ["Last seen", fmtDate(asset.last_seen_at)],
-        ["Evidence summary", `${metadata(asset).source || "inventory evidence"}; confidence: demo sample`]
+        ["Evidence summary", value ? "deterministic classification; AI commentary remains advisory" : `${metadata(asset).source || "inventory evidence"}; classification pending`]
       ];
       details.forEach(([label, value]) => {
         const dt = document.createElement("dt");
@@ -2003,6 +2543,96 @@
         dl.append(dt, dd);
       });
       target.appendChild(dl);
+      if (value) {
+        const technical = document.createElement("details");
+        const summary = document.createElement("summary");
+        const identifiers = document.createElement("p");
+        const conflicts = document.createElement("p");
+        summary.textContent = "Technical classification evidence";
+        identifiers.textContent = `Classification ${text(value.classification_id)}; supporting evidence ${Array.isArray(value.supporting_evidence_ids) && value.supporting_evidence_ids.length ? value.supporting_evidence_ids.join(", ") : "none"}; conflicting evidence ${Array.isArray(value.conflicting_evidence_ids) && value.conflicting_evidence_ids.length ? value.conflicting_evidence_ids.join(", ") : "none"}.`;
+        conflicts.textContent = value.status === "conflicting"
+          ? "Deterministic conflict is preserved. AI may explain it but cannot resolve or override it."
+          : "No current deterministic classification conflict is reported.";
+        technical.append(summary, identifiers, conflicts);
+        target.appendChild(technical);
+      }
+      const componentSection = document.createElement("section");
+      const componentHeading = document.createElement("h3");
+      componentHeading.textContent = "Software, packages, and firmware";
+      componentSection.appendChild(componentHeading);
+      if (!components.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = state.vulnerabilityError || "No normalized component evidence is available for this asset.";
+        componentSection.appendChild(empty);
+      } else {
+        components.slice(0, 50).forEach(component => {
+          const row = document.createElement("article");
+          row.className = "list-item";
+          const main = document.createElement("div");
+          const title = document.createElement("strong");
+          const detail = document.createElement("p");
+          const badges = document.createElement("div");
+          const technical = document.createElement("details");
+          const summary = document.createElement("summary");
+          const identifiers = document.createElement("p");
+          title.textContent = `${text(component.name)} ${text(component.version, "version unknown")}`;
+          detail.textContent = `${text(component.ecosystem)}; ${text(component.source_type)}; ${text(component.freshness)} evidence`;
+          badges.className = "badge-row";
+          badges.append(
+            makeBadge(component.component_type),
+            makeBadge(component.normalization_status, component.normalization_status === "normalized" ? "ok" : "warn")
+          );
+          summary.textContent = "Technical identity and provenance";
+          identifiers.textContent = `Component ${text(component.component_id)}; canonical identifier ${text(component.canonical_identifier)}; architecture ${text(component.architecture)}; source ${text(component.source_id)}; firmware evidence ${text(component.firmware_evidence_type)}.`;
+          technical.append(summary, identifiers);
+          main.append(title, detail, badges, technical);
+          row.appendChild(main);
+          componentSection.appendChild(row);
+        });
+      }
+      target.appendChild(componentSection);
+
+      const vulnerabilitySection = document.createElement("section");
+      const vulnerabilityHeading = document.createElement("h3");
+      vulnerabilityHeading.textContent = "Deterministic vulnerability intelligence";
+      vulnerabilitySection.appendChild(vulnerabilityHeading);
+      if (!vulnerabilities.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = state.vulnerabilityError || "No local advisory match has been evaluated for this asset.";
+        vulnerabilitySection.appendChild(empty);
+      } else {
+        vulnerabilities.slice(0, 50).forEach(match => {
+          const row = document.createElement("article");
+          row.className = "list-item";
+          const main = document.createElement("div");
+          const title = document.createElement("strong");
+          const detail = document.createElement("p");
+          const badges = document.createElement("div");
+          const technical = document.createElement("details");
+          const summary = document.createElement("summary");
+          const identifiers = document.createElement("p");
+          const limitations = document.createElement("p");
+          title.textContent = `${text(match.component_name)}: ${text(match.match_status)}`;
+          detail.textContent = `${text(match.title)}; Installed version ${text(match.installed_version, "unknown")}; Fixed version ${text(match.fixed_version, "not supplied")}`;
+          badges.className = "badge-row";
+          badges.append(
+            makeBadge(match.severity, ["critical", "high"].includes(match.severity) ? "warn" : ""),
+            makeBadge(match.match_status, match.match_status === "affected" ? "error" : match.match_status === "fixed" || match.match_status === "not-affected" ? "ok" : "warn"),
+            makeBadge(`confidence ${Math.round(Number(match.match_confidence || 0) * 100)}%`),
+            makeBadge(match.known_exploited ? "source marks known exploited" : "no known-exploited source flag", match.known_exploited ? "warn" : "")
+          );
+          summary.textContent = "Advisory range, identifiers, and provenance";
+          identifiers.textContent = `Match ${text(match.match_id)}; component ${text(match.component_id)}; advisory ${text(match.advisory_id)}; reviewed range ${text(match.affected_range)}; aliases ${Array.isArray(match.aliases) && match.aliases.length ? match.aliases.join(", ") : "none"}.`;
+          limitations.textContent = `Source ${text(match.source)} record ${text(match.source_record_id)}; catalog ${text(match.catalog_version)}; license ${text(match.source_license)}. Uncertain identity or missing version is not a confirmed vulnerability. AI may explain but cannot change this result.`;
+          technical.append(summary, identifiers, limitations);
+          main.append(title, detail, badges, technical);
+          row.appendChild(main);
+          vulnerabilitySection.appendChild(row);
+        });
+      }
+      target.appendChild(vulnerabilitySection);
     }
 
     function renderCollectors(data) {
@@ -2115,7 +2745,11 @@
       const target = byId("findings-list");
       clearNode(target);
       if (!data.findings.length) {
-        renderEmpty(target, "No findings yet", "Safe demo findings appear when asset attention labels are present.");
+        renderEmpty(
+          target,
+          state.findingsError ? "Findings unavailable" : "No active findings",
+          state.findingsError || "Run the deterministic evaluator after evidence is collected."
+        );
       } else {
         data.findings.forEach(finding => target.appendChild(findingCard(finding)));
       }
@@ -2166,6 +2800,299 @@
       byId("settings-release").textContent = `${release.channel || "local"} channel; update execution ${release.update_execution || "not reported"}`;
     }
 
+    function advisorHeaders(includeContentType = false) {
+      const headers = {};
+      const token = byId("advisor-token").value;
+      if (token) headers["X-OpenAssetWatch-Admin-Token"] = token;
+      if (includeContentType) headers["Content-Type"] = "application/json";
+      return headers;
+    }
+
+    function renderAdvisorSiteOptions(sites) {
+      const select = byId("advisor-site");
+      const selected = select.value;
+      clearNode(select);
+      const all = document.createElement("option");
+      all.value = "";
+      all.textContent = "All sites";
+      select.appendChild(all);
+      sites.forEach(site => {
+        const option = document.createElement("option");
+        option.value = text(site.site_id, "");
+        option.textContent = text(site.name, site.site_id);
+        select.appendChild(option);
+      });
+      select.value = Array.from(select.options).some(option => option.value === selected) ? selected : "";
+    }
+
+    function renderAdvisorProvider(status) {
+      state.advisorStatus = status;
+      const modeLabel = status.mode === "demo"
+        ? "deterministic demo"
+        : status.mode === "local" ? "local model" : "hosted model";
+      byId("advisor-local-trust").hidden = status.mode !== "local";
+      byId("advisor-demo-trust").hidden = status.mode !== "demo";
+      byId("advisor-hosted-trust").hidden = status.mode !== "external";
+      byId("advisor-local-model").textContent = text(status.model, "model not reported");
+      byId("advisor-hosted-model").textContent = text(status.model, "model not reported");
+      byId("advisor-provider-pill").textContent = `${modeLabel} ${status.available ? "ready" : "unavailable"}`;
+      byId("advisor-provider-pill").className = `pill ${status.available ? "ok" : "warn"}`;
+      byId("advisor-provider").textContent = status.model
+        ? `${status.provider} / ${status.model}`
+        : `${status.provider} / ${status.mode}`;
+      byId("advisor-provider").className = `badge ${status.available ? "ok" : "warn"}`;
+      byId("advisor-provider-mode").textContent = status.mode === "demo"
+        ? "deterministic local processing · no external sharing"
+        : status.mode === "local" ? "data stays on this machine · no external sharing" : "hosted model · external sharing enabled";
+      byId("advisor-provider-message").textContent = status.message;
+      byId("advisor-fallback-help").textContent = status.mode === "demo"
+        ? "Deterministic demo mode is active."
+        : "To return to deterministic mode, set OPENASSETWATCH_AI_PROVIDER=demo and recreate only the backend service.";
+    }
+
+    async function loadAdvisorStatus() {
+      try {
+        const status = await loadJSON(endpoints.advisorStatus, {headers: advisorHeaders()});
+        renderAdvisorProvider(status);
+        return status;
+      } catch (error) {
+        byId("advisor-provider-pill").textContent = "authentication required";
+        byId("advisor-provider-pill").className = "pill warn";
+        byId("advisor-provider-mode").textContent = "status unavailable";
+        byId("advisor-provider-message").textContent = text(error.message);
+        return null;
+      }
+    }
+
+    function advisorSiteName(siteId) {
+      const site = state.data.sites.find(item => item.site_id === siteId);
+      return text(site && site.name, text(siteId, "Site not reported"));
+    }
+
+    function advisorSensorName(sensorId) {
+      const sensor = state.data.agents.find(item => item.agent_id === sensorId);
+      return text(sensor && (sensor.display_name || sensor.hostname), sensorId);
+    }
+
+    function advisorAssetName(assetId) {
+      const asset = state.data.assets.find(item => item.asset_id === assetId);
+      if (!asset) return text(assetId);
+      const assetMetadata = metadata(asset);
+      const explicitName = assetMetadata.display_name || assetMetadata.name;
+      if (explicitName) return text(explicitName);
+      const siteName = advisorSiteName(asset.site_id).replace(/\s+Demo$/i, "");
+      if (assetMetadata.category === "unknown" && siteName && siteName !== asset.site_id) {
+        return `Unknown ${siteName} Device`;
+      }
+      return text(asset.os || asset.hostname, assetId).replace(/\s+Demo Firmware$/i, "");
+    }
+
+    function renderAdvisorEntities(response) {
+      const target = byId("advisor-affected");
+      clearNode(target);
+      const groups = [
+        ["Site", response.affected_sites, advisorSiteName],
+        ["Sensor", response.affected_sensors, advisorSensorName],
+        ["Asset", response.affected_assets, advisorAssetName]
+      ];
+      let rendered = 0;
+      groups.forEach(([label, identifiers, friendlyName]) => {
+        identifiers.forEach(identifier => {
+          const card = document.createElement("div");
+          const kind = document.createElement("span");
+          const name = document.createElement("strong");
+          card.className = "advisor-entity-card";
+          kind.textContent = label;
+          name.textContent = friendlyName(identifier);
+          card.append(kind, name);
+          target.appendChild(card);
+          rendered += 1;
+        });
+      });
+      if (!rendered) {
+        renderEmpty(target, "No affected records", "The answer did not include supported site, sensor, or asset evidence.");
+      }
+    }
+
+    function advisorDisplayText(response, value, fallback = "Not reported") {
+      let displayValue = text(value, fallback);
+      const replacements = [
+        ...response.affected_sites.map(identifier => [identifier, advisorSiteName(identifier)]),
+        ...response.affected_sensors.map(identifier => [identifier, advisorSensorName(identifier)]),
+        ...response.affected_assets.map(identifier => [identifier, advisorAssetName(identifier)])
+      ];
+      replacements.forEach(([identifier, friendlyName]) => {
+        if (!identifier || identifier === friendlyName) return;
+        displayValue = displayValue.split(identifier).join(friendlyName);
+        displayValue = displayValue.split(`${friendlyName} (${friendlyName})`).join(friendlyName);
+      });
+      return displayValue;
+    }
+
+    function advisorDisplayAnswer(response) {
+      return advisorDisplayText(response, response.answer, "No answer was returned.");
+    }
+
+    function setAdvisorTechnicalDetails(response) {
+      byId("advisor-run-id").textContent = text(response.run_id, "no run");
+      byId("advisor-site-ids").textContent = response.affected_sites.join(", ") || "none";
+      byId("advisor-sensor-ids").textContent = response.affected_sensors.join(", ") || "none";
+      byId("advisor-asset-ids").textContent = response.affected_assets.join(", ") || "none";
+      byId("advisor-evidence-ids").textContent = response.evidence.map(item => item.evidence_id).join(", ") || "none";
+      byId("advisor-tools").textContent = response.tools_used.join(", ") || "none";
+    }
+
+    function advisorElapsedSeconds() {
+      if (!state.advisorProgressStartedAt) return 0;
+      return Math.max(0, Math.floor((Date.now() - state.advisorProgressStartedAt) / 1000));
+    }
+
+    function updateAdvisorProgress() {
+      const elapsed = advisorElapsedSeconds();
+      const stage = ADVISOR_WAIT_STAGES.reduce(
+        (current, candidate) => elapsed >= candidate.afterSeconds ? candidate : current,
+        ADVISOR_WAIT_STAGES[0]
+      );
+      let stageLabel = stage.label;
+      if (stage.label === "Asking local model" && state.advisorStatus && state.advisorStatus.mode === "external") {
+        stageLabel = "Asking hosted model";
+      } else if (stage.label === "Asking local model" && state.advisorStatus && state.advisorStatus.mode === "demo") {
+        stageLabel = "Running deterministic advisor";
+      }
+      byId("advisor-progress-stage").textContent = stageLabel;
+      byId("advisor-elapsed").textContent = `${elapsed} second${elapsed === 1 ? "" : "s"} elapsed`;
+    }
+
+    function startAdvisorProgress() {
+      if (state.advisorProgressTimer) clearInterval(state.advisorProgressTimer);
+      state.advisorProgressStartedAt = Date.now();
+      byId("advisor-progress").hidden = false;
+      updateAdvisorProgress();
+      state.advisorProgressTimer = setInterval(updateAdvisorProgress, 1000);
+    }
+
+    function stopAdvisorProgress() {
+      const elapsed = advisorElapsedSeconds();
+      if (state.advisorProgressTimer) clearInterval(state.advisorProgressTimer);
+      state.advisorProgressTimer = null;
+      state.advisorProgressStartedAt = null;
+      byId("advisor-progress").hidden = true;
+      return elapsed;
+    }
+
+    function renderAdvisorRows(targetId, values, emptyTitle, emptyDetail) {
+      const target = byId(targetId);
+      clearNode(target);
+      if (!values.length) {
+        renderEmpty(target, emptyTitle, emptyDetail);
+        return;
+      }
+      values.forEach(value => {
+        const row = document.createElement("div");
+        const span = document.createElement("span");
+        row.className = "list-row";
+        span.textContent = value;
+        row.appendChild(span);
+        target.appendChild(row);
+      });
+    }
+
+    function renderAdvisorResponse(response) {
+      byId("advisor-answer").textContent = advisorDisplayAnswer(response);
+      byId("advisor-data-state").textContent = `${response.data_state} data`;
+      byId("advisor-data-state").className = `badge ${response.data_state === "live" ? "ok" : "warn"}`;
+      byId("advisor-freshness").textContent = `data as of ${fmtDate(response.data_as_of)}`;
+      byId("advisor-confidence").textContent = `Model-reported confidence: ${Math.round(Number(response.confidence || 0) * 100)}% · Uncalibrated`;
+      byId("advisor-confidence").className = "badge warn";
+      const citationLabel = response.evidence.length === 1 ? "validated citation" : "validated citations";
+      byId("advisor-citation-count").textContent = `${response.evidence.length} ${citationLabel}`;
+      renderAdvisorEntities(response);
+      setAdvisorTechnicalDetails(response);
+
+      const evidenceTarget = byId("advisor-evidence");
+      clearNode(evidenceTarget);
+      if (!response.evidence.length) {
+        renderEmpty(evidenceTarget, "No supporting evidence", "Treat this answer as unverified; the service has capped its confidence.");
+      } else {
+        response.evidence.forEach(item => {
+          const article = document.createElement("article");
+          const strong = document.createElement("strong");
+          const summary = document.createElement("span");
+          const details = document.createElement("small");
+          strong.textContent = item.evidence_type.split("_").join(" ");
+          summary.textContent = advisorDisplayText(response, item.summary);
+          details.textContent = `${advisorSiteName(item.site_id)} | ${text(item.source)} | ${item.freshness} | Evidence confidence: ${Math.round(Number(item.confidence || 0) * 100)}%`;
+          article.append(strong, summary, details);
+          evidenceTarget.appendChild(article);
+        });
+      }
+      renderAdvisorRows(
+        "advisor-actions",
+        response.recommended_actions.map(value => advisorDisplayText(response, value)),
+        "No recommended actions",
+        "The Advisor did not return a supported next step."
+      );
+      renderAdvisorRows(
+        "advisor-limitations",
+        [
+          ...response.warnings.map(value => `Warning: ${advisorDisplayText(response, value)}`),
+          ...response.limitations.map(value => advisorDisplayText(response, value))
+        ],
+        "No limitations reported",
+        "Always validate AI output against current OpenAssetWatch evidence."
+      );
+    }
+
+    async function askAdvisor(event) {
+      event.preventDefault();
+      const question = byId("advisor-question").value.trim();
+      const siteId = byId("advisor-site").value;
+      const status = byId("advisor-form-status");
+      const submit = byId("advisor-submit");
+      if (question.length < 3) {
+        status.textContent = "Enter a question with at least three characters.";
+        status.className = "form-status error";
+        return;
+      }
+      submit.disabled = true;
+      status.textContent = "Request in progress. Waiting stages are timing-based and do not claim streamed backend progress.";
+      status.className = "form-status";
+      startAdvisorProgress();
+      try {
+        const body = {question};
+        if (siteId) body.site_id = siteId;
+        const response = await loadJSON(endpoints.advisorQuery, {
+          method: "POST",
+          headers: advisorHeaders(true),
+          body: JSON.stringify(body)
+        });
+        renderAdvisorResponse(response);
+        const elapsed = stopAdvisorProgress();
+        status.textContent = `Answer ready in ${elapsed} second${elapsed === 1 ? "" : "s"} with ${response.evidence.length} validated citation${response.evidence.length === 1 ? "" : "s"}.`;
+        status.className = "form-status ok";
+        await loadAdvisorStatus();
+      } catch (error) {
+        const elapsed = stopAdvisorProgress();
+        status.textContent = text(error.message, "AI Advisor request failed safely.");
+        status.className = "form-status error";
+        byId("advisor-answer").textContent = `No answer was produced after ${elapsed} second${elapsed === 1 ? "" : "s"}. Check provider status, authentication, backend health, and local model availability; no action was taken. Deterministic demo mode remains available in provider details.`;
+      } finally {
+        if (state.advisorProgressTimer) stopAdvisorProgress();
+        submit.disabled = false;
+      }
+    }
+
+    function setupAdvisor() {
+      byId("advisor-form").addEventListener("submit", askAdvisor);
+      byId("advisor-status-refresh").addEventListener("click", loadAdvisorStatus);
+      document.querySelectorAll("[data-advisor-prompt]").forEach(button => {
+        button.addEventListener("click", () => {
+          byId("advisor-question").value = button.dataset.advisorPrompt;
+          byId("advisor-form").requestSubmit();
+        });
+      });
+    }
+
     function renderSettings(data) {
       byId("settings-api-url").textContent = apiBase || "same-origin API";
       byId("settings-health").textContent = data.health
@@ -2180,8 +3107,127 @@
       byId("settings-loaded").textContent = "loaded";
     }
 
+    function advisoryActionBody(extra = {}) {
+      return JSON.stringify(extra);
+    }
+
+    function appendAdvisoryRow(target, primary, secondary, action) {
+      const row = document.createElement("div");
+      const strong = document.createElement("strong");
+      const detail = document.createElement("span");
+      row.className = "list-row";
+      strong.textContent = primary;
+      detail.textContent = secondary;
+      row.append(strong, detail);
+      if (action) row.appendChild(action);
+      target.appendChild(row);
+    }
+
+    async function loadAdvisoryIntelligence() {
+      const status = byId("advisory-action-status");
+      status.textContent = "Loading reviewed feed state...";
+      status.className = "form-status";
+      try {
+        const feeds = await loadJSON(endpoints.advisoryFeeds, {headers: advisorHeaders()});
+        const source = (feeds.items || [])[0];
+        state.advisorySourceId = source ? source.source_id : null;
+        byId("advisory-feed-status").textContent = source
+          ? `${source.display_name}; ${source.enabled ? "enabled" : "disabled"}; active ${text(source.active_catalog && source.active_catalog.catalog_version, "none")}; pending ${source.pending_approval_count || 0}; publisher trust ${text(source.trusted_publishers && source.trusted_publishers[0] && source.trusted_publishers[0].status, "unknown")}; last failure ${text(source.last_attempt && source.last_attempt.error_code, "none")}.`
+          : "No reviewed advisory source is configured.";
+        const runs = await loadJSON(endpoints.advisoryRuns, {headers: advisorHeaders()});
+        const runTarget = byId("advisory-runs");
+        clearNode(runTarget);
+        state.advisoryPendingRunId = null;
+        state.advisoryApprovedRunId = null;
+        (runs.items || []).forEach(run => {
+          appendAdvisoryRow(
+            runTarget,
+            `${run.run_id} · ${run.state}`,
+            `${text(run.catalog_version, "catalog pending")} · ${fmtDate(run.created_at)} · ${text(run.error_code, "no failure")}`
+          );
+          if (!state.advisoryPendingRunId && run.state === "pending_approval") state.advisoryPendingRunId = run.run_id;
+          if (!state.advisoryApprovedRunId && run.state === "approved") state.advisoryApprovedRunId = run.run_id;
+        });
+        if (!(runs.items || []).length) appendAdvisoryRow(runTarget, "No synchronization runs", "Request a reviewed source sync explicitly.");
+        const previewRun = state.advisoryPendingRunId || state.advisoryApprovedRunId;
+        if (previewRun) {
+          const preview = await loadJSON(`/api/v1/admin/advisory-feed-runs/${encodeURIComponent(previewRun)}/preview`, {headers: advisorHeaders()});
+          const item = preview.preview || {};
+          byId("advisory-preview").textContent = `${previewRun}; signature ${text(item.signature_status)}; license ${text(item.license_status)}; ${item.total_advisories || 0} advisories; +${item.added_advisories || 0} updated ${item.updated_advisories || 0} withdrawn ${item.withdrawn_advisories || 0}.`;
+        } else {
+          byId("advisory-preview").textContent = "No verified preview is pending operator action.";
+        }
+        byId("advisory-approve").disabled = !state.advisoryPendingRunId;
+        byId("advisory-reject").disabled = !state.advisoryPendingRunId;
+        byId("advisory-activate").disabled = !state.advisoryApprovedRunId;
+        const catalogTarget = byId("advisory-catalogs");
+        clearNode(catalogTarget);
+        if (state.advisorySourceId) {
+          const catalogs = await loadJSON(`/api/v1/admin/advisory-catalogs?source_id=${encodeURIComponent(state.advisorySourceId)}&limit=20`, {headers: advisorHeaders()});
+          (catalogs.items || []).forEach(catalog => {
+            let rollback = null;
+            if (!catalog.active) {
+              rollback = document.createElement("button");
+              rollback.type = "button";
+              rollback.className = "button secondary";
+              rollback.textContent = "Roll back";
+              rollback.addEventListener("click", () => advisoryControl("rollback", catalog.catalog_id));
+            }
+            appendAdvisoryRow(catalogTarget, `${catalog.catalog_version}${catalog.active ? " · active" : ""}`, `${catalog.catalog_id} · key ${catalog.publisher_key_id}`, rollback);
+          });
+          if (!(catalogs.items || []).length) appendAdvisoryRow(catalogTarget, "No last-known-good catalog", "A catalog appears here only after successful activation.");
+        }
+        status.textContent = "Advisory intelligence loaded. Feed-supplied values are rendered as text only.";
+        status.className = "form-status ok";
+      } catch (error) {
+        status.textContent = text(error.message, "Advisory feed state could not be loaded safely.");
+        status.className = "form-status error";
+      }
+    }
+
+    async function advisoryControl(action, catalogId = null) {
+      const status = byId("advisory-action-status");
+      let path;
+      let body;
+      if (action === "sync") {
+        if (!state.advisorySourceId) return loadAdvisoryIntelligence();
+        path = `/api/v1/admin/advisory-feeds/${encodeURIComponent(state.advisorySourceId)}/sync`;
+        body = JSON.stringify({});
+      } else if (action === "rollback") {
+        path = "/api/v1/admin/advisory-catalog/rollback";
+        body = advisoryActionBody({catalog_id: catalogId});
+      } else {
+        const runId = action === "activate" ? state.advisoryApprovedRunId : state.advisoryPendingRunId;
+        if (!runId) return;
+        path = `/api/v1/admin/advisory-feed-runs/${encodeURIComponent(runId)}/${action}`;
+        body = action === "reject"
+          ? advisoryActionBody({reason: "Rejected by Control Tower operator review"})
+          : advisoryActionBody();
+      }
+      status.textContent = `${action} request in progress...`;
+      status.className = "form-status";
+      try {
+        await loadJSON(path, {method: "POST", headers: advisorHeaders(true), body});
+        status.textContent = `${action} request accepted. Refresh status to observe the audited lifecycle result.`;
+        status.className = "form-status ok";
+        await loadAdvisoryIntelligence();
+      } catch (error) {
+        status.textContent = text(error.message, `${action} request failed safely.`);
+        status.className = "form-status error";
+      }
+    }
+
+    function setupAdvisoryIntelligence() {
+      byId("advisory-load").addEventListener("click", loadAdvisoryIntelligence);
+      byId("advisory-sync").addEventListener("click", () => advisoryControl("sync"));
+      byId("advisory-approve").addEventListener("click", () => advisoryControl("approve"));
+      byId("advisory-reject").addEventListener("click", () => advisoryControl("reject"));
+      byId("advisory-activate").addEventListener("click", () => advisoryControl("activate"));
+    }
+
     function renderAll() {
       const data = derivedData();
+      renderAdvisorSiteOptions(data.sites);
       renderMetrics(data);
       renderAttention(data);
       renderDemoSeedCta(data);
@@ -2245,6 +3291,29 @@
         const checkins = await loadJSON(endpoints.checkins);
         const assets = await loadJSON(endpoints.assets);
         const release = await loadJSON(endpoints.release);
+        let findings = [];
+        let risk = {sites: [], assets: []};
+        let components = [];
+        let vulnerabilities = [];
+        state.findingsError = null;
+        state.vulnerabilityError = null;
+        try {
+          const activeFindings = await loadJSON(endpoints.findings, {headers: advisorHeaders()});
+          const acknowledgedFindings = await loadJSON(endpoints.acknowledgedFindings, {headers: advisorHeaders()});
+          const riskSummary = await loadJSON(endpoints.risk, {headers: advisorHeaders()});
+          findings = [...(activeFindings.items || []), ...(acknowledgedFindings.items || [])];
+          risk = riskSummary;
+        } catch (error) {
+          state.findingsError = text(error.message, "Deterministic findings require admin authentication.");
+        }
+        try {
+          const componentInventory = await loadJSON(endpoints.components, {headers: advisorHeaders()});
+          const vulnerabilityIntelligence = await loadJSON(endpoints.vulnerabilities, {headers: advisorHeaders()});
+          components = componentInventory.items || [];
+          vulnerabilities = vulnerabilityIntelligence.items || [];
+        } catch (error) {
+          state.vulnerabilityError = text(error.message, "Component and vulnerability intelligence require admin authentication.");
+        }
 
         state.data = {
           health,
@@ -2253,12 +3322,17 @@
           agents: agents.agents || [],
           checkins: checkins.check_ins || [],
           assets: assets.assets || [],
+          components,
+          vulnerabilities,
+          findings,
+          risk,
           release
         };
         renderAll();
         setStatus("healthy", `${health.service} is ${health.status}`, `Dashboard data loaded from ${apiBase || "same-origin API"}.`);
         byId("last-updated").textContent = `updated ${new Date().toLocaleTimeString()}`;
         byId("last-updated").className = "pill ok";
+        await loadAdvisorStatus();
       } catch (error) {
         setStatus("error", "API data could not be loaded", text(error.message));
         byId("last-updated").textContent = "not updated";
@@ -2394,6 +3468,8 @@
     setupAssetControls();
     setupNavigation();
     setupSafeActions();
+    setupAdvisor();
+    setupAdvisoryIntelligence();
     refresh();
   </script>
 </body>
