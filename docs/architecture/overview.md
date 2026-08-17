@@ -22,7 +22,7 @@ boundary, then use these canonical documents for implemented subsystems:
   lifecycle, and the explainable Operational Attention Score
 - `docs/architecture/ai-advisor.md` and
   `docs/architecture/ai-agent-architecture.md` - advisory-only AI behavior and
-  future bounded-agent direction
+  bounded-agent direction
 
 The implemented authority order is:
 
@@ -30,12 +30,37 @@ The implemented authority order is:
 authenticated normalized evidence
   -> deterministic classification and matching
   -> deterministic findings and attention scoring
-  -> bounded read-only AI explanation
+  -> bounded investigation and AI explanation
   -> human review
 ```
 
 AI output is never an authoritative identity, classification, vulnerability
 match, finding, score, decision, or action.
+
+## Accepted Native Expansion Designs
+
+The following documents define accepted future OpenAssetWatch capabilities.
+They extend the implemented architecture but are not implementation claims:
+
+- `docs/architecture/agent-investigation-control-loop.md` - deterministic
+  triage, isolated specialist tasks, correlation, independent verification,
+  human review, recovery, and Agent Run Ledger behavior.
+- `docs/architecture/skill-pack-contract.md` - versioned first-party Skill Pack
+  instructions/schemas that cannot grant tools, scope, or authority.
+- `docs/architecture/capability-provider-contract.md` - stable
+  OpenAssetWatch-owned capability contracts with replaceable provider
+  implementations.
+- `docs/architecture/agent-evaluation-and-release-gates.md` - versioned
+  evaluation fixtures, forbidden-behavior checks, repeated runs, and hard
+  release blockers.
+- `docs/architecture/temporal-intelligence-roadmap.md` - historical signal
+  projections, transparent expected ranges, deterministic deviation handling,
+  and optional future forecasting providers.
+- `docs/architecture/decisions/0003-native-agent-investigation-and-temporal-intelligence.md`
+  - accepted cross-subsystem authority and sequencing decisions.
+
+These designs preserve deterministic product authority, passive-first behavior,
+local-first operation, and human review.
 
 ## Independent Research and Accepted Direction
 
