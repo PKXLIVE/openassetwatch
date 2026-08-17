@@ -17,6 +17,14 @@ import (
 func privateTempDir(t *testing.T) string {
 	t.Helper()
 	path := t.TempDir()
+	// macOS exposes its temporary directory through /var, which is a system
+	// symlink to /private/var. Canonicalize the test fixture root so tests of a
+	// safe configuration do not trip the production symlink-ancestor guard.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("resolve test temporary directory: %v", err)
+	}
+	path = resolved
 	if err := os.Chmod(path, 0o700); err != nil {
 		t.Fatalf("secure test temporary directory: %v", err)
 	}
