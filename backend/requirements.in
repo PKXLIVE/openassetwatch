@@ -4,10 +4,10 @@
 # hashed requirements.txt after changing a constraint; see backend/README.md.
 fastapi>=0.139.2,<1
 uvicorn[standard]>=0.52.3,<1
-sqlalchemy>=2.0.51,<3
+sqlalchemy>=2.0.52,<3
 psycopg2-binary>=2.9.12,<3
 pydantic>=2.13.4,<3
 pydantic-settings>=2.14.2,<3
 python-dotenv>=1.2.2,<2
 cryptography>=50.0.0,<51
-packaging>=26.2,<27
+packaging>=26.3,<27
