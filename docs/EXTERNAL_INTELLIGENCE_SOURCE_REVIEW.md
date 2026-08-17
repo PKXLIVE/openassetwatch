@@ -103,9 +103,10 @@ The platform data therefore remains research-only for OpenAssetWatch until the
 exact intended use is approved. A future adapter must not ingest exposed
 credentials, leaked records, database contents, or complete reports.
 
-The separate `l9format` repository identifies an MIT license and may be useful
-as an optional interoperability format. Any use still requires exact file and
-notice review, and it does not replace the OpenAssetWatch evidence schema.
+The separate `l9format` repository identifies the SPDX license expression
+`MIT` and may be useful as an optional interoperability format. Any use still
+requires exact file and notice review, and it does not replace the
+OpenAssetWatch evidence schema.
 
 ### ThreatCrowd
 
