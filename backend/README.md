@@ -11,9 +11,24 @@ service backed by PostgreSQL through SQLAlchemy.
 - agent check-in ingestion
 - Go agent local inventory ingestion
 - raw inventory evidence persistence
-- basic Control Tower asset normalization
+- Control Tower asset normalization with source-aware classification evidence
+- versioned deterministic asset classification, history, and conflicts
+- server-derived direct-evidence trust, server-assigned identity for legacy
+  unauthenticated input, future-skew rejection, and source-fair bounded
+  evidence selection
+- local-only fictional vendor catalog with safe reviewed replacement
+- normalized software, package, operating-system, and reviewed firmware
+  inventory with material history
+- strict versioned offline advisory catalogs with licensing, provenance, and
+  checksums
+- reviewed signed-feed synchronization with Ed25519 verification, bounded
+  private staging, explicit approval, atomic activation, and rollback
+- ecosystem-aware deterministic vulnerability matches and match history
 - idempotent outbound observation batches with site/sensor provenance
+- one-time passive-sensor enrollment and bound, rotatable credentials
 - site and sensor health/freshness summaries
+- versioned deterministic finding rules with persisted lifecycle and evidence
+- explainable deterministic asset and site risk scores
 - deterministic and optional external AI Advisor providers
 - bounded read-only AI evidence tools and audit metadata
 - focused AI Advisor dashboard view
@@ -83,11 +98,15 @@ From the repository root, regenerate the lock in the same Python environment
 as the backend image:
 
 ```powershell
-$CompileCommand = "python -m piptools compile --upgrade --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in"
+$CompileCommand = "python -m piptools compile --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in"
 docker run --rm --volume "${PWD}:/workspace" --workdir /workspace `
   --env "CUSTOM_COMPILE_COMMAND=$CompileCommand" python:3.12-slim `
-  sh -c 'python -m pip install --disable-pip-version-check --no-cache-dir pip-tools==7.5.3 && python -m piptools compile --upgrade --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in'
+  sh -c 'python -m pip install --disable-pip-version-check --no-cache-dir pip-tools==7.5.3 && python -m piptools compile --generate-hashes --strip-extras --newline=lf --output-file backend/requirements.txt backend/requirements.in'
 ```
+
+For an intentional targeted update, append a reviewed option such as
+`--upgrade-package cryptography`; do not use an unscoped `--upgrade` for routine
+lock regeneration.
 
 Review both files together. The lock targets Linux, so verify it in the same
 container environment rather than installing it into a Windows virtual
@@ -110,10 +129,40 @@ Control Tower tables include:
 
 - `sites`
 - `agent_enrollments`
+- `sensor_enrollments`
+- `sensor_credentials`
+- `sensor_identity_audit_events`
 - `agent_checkins`
 - `local_inventory_collections`
 - `control_tower_assets`
 - `ai_advisor_runs`
+- `finding_evaluation_runs`
+- `findings`
+- `finding_evidence`
+- `asset_risk_scores`
+- `site_risk_scores`
+- `risk_factors`
+- `classification_evidence`
+- `classification_runs`
+- `asset_classifications`
+- `asset_classification_history`
+- `asset_classification_evidence`
+- `classification_conflicts`
+- `asset_components`
+- `asset_component_history`
+- `component_evidence`
+- `advisory_catalog_imports`
+- `advisories`
+- `advisory_aliases`
+- `advisory_references`
+- `advisory_affected_components`
+- `advisory_version_ranges`
+- `vulnerability_evaluation_runs`
+- `vulnerability_matches`
+- `vulnerability_match_history`
+- `advisory_feed_runs`
+- `advisory_feed_catalogs`
+- `advisory_catalog_activations`
 
 ## Tests
 
@@ -128,20 +177,111 @@ docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
 
 The unit tests mock the database boundary for endpoint behavior and test local
 normalization/schema helpers without requiring a live PostgreSQL instance.
+The transitional local-inventory route is compatibility ingestion and does not
+grant direct evidence authority from a client-declared agent or source type.
+Authenticated observation context is passed separately by the server, and
+sensor type must agree with observation source. Only a bound sensor credential
+can trigger automatic vulnerability evaluation or grant authoritative
+component evidence; the development-shared token remains untrusted
+compatibility ingestion. Component and batch timestamps require timezones and
+bounded skew. Component state updates are timestamp-monotonic and
+source-trust-aware; freshness is derived at read and evaluation time.
 Static showcase and seed tests use only the standard library:
 
 ```powershell
 python scripts/test_control_tower_dashboard.py
 python scripts/test_control_tower_demo_seed.py
+python scripts/test_vulnerability_intelligence_demo.py
+python scripts/test_vulnerability_intelligence_performance.py
+```
+
+Run the signed-feed security, lifecycle, API, UI, and AI tests:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace/backend backend `
+  python -m unittest -v tests.test_advisory_feed_security `
+    tests.test_advisory_sync_lifecycle tests.test_advisory_feed_ai_ui
+```
+
+Run the licensed OSV PyPI publisher's strict normalization, network, cursor,
+signing, output, offline lifecycle, and AI-evidence tests:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace/backend backend `
+  python -m unittest -v tests.test_osv_pypi_publisher tests.test_osv_pypi_demo
+```
+
+The publisher is a separate one-shot administrative process; it is never
+started with the backend. See `docs/OSV_PYPI_PUBLISHER.md` for its reviewed
+source boundary, signing and registry workflow, recovery behavior, live smoke,
+offline demonstration, and synthetic benchmark.
+
+Run the signed advisory-mirror schema, builder, transport integration,
+workflow-policy, offline lifecycle, and AI-evidence tests:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace/backend backend `
+  python -m unittest -v tests.test_advisory_mirror `
+    tests.test_advisory_mirror_demo tests.test_advisory_mirror_workflow
+```
+
+The mirror is a static distribution boundary, not a backend scheduler or write
+API. See `docs/ADVISORY_MIRROR.md` for index v1, local commands, publication
+gates, retention, key rotation, recovery, hosting, licensing, and privacy.
+
+Run the deterministic classification, conflict, reclassification, and AI
+evidence showcase through the backend image:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace backend `
+  python scripts/demo_asset_classification.py
+```
+
+Run the offline deterministic component/advisory showcase and representative
+bounded benchmark through the same image:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace backend `
+  python scripts/demo_vulnerability_intelligence.py
+
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace backend `
+  python scripts/benchmark_vulnerability_intelligence.py `
+    --assets 10000 --components-per-asset 10 --advisories 2000
 ```
 
 See `docs/architecture/hub-spoke-ai-showcase.md` for provider configuration,
 the observation batch contract, trust boundaries, local Ollama activation, and
 deterministic-mode restoration steps.
+See `docs/SENSOR_ENROLLMENT.md` for the one-time sensor enrollment API,
+credential storage, rotation/revocation, and development shared-token boundary.
+See `docs/DETERMINISTIC_FINDINGS_AND_RISK.md` for the rule registry, finding
+lifecycle, score formula, API, configuration, AI authority boundary, and safe
+rule-extension process.
+See `docs/ASSET_CLASSIFICATION_AND_EVIDENCE_FUSION.md` for classifier
+precedence, confidence, provenance, conflicts, managed capability, catalog
+handling, APIs, demo, and safe extension steps.
+See `docs/SOFTWARE_AND_VULNERABILITY_INTELLIGENCE.md` for component identity,
+version comparison, firmware trust, the reviewed offline catalog, matching,
+findings/risk, API, AI, dashboard, demo, benchmark, and adapter boundaries.
+See `docs/TRUSTED_ADVISORY_FEEDS.md` for reviewed sources, signed bundle/key
+formats, download and staging controls, approval, activation, rollback, CLI,
+admin API, Settings UI, AI evidence, offline behavior, and source onboarding.
+See `docs/ADVISORY_MIRROR.md` for vendor-neutral static distribution of the
+same complete signed bundles through a separately signed discovery index.
 
 ## Safety Boundaries
 
 The backend does not perform active scanning, credential collection, remote
 command execution, package installation, self-update, or release download
 execution. Ingestion treats client-submitted data as passive observations, not
-privileged truth.
+privileged truth. Classification and finding evaluation run only reviewed
+static rules and cannot be extended through an API or model response. The
+backend performs no runtime vendor lookup, SSDP URL fetch, or active
+fingerprinting. Vulnerability evaluation performs no active scan, exploit
+test, runtime advisory lookup, package installation, or automatic patching.

@@ -1,0 +1,16 @@
+{
+  "schema_version": "oaw.advisory-publisher-keyring.v1",
+  "keyring_version": "2026.1",
+  "keys": [
+    {
+      "key_id": "oaw-synthetic-ed25519-2026-01",
+      "publisher_id": "openassetwatch-synthetic-lab",
+      "publisher_name": "OpenAssetWatch Synthetic Advisory Laboratory",
+      "algorithm": "ed25519",
+      "public_key_base64": "lIR04hDJ4Xfyx3hhKXAcL5SmK9uWt8Ep4oAvkUV7xPU=",
+      "status": "active",
+      "not_before": "2026-01-01T00:00:00Z",
+      "not_after": "2030-01-01T00:00:00Z"
+    }
+  ]
+}

@@ -553,7 +553,7 @@ ai:
 
 ### Phase 2: One local and one optional external provider
 
-- connect one local OpenAI-compatible runtime
+- connect one local provider-compatible runtime
 - connect one optional external provider
 - implement provider health checks
 - implement cloud permission and redaction policy

@@ -30,7 +30,12 @@ from app.main import api_ai_advisor_query, require_admin_token
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
 
 
-def sample_tools(*, injection: bool = False, asset_count: int = 3) -> ReadOnlyHubTools:
+def sample_tools(
+    *,
+    injection: bool = False,
+    asset_count: int = 3,
+    passive_evidence: bool = False,
+) -> ReadOnlyHubTools:
     sites = [
         {"site_id": "home", "name": "Home Demo", "description": "Home"},
         {"site_id": "office", "name": "Office Demo", "description": "Office"},
@@ -95,6 +100,18 @@ def sample_tools(*, injection: bool = False, asset_count: int = 3) -> ReadOnlyHu
                             "severity": "high",
                         }
                     ],
+                    "evidence": (
+                        [
+                            {
+                                "protocol": "dns",
+                                "kind": "address-record",
+                                "value": "router.example.test=192.0.2.10",
+                                "confidence": 0.8,
+                            }
+                        ]
+                        if passive_evidence and index == 0
+                        else []
+                    ),
                 },
             }
         )
@@ -131,6 +148,210 @@ class AIAdvisorTests(unittest.TestCase):
         self.assertTrue(response.evidence)
         self.assertTrue(all(item.evidence_id for item in response.evidence))
         self.assertLessEqual(response.confidence, 1.0)
+
+    def test_passive_protocol_evidence_is_available_to_read_only_advisor(self) -> None:
+        tools = sample_tools(asset_count=1, passive_evidence=True)
+        evidence = tools.evidence_catalog(site_id="home", asset_id="asset-home-0")
+        protocol_items = [item for item in evidence if item.evidence_type == "asset_protocol_evidence"]
+        self.assertTrue(protocol_items)
+        self.assertIn("dns address-record router.example.test=192.0.2.10", protocol_items[0].summary)
+        self.assertNotIn("raw_packet", protocol_items[0].summary)
+
+    def test_deterministic_classification_tools_and_citations_are_read_only(self) -> None:
+        classification_id = "cls_" + "a" * 32
+        evidence_id = "cev_" + "b" * 40
+        tools = ReadOnlyHubTools(
+            sites=[{"site_id": "home", "name": "Home Demo"}],
+            sensors=[],
+            assets=[
+                {
+                    "asset_id": "asset-home-1",
+                    "site_id": "home",
+                    "hostname": "demo-home-workstation",
+                    "last_seen_at": NOW,
+                    "observed_at": NOW,
+                    "observation_source": "endpoint-inventory",
+                    "delivery_state": "live",
+                    "confidence": 0.92,
+                    "evidence_count": 2,
+                    "metadata": {},
+                    "classification": {
+                        "classification_id": classification_id,
+                        "classifier_version": "oaw.classifier.v1",
+                        "category": "workstation",
+                        "subtype": None,
+                        "manufacturer": "Example Systems",
+                        "product_hint": None,
+                        "os_family": "Windows",
+                        "os_version_hint": "11",
+                        "managed_capability": {
+                            "endpoint_collector": "expected",
+                            "endpoint_security": "expected",
+                            "software_inventory": "expected",
+                            "patch_management": "expected",
+                        },
+                        "confidence": 0.94,
+                        "status": "classified",
+                        "supporting_evidence_ids": [evidence_id],
+                        "conflicting_evidence_ids": [],
+                        "independent_source_count": 1,
+                        "evidence_count": 2,
+                        "freshness": "fresh",
+                        "evaluated_at": NOW,
+                        "reason_codes": ["direct-category"],
+                        "conflicts": [],
+                        "endpoint_evidence_present": True,
+                    },
+                }
+            ],
+            classifications=None,
+            classification_evidence=[
+                {
+                    "evidence_id": evidence_id,
+                    "site_id": "home",
+                    "asset_id": "asset-home-1",
+                    "source_id": "endpoint-home",
+                    "source_type": "endpoint-collector",
+                    "collection_method": "endpoint-inventory",
+                    "kind": "category",
+                    "value": "workstation",
+                    "direct": True,
+                    "strength": "direct",
+                    "source_confidence": 0.95,
+                    "observation_count": 12,
+                    "agreement_state": "supporting",
+                    "classifier_used": True,
+                    "source_revoked": False,
+                    "last_seen_at": NOW,
+                }
+            ],
+            now=NOW,
+        )
+
+        projected = tools.run(
+            "asset_classification",
+            site_id="home",
+            asset_id="asset-home-1",
+        )["items"][0]
+        response = run_advisor(
+            request=AdvisorQueryRequest(
+                question="Why is asset-home-1 classified as a workstation?",
+                site_id="home",
+                asset_id="asset-home-1",
+            ),
+            tools=tools,
+            config=ProviderConfig("demo", False, None, None, None, 10),
+        )
+
+        self.assertEqual(projected["classification_id"], classification_id)
+        self.assertEqual(
+            projected["authority"],
+            "deterministic-classification-engine",
+        )
+        self.assertIn("asset_classification", response.tools_used)
+        self.assertTrue(
+            {item.evidence_id for item in response.evidence}
+            & {classification_id, evidence_id}
+        )
+        self.assertTrue(response.advisory_only)
+        self.assertEqual(
+            response.classification_authority,
+            "deterministic-classification-engine",
+        )
+        self.assertIn("only explaining", response.answer)
+
+    def test_classification_tools_enforce_site_scope(self) -> None:
+        tools = ReadOnlyHubTools(
+            sites=[],
+            sensors=[],
+            assets=[],
+            classifications=[
+                {
+                    "classification_id": "cls_" + "a" * 32,
+                    "site_id": "site-a",
+                    "asset_id": "asset-a",
+                    "category": "server",
+                    "status": "classified",
+                    "confidence": 0.9,
+                    "managed_capability": {},
+                },
+                {
+                    "classification_id": "cls_" + "b" * 32,
+                    "site_id": "site-b",
+                    "asset_id": "asset-b",
+                    "category": "printer",
+                    "status": "classified",
+                    "confidence": 0.8,
+                    "managed_capability": {},
+                },
+            ],
+            now=NOW,
+        )
+
+        scoped = tools.run("classification_summary", site_id="site-a")
+
+        self.assertEqual(scoped["classification_count"], 1)
+        self.assertEqual(scoped["categories"], {"server": 1})
+
+    def test_persisted_findings_and_risk_replace_demo_metadata_authority(self) -> None:
+        tools = sample_tools(asset_count=1)
+        asset = {
+            **tools.assets[0],
+            "metadata": {
+                "risk_score": 99,
+                "findings": [{"finding_id": "fabricated", "title": "Fabricated metadata"}],
+            },
+        }
+        authoritative = ReadOnlyHubTools(
+            sites=tools.sites,
+            sensors=[],
+            assets=[asset],
+            findings=[
+                {
+                    "finding_id": "fnd_" + "a" * 32,
+                    "rule_id": "unknown-asset",
+                    "category": "inventory",
+                    "title": "Unknown asset requires review",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "status": "active",
+                    "site_id": asset["site_id"],
+                    "asset_id": asset["asset_id"],
+                    "sensor_id": None,
+                    "evidence_observed_at": NOW,
+                    "evidence_freshness": "fresh",
+                }
+            ],
+            asset_risks=[
+                {
+                    "site_id": asset["site_id"],
+                    "asset_id": asset["asset_id"],
+                    "score": 14,
+                    "formula_version": "oaw.risk.v1",
+                    "factors": [
+                        {
+                            "finding_id": "fnd_" + "a" * 32,
+                            "category": "inventory",
+                            "label": "Unknown asset requires review",
+                            "adjusted_weight": 14,
+                        }
+                    ],
+                }
+            ],
+            site_risks=[{"site_id": asset["site_id"], "score": 9}],
+            now=NOW,
+        )
+
+        projected = authoritative.run("asset_evidence")["items"][0]
+        findings = authoritative.run("findings_by_site")["items"]
+        evidence = authoritative.evidence_catalog()
+
+        self.assertEqual(projected["risk_score"], 14)
+        self.assertEqual(projected["risk_breakdown"][0]["adjusted_weight"], 14)
+        self.assertEqual(findings[0]["authority"], "deterministic-engine")
+        self.assertNotIn("fabricated", repr(findings))
+        self.assertEqual(evidence[0].finding_id, "fnd_" + "a" * 32)
+        self.assertEqual(evidence[0].authority, "deterministic-engine")
 
     def test_cross_site_summary_identifies_highest_risk_site(self) -> None:
         response = run_advisor(
@@ -479,8 +700,9 @@ class AIAdvisorTests(unittest.TestCase):
 
     def test_query_endpoint_audits_only_question_hash_not_question(self) -> None:
         question = "Summarize my entire environment."
+        builder = Mock(return_value=sample_tools())
         with (
-            patch("app.main.build_read_only_hub_tools", return_value=sample_tools()),
+            patch("app.main.build_read_only_hub_tools", builder),
             patch("app.main.record_ai_advisor_run") as audit,
             patch.dict(os.environ, {"OPENASSETWATCH_AI_PROVIDER": "demo", "OPENASSETWATCH_ADMIN_TOKEN": ""}, clear=False),
         ):
@@ -490,6 +712,24 @@ class AIAdvisorTests(unittest.TestCase):
         self.assertNotEqual(audit.call_args.kwargs["question_sha256"], question)
         self.assertEqual(len(audit.call_args.kwargs["question_sha256"]), 64)
         self.assertNotIn(question, str(audit.call_args))
+        builder.assert_called_once_with(include_advisory_feed_evidence=False)
+
+    def test_query_includes_feed_evidence_only_with_configured_valid_admin_token(self) -> None:
+        builder = Mock(return_value=sample_tools())
+        with (
+            patch("app.main.build_read_only_hub_tools", builder),
+            patch("app.main.record_ai_advisor_run"),
+            patch.dict(
+                os.environ,
+                {"OPENASSETWATCH_AI_PROVIDER": "demo", "OPENASSETWATCH_ADMIN_TOKEN": "configured-secret"},
+                clear=False,
+            ),
+        ):
+            api_ai_advisor_query(
+                AdvisorQueryRequest(question="Summarize advisory feed status."),
+                admin_token="configured-secret",
+            )
+        builder.assert_called_once_with(include_advisory_feed_evidence=True)
 
     def test_query_endpoint_returns_safe_provider_error_codes(self) -> None:
         payload = AdvisorQueryRequest(question="Summarize my entire environment.")

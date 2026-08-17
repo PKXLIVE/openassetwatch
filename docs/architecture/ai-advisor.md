@@ -2,7 +2,7 @@
 
 The first read-only Hub-and-Spoke AI Showcase foundation is implemented and is
 documented in `docs/architecture/hub-spoke-ai-showcase.md`. It adds a
-deterministic local provider, an explicitly gated compatible model interface,
+deterministic local provider, an explicitly gated provider-compatible interface,
 bounded evidence tools, typed answers, audit metadata, and a focused Control
 Tower UI view. The deeper sections linked below remain the canonical direction
 for future agents, memory, tool adapters, approvals, and enterprise controls.
@@ -29,9 +29,12 @@ For the future AI evidence card model and AI finding output schema, see the
 For the initial specialist advisor roles, see the `AI Specialist Agent Roles`
 section in `docs/architecture/ai-agent-architecture.md`.
 
-For the future AI Tool Gateway and tool-adapter safety model, see the
+For the future AI Tool Gateway and MCP/tool-adapter safety model, see the
 `AI Tool Gateway and MCP Safety Model` section in
 `docs/architecture/ai-agent-architecture.md`.
+
+For the vendor-neutral MCP, toolset, and telemetry integration direction, see
+`docs/architecture/ai-mcp-and-telemetry-integration-direction.md`.
 
 For the future AI memory, audit, and agent handoff model, see the
 `AI Memory, Audit, and Agent Handoff Model` section in
@@ -42,8 +45,9 @@ For the phased future implementation plan, see the
 `docs/architecture/ai-agent-architecture.md`.
 
 The OpenAssetWatch AI Advisor is an advisory layer that runs after data
-collection and normalization. The showcase uses a deterministic risk/finding
-projection; the full versioned rules engine remains future work.
+collection, normalization, deterministic finding evaluation, and deterministic
+risk scoring. The implemented versioned rules engine and its authority boundary
+are documented in `docs/DETERMINISTIC_FINDINGS_AND_RISK.md`.
 
 AI should not replace deterministic scoring rules. Rule-based checks remain the
 source of truth for repeatable findings such as exposed services, weak device
@@ -143,27 +147,26 @@ The single-provider example above remains useful for an initial deployment. The
 longer-term tiered and policy-aware configuration is documented in
 `docs/architecture/ai-model-routing.md`.
 
-## Future Splunk Integration
+## Future SIEM Integration
 
-OpenAssetWatch should eventually provide a Splunk Technology Add-on named
-`TA-openassetwatch`.
+OpenAssetWatch should eventually provide a SIEM integration package.
 
-The add-on should ingest OpenAssetWatch JSON events and provide Splunk-specific
-knowledge objects without forcing Splunk naming conventions into the
-OpenAssetWatch core schema. The core schema should stay clean and portable; the
-Technology Add-on should map OpenAssetWatch fields to Splunk and CIM-compatible
-field names where appropriate.
+The integration should ingest OpenAssetWatch JSON events and provide
+SIEM-specific knowledge objects without forcing SIEM naming conventions into
+the OpenAssetWatch core schema. The core schema should stay clean and portable;
+the integration package should map OpenAssetWatch fields to common SIEM field
+names where appropriate.
 
 The future add-on should provide:
 
-- Sourcetype definitions.
+- Event type definitions.
 - Field extractions.
 - Eventtypes and tags.
-- CIM-compatible field mappings where appropriate.
+- Common field mappings where appropriate.
 - Support for asset inventory, discovery events, collector health, risk
   findings, future network/service discovery events, and AI Advisor events.
 
-Potential sourcetypes:
+Potential event types:
 
 - `openassetwatch:asset`
 - `openassetwatch:collector`
@@ -172,13 +175,13 @@ Potential sourcetypes:
 - `openassetwatch:service`
 - `openassetwatch:ai_advisor`
 
-Potential CIM mapping areas:
+Potential mapping areas:
 
 - Assets/Identity.
 - Network Traffic.
 - Vulnerabilities.
 - Alerts.
-- Change/Inventory-style reporting.
+- Change and inventory reporting.
 
-This is future scope only. The Splunk Technology Add-on should not be built
+This is future scope only. The SIEM integration package should not be built
 until the core OpenAssetWatch event schemas are stable enough to map cleanly.

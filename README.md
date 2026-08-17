@@ -47,7 +47,12 @@ The current MVP focuses on:
 * Site/project model
 * Agent and future sensor enrollment model
 * Agent check-in and local inventory ingestion endpoints
-* Basic asset normalization and evidence counts
+* Asset normalization with source-aware classification evidence
+* Deterministic asset categories, confidence, history, and preserved conflicts
+* Normalized software, package, operating-system, and reviewed firmware
+  inventory
+* Signed, operator-approved advisory catalogs and deterministic vulnerability matching
+* Vulnerability findings, match history, and explainable risk contribution
 * Hub-and-spoke normalized observation batch contract
 * Site/sensor health and freshness summaries
 * Deterministic, evidence-backed AI Advisor showcase
@@ -63,14 +68,14 @@ The current MVP focuses on:
 ## High-Level Architecture
 
 ```text
-Site spokes (endpoint collectors / future passive sensors / connectors)
+Site spokes (endpoint collectors / passive network sensors / connectors)
         |
         | outbound authenticated normalized observations
         v
 Control Tower Hub API
         |
         v
-PostgreSQL evidence, identity, health, findings, and audit metadata
+PostgreSQL evidence, identity, health, classification, components, advisory matches, findings, risk, and audit metadata
         |
         v
 Bounded read-only tool gateway / AI Advisor / Dashboard / Integrations
@@ -85,7 +90,7 @@ OpenAssetWatch collectors are designed to run in different modes:
 | `device`  | Collects information about the device running the collector     |
 | `network` | Discovers nearby devices using local network visibility         |
 | `hybrid`  | Combines device and network collection                          |
-| `sensor`  | Future passive network sensor mode for deeper IoT/OT visibility |
+| `sensor`  | Linux-first passive network sensor and synthetic replay mode    |
 
 ---
 
@@ -158,8 +163,14 @@ default. See [docs/CONTROL_TOWER_DEPLOYMENT.md](docs/CONTROL_TOWER_DEPLOYMENT.md
 for startup steps, API endpoints, database tables, and limitations.
 See
 [docs/architecture/hub-spoke-ai-showcase.md](docs/architecture/hub-spoke-ai-showcase.md)
-for the first three-site AI showcase, trust boundary, provider configuration,
-and future sensor ingestion contract.
+for the first three-site AI showcase, trust boundary, and provider
+configuration. See [docs/PASSIVE_SENSOR_MVP.md](docs/PASSIVE_SENSOR_MVP.md) for
+the passive sensor contract, replay demonstration, and privacy guarantees, and
+[docs/SENSOR_LINUX_DEPLOYMENT.md](docs/SENSOR_LINUX_DEPLOYMENT.md) for the
+hardened systemd installer, bounded capture diagnostic, and authorized
+mirror-port validation workflow.
+[docs/SENSOR_ENROLLMENT.md](docs/SENSOR_ENROLLMENT.md) for one-time enrollment,
+site/sensor credential binding, rotation, revocation, and trust limitations.
 
 View logs:
 
@@ -236,6 +247,26 @@ Current and planned backend endpoints include:
 | `POST /api/v1/collections/local-inventory` | Available | Go agent local inventory ingestion |
 | `GET /api/v1/control-tower/summary` | Available | Dashboard counts |
 | `GET /api/v1/control-tower/assets` | Available | Normalized Control Tower assets |
+| `GET /api/v1/classifications` | Available | Bounded deterministic classifications with reviewed filters |
+| `GET /api/v1/classifications/summary` | Available | Category, status, managed-capability, and conflict summary |
+| `GET /api/v1/classifications/assets/{asset_id}` | Available | Site-scoped current classification |
+| `GET /api/v1/classifications/assets/{asset_id}/evidence` | Available | Site-scoped source-aware classification evidence |
+| `GET /api/v1/classifications/catalog/status` | Available | Local vendor catalog status without network lookup |
+| `POST /api/v1/admin/classifications/evaluate` | Available | Authenticated targeted, site, or full deterministic evaluation |
+| `GET /api/v1/components` | Available | Bounded normalized component inventory |
+| `GET /api/v1/components/assets/{asset_id}` | Available | Site-scoped asset components |
+| `GET /api/v1/vulnerabilities` | Available | Filtered deterministic advisory matches |
+| `GET /api/v1/vulnerabilities/assets/{asset_id}` | Available | Site-scoped asset vulnerability intelligence |
+| `GET /api/v1/vulnerabilities/advisories/{advisory_id}` | Available | Matches for one server-issued advisory ID |
+| `GET /api/v1/vulnerabilities/catalog/status` | Available | Local catalog provenance and counts without network access |
+| `POST /api/v1/admin/vulnerabilities/evaluate` | Available | Authenticated targeted or rate-limited full evaluation |
+| `POST /api/v1/admin/vulnerabilities/import` | Disabled | Legacy unsigned import fails closed; use signed feed administration |
+| `GET /api/v1/admin/advisory-feeds` | Available | Admin-protected reviewed source, trust, and lifecycle status |
+| `POST /api/v1/admin/advisory-feeds/{source_id}/sync` | Available | Explicit bounded one-shot synchronization of a configured source |
+| `GET /api/v1/admin/advisory-feed-runs` | Available | Filtered and paginated synchronization history |
+| `POST /api/v1/admin/advisory-feed-runs/{run_id}/approve` | Available | Explicit operator approval of a verified preview |
+| `POST /api/v1/admin/advisory-feed-runs/{run_id}/activate` | Available | Serialized atomic activation and targeted reevaluation |
+| `POST /api/v1/admin/advisory-catalog/rollback` | Available | Explicit local last-known-good rollback |
 | `POST /api/v1/observations/batches` | Available | Authenticated, idempotent normalized spoke observations |
 | `GET /api/v1/hub/sites/summary` | Available | Read-only cross-site intelligence summary |
 | `GET /api/v1/hub/sensors` | Available | Read-only sensor/spoke health and freshness |
@@ -317,7 +348,7 @@ Future deployment options may include:
 
 ### 5. IoT/OT and Network Sensor Roadmap
 
-Future OpenAssetWatch network sensors may support passive visibility for:
+The passive sensor MVP provides a foundation for visibility into:
 
 * Smart home IoT devices
 * Cameras
@@ -331,14 +362,10 @@ Future OpenAssetWatch network sensors may support passive visibility for:
 * Raspberry Pi and lab systems
 * OT-like lab environments
 
-Future passive fingerprinting sources may include:
+The MVP implements DHCPv4, DNS, mDNS, SSDP, and NetBIOS metadata. Future
+passive fingerprinting sources may additionally include:
 
-* DHCP metadata
 * MAC OUI/vendor data
-* mDNS/Bonjour
-* SSDP/UPnP
-* NetBIOS
-* DNS queries
 * TLS SNI
 * HTTP headers
 * Observed protocols

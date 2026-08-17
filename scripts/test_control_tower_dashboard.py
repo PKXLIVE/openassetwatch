@@ -26,6 +26,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "/api/v1/agents",
             "/api/v1/control-tower/check-ins",
             "/api/v1/control-tower/assets",
+            "/api/v1/components",
+            "/api/v1/vulnerabilities",
             "/api/v1/releases/agent",
             "/api/v1/ai/status",
             "/api/v1/ai/advisor/query",
@@ -97,11 +99,11 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'data-safe-action="create-site"',
             'data-safe-action="enroll-collector"',
             'data-safe-action="local-inventory"',
-            "Unknown device observed",
-            "Unmanaged IoT device",
-            "Missing security tooling sample",
-            "Stale collector sample",
-            "Printer inventory review",
+            "Authoritative deterministic findings",
+            "confidence",
+            "evidence freshness",
+            "lifecycle state",
+            "explainable risk",
         )
         for copy in expected_copy:
             with self.subTest(copy=copy):
@@ -310,8 +312,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "setupSafeActions()",
             "copyDemoSeedCommand",
             "navigator.clipboard.writeText(DEMO_SEED_COMMAND)",
-            "const {health, summary, sites, agents, checkins, assets, release} = state.data;",
-            "return {health, summary, sites, agents, checkins, assets, release",
+            "const {health, summary, sites, agents, checkins, assets, findings, risk, release} = state.data;",
+            "return {health, summary, sites, agents, checkins, assets, risk, release",
             "navigateTo(\"findings\")",
             "navigateTo(\"sites\", \"site-id\")",
             "navigateTo(\"collectors\")",
@@ -320,6 +322,24 @@ class ControlTowerDashboardTests(unittest.TestCase):
         for code in expected_code:
             with self.subTest(code=code):
                 self.assertIn(code, self.dashboard)
+
+    def test_findings_view_uses_persisted_deterministic_authority(self) -> None:
+        expected_code = (
+            'findings: "/api/v1/findings?status=active&limit=200"',
+            'risk: "/api/v1/risk/summary?limit=200"',
+            "deterministic finding",
+            "Scores are deterministic; AI commentary remains advisory.",
+            "finding.finding_id",
+            "finding.evidence_freshness",
+            "Evidence and score details",
+            "finding.recommendation",
+            "finding.first_seen_at",
+            "finding.risk.factors",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+        self.assertNotIn("function deriveFindings", self.dashboard)
 
     def test_asset_and_collector_rows_update_read_only_detail(self) -> None:
         expected_code = (
@@ -333,6 +353,48 @@ class ControlTowerDashboardTests(unittest.TestCase):
         for code in expected_code:
             with self.subTest(code=code):
                 self.assertIn(code, self.dashboard)
+
+    def test_asset_detail_presents_deterministic_classification_safely(self) -> None:
+        expected_code = (
+            "function classification(asset)",
+            "function classificationEvidenceLabel(asset)",
+            "Classification basis",
+            "Managed capability",
+            "Classification status",
+            "Independent sources",
+            "Technical classification evidence",
+            "supporting_evidence_ids",
+            "conflicting_evidence_ids",
+            "deterministic classification; AI commentary remains advisory",
+            "identifiers.textContent =",
+            "conflicts.textContent =",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+        self.assertNotIn(".innerHTML", self.dashboard)
+
+    def test_asset_detail_presents_vulnerability_intelligence_safely(
+        self,
+    ) -> None:
+        expected_code = (
+            "Software, packages, and firmware",
+            "Deterministic vulnerability intelligence",
+            "Installed components",
+            "Confirmed affected",
+            "Component review gaps",
+            "known-exploited",
+            "Fixed version",
+            "Uncertain identity or missing version is not a confirmed vulnerability",
+            "AI may explain but cannot change this result",
+            "title.textContent = `${text(component.name)}",
+            "title.textContent = `${text(match.component_name)}",
+            "identifiers.textContent = `Match",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+        self.assertNotIn(".innerHTML", self.dashboard)
 
     def test_read_only_api_loads_retry_transient_startup_errors(self) -> None:
         self.assertIn("const attempts = method === \"GET\" ? 3 : 1;", self.dashboard)

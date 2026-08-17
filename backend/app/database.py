@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
-from typing import Any
+from typing import Any, Sequence
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.engine import Engine
 
 
+LOGGER = logging.getLogger(__name__)
 DEFAULT_DATABASE_PASSWORD = os.getenv("OAW_POSTGRES_PASSWORD", "openassetwatch_local_only_change_me")
 DEFAULT_DATABASE_URL = f"postgresql+psycopg2://openassetwatch:{DEFAULT_DATABASE_PASSWORD}@postgres:5432/openassetwatch"
 INVALID_MAC_TEXT_VALUES = {
@@ -22,6 +24,7 @@ INVALID_MAC_TEXT_VALUES = {
     "none",
     "null",
 }
+MAX_OBSERVATION_FUTURE_SKEW = timedelta(minutes=5)
 
 
 CREATE_INVENTORY_TABLE_SQL = """
@@ -185,7 +188,68 @@ CREATE TABLE IF NOT EXISTS agent_enrollments (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ,
+    identity_status TEXT NOT NULL DEFAULT 'legacy',
     CHECK (agent_type IN ('endpoint-agent', 'network-sensor'))
+)
+"""
+
+CREATE_SENSOR_ENROLLMENTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS sensor_enrollments (
+    enrollment_id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    requested_sensor_id TEXT,
+    requested_sensor_name TEXT,
+    sensor_type TEXT NOT NULL,
+    token_lookup_id TEXT NOT NULL UNIQUE,
+    token_digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 10,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    issued_sensor_id TEXT,
+    CHECK (sensor_type IN ('passive-network-sensor')),
+    CHECK (status IN ('pending', 'used', 'expired', 'revoked')),
+    CHECK (failed_attempts >= 0 AND max_attempts BETWEEN 1 AND 100)
+)
+"""
+
+CREATE_SENSOR_CREDENTIALS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS sensor_credentials (
+    credential_id TEXT PRIMARY KEY,
+    sensor_id TEXT NOT NULL,
+    site_id TEXT NOT NULL REFERENCES sites(site_id),
+    sensor_type TEXT NOT NULL,
+    token_lookup_id TEXT NOT NULL UNIQUE,
+    credential_digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    rotated_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    predecessor_credential_id TEXT REFERENCES sensor_credentials(credential_id),
+    replacement_credential_id TEXT REFERENCES sensor_credentials(credential_id),
+    CHECK (sensor_type IN ('passive-network-sensor')),
+    CHECK (status IN ('active', 'revoked', 'rotated', 'expired'))
+)
+"""
+
+CREATE_SENSOR_IDENTITY_AUDIT_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS sensor_identity_audit_events (
+    event_id BIGSERIAL PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    enrollment_id TEXT,
+    credential_id TEXT,
+    sensor_id TEXT,
+    site_id TEXT,
+    reason_code TEXT,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (outcome IN ('success', 'rejected'))
 )
 """
 
@@ -278,6 +342,14 @@ NORMALIZATION_INDEX_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_policy_assignments_policy_id ON policy_assignments (policy_id)",
     "CREATE INDEX IF NOT EXISTS idx_agent_enrollments_site_id ON agent_enrollments (site_id)",
     "CREATE INDEX IF NOT EXISTS idx_agent_enrollments_last_seen_at ON agent_enrollments (last_seen_at DESC)",
+    "ALTER TABLE agent_enrollments ADD COLUMN IF NOT EXISTS identity_status TEXT NOT NULL DEFAULT 'legacy'",
+    "CREATE INDEX IF NOT EXISTS idx_sensor_enrollments_site_status ON sensor_enrollments (site_id, status, expires_at)",
+    "CREATE INDEX IF NOT EXISTS idx_sensor_enrollments_requested_sensor ON sensor_enrollments (requested_sensor_id) WHERE requested_sensor_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_sensor_credentials_sensor_status ON sensor_credentials (sensor_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_sensor_credentials_site_id ON sensor_credentials (site_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sensor_credentials_last_used_at ON sensor_credentials (last_used_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_sensor_identity_audit_created_at ON sensor_identity_audit_events (created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_sensor_identity_audit_sensor_id ON sensor_identity_audit_events (sensor_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_agent_checkins_site_id_received_at ON agent_checkins (site_id, received_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_agent_checkins_agent_id_received_at ON agent_checkins (agent_id, received_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_local_inventory_collections_site_id_received_at ON local_inventory_collections (site_id, received_at DESC)",
@@ -316,12 +388,35 @@ def ensure_database_schema() -> None:
         connection.execute(text(CREATE_POLICY_ASSIGNMENTS_TABLE_SQL))
         connection.execute(text(CREATE_SITES_TABLE_SQL))
         connection.execute(text(CREATE_AGENT_ENROLLMENTS_TABLE_SQL))
+        connection.execute(text(CREATE_SENSOR_ENROLLMENTS_TABLE_SQL))
+        connection.execute(text(CREATE_SENSOR_CREDENTIALS_TABLE_SQL))
+        connection.execute(text(CREATE_SENSOR_IDENTITY_AUDIT_TABLE_SQL))
         connection.execute(text(CREATE_AGENT_CHECKINS_TABLE_SQL))
         connection.execute(text(CREATE_LOCAL_INVENTORY_COLLECTIONS_TABLE_SQL))
         connection.execute(text(CREATE_CONTROL_TOWER_ASSETS_TABLE_SQL))
         connection.execute(text(CREATE_AI_ADVISOR_RUNS_TABLE_SQL))
         for statement in NORMALIZATION_INDEX_SQL:
             connection.execute(text(statement))
+        # Keep the additive findings/risk schema colocated with its lifecycle
+        # repository while initializing it in the same application schema pass.
+        from .finding_store import ensure_findings_schema
+
+        ensure_findings_schema(connection)
+        from .classification_store import ensure_classification_schema
+
+        ensure_classification_schema(connection)
+        from .component_store import ensure_component_schema
+
+        ensure_component_schema(connection)
+        from .advisory_store import ensure_advisory_schema
+
+        ensure_advisory_schema(connection)
+        from .advisory_sync_store import ensure_advisory_sync_schema
+
+        ensure_advisory_sync_schema(connection)
+        from .vulnerability_store import ensure_vulnerability_schema
+
+        ensure_vulnerability_schema(connection)
 
 
 def save_inventory_submission(
@@ -1475,6 +1570,20 @@ def _parse_datetime(value: Any) -> datetime | None:
         return None
 
 
+def _bounded_observed_at(value: Any, *, received_at: datetime) -> datetime:
+    parsed = _parse_datetime(value)
+    if (
+        parsed is None
+        or parsed.tzinfo is None
+        or parsed.utcoffset() is None
+        or received_at.tzinfo is None
+        or received_at.utcoffset() is None
+        or parsed > received_at + MAX_OBSERVATION_FUTURE_SKEW
+    ):
+        return received_at
+    return parsed
+
+
 def create_site(*, site_id: str, name: str, description: str | None) -> dict[str, Any]:
     ensure_database_schema()
     statement = text(
@@ -1500,17 +1609,27 @@ def ensure_site_record(*, site_id: str, name: str | None = None, description: st
     return create_site(site_id=site_id, name=name or site_id, description=description)
 
 
-def list_sites() -> list[dict[str, Any]]:
+def list_sites(
+    limit: int | None = None,
+    *,
+    site_id: str | None = None,
+) -> list[dict[str, Any]]:
     ensure_database_schema()
+    limit_clause = "\n        LIMIT :limit" if limit is not None else ""
     statement = text(
         """
         SELECT site_id, name, description, created_at, updated_at
         FROM sites
+        WHERE (:site_id IS NULL OR site_id = :site_id)
         ORDER BY updated_at DESC, site_id ASC
         """
+        + limit_clause
     )
+    params: dict[str, Any] = {"site_id": site_id}
+    if limit is not None:
+        params["limit"] = max(1, int(limit))
     with get_engine().begin() as connection:
-        rows = connection.execute(statement).mappings().all()
+        rows = connection.execute(statement, params).mappings().all()
     return _row_dicts(rows)
 
 
@@ -1540,7 +1659,8 @@ def create_agent_enrollment(
             version,
             hostname,
             mode,
-            last_seen_at
+            last_seen_at,
+            identity_status
         )
         VALUES (
             :agent_id,
@@ -1552,7 +1672,8 @@ def create_agent_enrollment(
             :version,
             :hostname,
             :mode,
-            :last_seen_at
+            :last_seen_at,
+            'legacy'
         )
         ON CONFLICT (agent_id) DO UPDATE SET
             site_id = EXCLUDED.site_id,
@@ -1577,7 +1698,8 @@ def create_agent_enrollment(
             mode,
             created_at,
             updated_at,
-            last_seen_at
+            last_seen_at,
+            identity_status
         """
     )
     with get_engine().begin() as connection:
@@ -1599,8 +1721,13 @@ def create_agent_enrollment(
     return dict(row)
 
 
-def list_agent_enrollments() -> list[dict[str, Any]]:
+def list_agent_enrollments(
+    limit: int | None = None,
+    *,
+    site_id: str | None = None,
+) -> list[dict[str, Any]]:
     ensure_database_schema()
+    limit_clause = "\n        LIMIT :limit" if limit is not None else ""
     statement = text(
         """
         SELECT
@@ -1615,13 +1742,19 @@ def list_agent_enrollments() -> list[dict[str, Any]]:
             mode,
             created_at,
             updated_at,
-            last_seen_at
-        FROM agent_enrollments
-        ORDER BY last_seen_at DESC NULLS LAST, updated_at DESC, agent_id ASC
+            last_seen_at,
+            identity_status
+          FROM agent_enrollments
+          WHERE (:site_id IS NULL OR site_id = :site_id)
+          ORDER BY last_seen_at DESC NULLS LAST, updated_at DESC, agent_id ASC
         """
+        + limit_clause
     )
+    params: dict[str, Any] = {"site_id": site_id}
+    if limit is not None:
+        params["limit"] = max(1, int(limit))
     with get_engine().begin() as connection:
-        rows = connection.execute(statement).mappings().all()
+        rows = connection.execute(statement, params).mappings().all()
     return _row_dicts(rows)
 
 
@@ -1761,6 +1894,7 @@ def _asset_evidence_count(asset: dict[str, Any]) -> int:
         "default_gateway",
         "network_neighbors",
         "software",
+        "evidence",
     ):
         value = asset.get(field_name)
         if isinstance(value, list):
@@ -1792,7 +1926,10 @@ def normalize_local_inventory_assets(payload: dict[str, Any], *, site_id: str, r
     if not isinstance(assets, list):
         return []
     source_agent_id = _clean_text(payload.get("sensor_id") or payload.get("agent_id"))
-    observed_at = _parse_datetime(payload.get("observed_at") or payload.get("collected_at")) or received_at
+    observed_at = _bounded_observed_at(
+        payload.get("observed_at") or payload.get("collected_at"),
+        received_at=received_at,
+    )
     observation_batch_id = _clean_text(payload.get("observation_batch_id"))
     observation_source = _clean_text(payload.get("observation_source")) or "local-inventory"
     requested_delivery_state = _clean_text(payload.get("delivery_state"))
@@ -1884,20 +2021,118 @@ def _upsert_control_tower_asset(connection: Any, asset: dict[str, Any]) -> None:
                 CAST(:metadata_json AS JSONB)
             )
             ON CONFLICT (asset_key) DO UPDATE SET
-                hostname = COALESCE(EXCLUDED.hostname, control_tower_assets.hostname),
-                primary_ip = COALESCE(EXCLUDED.primary_ip, control_tower_assets.primary_ip),
-                mac = COALESCE(EXCLUDED.mac, control_tower_assets.mac),
-                os = COALESCE(EXCLUDED.os, control_tower_assets.os),
-                platform = COALESCE(EXCLUDED.platform, control_tower_assets.platform),
-                source_agent_id = COALESCE(EXCLUDED.source_agent_id, control_tower_assets.source_agent_id),
-                last_seen_at = EXCLUDED.last_seen_at,
-                evidence_count = control_tower_assets.evidence_count + EXCLUDED.evidence_count,
-                observation_batch_id = COALESCE(EXCLUDED.observation_batch_id, control_tower_assets.observation_batch_id),
-                observation_source = COALESCE(EXCLUDED.observation_source, control_tower_assets.observation_source),
-                observed_at = COALESCE(EXCLUDED.observed_at, control_tower_assets.observed_at),
-                delivery_state = EXCLUDED.delivery_state,
-                confidence = COALESCE(EXCLUDED.confidence, control_tower_assets.confidence),
-                metadata_json = EXCLUDED.metadata_json,
+                hostname = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN COALESCE(EXCLUDED.hostname, control_tower_assets.hostname)
+                    ELSE control_tower_assets.hostname
+                END,
+                primary_ip = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN COALESCE(EXCLUDED.primary_ip, control_tower_assets.primary_ip)
+                    ELSE control_tower_assets.primary_ip
+                END,
+                mac = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN COALESCE(EXCLUDED.mac, control_tower_assets.mac)
+                    ELSE control_tower_assets.mac
+                END,
+                os = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN COALESCE(EXCLUDED.os, control_tower_assets.os)
+                    ELSE control_tower_assets.os
+                END,
+                platform = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN COALESCE(EXCLUDED.platform, control_tower_assets.platform)
+                    ELSE control_tower_assets.platform
+                END,
+                source_agent_id = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN COALESCE(
+                        EXCLUDED.source_agent_id,
+                        control_tower_assets.source_agent_id
+                    )
+                    ELSE control_tower_assets.source_agent_id
+                END,
+                last_seen_at = GREATEST(
+                    control_tower_assets.last_seen_at,
+                    EXCLUDED.last_seen_at
+                ),
+                evidence_count = GREATEST(
+                    control_tower_assets.evidence_count,
+                    EXCLUDED.evidence_count
+                ),
+                observation_batch_id = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN COALESCE(
+                        EXCLUDED.observation_batch_id,
+                        control_tower_assets.observation_batch_id
+                    )
+                    ELSE control_tower_assets.observation_batch_id
+                END,
+                observation_source = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN COALESCE(
+                        EXCLUDED.observation_source,
+                        control_tower_assets.observation_source
+                    )
+                    ELSE control_tower_assets.observation_source
+                END,
+                observed_at = GREATEST(
+                    control_tower_assets.observed_at,
+                    EXCLUDED.observed_at
+                ),
+                delivery_state = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN EXCLUDED.delivery_state
+                    ELSE control_tower_assets.delivery_state
+                END,
+                confidence = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN COALESCE(
+                        EXCLUDED.confidence,
+                        control_tower_assets.confidence
+                    )
+                    ELSE control_tower_assets.confidence
+                END,
+                metadata_json = CASE
+                    WHEN EXCLUDED.observed_at >= COALESCE(
+                        control_tower_assets.observed_at,
+                        control_tower_assets.last_seen_at
+                    )
+                    THEN EXCLUDED.metadata_json
+                    ELSE control_tower_assets.metadata_json
+                END,
                 updated_at = NOW()
             """
         ),
@@ -1924,18 +2159,115 @@ def _upsert_control_tower_asset(connection: Any, asset: dict[str, Any]) -> None:
     )
 
 
+def _persist_classification_evidence_best_effort(
+    *,
+    normalized_assets: list[dict[str, Any]],
+    payload: dict[str, Any],
+    source_authenticated: bool,
+) -> None:
+    """Persist classification provenance without making ingestion dependent on it."""
+
+    from .classification_store import (
+        classification_evidence_for_asset,
+        persist_classification_evidence,
+    )
+    from .vendor_catalog import CatalogPathError, CatalogValidationError, load_configured_catalog
+
+    catalog = None
+    try:
+        catalog = load_configured_catalog()
+    except (CatalogPathError, CatalogValidationError, OSError) as exc:
+        LOGGER.warning(
+            "classification vendor catalog unavailable safely: %s",
+            type(exc).__name__,
+        )
+    try:
+        with get_engine().begin() as connection:
+            for asset in normalized_assets:
+                observed_at = asset.get("observed_at") or asset.get("last_seen_at")
+                if not isinstance(observed_at, datetime):
+                    continue
+                records = classification_evidence_for_asset(
+                    asset=asset,
+                    payload=payload,
+                    observed_at=observed_at,
+                    catalog=catalog,
+                    source_authenticated=source_authenticated,
+                )
+                persist_classification_evidence(connection, records=records)
+    except Exception as exc:  # noqa: BLE001 - accepted ingestion must remain accepted.
+        LOGGER.warning(
+            "classification evidence persistence failed safely: %s",
+            type(exc).__name__,
+        )
+
+
+def _persist_component_inventory_best_effort(
+    *,
+    normalized_assets: list[dict[str, Any]],
+    payload: dict[str, Any],
+    received_at: datetime,
+    source_authenticated: bool,
+) -> None:
+    """Persist component evidence without making accepted ingestion depend on it."""
+
+    from .component_intelligence import (
+        complete_component_inventory_scope,
+        normalize_components_for_asset,
+    )
+    from .component_store import persist_components
+
+    try:
+        components = []
+        complete_assets = []
+        for asset in normalized_assets:
+            components.extend(
+                normalize_components_for_asset(
+                    asset=asset,
+                    payload=payload,
+                    received_at=received_at,
+                    source_authenticated=source_authenticated,
+                )
+            )
+            complete_scope = complete_component_inventory_scope(
+                asset=asset,
+                payload=payload,
+                received_at=received_at,
+                source_authenticated=source_authenticated,
+            )
+            if complete_scope is not None:
+                complete_assets.append(complete_scope)
+        if not components and not complete_assets:
+            return
+        with get_engine().begin() as connection:
+            persist_components(
+                connection,
+                components=components,
+                complete_assets=complete_assets,
+            )
+    except Exception as exc:  # noqa: BLE001 - accepted ingestion must remain accepted.
+        LOGGER.warning(
+            "component inventory persistence failed safely: %s",
+            type(exc).__name__,
+        )
+
+
 def record_local_inventory_collection(
     *,
     payload: dict[str, Any],
     site_id: str,
     received_at: datetime,
     observed_asset_count: int,
-) -> dict[str, int | bool]:
+    source_authenticated: bool = False,
+) -> dict[str, int | bool | list[str]]:
     ensure_site_record(site_id=site_id)
     normalized_assets = normalize_local_inventory_assets(payload, site_id=site_id, received_at=received_at)
     observation_batch_id = _clean_text(payload.get("observation_batch_id"))
     observation_source = _clean_text(payload.get("observation_source")) or "local-inventory"
-    observed_at = _parse_datetime(payload.get("observed_at") or payload.get("collected_at"))
+    observed_at = _bounded_observed_at(
+        payload.get("observed_at") or payload.get("collected_at"),
+        received_at=received_at,
+    )
     requested_delivery_state = _clean_text(payload.get("delivery_state"))
     delivery_state = requested_delivery_state if requested_delivery_state in {"live", "cached-retry"} else "live"
     confidence_value = payload.get("confidence")
@@ -2020,19 +2352,37 @@ def record_local_inventory_collection(
                 "collection_id": int(existing["id"]),
                 "normalized_asset_count": int(existing["normalized_asset_count"]),
                 "duplicate": True,
+                "asset_ids": [],
             }
         if collection_id is None:
             raise RuntimeError("local inventory collection was not stored")
         for asset in normalized_assets:
             _upsert_control_tower_asset(connection, asset)
+    _persist_classification_evidence_best_effort(
+        normalized_assets=normalized_assets,
+        payload=payload,
+        source_authenticated=source_authenticated,
+    )
+    _persist_component_inventory_best_effort(
+        normalized_assets=normalized_assets,
+        payload=payload,
+        received_at=received_at,
+        source_authenticated=source_authenticated,
+    )
     return {
         "collection_id": int(collection_id),
         "normalized_asset_count": len(normalized_assets),
         "duplicate": False,
+        "asset_ids": [asset["asset_id"] for asset in normalized_assets],
     }
 
 
-def record_observation_batch(*, payload: dict[str, Any], received_at: datetime) -> dict[str, int | bool]:
+def record_observation_batch(
+    *,
+    payload: dict[str, Any],
+    received_at: datetime,
+    source_authenticated: bool,
+) -> dict[str, int | bool | list[str]]:
     sensor_id = str(payload["sensor_id"])
     site_id = str(payload["site_id"])
     sensor_type = str(payload["sensor_type"])
@@ -2055,6 +2405,7 @@ def record_observation_batch(*, payload: dict[str, Any], received_at: datetime) 
         site_id=site_id,
         received_at=received_at,
         observed_asset_count=observed_asset_count,
+        source_authenticated=source_authenticated,
     )
 
 
@@ -2084,42 +2435,167 @@ def list_agent_checkins(limit: int = 25) -> list[dict[str, Any]]:
     return _row_dicts(rows)
 
 
-def list_control_tower_assets() -> list[dict[str, Any]]:
+def list_control_tower_assets(
+    limit: int | None = None,
+    *,
+    site_id: str | None = None,
+    asset_ids: Sequence[str] | None = None,
+) -> list[dict[str, Any]]:
     ensure_database_schema()
+    bounded_asset_ids = list(dict.fromkeys(str(value) for value in (asset_ids or ())))[:500]
+    if asset_ids is not None and not bounded_asset_ids:
+        return []
+    limit_clause = "\n        LIMIT :limit" if limit is not None else ""
+    asset_filter = "\n            AND cta.asset_id IN :asset_ids" if asset_ids is not None else ""
     statement = text(
         """
         SELECT
-            asset_id,
-            site_id,
-            hostname,
-            primary_ip,
-            mac,
-            os,
-            platform,
-            source_agent_id,
-            first_seen_at,
-            last_seen_at,
-            evidence_count,
-            observation_batch_id,
-            observation_source,
-            observed_at,
-            delivery_state,
-            confidence,
-            metadata_json,
-            created_at,
-            updated_at
-        FROM control_tower_assets
-        ORDER BY last_seen_at DESC, asset_id ASC
+            cta.asset_id,
+            cta.site_id,
+            cta.hostname,
+            cta.primary_ip,
+            cta.mac,
+            cta.os,
+            cta.platform,
+            cta.source_agent_id,
+            cta.first_seen_at,
+            cta.last_seen_at,
+            cta.evidence_count,
+            cta.observation_batch_id,
+            cta.observation_source,
+            cta.observed_at,
+            cta.delivery_state,
+            cta.confidence,
+            cta.metadata_json,
+            cta.created_at,
+            cta.updated_at,
+            ac.classification_id,
+            ac.classifier_version,
+            ac.category AS classification_category,
+            ac.subtype AS classification_subtype,
+            ac.manufacturer AS classification_manufacturer,
+            ac.product_hint AS classification_product_hint,
+            ac.os_family AS classification_os_family,
+            ac.os_version_hint AS classification_os_version_hint,
+            ac.managed_capability_json,
+            ac.confidence AS classification_confidence,
+            ac.status AS classification_status,
+            ac.supporting_evidence_ids_json,
+            ac.conflicting_evidence_ids_json,
+            ac.independent_source_count,
+            ac.evidence_count AS classification_evidence_count,
+            ac.first_classified_at,
+            ac.last_classified_at,
+            ac.evaluated_at AS classification_evaluated_at,
+            ac.freshness AS classification_freshness,
+            ac.reason_codes_json,
+            ac.conflicts_json,
+            EXISTS (
+                SELECT 1
+                FROM classification_evidence ce
+                WHERE ce.site_id = cta.site_id
+                  AND ce.asset_id = cta.asset_id
+                  AND ce.direct = TRUE
+                  AND ce.source_type IN (
+                      'endpoint-collector',
+                      'endpoint-agent',
+                      'collector'
+                  )
+            ) AS classification_has_endpoint_evidence
+          FROM control_tower_assets cta
+          LEFT JOIN asset_classifications ac
+            ON ac.site_id = cta.site_id AND ac.asset_id = cta.asset_id
+          WHERE (:site_id IS NULL OR cta.site_id = :site_id)
         """
+        + asset_filter
+        + """
+          ORDER BY cta.last_seen_at DESC, cta.asset_id ASC
+        """
+        + limit_clause
     )
+    params: dict[str, Any] = {"site_id": site_id}
+    if asset_ids is not None:
+        statement = statement.bindparams(bindparam("asset_ids", expanding=True))
+        params["asset_ids"] = bounded_asset_ids
+    if limit is not None:
+        params["limit"] = max(1, int(limit))
     with get_engine().begin() as connection:
-        rows = connection.execute(statement).mappings().all()
+        rows = connection.execute(statement, params).mappings().all()
 
     assets: list[dict[str, Any]] = []
     for row in rows:
         asset = dict(row)
         metadata = asset.pop("metadata_json")
         asset["metadata"] = _load_json_value(metadata, {})
+        classification_id = asset.pop("classification_id", None)
+        if classification_id:
+            asset["classification"] = {
+                "classification_id": classification_id,
+                "classifier_version": asset.pop("classifier_version"),
+                "category": asset.pop("classification_category"),
+                "subtype": asset.pop("classification_subtype"),
+                "manufacturer": asset.pop("classification_manufacturer"),
+                "product_hint": asset.pop("classification_product_hint"),
+                "os_family": asset.pop("classification_os_family"),
+                "os_version_hint": asset.pop("classification_os_version_hint"),
+                "managed_capability": _load_json_value(
+                    asset.pop("managed_capability_json"),
+                    {},
+                ),
+                "confidence": asset.pop("classification_confidence"),
+                "status": asset.pop("classification_status"),
+                "supporting_evidence_ids": _load_json_value(
+                    asset.pop("supporting_evidence_ids_json"),
+                    [],
+                ),
+                "conflicting_evidence_ids": _load_json_value(
+                    asset.pop("conflicting_evidence_ids_json"),
+                    [],
+                ),
+                "independent_source_count": asset.pop("independent_source_count"),
+                "evidence_count": asset.pop("classification_evidence_count"),
+                "first_classified_at": asset.pop("first_classified_at"),
+                "last_classified_at": asset.pop("last_classified_at"),
+                "evaluated_at": asset.pop("classification_evaluated_at"),
+                "freshness": asset.pop("classification_freshness"),
+                "reason_codes": _load_json_value(
+                    asset.pop("reason_codes_json"),
+                    [],
+                ),
+                "conflicts": _load_json_value(
+                    asset.pop("conflicts_json"),
+                    [],
+                ),
+                "endpoint_evidence_present": bool(
+                    asset.pop("classification_has_endpoint_evidence")
+                ),
+            }
+        else:
+            for field_name in (
+                "classifier_version",
+                "classification_category",
+                "classification_subtype",
+                "classification_manufacturer",
+                "classification_product_hint",
+                "classification_os_family",
+                "classification_os_version_hint",
+                "managed_capability_json",
+                "classification_confidence",
+                "classification_status",
+                "supporting_evidence_ids_json",
+                "conflicting_evidence_ids_json",
+                "independent_source_count",
+                "classification_evidence_count",
+                "first_classified_at",
+                "last_classified_at",
+                "classification_evaluated_at",
+                "classification_freshness",
+                "reason_codes_json",
+                "conflicts_json",
+                "classification_has_endpoint_evidence",
+            ):
+                asset.pop(field_name, None)
+            asset["classification"] = None
         assets.append(asset)
     return assets
 

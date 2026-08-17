@@ -1,0 +1,315 @@
+name: Advisory Mirror Publication
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/advisory-mirror-publish.yml"
+      - "backend/advisory_feeds/**"
+      - "backend/app/advisory_bundle.py"
+      - "backend/app/advisory_feed_registry.py"
+      - "backend/app/advisory_mirror.py"
+      - "backend/app/advisory_sync_service.py"
+      - "backend/app/advisory_transport.py"
+      - "backend/app/osv_pypi_*.py"
+      - "backend/requirements.txt"
+      - "backend/tests/test_advisory_mirror*.py"
+      - "scripts/build_advisory_mirror.py"
+      - "scripts/demo_advisory_mirror.py"
+      - "scripts/demo_osv_pypi_publisher.py"
+      - "scripts/publish_osv_pypi_advisories.py"
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: "Publish without importing a prior mirror snapshot (first publication only)"
+        required: true
+        default: false
+        type: boolean
+  schedule:
+    - cron: "17 4 * * 2"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: advisory-mirror-publication
+  cancel-in-progress: false
+
+jobs:
+  offline-validation:
+    name: Offline synthetic mirror validation
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install locked backend dependencies
+        run: python -m pip install --require-hashes -r backend/requirements.txt
+
+      - name: Compile mirror Python
+        run: >-
+          python -m compileall -q
+          backend/app/advisory_mirror.py
+          backend/app/advisory_feed_registry.py
+          backend/app/advisory_transport.py
+          backend/app/advisory_sync_service.py
+          scripts/build_advisory_mirror.py
+          scripts/demo_advisory_mirror.py
+
+      - name: Run focused mirror tests
+        working-directory: backend
+        run: >-
+          python -m unittest
+          tests.test_advisory_mirror
+          tests.test_advisory_mirror_demo
+          tests.test_advisory_mirror_workflow
+
+      - name: Run offline publication-to-AI demonstration
+        run: python scripts/demo_advisory_mirror.py
+
+  build-publication:
+    name: Build verified public mirror artifact
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      vars.OPENASSETWATCH_ADVISORY_MIRROR_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: advisory-mirror-production
+    outputs:
+      mirror-index-sha256: ${{ steps.mirror-metadata.outputs.index_sha256 }}
+      mirror-latest-sequence: ${{ steps.mirror-metadata.outputs.latest_sequence }}
+      mirror-source-id: ${{ steps.mirror-metadata.outputs.source_id }}
+    permissions:
+      contents: read
+    env:
+      OAW_MIRROR_SOURCE_ID: ${{ vars.OPENASSETWATCH_ADVISORY_MIRROR_SOURCE_ID }}
+      OAW_BUNDLE_KEY_ID: ${{ vars.OPENASSETWATCH_ADVISORY_BUNDLE_KEY_ID }}
+      OAW_INDEX_KEY_ID: ${{ vars.OPENASSETWATCH_ADVISORY_INDEX_KEY_ID }}
+      OAW_BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap || false }}
+      OAW_BOOTSTRAP_ENABLED: ${{ vars.OPENASSETWATCH_ADVISORY_MIRROR_BOOTSTRAP_ENABLED == 'true' }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install locked backend dependencies
+        run: python -m pip install --require-hashes -r backend/requirements.txt
+
+      - name: Restore trusted publication checkpoint
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/oaw-mirror-checkpoint
+          key: oaw-advisory-mirror-checkpoint-v1-${{ github.run_id }}
+          restore-keys: |
+            oaw-advisory-mirror-checkpoint-v1-
+
+      - name: Validate deliberate publication configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OAW_MIRROR_SOURCE_ID"
+          test -n "$OAW_BUNDLE_KEY_ID"
+          test -n "$OAW_INDEX_KEY_ID"
+          if [[ "$OAW_BOOTSTRAP" == "true" ]]; then
+            if [[ "${{ github.event_name }}" != "workflow_dispatch" || "$OAW_BOOTSTRAP_ENABLED" != "true" ]]; then
+              echo "Bootstrap requires a deliberate manual run and the one-time bootstrap enable variable." >&2
+              exit 2
+            fi
+          fi
+          umask 077
+          mkdir -p \
+            "$RUNNER_TEMP/oaw-publisher-output" \
+            "$RUNNER_TEMP/oaw-publication"
+          {
+            echo "OAW_PUBLISHER_STATE=$RUNNER_TEMP/oaw-publisher-state.json"
+            echo "OAW_PUBLISHER_OUTPUT=$RUNNER_TEMP/oaw-publisher-output"
+            echo "OAW_PREVIOUS_MIRROR=$RUNNER_TEMP/oaw-previous-mirror"
+            echo "OAW_PUBLIC_MIRROR=$RUNNER_TEMP/oaw-publication/mirror"
+            echo "OAW_CHECKPOINT=$RUNNER_TEMP/oaw-mirror-checkpoint/latest.json"
+            echo "OAW_SEQUENCE_FLOOR=0"
+          } >> "$GITHUB_ENV"
+          if [[ "$OAW_BOOTSTRAP" == "true" && -e "$RUNNER_TEMP/oaw-mirror-checkpoint/latest.json" ]]; then
+            echo "Bootstrap is forbidden after a trusted publication checkpoint exists." >&2
+            exit 2
+          fi
+          if [[ "$OAW_BOOTSTRAP" != "true" && ! -f "$RUNNER_TEMP/oaw-mirror-checkpoint/latest.json" ]]; then
+            echo "Normal publication requires the independent last-published checkpoint." >&2
+            exit 2
+          fi
+
+      - name: Snapshot the last-known-good public mirror
+        if: env.OAW_BOOTSTRAP != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/build_advisory_mirror.py snapshot \
+            --source "$OAW_MIRROR_SOURCE_ID" \
+            --output "$OAW_PREVIOUS_MIRROR" \
+            > "$RUNNER_TEMP/oaw-mirror-snapshot-result.json"
+          latest_sequence="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["latest_catalog_sequence"])' "$RUNNER_TEMP/oaw-mirror-snapshot-result.json")"
+          case "$latest_sequence" in
+            ''|*[!0-9]*) echo "Prior mirror returned an unsafe catalog sequence." >&2; exit 2 ;;
+          esac
+          time_floor="$(date -u +%s%N)"
+          case "$time_floor" in
+            ''|*[!0-9]*) echo "Runner returned an unsafe publication sequence floor." >&2; exit 2 ;;
+          esac
+          python scripts/build_advisory_mirror.py continuity \
+            --checkpoint "$OAW_CHECKPOINT" \
+            --snapshot-report "$RUNNER_TEMP/oaw-mirror-snapshot-result.json" \
+            --time-floor "$time_floor" \
+            > "$RUNNER_TEMP/oaw-mirror-continuity-result.json"
+          sequence_floor="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["sequence_floor"])' "$RUNNER_TEMP/oaw-mirror-continuity-result.json")"
+          echo "OAW_SEQUENCE_FLOOR=$sequence_floor" >> "$GITHUB_ENV"
+
+      - name: Establish first-publication sequence floor
+        if: env.OAW_BOOTSTRAP == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          time_floor="$(date -u +%s%N)"
+          case "$time_floor" in
+            ''|*[!0-9]*) echo "Runner returned an unsafe publication sequence floor." >&2; exit 2 ;;
+          esac
+          python -c 'import sys; value=int(sys.argv[1]); assert 0 < value < 9223372036854775807' "$time_floor"
+          echo "OAW_SEQUENCE_FLOOR=$time_floor" >> "$GITHUB_ENV"
+
+      - name: Publish reviewed OSV PyPI source to a signed local bundle
+        shell: bash
+        env:
+          OPENASSETWATCH_OSV_PYPI_SIGNING_KEY: ${{ secrets.OPENASSETWATCH_ADVISORY_BUNDLE_SIGNING_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$OPENASSETWATCH_OSV_PYPI_SIGNING_KEY"
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/oaw-bundle-signing-key.XXXXXX")"
+          cleanup_key() { rm -f -- "$key_file"; }
+          trap cleanup_key EXIT HUP INT TERM
+          chmod 600 "$key_file"
+          printf '%s\n' "$OPENASSETWATCH_OSV_PYPI_SIGNING_KEY" > "$key_file"
+          unset OPENASSETWATCH_OSV_PYPI_SIGNING_KEY
+          python scripts/publish_osv_pypi_advisories.py sync \
+            --state "$OAW_PUBLISHER_STATE" \
+            --output "$OAW_PUBLISHER_OUTPUT" \
+            --full \
+            --sequence-floor "$OAW_SEQUENCE_FLOOR" \
+            --key-id "$OAW_BUNDLE_KEY_ID" \
+            --signing-key-file "$key_file" \
+            --json > "$RUNNER_TEMP/oaw-publisher-result.json"
+          cleanup_key
+          trap - EXIT HUP INT TERM
+
+          bundle_name="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["bundle_name"])' "$RUNNER_TEMP/oaw-publisher-result.json")"
+          case "$bundle_name" in
+            osv-pypi-*) ;;
+            *) echo "Publisher returned an unsafe bundle name." >&2; exit 2 ;;
+          esac
+          echo "OAW_NEW_BUNDLE=$OAW_PUBLISHER_OUTPUT/$bundle_name" >> "$GITHUB_ENV"
+
+      - name: Build the retained mirror snapshot
+        shell: bash
+        env:
+          OPENASSETWATCH_ADVISORY_INDEX_SIGNING_KEY: ${{ secrets.OPENASSETWATCH_ADVISORY_INDEX_SIGNING_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$OPENASSETWATCH_ADVISORY_INDEX_SIGNING_KEY"
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/oaw-index-signing-key.XXXXXX")"
+          cleanup_key() { rm -f -- "$key_file"; }
+          trap cleanup_key EXIT HUP INT TERM
+          chmod 600 "$key_file"
+          printf '%s\n' "$OPENASSETWATCH_ADVISORY_INDEX_SIGNING_KEY" > "$key_file"
+          unset OPENASSETWATCH_ADVISORY_INDEX_SIGNING_KEY
+          existing=()
+          if [[ "$OAW_BOOTSTRAP" != "true" ]]; then
+            existing=(--existing-root "$OAW_PREVIOUS_MIRROR")
+          fi
+          python scripts/build_advisory_mirror.py build \
+            --source "$OAW_MIRROR_SOURCE_ID" \
+            --bundle "$OAW_NEW_BUNDLE" \
+            "${existing[@]}" \
+            --output "$OAW_PUBLIC_MIRROR" \
+            --index-key-id "$OAW_INDEX_KEY_ID" \
+            --signing-key-file "$key_file" \
+            --retain-prior 3 > "$RUNNER_TEMP/oaw-mirror-build-result.json"
+          cleanup_key
+          trap - EXIT HUP INT TERM
+
+      - name: Expose verified mirror checkpoint metadata
+        id: mirror-metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); source=str(value["source_id"]); sequence=int(value["latest_catalog_sequence"]); digest=str(value["index_sha256"]); assert source and sequence > 0 and len(digest) == 64 and all(c in "0123456789abcdef" for c in digest); print(f"source_id={source}"); print(f"latest_sequence={sequence}"); print(f"index_sha256={digest}")' "$RUNNER_TEMP/oaw-mirror-build-result.json" >> "$GITHUB_OUTPUT"
+
+      - name: Reverify the mirror and production-to-hub contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/build_advisory_mirror.py verify \
+            --source "$OAW_MIRROR_SOURCE_ID" \
+            --root "$OAW_PUBLIC_MIRROR"
+          python -m unittest \
+            backend.tests.test_advisory_mirror \
+            backend.tests.test_advisory_mirror_demo
+
+      - name: Upload static Pages artifact without changing Pages settings
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ env.OAW_PUBLIC_MIRROR }}
+          retention-days: 7
+
+  deploy-publication:
+    name: Publish approved mirror snapshot
+    needs: build-publication
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      vars.OPENASSETWATCH_ADVISORY_MIRROR_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: advisory-mirror-production
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy already-verified Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+
+      - name: Record successful publication checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          checkpoint_root="$RUNNER_TEMP/oaw-mirror-checkpoint"
+          mkdir -p "$checkpoint_root"
+          python -c 'import json,sys; source=sys.argv[1]; sequence=int(sys.argv[2]); digest=sys.argv[3]; assert source and sequence > 0 and len(digest) == 64 and all(c in "0123456789abcdef" for c in digest); print(json.dumps({"schema_version":"oaw.advisory-mirror-publication-checkpoint.v1","source_id":source,"latest_catalog_sequence":sequence,"index_sha256":digest}, separators=(",",":"), sort_keys=True))' "${{ needs.build-publication.outputs.mirror-source-id }}" "${{ needs.build-publication.outputs.mirror-latest-sequence }}" "${{ needs.build-publication.outputs.mirror-index-sha256 }}" > "$checkpoint_root/latest.json"
+          chmod 600 "$checkpoint_root/latest.json"
+
+      - name: Save trusted publication checkpoint
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/oaw-mirror-checkpoint
+          key: oaw-advisory-mirror-checkpoint-v1-${{ github.run_id }}

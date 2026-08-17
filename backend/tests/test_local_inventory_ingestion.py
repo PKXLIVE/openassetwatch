@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
+from app.database import normalize_local_inventory_assets
 from app.main import app, local_inventory_collection
 
 
@@ -156,6 +158,29 @@ class LocalInventoryIngestionTests(unittest.TestCase):
         self.assertEqual(response.observed_asset_count, 1)
         self.assertEqual(response.normalized_asset_count, 1)
         self.assertEqual(record.call_args.kwargs["site_id"], "site-local")
+        self.assertFalse(record.call_args.kwargs["source_authenticated"])
+
+    def test_collection_queues_only_persisted_assets_for_classification(self) -> None:
+        background = BackgroundTasks()
+        with patch(
+            "app.main.record_local_inventory_collection",
+            return_value={
+                "collection_id": 1,
+                "normalized_asset_count": 1,
+                "asset_ids": ["local-host"],
+            },
+        ):
+            response = local_inventory_collection(
+                local_inventory_payload(),
+                background_tasks=background,
+            )
+
+        self.assertEqual(response.status, "accepted")
+        self.assertEqual(len(background.tasks), 1)
+        self.assertEqual(
+            background.tasks[0].kwargs,
+            {"site_id": "site-local", "asset_ids": ["local-host"]},
+        )
 
     def test_malformed_json_is_rejected(self) -> None:
         status, response_body = post_raw_json("/api/v1/collections/local-inventory", b'{"schema_version":')
@@ -279,6 +304,20 @@ class LocalInventoryIngestionTests(unittest.TestCase):
         self.assertEqual(response["site_id"], "site-local")
         self.assertEqual(response["observed_asset_count"], 1)
         self.assertEqual(response["normalized_asset_count"], 1)
+
+    def test_future_local_inventory_time_is_clamped_to_receive_time(self) -> None:
+        received_at = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
+        payload = local_inventory_payload()
+        payload["collected_at"] = (received_at + timedelta(days=365)).isoformat()
+
+        assets = normalize_local_inventory_assets(
+            payload,
+            site_id="site-local",
+            received_at=received_at,
+        )
+
+        self.assertEqual(assets[0]["observed_at"], received_at)
+        self.assertEqual(assets[0]["last_seen_at"], received_at)
 
 
 if __name__ == "__main__":

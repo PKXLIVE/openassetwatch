@@ -1,0 +1,29 @@
+{
+  "schema_id": "oaw.advisory-bundle.manifest.v1",
+  "schema_version": 1,
+  "source_id": "openassetwatch-synthetic-signed",
+  "publisher_key_id": "oaw-synthetic-ed25519-2026-01",
+  "catalog_version": "synthetic-signed-2026.1",
+  "catalog_sequence": 1,
+  "created_at": "2026-07-31T00:00:00Z",
+  "expires_at": "2027-07-31T00:00:00Z",
+  "payload_name": "catalog.json",
+  "payload_media_type": "application/vnd.openassetwatch.advisory-catalog+json",
+  "payload_compression": "none",
+  "payload_sha256": "fa4e84cae7a08b0f1b2bfccef101e71cc7517f605f4e3ce70a55dcb21610b00e",
+  "compressed_bytes": 1487,
+  "uncompressed_bytes": 1487,
+  "advisory_count": 1,
+  "alias_count": 1,
+  "reference_count": 1,
+  "license_identifier": "Apache-2.0",
+  "attribution": "OpenAssetWatch synthetic test data; fictional advisories only.",
+  "upstream_provenance": {
+    "source_name": "OpenAssetWatch Synthetic Advisory Laboratory",
+    "source_version": "fixture-2026.1",
+    "dataset_id": "openassetwatch-synthetic-signed-fixture",
+    "retrieved_at": "2026-07-31T00:00:00Z"
+  },
+  "adapter_version": "1",
+  "minimum_supported_catalog_version": 1
+}
