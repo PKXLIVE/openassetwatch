@@ -5,24 +5,49 @@ on:
     branches:
       - main
   pull_request:
-    paths:
-      - ".github/workflows/agent-ci.yml"
-      - "cmd/oaw-agent/**"
-      - "cmd/oaw-sensor/**"
-      - "internal/agent/**"
-      - "internal/sensor/**"
-      - "pkg/**"
-      - "scripts/release/**"
-      - "packaging/agent/**"
-      - "packaging/sensor/**"
-      - "go.mod"
-      - "go.sum"
 
 permissions:
   contents: read
 
 jobs:
+  agent-change-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      agent_changed: ${{ steps.scope.outputs.agent_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect agent and sensor changes
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "agent_changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
+            .github/workflows/agent-ci.yml \
+            cmd/oaw-agent \
+            cmd/oaw-sensor \
+            internal/agent \
+            internal/sensor \
+            pkg \
+            scripts/release \
+            packaging/agent \
+            packaging/sensor \
+            go.mod \
+            go.sum; then
+            echo "agent_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "agent_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   linux-sensor-deployment:
+    needs: agent-change-scope
+    if: needs.agent-change-scope.outputs.agent_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -122,6 +147,8 @@ jobs:
           bash -n @bashScripts
 
   linux-deb-package:
+    needs: agent-change-scope
+    if: needs.agent-change-scope.outputs.agent_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -174,6 +201,8 @@ jobs:
             dist/agent/0.1.0-linuxpkg-ci/packages/*.json
 
   linux-rpm-package:
+    needs: agent-change-scope
+    if: needs.agent-change-scope.outputs.agent_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -224,6 +253,8 @@ jobs:
             dist/agent/0.1.0-rpmpkg-ci/packages/*.json
 
   linux-deb-lifecycle:
+    needs: agent-change-scope
+    if: needs.agent-change-scope.outputs.agent_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -445,6 +476,8 @@ jobs:
           assert_file /var/log/openassetwatch/agent/log-survival.txt
 
   linux-rpm-lifecycle:
+    needs: agent-change-scope
+    if: needs.agent-change-scope.outputs.agent_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -822,6 +855,8 @@ jobs:
           if (-not (Test-Path $identityPath)) { throw "MSI uninstall did not preserve identity." }
 
   macos-arm64-agent:
+    needs: agent-change-scope
+    if: needs.agent-change-scope.outputs.agent_changed == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -1025,6 +1060,8 @@ jobs:
           sudo test -f "$IDENTITY"
 
   macos-intel-agent:
+    needs: agent-change-scope
+    if: needs.agent-change-scope.outputs.agent_changed == 'true'
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
@@ -1058,6 +1095,8 @@ jobs:
           sudo bash scripts/release/uninstall_agent_macos.sh --remove-state --remove-logs --forget-receipt
 
   macos-universal-package:
+    needs: agent-change-scope
+    if: needs.agent-change-scope.outputs.agent_changed == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
