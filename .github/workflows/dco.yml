@@ -1,0 +1,110 @@
+name: Developer Certificate of Origin
+
+on:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: dco-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Determine rollout boundary
+        id: rollout
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Pull requests that predate DCO adoption are checked only for commits
+          # added after their recorded rollout boundary. PR 134 bootstraps the
+          # policy and is exempt because its commits were created before the
+          # enforcement workflow existed.
+          case "${PR_NUMBER}" in
+            119) start_sha="6eb4930cc9880890a14e0ea86c319f637ad51759" ;;
+            120) start_sha="40e6766fe2cbad8211cc17586d685b2882818c5a" ;;
+            128) start_sha="d449b5ebb1b8803a761f9f6880d088f73b6dfba0" ;;
+            129) start_sha="c906ec1dbf7b931c4921ac556fb0fb138a6347d0" ;;
+            134)
+              echo "skip=true" >> "${GITHUB_OUTPUT}"
+              echo "start_sha=${BASE_SHA}" >> "${GITHUB_OUTPUT}"
+              echo "PR 134 is the documented one-time DCO bootstrap exception."
+              exit 0
+              ;;
+            *) start_sha="${BASE_SHA}" ;;
+          esac
+
+          echo "skip=false" >> "${GITHUB_OUTPUT}"
+          echo "start_sha=${start_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record bootstrap exception
+        if: steps.rollout.outputs.skip == 'true'
+        run: |
+          echo "This pull request created the DCO policy and enforcement check."
+          echo "Its pre-policy commits are grandfathered once; future pull requests are checked."
+
+      - name: Fetch trusted checker and pull request history
+        if: steps.rollout.outputs.skip != 'true'
+        id: repository
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          START_SHA: ${{ steps.rollout.outputs.start_sha }}
+        run: |
+          set -euo pipefail
+
+          mkdir repository
+          cd repository
+          git init --quiet
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+
+          # Fetch the trusted base revision first. The checker is executed from
+          # this base checkout, never from untrusted pull request content.
+          git fetch --no-tags origin "${BASE_SHA}"
+          git checkout --quiet --detach FETCH_HEAD
+
+          # Fetch pull request commits without checking out or executing them.
+          git fetch --no-tags origin \
+            "pull/${PR_NUMBER}/head:refs/remotes/pull/${PR_NUMBER}/head"
+
+          head_ref="refs/remotes/pull/${PR_NUMBER}/head"
+
+          if ! git cat-file -e "${START_SHA}^{commit}" 2>/dev/null; then
+            echo "The DCO rollout boundary ${START_SHA} is unavailable." >&2
+            exit 2
+          fi
+
+          if ! git merge-base --is-ancestor "${START_SHA}" "${head_ref}"; then
+            echo "The pull request history no longer contains its DCO rollout boundary." >&2
+            echo "Rebase the branch without dropping the recorded boundary, or sign off all commits." >&2
+            exit 1
+          fi
+
+          echo "head_ref=${head_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate DCO sign-offs
+        if: steps.rollout.outputs.skip != 'true'
+        shell: bash
+        env:
+          START_SHA: ${{ steps.rollout.outputs.start_sha }}
+          HEAD_REF: ${{ steps.repository.outputs.head_ref }}
+        run: |
+          set -euo pipefail
+          cd repository
+          python scripts/check_dco.py --base "${START_SHA}" --head "${HEAD_REF}"
