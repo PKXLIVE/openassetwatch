@@ -23,6 +23,16 @@ source code and the subsystem documents linked from `docs/architecture/overview.
 - `decisions/0003-native-agent-investigation-and-temporal-intelligence.md` — accepted
   cross-subsystem decision and non-negotiable invariants.
 
-These documents define additive future capabilities. They do not replace the
-current asset, evidence, finding, risk, collector, passive-sensor, AI Advisor,
-or deployment architecture, and they do not claim implementation status.
+## Native Design Review Boundary
+
+- `NO_EXTERNAL_REFERENCE_POLICY.md` — requires canonical architecture to use
+  OpenAssetWatch-native terminology and independently defined contracts while
+  leaving normal licensing/provenance obligations intact for any actual
+  third-party material.
+- `decisions/0004-native-design-provenance-boundary.md` — accepted review rule
+  for native architecture expansions.
+
+These documents define additive future capabilities and review constraints. They
+do not replace the current asset, evidence, finding, risk, collector,
+passive-sensor, AI Advisor, or deployment architecture, and they do not claim
+implementation status.
