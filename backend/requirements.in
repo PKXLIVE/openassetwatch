@@ -10,4 +10,4 @@ pydantic>=2.13.4,<3
 pydantic-settings>=2.14.2,<3
 python-dotenv>=1.2.2,<2
 cryptography>=50.0.0,<51
-packaging>=26.2,<27
+packaging>=26.3,<27
