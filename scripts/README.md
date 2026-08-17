@@ -6,6 +6,53 @@ should not be added here.
 
 - `e2e/`: local development validation helpers. These must stay defensive,
   local-only, and explicit about any backend URL they contact.
+- `demo_sensor_enrollment.py`: loopback-HTTP/HTTPS synthetic proof of one-time
+  sensor enrollment, bound uploads, rotation, revocation, retained evidence,
+  and deterministic AI visibility. It reads administrator authorization only
+  from a named environment variable and never prints issued secrets.
+- `advisory_feed_sync.py`: one-shot reviewed-source administration for signed
+  bundle verification, synchronization, preview, approval/rejection,
+  activation, rollback, reevaluation retry, and bounded staging cleanup. It
+  accepts source and server-issued IDs only; it accepts no arbitrary URL/path,
+  secret, private key, unsigned mode, or skip-verification flag.
+- `benchmark_advisory_feed_sync.py`: offline synthetic Ed25519, bounded-gzip,
+  strict-catalog, preview-diff, and targeted-scope benchmark. It reports live
+  database import/reevaluation timings as unavailable rather than simulating
+  them when PostgreSQL is absent.
+- `publish_osv_pypi_advisories.py`: isolated one-shot publisher for the
+  licensed PyPI Advisory Database `PYSEC-*` source family transported through
+  OSV.dev. It has fixed upstream paths, strict normalization, private durable
+  cursor state, full/incremental/dry-run modes, Ed25519 signing, and atomic
+  local outputs; it never imports or activates a catalog. Production signed
+  runs require Linux-private state/output storage and fail closed on native
+  Windows until private DACL validation is available.
+- `build_advisory_mirror.py`: local-only atomic builder and verifier for the
+  strict signed mirror index and immutable bundle snapshots. Its separate
+  `snapshot` command retrieves only a reviewed fixed-host mirror for bounded
+  retention input, and reports exact retained/removed sequences; no command
+  imports or activates a catalog.
+- `demo_advisory_mirror.py`: public-network-free product-authored synthetic
+  proof of full/incremental publisher output, signed mirror publication,
+  fixed-path loopback HTTP synchronization, approval, affected-to-fixed
+  finding/risk change, offline last-known-good behavior, rollback, and
+  server-issued AI evidence. It persists no signing key or public artifact.
+- `demo_osv_pypi_publisher.py`: fully offline, product-authored synthetic proof
+  of full and incremental publishing, signature verification, preview,
+  approval, activation, deterministic match/finding/risk change, rollback, and
+  read-only AI evidence. It contains no downloaded advisory data.
+- `benchmark_osv_pypi_publisher.py`: bounded, offline synthetic normalization,
+  deterministic catalog, signing, verification, time, payload-size, and peak
+  memory benchmark for thousands of records.
+- `import_advisory_catalog.py`: deprecated fail-closed entry point retained to
+  explain that unsigned imports are disabled and direct operators to the
+  signed-feed lifecycle.
+- `demo_vulnerability_intelligence.py`: database-free fictional proof of
+  normalized components, affected/fixed/uncertain firmware outcomes,
+  finding/risk change after upgrade, stable history, and read-only AI evidence
+  citations.
+- `benchmark_vulnerability_intelligence.py`: bounded fictional offline
+  normalization/catalog/indexed-matching benchmark. Defaults to 10,000 assets,
+  100,000 components, and 2,000 advisories and makes no network request.
 - `release/`: local release artifact helpers. These may build local binaries
   into ignored `dist/` paths, create local TAR.GZ archives from existing dist
   artifacts, create local Debian package artifacts from existing Linux dist

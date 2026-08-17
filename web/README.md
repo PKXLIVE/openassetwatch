@@ -15,6 +15,12 @@ cards. Getting Started guidance, demo seed copy, and metadata-only release
 status live under Settings so the overview stays focused on visibility, health,
 findings, and activity.
 
+The focused `#ai-advisor` view adds provider/mode status, example questions,
+optional session-only admin-token input, site scope, loading/error states, a
+typed answer, evidence, affected site/sensor/asset context, recommendations,
+confidence, freshness, and limitations. It uses DOM text nodes for untrusted
+answer and evidence fields and does not persist the admin token.
+
 The dashboard calls the local API at `http://127.0.0.1:8000` when served by the
 Compose web container. It also includes a small create-site form that uses the
 existing `POST /api/v1/sites` endpoint. The form creates only site metadata; it
@@ -80,12 +86,16 @@ installed locally, `python scripts/seed_control_tower_demo.py` also works
 against `127.0.0.1:5432`.
 
 The seed is local-only and idempotent for its known demo records. It creates
-synthetic demo sites, endpoint agents, a passive sensor placeholder, check-ins,
+three synthetic demo sites, endpoint agents, passive sensors, check-ins,
 and discovered assets using documentation IP ranges and locally administered
 sample MAC addresses. The data includes safe attention themes such as stale
 collector, missing security tooling, unmanaged IoT, unmanaged mobile, and
 unknown device samples. It does not run automatically and does not perform
 active collection or update execution.
+
+The default deterministic provider requires no external service or credential.
+See `docs/architecture/hub-spoke-ai-showcase.md` for the optional external
+provider boundary and normalized future-sensor contract.
 
 Future production UI work should continue toward richer asset inventory,
 evidence, findings, remediation, and connector health views.

@@ -1,0 +1,7 @@
+interface:
+  display_name: "OAW Architecture Review"
+  short_description: "Gate OpenAssetWatch proposals for additive architecture fit"
+  default_prompt: "Review this proposal for OpenAssetWatch architecture fit. Preserve the existing product invariants, verify the actual gap, and recommend ADOPT, EXPERIMENT, DEFER, or REJECT with evidence and required gates."
+
+policy:
+  allow_implicit_invocation: false

@@ -1,8 +1,8 @@
 # Ingestion API
 
-This document records the first OpenAssetWatch backend ingestion endpoint for
-Go local inventory collection JSON, plus the identity model needed for future
-tenant, deployment, and CMDB reconciliation.
+This document records the transitional Go local inventory endpoint, the first
+normalized outbound observation-batch contract for future spokes, and the
+identity model needed for future tenant, deployment, and CMDB reconciliation.
 
 This pass implements backend import only. The Go agent does not call the
 server yet, and this endpoint does not implement cloud sync, licensing
@@ -101,6 +101,15 @@ The endpoint treats all submitted host, platform, interface, gateway, and
 neighbor data as passive observations. Client-submitted values are not treated
 as privileged truth and do not by themselves establish tenant ownership,
 license entitlement, or final asset identity.
+
+That boundary also applies to deterministic classification: the transitional
+route may contribute bounded inferred evidence, but a client-declared
+`agent_id`, `sensor_id`, `sensor_type`, or `observation_source` does not make
+the evidence direct. All submissions on that route share the server-assigned
+`untrusted-local-inventory` evidence identity, preventing fabricated
+independent-source agreement. Direct endpoint classification requires a
+server-authenticated ingestion context. Observation times more than five
+minutes ahead of hub receive time are clamped to receive time.
 
 ## Expected Request Shape
 
@@ -217,6 +226,36 @@ last seen timestamps, and an evidence count.
 This is still MVP normalization. Tenant authorization, enrollment-token
 issuance, full asset reconciliation, richer audit records, findings, and CMDB
 matching remain future backend workstreams.
+
+## Normalized Spoke Observation Batch
+
+`POST /api/v1/observations/batches` is the versioned hub-side contract for the
+passive sensor and other outbound spokes. It requires stable site, sensor,
+and client batch identity; sensor name/type/version; observation time/source;
+delivery state; confidence; and up to 500 strict normalized asset records.
+
+When `OPENASSETWATCH_COLLECTOR_TOKEN` is configured, the request must include
+`X-OpenAssetWatch-Collector-Token`. The batch identifier is idempotent within a
+site and sensor, so a cached retry does not add the same evidence twice.
+Timezone-aware `observed_at` values more than five minutes ahead of hub time
+are rejected so future timestamps cannot freeze asset or classification state.
+
+The contract accepts `live` and `cached-retry` delivery states. A spoke
+can therefore retain an observation during a hub outage and submit it later
+without changing `observed_at`. The first hub implementation updates sensor
+last-seen health at receive time while retaining the evidence observation time
+for freshness analysis.
+
+The strict asset shape includes observation identity, hostname, IP/MAC,
+OS/platform, category, and up to 32 typed evidence records. Each evidence
+record has a bounded protocol, kind, value, and confidence; it is not a raw
+packet channel. Risk, management posture, and findings remain hub-owned
+decisions and are rejected when supplied by a spoke. The transitional
+local-inventory normalizer also strips reserved hub metadata fields before
+storage. The strict shape has no raw packet, PCAP, command, credential, script,
+or arbitrary attribute field. Unknown fields are rejected. See
+`docs/architecture/hub-spoke-ai-showcase.md` for the full example and trust
+boundary.
 
 ## Passive Observation Safety Model
 
@@ -379,6 +418,6 @@ OpenAssetWatch's own `asset_id` normalization and matching process.
 - no cloud sync
 - no licensing enforcement
 - no CMDB connector
-- no durable observation storage or asset matching migration
+- no full passive network sensor, packet collection, or spoke-side offline queue
 - no secrets in docs or config examples
 - no change to quarantine policy

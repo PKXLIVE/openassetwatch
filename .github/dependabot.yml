@@ -30,6 +30,9 @@ updates:
     - version-update:semver-major
 - package-ecosystem: pip
   directory: /backend
+  # requirements.in is the direct input and requirements.txt is its
+  # pip-compile generated, hashed runtime lock.
+  versioning-strategy: increase
   schedule:
     interval: weekly
     day: monday

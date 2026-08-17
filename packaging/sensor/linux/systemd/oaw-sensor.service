@@ -1,0 +1,42 @@
+[Unit]
+Description=OpenAssetWatch Passive Network Sensor
+Documentation=https://github.com/PKXLIVE/openassetwatch
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=openassetwatch-sensor
+Group=openassetwatch-sensor
+ExecStart=/usr/bin/oaw-sensor service run --config /etc/openassetwatch/sensor/sensor.json
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictNamespaces=true
+RemoveIPC=true
+
+ReadOnlyPaths=/etc/openassetwatch/sensor
+ReadWritePaths=/var/lib/openassetwatch/sensor
+CapabilityBoundingSet=CAP_NET_RAW
+AmbientCapabilities=CAP_NET_RAW
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

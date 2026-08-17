@@ -1,0 +1,26 @@
+{
+  "catalog_version": "synthetic-1",
+  "entries": [
+    {
+      "manufacturer": "Example General Systems",
+      "prefix": "02005E"
+    },
+    {
+      "manufacturer": "Example Network Devices",
+      "prefix": "021122"
+    },
+    {
+      "manufacturer": "Example Print Systems",
+      "prefix": "02AABB"
+    },
+    {
+      "manufacturer": "Example Camera Works",
+      "prefix": "02CAFE"
+    }
+  ],
+  "schema_version": "oaw.vendor-catalog.v1",
+  "source": {
+    "license": "synthetic-test-data",
+    "name": "OpenAssetWatch fictional demonstration entries"
+  }
+}

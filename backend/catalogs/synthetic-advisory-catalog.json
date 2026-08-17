@@ -1,0 +1,161 @@
+{
+  "schema_version": "oaw.advisory-catalog.v1",
+  "catalog_version": "synthetic-demo-2026.1",
+  "source": {
+    "name": "OpenAssetWatch Synthetic Advisory Laboratory",
+    "version": "2026.1",
+    "license": "Apache-2.0",
+    "provenance": "Fictional records authored for deterministic offline testing; no third-party vulnerability data is included."
+  },
+  "generated_at": "2026-01-15T14:00:00Z",
+  "advisories": [
+    {
+      "id": "OAW-DEMO-2099-0001",
+      "aliases": [
+        "CVE-DEMO-2099-0001"
+      ],
+      "title": "Synthetic Asterion request validation issue",
+      "summary": "A fictional Asterion Agent release range is marked affected solely for the OpenAssetWatch demonstration.",
+      "severity": "high",
+      "cvss": 8.1,
+      "known_exploited": true,
+      "published_at": "2026-01-01T00:00:00Z",
+      "modified_at": "2026-01-10T00:00:00Z",
+      "affected": [
+        {
+          "ecosystem": "pypi",
+          "name": "asterion-agent",
+          "identifier": "pkg:pypi/asterion-agent",
+          "ranges": [
+            {
+              "introduced": "1.0.0",
+              "introduced_inclusive": true,
+              "fixed": "1.4.2",
+              "fixed_inclusive": false
+            }
+          ],
+          "fixed_versions": [
+            "1.4.2"
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "advisory",
+          "url": "https://advisories.example.invalid/OAW-DEMO-2099-0001"
+        }
+      ]
+    },
+    {
+      "id": "OAW-DEMO-2099-0002",
+      "aliases": [
+        "CVE-DEMO-2099-0002"
+      ],
+      "title": "Synthetic Lumina parser issue",
+      "summary": "A fictional Lumina Widget release range demonstrates a component already at its reviewed fixed version.",
+      "severity": "medium",
+      "cvss": 6.4,
+      "known_exploited": false,
+      "published_at": "2026-01-02T00:00:00Z",
+      "modified_at": "2026-01-11T00:00:00Z",
+      "affected": [
+        {
+          "ecosystem": "npm",
+          "name": "lumina-widget",
+          "identifier": "pkg:npm/lumina-widget",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "introduced_inclusive": true,
+              "fixed": "3.2.0",
+              "fixed_inclusive": false
+            }
+          ],
+          "fixed_versions": [
+            "3.2.0"
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "advisory",
+          "url": "https://advisories.example.invalid/OAW-DEMO-2099-0002"
+        }
+      ]
+    },
+    {
+      "id": "OAW-DEMO-2099-0003",
+      "aliases": [
+        "CVE-DEMO-2099-0003"
+      ],
+      "title": "Synthetic Beacon firmware validation issue",
+      "summary": "A fictional Beacon Router firmware range demonstrates reviewed precise firmware evidence.",
+      "severity": "high",
+      "cvss": 7.8,
+      "known_exploited": false,
+      "published_at": "2026-01-03T00:00:00Z",
+      "modified_at": "2026-01-12T00:00:00Z",
+      "affected": [
+        {
+          "ecosystem": "firmware",
+          "vendor": "Fictional Beacon Works",
+          "name": "Beacon Router Firmware",
+          "ranges": [
+            {
+              "introduced": "5.0.0",
+              "introduced_inclusive": true,
+              "fixed": "5.1.4",
+              "fixed_inclusive": false
+            }
+          ],
+          "fixed_versions": [
+            "5.1.4"
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "advisory",
+          "url": "https://advisories.example.invalid/OAW-DEMO-2099-0003"
+        }
+      ]
+    },
+    {
+      "id": "OAW-DEMO-2099-0004",
+      "aliases": [
+        "CVE-DEMO-2099-0004"
+      ],
+      "title": "Synthetic Orbit Desk identity review",
+      "summary": "A fictional generic application demonstrates that ambiguous product identity is not a confirmed vulnerability.",
+      "severity": "low",
+      "cvss": 3.7,
+      "known_exploited": false,
+      "published_at": "2026-01-04T00:00:00Z",
+      "modified_at": "2026-01-13T00:00:00Z",
+      "affected": [
+        {
+          "ecosystem": "generic",
+          "vendor": "Fictional Orbit Systems",
+          "name": "Orbit Desk",
+          "ranges": [
+            {
+              "introduced": "1.0",
+              "introduced_inclusive": true,
+              "fixed": "2.0",
+              "fixed_inclusive": false
+            }
+          ],
+          "fixed_versions": [
+            "2.0"
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "advisory",
+          "url": "https://advisories.example.invalid/OAW-DEMO-2099-0004"
+        }
+      ]
+    }
+  ]
+}

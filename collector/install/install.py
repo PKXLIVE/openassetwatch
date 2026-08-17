@@ -9,8 +9,10 @@ import re
 import shlex
 import shutil
 import socket
+import stat
 import subprocess
 import sys
+import tempfile
 import uuid
 import venv
 from dataclasses import dataclass
@@ -25,6 +27,7 @@ DEFAULT_INVENTORY_INTERVAL_SECONDS = 86400
 LINUX_USER = "openassetwatch"
 LINUX_GROUP = "openassetwatch"
 LINUX_SERVICE_NAME = "openassetwatch-collector.service"
+LINUX_INSTALLER_LOG_PATH = Path("/var/log/openassetwatch-installer/collector-install.log")
 WINDOWS_TASK_NAME = "OpenAssetWatch Collector"
 
 
@@ -118,12 +121,72 @@ def identity_path(paths: InstallPaths) -> Path:
     return paths.config_path.parent / "identity.json"
 
 
-def installer_log_path(paths: InstallPaths) -> Path:
+def installer_log_path(paths: InstallPaths, system: str | None = None) -> Path:
+    if (system or detect_system()) == "linux":
+        return LINUX_INSTALLER_LOG_PATH
     return paths.logs_dir / "install.log"
 
 
 def timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def open_secure_linux_installer_log(
+    path: Path = LINUX_INSTALLER_LOG_PATH,
+    *,
+    expected_uid: int = 0,
+):
+    """Open the privileged Linux installer log without following path links."""
+    directory = path.parent
+    try:
+        os.mkdir(directory, mode=0o700)
+    except FileExistsError:
+        pass
+
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_only = getattr(os, "O_DIRECTORY", 0)
+    if not nofollow or not directory_only:
+        raise OSError("secure Linux installer logging requires O_NOFOLLOW and O_DIRECTORY")
+
+    directory_fd = os.open(
+        directory,
+        os.O_RDONLY | directory_only | nofollow | getattr(os, "O_CLOEXEC", 0),
+    )
+    try:
+        directory_stat = os.fstat(directory_fd)
+        if not stat.S_ISDIR(directory_stat.st_mode):
+            raise OSError(f"installer log parent is not a directory: {directory}")
+        if directory_stat.st_uid != expected_uid:
+            raise OSError(f"installer log parent has unexpected owner: {directory}")
+        if stat.S_IMODE(directory_stat.st_mode) & 0o022:
+            raise OSError(f"installer log parent is writable by group or others: {directory}")
+        os.fchmod(directory_fd, 0o700)
+
+        file_fd = os.open(
+            path.name,
+            os.O_WRONLY
+            | os.O_APPEND
+            | os.O_CREAT
+            | nofollow
+            | getattr(os, "O_CLOEXEC", 0),
+            0o600,
+            dir_fd=directory_fd,
+        )
+        try:
+            file_stat = os.fstat(file_fd)
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise OSError(f"installer log is not a regular file: {path}")
+            if file_stat.st_uid != expected_uid:
+                raise OSError(f"installer log has unexpected owner: {path}")
+            if file_stat.st_nlink != 1:
+                raise OSError(f"installer log has unexpected hard links: {path}")
+            os.fchmod(file_fd, 0o600)
+            return os.fdopen(file_fd, "a", encoding="utf-8", closefd=True)
+        except BaseException:
+            os.close(file_fd)
+            raise
+    finally:
+        os.close(directory_fd)
 
 
 def log_event(paths: InstallPaths, message: str, *, dry_run: bool) -> None:
@@ -132,8 +195,13 @@ def log_event(paths: InstallPaths, message: str, *, dry_run: bool) -> None:
         print(f"log: {line}")
         return
     try:
-        paths.logs_dir.mkdir(parents=True, exist_ok=True)
-        with installer_log_path(paths).open("a", encoding="utf-8") as log_file:
+        system = detect_system()
+        if system == "linux":
+            log_file_context = open_secure_linux_installer_log()
+        else:
+            paths.logs_dir.mkdir(parents=True, exist_ok=True)
+            log_file_context = installer_log_path(paths, system).open("a", encoding="utf-8")
+        with log_file_context as log_file:
             log_file.write(f"{line}\n")
     except OSError as exc:
         print(f"warning: unable to write installer log: {exc}")
@@ -584,7 +652,11 @@ def sudoers_entries() -> list[str]:
     return entries
 
 
-def write_linux_sudoers(*, dry_run: bool) -> None:
+def write_linux_sudoers(
+    *,
+    dry_run: bool,
+    sudoers_path: Path = Path("/etc/sudoers.d/openassetwatch-collector"),
+) -> None:
     entries = sudoers_entries()
     if not entries:
         print("no sudoers entries created: no allowlisted commands found")
@@ -592,8 +664,6 @@ def write_linux_sudoers(*, dry_run: bool) -> None:
     if not command_exists("visudo") and not dry_run:
         raise SystemExit("visudo is required to validate sudoers rules")
 
-    sudoers_path = Path("/etc/sudoers.d/openassetwatch-collector")
-    temp_path = Path("/tmp/openassetwatch-collector.sudoers")
     text = "\n".join(
         [
             "# OpenAssetWatch collector command allowlist.",
@@ -607,18 +677,31 @@ def write_linux_sudoers(*, dry_run: bool) -> None:
         print(text)
         return
 
-    temp_path.write_text(text, encoding="utf-8")
+    temp_path: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=sudoers_path.parent,
+            prefix=f".{sudoers_path.name}.",
+            delete=False,
+        ) as temp_file:
+            temp_file.write(text)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+            temp_path = Path(temp_file.name)
         run(["visudo", "-cf", str(temp_path)], dry_run=False)
-        shutil.copyfile(temp_path, sudoers_path)
+        os.replace(temp_path, sudoers_path)
+        temp_path = None
         linux_chown(sudoers_path, "root:root", recursive=False, dry_run=False)
         linux_chmod(sudoers_path, "0440", dry_run=False)
         run(["visudo", "-cf", str(sudoers_path)], dry_run=False)
     finally:
-        try:
-            temp_path.unlink()
-        except OSError:
-            pass
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
 
 
 def configure_linux_log_read(*, dry_run: bool) -> None:

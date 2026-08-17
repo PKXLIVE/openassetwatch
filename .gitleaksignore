@@ -1,0 +1,3 @@
+# False positive: this historical test line contains only the public
+# Ed25519PrivateKey Python type name; no key bytes or reusable secret exist.
+3b66074f9b59be3c68fce6a9091c9a43ac0fe982:backend/tests/test_advisory_feed_security.py:generic-api-key:95

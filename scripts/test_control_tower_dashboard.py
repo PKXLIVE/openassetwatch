@@ -26,7 +26,11 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "/api/v1/agents",
             "/api/v1/control-tower/check-ins",
             "/api/v1/control-tower/assets",
+            "/api/v1/components",
+            "/api/v1/vulnerabilities",
             "/api/v1/releases/agent",
+            "/api/v1/ai/status",
+            "/api/v1/ai/advisor/query",
         )
         self.assertIn('http://127.0.0.1:8000', self.dashboard)
         for endpoint in expected_endpoints:
@@ -42,6 +46,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Sites",
             "Evidence",
             "Findings",
+            "AI Advisor",
+            "Ask OpenAssetWatch",
             "Policies",
             "Reports",
             "Settings",
@@ -82,6 +88,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "Collector Guidance",
             "Collector Detail",
             "Local Inventory Guidance",
+            "Structured answer",
+            "Provider and data state",
         )
         for section in required_sections:
             with self.subTest(section=section):
@@ -309,11 +317,11 @@ class ControlTowerDashboardTests(unittest.TestCase):
             'data-safe-action="create-site"',
             'data-safe-action="enroll-collector"',
             'data-safe-action="local-inventory"',
-            "Unknown device observed",
-            "Unmanaged IoT device",
-            "Missing security tooling sample",
-            "Stale collector sample",
-            "Printer inventory review",
+            "Authoritative deterministic findings",
+            "confidence",
+            "evidence freshness",
+            "lifecycle state",
+            "explainable risk",
         )
         for copy in expected_copy:
             with self.subTest(copy=copy):
@@ -368,6 +376,157 @@ class ControlTowerDashboardTests(unittest.TestCase):
             with self.subTest(copy=copy):
                 self.assertIn(copy, self.dashboard)
 
+    def test_ai_advisor_showcase_has_scoped_questions_and_structured_output(self) -> None:
+        expected_copy = (
+            'id="ai-advisor"',
+            'id="advisor-form"',
+            'id="advisor-question"',
+            'maxlength="500"',
+            'id="advisor-site"',
+            'id="advisor-provider-pill"',
+            'id="advisor-fallback-help"',
+            'id="advisor-data-state"',
+            'id="advisor-confidence"',
+            'id="advisor-citation-count"',
+            'id="advisor-evidence"',
+            'id="advisor-actions"',
+            'id="advisor-limitations"',
+            'id="advisor-technical-details"',
+            "What needs my attention first?",
+            "Which site has the highest risk?",
+            "Which sensors have stopped checking in?",
+            "Compare security posture across sites.",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
+    def test_ai_advisor_uses_session_only_token_and_text_safe_rendering(self) -> None:
+        self.assertIn('id="advisor-token" type="password" autocomplete="off"', self.dashboard)
+        self.assertIn('headers["X-OpenAssetWatch-Admin-Token"] = token', self.dashboard)
+        self.assertIn("strong.textContent = item.evidence_type", self.dashboard)
+        self.assertIn("summary.textContent = advisorDisplayText(response, item.summary)", self.dashboard)
+        self.assertIn("name.textContent = friendlyName(identifier)", self.dashboard)
+        self.assertNotIn("localStorage", self.dashboard)
+        self.assertNotIn("sessionStorage", self.dashboard)
+        self.assertNotIn(".innerHTML", self.dashboard)
+
+    def test_ai_advisor_has_loading_error_and_unsupported_claim_states(self) -> None:
+        expected_copy = (
+            "Gathering hub evidence",
+            "Preparing bounded context",
+            "Asking local model",
+            "Asking hosted model",
+            "Running deterministic advisor",
+            "Validating structured response",
+            "Reconciling citations",
+            'id="advisor-elapsed"',
+            "Client-side waiting guide only",
+            "AI Advisor request failed safely.",
+            "No supporting evidence",
+            "Treat this answer as unverified",
+            "no action was taken",
+            "configured provider mode",
+            "Read-only tools",
+            "data stays on this machine · no external sharing",
+            "OPENASSETWATCH_AI_PROVIDER=demo",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
+    def test_ai_advisor_labels_local_identity_and_privacy_without_key_state(self) -> None:
+        expected_copy = (
+            'id="advisor-local-trust"',
+            "Local model",
+            "OpenAI-compatible local runtime",
+            "Data stays on this machine",
+            "No external sharing",
+            'id="advisor-local-model"',
+            'byId("advisor-local-model").textContent = text(status.model',
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+        self.assertNotIn("API key configured", self.dashboard)
+        self.assertNotIn("API key missing", self.dashboard)
+
+    def test_ai_advisor_marks_model_confidence_uncalibrated_and_counts_validated_citations(self) -> None:
+        expected_copy = (
+            "Model-reported confidence",
+            "Uncalibrated",
+            "Evidence-backed answer",
+            "OpenAssetWatch validates cited evidence identifiers",
+            "interpretation, confidence, and recommendations remain advisory",
+            "validated citation",
+            "Evidence confidence:",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+        self.assertNotIn("}% confidence`", self.dashboard)
+        self.assertNotIn("100% confidence", self.dashboard)
+
+    def test_ai_advisor_shows_friendly_names_before_collapsed_technical_ids(self) -> None:
+        expected_code = (
+            "function advisorSiteName",
+            "function advisorSensorName",
+            "function advisorAssetName",
+            "function advisorDisplayText",
+            "function advisorDisplayAnswer",
+            "sensor.display_name || sensor.hostname",
+            "Unknown ${siteName} Device",
+            "option.textContent = text(site.name, site.site_id)",
+            "renderAdvisorEntities(response)",
+            'byId("advisor-answer").textContent = advisorDisplayAnswer(response)',
+            "summary.textContent = advisorDisplayText(response, item.summary)",
+            "response.recommended_actions.map(value => advisorDisplayText(response, value))",
+            'id="advisor-run-id"',
+            'id="advisor-site-ids"',
+            'id="advisor-sensor-ids"',
+            'id="advisor-asset-ids"',
+            'id="advisor-evidence-ids"',
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+        self.assertLess(self.dashboard.index("Affected site, sensor, and asset"), self.dashboard.index("Technical details"))
+        self.assertIn('<details id="advisor-technical-details"', self.dashboard)
+        self.assertNotIn('<details id="advisor-technical-details" open', self.dashboard)
+
+    def test_ai_advisor_distinguishes_local_demo_and_hosted_trust_states(self) -> None:
+        expected_copy = (
+            'id="advisor-local-trust"',
+            'id="advisor-demo-trust"',
+            'id="advisor-hosted-trust"',
+            "Deterministic demo",
+            "Bounded backend logic",
+            "Hosted external model",
+            "External sharing enabled",
+            "Bounded normalized evidence may leave this machine.",
+            'status.mode !== "local"',
+            'status.mode !== "demo"',
+            'status.mode !== "external"',
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
+    def test_ai_advisor_preserves_mobile_stack_and_collapsible_details(self) -> None:
+        expected_copy = (
+            'data-mobile-stack="advisor"',
+            ".advisor-trust-strip",
+            ".advisor-entity-grid",
+            ".advisor-progress-line",
+            "grid-template-columns: 1fr;",
+            ".advisor-technical summary",
+            "#ai-advisor .panel-header",
+            "white-space: normal;",
+        )
+        for copy in expected_copy:
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.dashboard)
+
     def test_dashboard_includes_loading_empty_and_error_states(self) -> None:
         expected_copy = (
             "Loading Control Tower data",
@@ -405,8 +564,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "setupSafeActions()",
             "copyDemoSeedCommand",
             "navigator.clipboard.writeText(DEMO_SEED_COMMAND)",
-            "const {health, summary, sites, agents, checkins, assets, release} = state.data;",
-            "return {health, summary, sites, agents, checkins, assets, release",
+            "const {health, summary, sites, agents, checkins, assets, findings, risk, release} = state.data;",
+            "return {health, summary, sites, agents, checkins, assets, risk, release",
             "navigateTo(\"findings\")",
             "navigateTo(\"sites\", \"site-id\")",
             "navigateTo(\"collectors\")",
@@ -415,6 +574,24 @@ class ControlTowerDashboardTests(unittest.TestCase):
         for code in expected_code:
             with self.subTest(code=code):
                 self.assertIn(code, self.dashboard)
+
+    def test_findings_view_uses_persisted_deterministic_authority(self) -> None:
+        expected_code = (
+            'findings: "/api/v1/findings?status=active&limit=200"',
+            'risk: "/api/v1/risk/summary?limit=200"',
+            "deterministic finding",
+            "Scores are deterministic; AI commentary remains advisory.",
+            "finding.finding_id",
+            "finding.evidence_freshness",
+            "Evidence and score details",
+            "finding.recommendation",
+            "finding.first_seen_at",
+            "finding.risk.factors",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+        self.assertNotIn("function deriveFindings", self.dashboard)
 
     def test_asset_and_collector_rows_update_read_only_detail(self) -> None:
         expected_code = (
@@ -428,6 +605,48 @@ class ControlTowerDashboardTests(unittest.TestCase):
         for code in expected_code:
             with self.subTest(code=code):
                 self.assertIn(code, self.dashboard)
+
+    def test_asset_detail_presents_deterministic_classification_safely(self) -> None:
+        expected_code = (
+            "function classification(asset)",
+            "function classificationEvidenceLabel(asset)",
+            "Classification basis",
+            "Managed capability",
+            "Classification status",
+            "Independent sources",
+            "Technical classification evidence",
+            "supporting_evidence_ids",
+            "conflicting_evidence_ids",
+            "deterministic classification; AI commentary remains advisory",
+            "identifiers.textContent =",
+            "conflicts.textContent =",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+        self.assertNotIn(".innerHTML", self.dashboard)
+
+    def test_asset_detail_presents_vulnerability_intelligence_safely(
+        self,
+    ) -> None:
+        expected_code = (
+            "Software, packages, and firmware",
+            "Deterministic vulnerability intelligence",
+            "Installed components",
+            "Confirmed affected",
+            "Component review gaps",
+            "known-exploited",
+            "Fixed version",
+            "Uncertain identity or missing version is not a confirmed vulnerability",
+            "AI may explain but cannot change this result",
+            "title.textContent = `${text(component.name)}",
+            "title.textContent = `${text(match.component_name)}",
+            "identifiers.textContent = `Match",
+        )
+        for code in expected_code:
+            with self.subTest(code=code):
+                self.assertIn(code, self.dashboard)
+        self.assertNotIn(".innerHTML", self.dashboard)
 
     def test_read_only_api_loads_retry_transient_startup_errors(self) -> None:
         self.assertIn("const attempts = method === \"GET\" ? 3 : 1;", self.dashboard)

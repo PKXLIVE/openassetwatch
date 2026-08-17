@@ -1,0 +1,64 @@
+{
+  "schema_version": "oaw.advisory-feed-registry.v1",
+  "registry_version": "2026.1",
+  "sources": [
+    {
+      "source_id": "openassetwatch-synthetic-signed",
+      "display_name": "OpenAssetWatch Synthetic Signed Advisory Laboratory",
+      "enabled": true,
+      "adapter_type": "oaw-catalog-v1",
+      "adapter_version": "1",
+      "endpoint": {
+        "host": "advisories.openassetwatch.invalid",
+        "manifest_path": "/v1/synthetic/manifest.json",
+        "signature_path": "/v1/synthetic/manifest.ed25519",
+        "payload_path": "/v1/synthetic/catalog.json"
+      },
+      "expected_manifest_schema": "oaw.advisory-bundle.manifest.v1",
+      "expected_payload_schema": "oaw.advisory-catalog.v1",
+      "expected_payload_name": "catalog.json",
+      "expected_catalog_source": "OpenAssetWatch Synthetic Advisory Laboratory",
+      "trusted_publisher_key_ids": [
+        "oaw-synthetic-ed25519-2026-01"
+      ],
+      "accepted_licenses": [
+        "Apache-2.0"
+      ],
+      "required_attribution": "OpenAssetWatch synthetic test data; fictional advisories only.",
+      "downgrade_policy": "forbid",
+      "approval_policy": "explicit-admin",
+      "expected_content_types": {
+        "manifest": [
+          "application/json",
+          "application/vnd.openassetwatch.advisory-manifest+json"
+        ],
+        "signature": [
+          "application/octet-stream",
+          "text/plain"
+        ],
+        "payload": [
+          "application/json",
+          "application/vnd.openassetwatch.advisory-catalog+json"
+        ]
+      },
+      "limits": {
+        "maximum_manifest_bytes": 65536,
+        "maximum_signature_bytes": 256,
+        "maximum_compressed_bytes": 8388608,
+        "maximum_uncompressed_bytes": 8388608,
+        "maximum_expansion_ratio": 20,
+        "maximum_advisories": 20000,
+        "maximum_aliases": 640000,
+        "maximum_references": 320000,
+        "maximum_response_header_bytes": 16384,
+        "connection_timeout_seconds": 5,
+        "read_timeout_seconds": 10,
+        "total_timeout_seconds": 30,
+        "minimum_sync_interval_seconds": 60,
+        "control_action_cooldown_seconds": 30
+      },
+      "documentation_url": "https://github.com/PKXLIVE/openassetwatch/blob/main/docs/TRUSTED_ADVISORY_FEEDS.md",
+      "documentation_note": "Reserved documentation-only host; use the reviewed local signed fixture for demonstrations."
+    }
+  ]
+}

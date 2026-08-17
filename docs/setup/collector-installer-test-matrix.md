@@ -38,14 +38,14 @@ unless the backend is running on the same machine.
 | Service manager status | `sudo python collector/install/service_manager.py status` | Runs `systemctl status openassetwatch-collector`. |
 | Service manager restart | `sudo python collector/install/service_manager.py restart --dry-run` | Prints `systemctl restart openassetwatch-collector` without running it. |
 | Logs | `sudo journalctl -u openassetwatch-collector -n 100` | Scheduler/check-in/inventory messages are visible. |
-| Service manager logs | `sudo python collector/install/service_manager.py logs` | Runs `journalctl -u openassetwatch-collector -n 100 --no-pager` and points to `/var/log/openassetwatch`. |
+| Service manager logs | `sudo python collector/install/service_manager.py logs` | Runs `journalctl -u openassetwatch-collector -n 100 --no-pager`, points to collector-writable runtime logs under `/var/log/openassetwatch`, and identifies the separate root-only installer log. |
 | Backend receives collector | `curl http://<backend-ip>:8000/api/v1/collectors` | Collector appears after check-in/inventory cycle. |
 | Backend receives assets | `curl http://<backend-ip>:8000/api/v1/assets` | Local device and network observations appear. |
 | Identity file | `sudo cat /etc/openassetwatch/identity.json` | Stable `collector_guid` exists and is not regenerated after reinstall. |
-| Installer log | `sudo tail -n 100 /var/log/openassetwatch/install.log` | Timestamped install/reinstall/uninstall actions are present without secrets. |
+| Installer log | `sudo tail -n 100 /var/log/openassetwatch-installer/collector-install.log` | Timestamped install/reinstall/uninstall actions are present without secrets; the directory is root-owned mode `0700`, the regular log is mode `0600`, and symlink/hard-link path replacement is rejected. |
 | Reinstall | Run the install command again. | Install completes, systemd unit is replaced safely, config/metadata are refreshed intentionally. |
 | Uninstall | `sudo UNINSTALL=true collector/install/install-linux.sh` | systemd service, service file, sudoers file, and install directory are removed; config/log/state are preserved. |
-| Purge uninstall | `sudo UNINSTALL=true PURGE=true collector/install/install-linux.sh` | Install, config, log, state, service, and sudoers files are removed. |
+| Purge uninstall | `sudo UNINSTALL=true PURGE=true collector/install/install-linux.sh` | Install, config, collector runtime logs, state, service, and sudoers files are removed. The root-only installer audit log is preserved. |
 
 ## macOS
 

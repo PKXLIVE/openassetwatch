@@ -1,0 +1,50 @@
+{
+  "schema_version": "oaw.advisory-catalog.v1",
+  "catalog_version": "synthetic-signed-2026.1",
+  "source": {
+    "name": "OpenAssetWatch Synthetic Advisory Laboratory",
+    "version": "fixture-2026.1",
+    "license": "Apache-2.0",
+    "provenance": "Fictional signed fixture authored for OpenAssetWatch tests; no third-party advisory data is included."
+  },
+  "generated_at": "2026-07-31T00:00:00Z",
+  "advisories": [
+    {
+      "id": "OAW-SIGNED-DEMO-2099-0001",
+      "aliases": [
+        "CVE-DEMO-2099-1001"
+      ],
+      "title": "Synthetic signed Asterion validation issue",
+      "summary": "A fictional signed advisory used only to demonstrate trusted catalog verification and activation.",
+      "severity": "high",
+      "cvss": 8.0,
+      "known_exploited": false,
+      "published_at": "2026-07-01T00:00:00Z",
+      "modified_at": "2026-07-15T00:00:00Z",
+      "affected": [
+        {
+          "ecosystem": "pypi",
+          "name": "asterion-agent",
+          "identifier": "pkg:pypi/asterion-agent",
+          "ranges": [
+            {
+              "introduced": "1.0.0",
+              "introduced_inclusive": true,
+              "fixed": "1.4.2",
+              "fixed_inclusive": false
+            }
+          ],
+          "fixed_versions": [
+            "1.4.2"
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "advisory",
+          "url": "https://advisories.example.invalid/OAW-SIGNED-DEMO-2099-0001"
+        }
+      ]
+    }
+  ]
+}

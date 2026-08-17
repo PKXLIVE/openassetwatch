@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import ParseResult, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +31,25 @@ FORBIDDEN_SEED_TERMS = (
     "active scan",
     "webshell",
     "credential collection",
+)
+POSTGRESQL_SCHEMES = {
+    "postgres",
+    "postgresql",
+    "postgresql+psycopg2",
+}
+DESTINATION_QUERY_KEYS = {
+    "host",
+    "hostaddr",
+    "port",
+    "service",
+    "servicefile",
+}
+SENSITIVE_QUERY_KEY_PARTS = (
+    "credential",
+    "key",
+    "pass",
+    "secret",
+    "token",
 )
 
 
@@ -81,69 +100,158 @@ class DemoAsset:
     last_seen_minutes_ago: int
     category: str
     attention: str
+    security_coverage: str | None = None
+    confidence: float = 0.9
 
 
 DEMO_SITES = (
-    DemoSite("home-lab", "Home Lab Demo", "Synthetic local demo site for dashboard visual testing."),
-    DemoSite("small-office", "Small Office Demo", "Synthetic small office demo site for dashboard visual testing."),
+    DemoSite("demo-home", "Home Demo", "Synthetic home location for cross-site AI showcase testing."),
+    DemoSite("demo-office", "Office Demo", "Synthetic office location with a deliberately stale sensor."),
+    DemoSite("demo-lab", "Lab Demo", "Synthetic lab location with server and unmanaged device evidence."),
 )
 
 DEMO_AGENTS = (
     DemoAgent(
-        "agent-win-demo-01",
-        "home-lab",
-        "Windows Demo Agent 01",
-        "endpoint-agent",
-        "Windows",
-        "amd64",
-        "0.1.0-demo",
-        "demo-win-workstation",
-        "healthy-demo",
-        5,
-    ),
-    DemoAgent(
-        "agent-macos-demo-01",
-        "home-lab",
-        "macOS Demo Agent 01",
-        "endpoint-agent",
-        "macOS",
-        "arm64",
-        "0.1.0-demo",
-        "demo-macos-laptop",
-        "healthy-demo",
-        12,
-    ),
-    DemoAgent(
-        "sensor-passive-demo-01",
-        "small-office",
-        "Passive Sensor Demo 01",
+        "sensor-home-demo-01",
+        "demo-home",
+        "Home Passive Sensor",
         "network-sensor",
         "Linux",
         "amd64",
         "0.1.0-demo",
-        "demo-passive-sensor",
-        "passive-demo",
-        18,
+        "demo-home-sensor",
+        "passive-network-demo",
+        4,
+    ),
+    DemoAgent(
+        "sensor-office-demo-01",
+        "demo-office",
+        "Office Passive Sensor",
+        "network-sensor",
+        "Linux",
+        "amd64",
+        "0.1.0-demo",
+        "demo-office-sensor",
+        "passive-network-demo",
+        190,
+    ),
+    DemoAgent(
+        "sensor-lab-demo-01",
+        "demo-lab",
+        "Lab Passive Sensor",
+        "network-sensor",
+        "Linux",
+        "amd64",
+        "0.1.0-demo",
+        "demo-lab-sensor",
+        "passive-network-demo",
+        42,
+    ),
+    DemoAgent(
+        "agent-win-home-demo-01",
+        "demo-home",
+        "Home Windows Collector",
+        "endpoint-agent",
+        "Windows",
+        "amd64",
+        "0.1.0-demo",
+        "demo-home-workstation",
+        "local-inventory-demo",
+        7,
+    ),
+    DemoAgent(
+        "agent-macos-office-demo-01",
+        "demo-office",
+        "Office macOS Collector",
+        "endpoint-agent",
+        "macOS",
+        "arm64",
+        "0.1.0-demo",
+        "demo-office-laptop",
+        "local-inventory-demo",
+        15,
+    ),
+    DemoAgent(
+        "agent-linux-lab-demo-01",
+        "demo-lab",
+        "Lab Linux Collector",
+        "endpoint-agent",
+        "Linux",
+        "amd64",
+        "0.1.0-demo",
+        "demo-lab-server",
+        "local-inventory-demo",
+        12,
     ),
 )
 
-DEMO_CHECKINS = (
-    DemoCheckIn("agent-win-demo-01", "home-lab", "Windows", "amd64", "0.1.0-demo", "demo-win-workstation", "healthy-demo", 5),
-    DemoCheckIn("agent-macos-demo-01", "home-lab", "macOS", "arm64", "0.1.0-demo", "demo-macos-laptop", "healthy-demo", 12),
-    DemoCheckIn("sensor-passive-demo-01", "small-office", "Linux", "amd64", "0.1.0-demo", "demo-passive-sensor", "passive-demo", 18),
-    DemoCheckIn("agent-win-demo-01", "home-lab", "Windows", "amd64", "0.1.0-demo", "demo-win-workstation", "healthy-demo", 65),
-    DemoCheckIn("sensor-passive-demo-01", "small-office", "Linux", "amd64", "0.1.0-demo", "demo-passive-sensor", "passive-demo", 82),
+DEMO_CHECKINS = tuple(
+    DemoCheckIn(agent.agent_id, agent.site_id, agent.platform, agent.architecture, agent.version, agent.hostname, agent.mode, agent.last_seen_minutes_ago)
+    for agent in DEMO_AGENTS
 )
 
 DEMO_ASSETS = (
-    DemoAsset("asset-win-workstation-demo", "home-lab", "demo-win-workstation", "192.0.2.10", "02:00:5e:10:00:10", "Windows 11 Demo", "Windows/amd64", "agent-win-demo-01", 7, 4, "workstation", "healthy endpoint sample"),
-    DemoAsset("asset-macos-laptop-demo", "home-lab", "demo-macos-laptop", "192.0.2.20", "02:00:5e:10:00:20", "macOS Demo", "macOS/arm64", "agent-macos-demo-01", 6, 10, "laptop", "missing security tooling sample"),
-    DemoAsset("asset-linux-server-demo", "home-lab", "demo-linux-server", "192.0.2.30", "02:00:5e:10:00:30", "Linux Demo", "Linux/amd64", "agent-win-demo-01", 8, 14, "server", "stale collector sample"),
-    DemoAsset("asset-printer-demo", "small-office", "demo-printer", "198.51.100.25", "02:00:5e:20:00:25", "Printer Demo Firmware", "embedded-demo", "sensor-passive-demo-01", 4, 16, "printer", "printer inventory sample"),
-    DemoAsset("asset-switch-demo", "small-office", "demo-switch", "198.51.100.2", "02:00:5e:20:00:02", "Switch Demo Firmware", "network-device-demo", "sensor-passive-demo-01", 5, 19, "network-switch", "network switch sample"),
-    DemoAsset("asset-smart-tv-demo", "small-office", "demo-smart-tv", "203.0.113.44", "02:00:5e:30:00:44", "Smart TV Demo Firmware", "iot-demo", "sensor-passive-demo-01", 3, 23, "iot", "unmanaged IoT device sample"),
-    DemoAsset("asset-mobile-demo", "small-office", "demo-mobile-device", "203.0.113.66", "02:00:5e:30:00:66", "Mobile Demo OS", "mobile-demo", "sensor-passive-demo-01", 3, 25, "mobile", "unmanaged mobile device sample"),
-    DemoAsset("asset-unknown-demo", "small-office", "demo-unknown-device", "203.0.113.88", "02:00:5e:30:00:88", "Unknown Demo Device", "unknown-demo", "sensor-passive-demo-01", 2, 27, "unknown", "unknown device sample"),
+    DemoAsset("asset-home-workstation-demo", "demo-home", "demo-home-workstation", "192.0.2.10", "02:00:5e:10:00:10", "Windows 11 Demo", "Windows/amd64", "agent-win-home-demo-01", 7, 4, "workstation", "healthy endpoint sample"),
+    DemoAsset("asset-home-smart-tv-demo", "demo-home", "demo-home-smart-tv", "192.0.2.44", "02:00:5e:10:00:44", "Smart TV Demo Firmware", "iot-demo", "sensor-home-demo-01", 3, 8, "iot", "passive-only device sample"),
+    DemoAsset("asset-home-mobile-demo", "demo-home", "demo-home-mobile", "192.0.2.66", "02:00:5e:10:00:66", "Mobile Demo OS", "mobile-demo", "sensor-home-demo-01", 3, 11, "mobile", "passive-only mobile sample"),
+    DemoAsset("asset-home-router-demo", "demo-home", "demo-home-router", "192.0.2.1", "02:00:5e:10:00:01", "Router Demo Firmware", "network-device-demo", "sensor-home-demo-01", 5, 6, "router", "router inventory sample"),
+    DemoAsset("asset-office-laptop-demo", "demo-office", "demo-office-laptop", "198.51.100.20", "02:00:5e:20:00:20", "macOS Demo", "macOS/arm64", "agent-macos-office-demo-01", 6, 13, "laptop", "healthy endpoint sample"),
+    DemoAsset("asset-office-printer-demo", "demo-office", "demo-office-printer", "198.51.100.25", "02:00:5e:20:00:25", "Printer Demo Firmware", "embedded-demo", "sensor-office-demo-01", 4, 120, "printer", "passive printer inventory sample"),
+    DemoAsset("asset-office-switch-demo", "demo-office", "demo-office-switch", "198.51.100.2", "02:00:5e:20:00:02", "Switch Demo Firmware", "network-device-demo", "sensor-office-demo-01", 5, 130, "network-switch", "passive network switch sample"),
+    DemoAsset("asset-office-unknown-demo", "demo-office", "demo-office-unknown", "198.51.100.88", "02:00:5e:20:00:88", "Unknown Demo Device", "unknown-demo", "sensor-office-demo-01", 2, 125, "unknown", "unknown device sample"),
+    DemoAsset("asset-lab-server-demo", "demo-lab", "demo-lab-server", "203.0.113.30", "02:00:5e:30:00:30", "Linux Demo", "Linux/amd64", "agent-linux-lab-demo-01", 8, 10, "server", "explicit coverage gap sample", "missing"),
+    DemoAsset("asset-lab-runner-demo", "demo-lab", "demo-lab-runner", "203.0.113.31", "02:00:5e:30:00:30", "Linux Demo", "Linux/amd64", "sensor-lab-demo-01", 6, 18, "server", "passive server and identity-conflict sample"),
+    DemoAsset("asset-lab-nas-demo", "demo-lab", "demo-lab-nas", "203.0.113.40", "02:00:5e:30:00:40", "NAS Demo Firmware", "storage-demo", "sensor-lab-demo-01", 5, 50, "storage", "passive storage sample"),
+    DemoAsset("asset-lab-camera-demo", "demo-lab", "demo-lab-camera", "203.0.113.55", "02:ca:fe:30:00:55", "Camera Demo Firmware", "iot-demo", "sensor-lab-demo-01", 3, 34, "camera", "passive camera sample"),
+    DemoAsset("asset-lab-reclassified-demo", "demo-lab", "demo-lab-reclassified", "203.0.113.70", "02:00:5e:30:00:70", "Linux Demo", "Linux/amd64", "agent-linux-lab-demo-01", 5, 9, "server", "stronger direct evidence reclassification sample"),
+)
+
+DEMO_PROTOCOL_EVIDENCE: dict[str, tuple[dict[str, Any], ...]] = {
+    "asset-home-smart-tv-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_airplay._tcp.local", "confidence": 0.88},
+    ),
+    "asset-home-mobile-demo": (
+        {"protocol": "dhcp", "kind": "dhcp-vendor-class", "value": "android-demo-client", "confidence": 0.82},
+    ),
+    "asset-home-router-demo": (
+        {"protocol": "ssdp", "kind": "ssdp-device-type", "value": "urn:schemas-upnp-org:device:InternetGatewayDevice:1", "confidence": 0.9},
+    ),
+    "asset-office-printer-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_ipp._tcp.local", "confidence": 0.9},
+        {"protocol": "ssdp", "kind": "ssdp-device-type", "value": "urn:schemas-upnp-org:device:Printer:1", "confidence": 0.82},
+    ),
+    "asset-office-switch-demo": (
+        {"protocol": "dhcp", "kind": "dhcp-vendor-class", "value": "example-switch-demo", "confidence": 0.78},
+    ),
+    "asset-office-unknown-demo": (
+        {"protocol": "nbns", "kind": "nbns-name", "value": "DEMO-UNKNOWN", "confidence": 0.42},
+    ),
+    "asset-lab-runner-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_ipp._tcp.local", "confidence": 0.9},
+    ),
+    "asset-lab-nas-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_smb._tcp.local", "confidence": 0.88},
+    ),
+    "asset-lab-camera-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_rtsp._tcp.local", "confidence": 0.9},
+        {"protocol": "ssdp", "kind": "ssdp-device-type", "value": "urn:example:device:NetworkVideoCamera:1", "confidence": 0.86},
+    ),
+    "asset-lab-reclassified-demo": (
+        {"protocol": "mdns", "kind": "mdns-service", "value": "_ipp._tcp.local", "confidence": 0.84},
+    ),
+}
+
+LEGACY_DEMO_SITE_IDS = ("home-lab", "small-office")
+LEGACY_DEMO_AGENT_IDS = ("agent-win-demo-01", "agent-macos-demo-01", "sensor-passive-demo-01")
+LEGACY_DEMO_ASSET_IDS = (
+    "asset-win-workstation-demo",
+    "asset-macos-laptop-demo",
+    "asset-linux-server-demo",
+    "asset-printer-demo",
+    "asset-switch-demo",
+    "asset-smart-tv-demo",
+    "asset-mobile-demo",
+    "asset-unknown-demo",
 )
 
 
@@ -189,6 +297,8 @@ def seed_payloads() -> list[dict[str, Any]]:
                 "platform": asset.platform,
                 "source_agent_id": asset.source_agent_id,
                 "attention": asset.attention,
+                "confidence": asset.confidence,
+                "security_coverage": asset.security_coverage,
             }
         )
     return payloads
@@ -228,6 +338,15 @@ class DemoSeedStore:
     def summary(self) -> dict[str, int]:
         raise NotImplementedError
 
+    def evaluate_findings(self, *, evaluated_at: datetime) -> dict[str, Any]:
+        return {}
+
+    def evaluate_classifications(self, *, evaluated_at: datetime) -> dict[str, Any]:
+        return {}
+
+    def evaluate_vulnerabilities(self, *, evaluated_at: datetime) -> dict[str, Any]:
+        return {}
+
 
 class SqlDemoSeedStore(DemoSeedStore):
     def __init__(self, database_url: str) -> None:
@@ -254,10 +373,32 @@ class SqlDemoSeedStore(DemoSeedStore):
         self.ensure_database_schema()
 
     def clear_demo_records(self) -> None:
-        site_ids = [site.site_id for site in DEMO_SITES]
-        agent_ids = [agent.agent_id for agent in DEMO_AGENTS]
-        asset_ids = [asset.asset_id for asset in DEMO_ASSETS]
+        site_ids = [site.site_id for site in DEMO_SITES] + list(LEGACY_DEMO_SITE_IDS)
+        agent_ids = [agent.agent_id for agent in DEMO_AGENTS] + list(LEGACY_DEMO_AGENT_IDS)
+        asset_ids = [asset.asset_id for asset in DEMO_ASSETS] + list(LEGACY_DEMO_ASSET_IDS)
         with self.engine.begin() as connection:
+            connection.execute(
+                self.text(
+                    """
+                    DELETE FROM vulnerability_match_history
+                    WHERE site_id IN :site_ids
+                    """
+                ).bindparams(
+                    self.bindparam("site_ids", expanding=True),
+                ),
+                {"site_ids": site_ids},
+            )
+            connection.execute(
+                self.text(
+                    """
+                    DELETE FROM asset_classification_history
+                    WHERE site_id IN :site_ids
+                    """
+                ).bindparams(
+                    self.bindparam("site_ids", expanding=True),
+                ),
+                {"site_ids": site_ids},
+            )
             connection.execute(
                 self.text(
                     """
@@ -293,6 +434,43 @@ class SqlDemoSeedStore(DemoSeedStore):
                     self.bindparam("asset_ids", expanding=True),
                 ),
                 {"site_ids": site_ids, "asset_ids": asset_ids},
+            )
+            connection.execute(
+                self.text("DELETE FROM agent_enrollments WHERE site_id IN :site_ids OR agent_id IN :agent_ids").bindparams(
+                    self.bindparam("site_ids", expanding=True),
+                    self.bindparam("agent_ids", expanding=True),
+                ),
+                {"site_ids": site_ids, "agent_ids": agent_ids},
+            )
+            connection.execute(
+                self.text("DELETE FROM sites WHERE site_id IN :site_ids").bindparams(
+                    self.bindparam("site_ids", expanding=True),
+                ),
+                {"site_ids": site_ids},
+            )
+            connection.execute(
+                self.text(
+                    """
+                    DELETE FROM finding_evaluation_runs
+                    WHERE requested_by = 'control-tower-demo-seed'
+                    """
+                )
+            )
+            connection.execute(
+                self.text(
+                    """
+                    DELETE FROM vulnerability_evaluation_runs
+                    WHERE requested_by = 'control-tower-demo-seed'
+                    """
+                )
+            )
+            connection.execute(
+                self.text(
+                    """
+                    DELETE FROM classification_runs
+                    WHERE requested_by = 'control-tower-demo-seed'
+                    """
+                )
             )
 
     def upsert_site(self, site: DemoSite) -> None:
@@ -372,10 +550,18 @@ class SqlDemoSeedStore(DemoSeedStore):
         payload = {
             "demo": True,
             "sample_data": True,
-            "schema_version": "openassetwatch.demo.inventory.v1",
+            "schema_version": "oaw.observation-batch.v1",
+            "observation_batch_id": f"demo-batch-{site_id}",
             "site_id": site_id,
-            "agent_id": source_agent_id,
+            "sensor_id": source_agent_id,
+            "sensor_name": source_agent_id,
+            "sensor_type": "passive-network-sensor",
+            "sensor_version": "0.1.0-demo",
             "collected_at": received_at.isoformat(),
+            "observed_at": received_at.isoformat(),
+            "observation_source": "control-tower-demo-seed",
+            "delivery_state": "cached-retry" if site_id == "demo-office" else "live",
+            "confidence": 0.9,
             "assets": [
                 {
                     "asset_id": asset.asset_id,
@@ -401,6 +587,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                         received_at,
                         observed_asset_count,
                         normalized_asset_count,
+                        observation_batch_id,
+                        observation_source,
+                        observed_at,
+                        delivery_state,
+                        confidence,
                         payload_json
                     )
                     VALUES (
@@ -411,6 +602,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                         :received_at,
                         :observed_asset_count,
                         :normalized_asset_count,
+                        :observation_batch_id,
+                        :observation_source,
+                        :observed_at,
+                        :delivery_state,
+                        :confidence,
                         CAST(:payload_json AS JSONB)
                     )
                     """
@@ -423,6 +619,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                     "received_at": received_at,
                     "observed_asset_count": len(assets),
                     "normalized_asset_count": len(assets),
+                    "observation_batch_id": payload["observation_batch_id"],
+                    "observation_source": payload["observation_source"],
+                    "observed_at": received_at,
+                    "delivery_state": payload["delivery_state"],
+                    "confidence": payload["confidence"],
                     "payload_json": json.dumps(payload, sort_keys=True),
                 },
             )
@@ -433,6 +634,8 @@ class SqlDemoSeedStore(DemoSeedStore):
             "sample_data": True,
             "category": asset.category,
             "attention": asset.attention,
+            "confidence": asset.confidence,
+            "security_coverage": asset.security_coverage,
             "source": "control-tower-demo-seed",
         }
         with self.engine.begin() as connection:
@@ -452,6 +655,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                         first_seen_at,
                         last_seen_at,
                         evidence_count,
+                        observation_batch_id,
+                        observation_source,
+                        observed_at,
+                        delivery_state,
+                        confidence,
                         metadata_json
                     )
                     VALUES (
@@ -467,6 +675,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                         :first_seen_at,
                         :last_seen_at,
                         :evidence_count,
+                        :observation_batch_id,
+                        :observation_source,
+                        :observed_at,
+                        :delivery_state,
+                        :confidence,
                         CAST(:metadata_json AS JSONB)
                     )
                     ON CONFLICT (asset_key) DO UPDATE SET
@@ -478,6 +691,11 @@ class SqlDemoSeedStore(DemoSeedStore):
                         source_agent_id = EXCLUDED.source_agent_id,
                         last_seen_at = EXCLUDED.last_seen_at,
                         evidence_count = EXCLUDED.evidence_count,
+                        observation_batch_id = EXCLUDED.observation_batch_id,
+                        observation_source = EXCLUDED.observation_source,
+                        observed_at = EXCLUDED.observed_at,
+                        delivery_state = EXCLUDED.delivery_state,
+                        confidence = EXCLUDED.confidence,
                         metadata_json = EXCLUDED.metadata_json,
                         updated_at = NOW()
                     """
@@ -495,12 +713,488 @@ class SqlDemoSeedStore(DemoSeedStore):
                     "first_seen_at": seen_at,
                     "last_seen_at": seen_at,
                     "evidence_count": asset.evidence_count,
+                    "observation_batch_id": f"demo-batch-{asset.site_id}",
+                    "observation_source": "control-tower-demo-seed",
+                    "observed_at": seen_at,
+                    "delivery_state": "cached-retry" if asset.site_id == "demo-office" else "live",
+                    "confidence": asset.confidence,
                     "metadata_json": json.dumps(metadata, sort_keys=True),
                 },
             )
 
     def summary(self) -> dict[str, int]:
         return self.control_tower_summary()
+
+    def evaluate_classifications(self, *, evaluated_at: datetime) -> dict[str, Any]:
+        from app.classification_service import evaluate_classifications
+        from app.classification_store import (
+            SqlClassificationStore,
+            classification_evidence_for_asset,
+            persist_classification_evidence,
+        )
+        from app.vendor_catalog import load_configured_catalog
+
+        agents = {agent.agent_id: agent for agent in DEMO_AGENTS}
+        catalog = load_configured_catalog()
+
+        def normalized_asset(
+            asset: DemoAsset,
+            *,
+            source_agent_id: str,
+            category: str | None,
+            os_name: str | None,
+            platform: str | None,
+            protocol_evidence: tuple[dict[str, Any], ...],
+        ) -> dict[str, Any]:
+            return {
+                "site_id": asset.site_id,
+                "asset_id": asset.asset_id,
+                "hostname": asset.hostname,
+                "primary_ip": asset.primary_ip,
+                "mac": asset.mac,
+                "os": os_name,
+                "platform": platform,
+                "source_agent_id": source_agent_id,
+                "metadata": {
+                    "category": category,
+                    "security_coverage": asset.security_coverage,
+                    "evidence": list(protocol_evidence),
+                },
+            }
+
+        def payload_for(source_agent_id: str) -> dict[str, Any]:
+            agent = agents[source_agent_id]
+            endpoint = agent.agent_type == "endpoint-agent"
+            return {
+                "site_id": agent.site_id,
+                "sensor_id": source_agent_id,
+                "sensor_type": (
+                    "endpoint-collector"
+                    if endpoint
+                    else "passive-network-sensor"
+                ),
+                "observation_source": (
+                    "endpoint-inventory"
+                    if endpoint
+                    else "passive-network"
+                ),
+                "confidence": 0.9,
+            }
+
+        reclassified = next(
+            asset
+            for asset in DEMO_ASSETS
+            if asset.asset_id == "asset-lab-reclassified-demo"
+        )
+        initial_reclassification_at = evaluated_at - timedelta(hours=100)
+        with self.engine.begin() as connection:
+            for asset in DEMO_ASSETS:
+                if asset.asset_id == reclassified.asset_id:
+                    continue
+                seen_at = event_time(
+                    asset.last_seen_minutes_ago,
+                    base_time=evaluated_at,
+                )
+                projected = normalized_asset(
+                    asset,
+                    source_agent_id=asset.source_agent_id,
+                    category=asset.category,
+                    os_name=asset.os,
+                    platform=asset.platform,
+                    protocol_evidence=DEMO_PROTOCOL_EVIDENCE.get(
+                        asset.asset_id,
+                        (),
+                    ),
+                )
+                records = classification_evidence_for_asset(
+                    asset=projected,
+                    payload=payload_for(asset.source_agent_id),
+                    observed_at=seen_at,
+                    catalog=catalog,
+                    source_authenticated=asset.source_agent_id.startswith("agent-"),
+                )
+                persist_classification_evidence(connection, records=records)
+
+            initial_projected = normalized_asset(
+                reclassified,
+                source_agent_id="sensor-lab-demo-01",
+                category=None,
+                os_name=None,
+                platform=None,
+                protocol_evidence=DEMO_PROTOCOL_EVIDENCE[
+                    reclassified.asset_id
+                ],
+            )
+            persist_classification_evidence(
+                connection,
+                records=classification_evidence_for_asset(
+                    asset=initial_projected,
+                    payload=payload_for("sensor-lab-demo-01"),
+                    observed_at=initial_reclassification_at,
+                    catalog=catalog,
+                    source_authenticated=True,
+                ),
+            )
+
+        initial_reclassification = evaluate_classifications(
+            trigger_type="demo-reclassification-initial",
+            requested_by="control-tower-demo-seed",
+            site_id=reclassified.site_id,
+            asset_id=reclassified.asset_id,
+            now=initial_reclassification_at,
+            reevaluate_findings=False,
+        )
+
+        with self.engine.begin() as connection:
+            final_projected = normalized_asset(
+                reclassified,
+                source_agent_id="agent-linux-lab-demo-01",
+                category="server",
+                os_name="Linux Demo",
+                platform="Linux/amd64",
+                protocol_evidence=(),
+            )
+            persist_classification_evidence(
+                connection,
+                records=classification_evidence_for_asset(
+                    asset=final_projected,
+                    payload=payload_for("agent-linux-lab-demo-01"),
+                    observed_at=evaluated_at,
+                    catalog=catalog,
+                    source_authenticated=True,
+                ),
+            )
+            runner = next(
+                asset
+                for asset in DEMO_ASSETS
+                if asset.asset_id == "asset-lab-runner-demo"
+            )
+            runner_direct = normalized_asset(
+                runner,
+                source_agent_id="agent-linux-lab-demo-01",
+                category="server",
+                os_name="Linux Demo",
+                platform="Linux/amd64",
+                protocol_evidence=(),
+            )
+            persist_classification_evidence(
+                connection,
+                records=classification_evidence_for_asset(
+                    asset=runner_direct,
+                    payload=payload_for("agent-linux-lab-demo-01"),
+                    observed_at=evaluated_at,
+                    catalog=catalog,
+                    source_authenticated=True,
+                ),
+            )
+
+        final = evaluate_classifications(
+            trigger_type="demo-seed",
+            requested_by="control-tower-demo-seed",
+            now=evaluated_at,
+            reevaluate_findings=False,
+        )
+        store = SqlClassificationStore()
+        reclassified_current = store.get_classification(
+            site_id=reclassified.site_id,
+            asset_id=reclassified.asset_id,
+        )
+        conflicts = store.list_classifications(
+            status="conflicting",
+            limit=50,
+        )["items"]
+        with self.engine.begin() as connection:
+            history_count = int(
+                connection.execute(
+                    self.text(
+                        """
+                        SELECT COUNT(*)
+                        FROM asset_classification_history
+                        WHERE site_id = :site_id AND asset_id = :asset_id
+                        """
+                    ),
+                    {
+                        "site_id": reclassified.site_id,
+                        "asset_id": reclassified.asset_id,
+                    },
+                ).scalar_one()
+            )
+        return {
+            "initial_run_id": initial_reclassification.run_id,
+            "final_run_id": final.run_id,
+            "assets_evaluated": final.assets_evaluated,
+            "assets_changed": final.assets_changed,
+            "conflicts_found": final.conflicts_found,
+            "conflict_classification_ids": [
+                item["classification_id"] for item in conflicts
+            ],
+            "reclassification": {
+                "classification_id": (
+                    reclassified_current.get("classification_id")
+                    if reclassified_current
+                    else None
+                ),
+                "initial_category": "printer",
+                "final_category": (
+                    reclassified_current.get("category")
+                    if reclassified_current
+                    else None
+                ),
+                "history_count": history_count,
+            },
+        }
+
+    def evaluate_findings(self, *, evaluated_at: datetime) -> dict[str, Any]:
+        from app.finding_service import evaluate_findings
+
+        initial = evaluate_findings(
+            trigger_type="demo-seed",
+            requested_by="control-tower-demo-seed",
+            now=evaluated_at,
+        )
+        return initial.as_dict()
+
+    def evaluate_vulnerabilities(
+        self,
+        *,
+        evaluated_at: datetime,
+    ) -> dict[str, Any]:
+        from dataclasses import replace
+
+        from app.advisory_catalog import load_catalog
+        from app.advisory_store import SqlAdvisoryStore
+        from app.component_intelligence import normalize_components_for_asset
+        from app.component_store import SqlComponentStore
+        from app.finding_service import evaluate_findings
+        from app.finding_store import SqlFindingStore
+        from app.vulnerability_service import evaluate_vulnerabilities
+        from app.vulnerability_store import SqlVulnerabilityStore
+
+        entries: dict[str, list[dict[str, Any]]] = {
+            "asset-lab-server-demo": [
+                {
+                    "component_type": "application",
+                    "ecosystem": "pypi",
+                    "name": "asterion-agent",
+                    "version": "1.2.0",
+                    "purl": "pkg:pypi/asterion-agent",
+                    "architecture": "amd64",
+                    "confidence": 0.98,
+                    "evidence_ids": ["demo-component-evidence-asterion"],
+                }
+            ],
+            "asset-office-laptop-demo": [
+                {
+                    "component_type": "application",
+                    "ecosystem": "npm",
+                    "name": "lumina-widget",
+                    "version": "3.2.0",
+                    "purl": "pkg:npm/lumina-widget",
+                    "architecture": "arm64",
+                    "confidence": 0.96,
+                    "evidence_ids": ["demo-component-evidence-lumina"],
+                },
+                {
+                    "component_type": "application",
+                    "ecosystem": "generic",
+                    "vendor": "Fictional Orbit Systems",
+                    "name": "Orbit Desk",
+                    "version": "1.5",
+                    "confidence": 0.72,
+                    "evidence_ids": ["demo-component-evidence-orbit"],
+                },
+            ],
+            "asset-home-workstation-demo": [
+                {
+                    "component_type": "application",
+                    "ecosystem": "pypi",
+                    "name": "nebula-backup",
+                    "purl": "pkg:pypi/nebula-backup",
+                    "architecture": "amd64",
+                    "confidence": 0.95,
+                    "evidence_ids": ["demo-component-evidence-nebula"],
+                }
+            ],
+            "asset-home-router-demo": [
+                {
+                    "component_type": "firmware",
+                    "ecosystem": "firmware",
+                    "vendor": "Fictional Beacon Works",
+                    "name": "Beacon Router Firmware",
+                    "version": "5.0.8",
+                    "firmware_evidence_type": "vendor-reported",
+                    "confidence": 0.94,
+                    "evidence_ids": ["demo-component-evidence-beacon"],
+                }
+            ],
+            "asset-home-smart-tv-demo": [
+                {
+                    "component_type": "firmware",
+                    "ecosystem": "firmware",
+                    "vendor": "Fictional Screen Works",
+                    "name": "Screen Demo Firmware",
+                    "version": "observed-family-7",
+                    "firmware_evidence_type": "inferred",
+                    "confidence": 0.48,
+                    "evidence_ids": ["demo-component-evidence-screen-weak"],
+                }
+            ],
+        }
+        asset_by_id = {asset.asset_id: asset for asset in DEMO_ASSETS}
+        normalized_components = []
+        for asset_id, component_entries in entries.items():
+            asset = asset_by_id[asset_id]
+            endpoint = asset.source_agent_id.startswith("agent-")
+            reviewed_connector = asset_id == "asset-home-router-demo"
+            component_source_id = (
+                "connector-home-router-demo-01"
+                if reviewed_connector
+                else asset.source_agent_id
+            )
+            payload = {
+                "site_id": asset.site_id,
+                "sensor_id": component_source_id,
+                "sensor_type": (
+                    "endpoint-collector"
+                    if endpoint
+                    else "connector"
+                    if reviewed_connector
+                    else "passive-network-sensor"
+                ),
+                "observation_source": (
+                    "endpoint-inventory"
+                    if endpoint
+                    else "connector"
+                    if reviewed_connector
+                    else "passive-network"
+                ),
+                "confidence": 0.95,
+                "component_inventory_complete": endpoint,
+            }
+            normalized = normalize_components_for_asset(
+                asset={
+                    "site_id": asset.site_id,
+                    "asset_id": asset.asset_id,
+                    "source_agent_id": component_source_id,
+                    "components": component_entries,
+                    "component_inventory_complete": endpoint,
+                },
+                payload=payload,
+                received_at=evaluated_at - timedelta(minutes=4),
+                source_authenticated=True,
+            )
+            normalized_components.extend(normalized)
+
+        component_store = SqlComponentStore()
+        component_store.persist(components=normalized_components)
+        catalog, checksum = load_catalog(
+            BACKEND_ROOT
+            / "catalogs"
+            / "synthetic-advisory-catalog.json"
+        )
+        catalog_import = SqlAdvisoryStore().import_catalog(
+            catalog=catalog,
+            checksum=checksum,
+            imported_at=evaluated_at,
+        )
+        initial = evaluate_vulnerabilities(
+            trigger_type="demo-seed",
+            requested_by="control-tower-demo-seed",
+            now=evaluated_at - timedelta(minutes=4),
+            update_findings=False,
+        )
+        evaluate_findings(
+            trigger_type="demo-vulnerability-before-upgrade",
+            requested_by="control-tower-demo-seed",
+            now=evaluated_at - timedelta(minutes=4),
+        )
+        finding_store = SqlFindingStore()
+        before_risk = finding_store.get_asset_risk(
+            site_id="demo-lab",
+            asset_id="asset-lab-server-demo",
+        )
+
+        asterion = next(
+            component
+            for component in normalized_components
+            if component.name == "asterion-agent"
+        )
+        fixed_component = replace(
+            asterion,
+            version="1.4.2",
+            normalized_version="1.4.2",
+            observed_at=evaluated_at - timedelta(minutes=2),
+            last_seen_at=evaluated_at - timedelta(minutes=2),
+        )
+        component_store.persist(components=[fixed_component])
+        fixed = evaluate_vulnerabilities(
+            trigger_type="demo-upgrade",
+            requested_by="control-tower-demo-seed",
+            site_id="demo-lab",
+            now=evaluated_at - timedelta(minutes=2),
+            update_findings=False,
+        )
+        evaluate_findings(
+            trigger_type="demo-vulnerability-after-upgrade",
+            requested_by="control-tower-demo-seed",
+            site_id="demo-lab",
+            now=evaluated_at - timedelta(minutes=2),
+        )
+        after_risk = finding_store.get_asset_risk(
+            site_id="demo-lab",
+            asset_id="asset-lab-server-demo",
+        )
+
+        restored_component = replace(
+            asterion,
+            observed_at=evaluated_at,
+            last_seen_at=evaluated_at,
+        )
+        component_store.persist(components=[restored_component])
+        restored = evaluate_vulnerabilities(
+            trigger_type="demo-restore-affected",
+            requested_by="control-tower-demo-seed",
+            site_id="demo-lab",
+            now=evaluated_at,
+            update_findings=False,
+        )
+        vulnerability_store = SqlVulnerabilityStore()
+        matches = vulnerability_store.list_matches(
+            limit=200,
+        )["items"]
+        asterion_match = next(
+            match
+            for match in matches
+            if match["component_id"] == asterion.component_id
+            and match["match_status"] == "affected"
+        )
+        history = vulnerability_store.list_history(
+            match_id=asterion_match["match_id"],
+            limit=50,
+        )
+        weak_firmware_matches = [
+            match
+            for match in matches
+            if match["component_name"] == "Screen Demo Firmware"
+        ]
+        return {
+            "catalog_import_id": catalog_import["import_id"],
+            "catalog_checksum": checksum,
+            "component_count": len(normalized_components),
+            "initial_run_id": initial.run_id,
+            "fixed_run_id": fixed.run_id,
+            "restored_run_id": restored.run_id,
+            "affected_match_id": asterion_match["match_id"],
+            "history_count": len(history),
+            "risk_before_upgrade": (
+                before_risk["score"] if before_risk else None
+            ),
+            "risk_after_upgrade": (
+                after_risk["score"] if after_risk else None
+            ),
+            "weak_firmware_match_count": len(weak_firmware_matches),
+            "known_exploited": asterion_match["known_exploited"],
+        }
 
 
 def assets_for_site(site_id: str) -> list[DemoAsset]:
@@ -509,7 +1203,7 @@ def assets_for_site(site_id: str) -> list[DemoAsset]:
 
 def primary_agent_for_site(site_id: str) -> str:
     for agent in DEMO_AGENTS:
-        if agent.site_id == site_id:
+        if agent.site_id == site_id and agent.agent_type == "network-sensor":
             return agent.agent_id
     raise ValueError(f"no demo agent configured for site: {site_id}")
 
@@ -536,6 +1230,21 @@ def seed_demo_data(store: DemoSeedStore, *, base_time: datetime = DEMO_BASE_TIME
         )
     for asset in DEMO_ASSETS:
         store.upsert_asset(asset, seen_at=event_time(asset.last_seen_minutes_ago, base_time=base_time))
+    classification = (
+        store.evaluate_classifications(evaluated_at=base_time)
+        if hasattr(store, "evaluate_classifications")
+        else {}
+    )
+    vulnerabilities = (
+        store.evaluate_vulnerabilities(evaluated_at=base_time)
+        if hasattr(store, "evaluate_vulnerabilities")
+        else {}
+    )
+    evaluation = (
+        store.evaluate_findings(evaluated_at=base_time)
+        if hasattr(store, "evaluate_findings")
+        else {}
+    )
 
     return {
         "sites": len(DEMO_SITES),
@@ -543,6 +1252,9 @@ def seed_demo_data(store: DemoSeedStore, *, base_time: datetime = DEMO_BASE_TIME
         "check_ins": len(DEMO_CHECKINS),
         "assets": len(DEMO_ASSETS),
         "evidence": sum(asset.evidence_count for asset in DEMO_ASSETS),
+        "deterministic_classification": classification,
+        "deterministic_vulnerabilities": vulnerabilities,
+        "deterministic_evaluation": evaluation,
         "summary": store.summary(),
     }
 
@@ -557,6 +1269,15 @@ def compose_host_allowed(value: str | None = None) -> bool:
 
 def local_database_url(value: str, *, allow_compose_host: bool = False) -> bool:
     parsed = urlparse(value)
+    if (
+        parsed.scheme.casefold() not in POSTGRESQL_SCHEMES
+        or parsed.fragment
+        or any(
+            key.casefold() in DESTINATION_QUERY_KEYS
+            for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+        )
+    ):
+        return False
     if parsed.hostname in LOCAL_DATABASE_HOSTS:
         return True
     return allow_compose_host and parsed.hostname in COMPOSE_DATABASE_HOSTS
@@ -571,14 +1292,40 @@ def dependency_error_message(module_name: str) -> str:
 
 def sanitized_database_url(value: str) -> str:
     parsed = urlparse(value)
-    if parsed.password is None:
-        return value
-    netloc = parsed.hostname or ""
+    host = parsed.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    netloc = host
     if parsed.username:
-        netloc = f"{parsed.username}:***@{netloc}"
+        username = quote(parsed.username, safe="")
+        password = ":***" if parsed.password is not None else ""
+        netloc = f"{username}{password}@{netloc}"
     if parsed.port:
         netloc = f"{netloc}:{parsed.port}"
-    return urlunparse(ParseResult(parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+    sanitized_query = urlencode(
+        [
+            (
+                key,
+                "***"
+                if any(
+                    part in key.casefold()
+                    for part in SENSITIVE_QUERY_KEY_PARTS
+                )
+                else query_value,
+            )
+            for key, query_value in parse_qsl(
+                parsed.query,
+                keep_blank_values=True,
+            )
+        ],
+        doseq=True,
+    )
+    return urlunparse(
+        parsed._replace(
+            netloc=netloc,
+            query=sanitized_query,
+        )
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -616,7 +1363,7 @@ def main() -> int:
 
     try:
         store = SqlDemoSeedStore(database_url)
-        output["seeded"] = seed_demo_data(store)
+        output["seeded"] = seed_demo_data(store, base_time=datetime.now(timezone.utc))
         output["ok"] = True
     except ModuleNotFoundError as exc:
         output["errors"].append(dependency_error_message(exc.name or "unknown"))

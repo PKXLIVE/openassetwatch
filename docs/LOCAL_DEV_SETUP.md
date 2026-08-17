@@ -73,14 +73,22 @@ Activate it:
 .\.venv\Scripts\Activate.ps1
 ```
 
-Install backend dependencies:
+The backend lock is generated for Python 3.12 on Linux and includes
+Linux-specific packages. Do not install it into the Windows virtual
+environment. Build and validate the locked backend image with Docker:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+docker build --tag openassetwatch-backend-dev backend
+docker run --rm openassetwatch-backend-dev python -m pip check
 ```
 
-The collector currently has `collector/pyproject.toml` and no additional
-runtime dependency file.
+Edit direct backend constraints in `backend/requirements.in`, not the generated
+lock. The regeneration command and pinned `pip-tools` version are documented in
+`backend/README.md`.
+
+The Windows virtual environment is sufficient for collector validation. The
+collector currently has `collector/pyproject.toml` and no additional runtime
+dependency file.
 
 ## Python Validation
 
@@ -90,17 +98,21 @@ Run collector tests:
 .\.venv\Scripts\python.exe -m unittest discover -s collector\tests -t collector
 ```
 
-Run backend tests:
+Run backend tests in the Linux image with the repository mounted so tests can
+access repository-root fixtures:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s backend\tests -t backend
+docker run --rm --volume "${PWD}:/workspace" --workdir /workspace `
+  openassetwatch-backend-dev `
+  python -m unittest discover -s backend/tests -t backend
 ```
 
 Run the backend startup import check:
 
 ```powershell
-$env:PYTHONPATH = 'backend'
-.\.venv\Scripts\python.exe -c "from app.main import app; print(app.title); print(app.version)"
+docker run --rm --volume "${PWD}:/workspace" --workdir /workspace `
+  --env PYTHONPATH=/workspace/backend openassetwatch-backend-dev `
+  python -c "from app.main import app; print(app.title); print(app.version)"
 ```
 
 ## Git Hygiene
