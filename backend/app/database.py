@@ -417,6 +417,9 @@ def ensure_database_schema() -> None:
         from .vulnerability_store import ensure_vulnerability_schema
 
         ensure_vulnerability_schema(connection)
+        from .kev_store import ensure_kev_schema
+
+        ensure_kev_schema(connection)
 
 
 def save_inventory_submission(

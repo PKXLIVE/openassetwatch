@@ -43,6 +43,18 @@ should not be added here.
 - `benchmark_osv_pypi_publisher.py`: bounded, offline synthetic normalization,
   deterministic catalog, signing, verification, time, payload-size, and peak
   memory benchmark for thousands of records.
+- `publish_cisa_kev.py`: one-shot official CISA KEV adapter with an exact
+  reviewed HTTPS source, strict schema, deterministic normalized payload,
+  dry-run/live-smoke/fixture modes, private monotonic state, Ed25519 signing,
+  JSON status, and no import or activation authority.
+- `demo_cisa_kev.py`: fully offline fictional proof of exact-CVE current-match
+  prioritization, missing-alias and fixed boundaries, ransomware Known/Unknown,
+  CISA due-date labeling, catalog update/rollback, finding/risk changes, and
+  server-ID-cited read-only AI evidence.
+- `benchmark_cisa_kev.py`: bounded synthetic validation, normalization/import
+  projection, one-index exact correlation, targeted reevaluation, pagination,
+  elapsed-time, and peak-memory benchmark for thousands of records, aliases,
+  and affected matches.
 - `import_advisory_catalog.py`: deprecated fail-closed entry point retained to
   explain that unsigned imports are disabled and direct operators to the
   signed-feed lifecycle.

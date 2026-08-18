@@ -448,6 +448,13 @@ class ReadOnlyHubTools:
             "advisory_feed_status",
             "advisory_feed_preview",
             "advisory_activation_impact",
+            "kev_prioritized_assets",
+            "kev_records_for_matches",
+            "kev_ransomware_matches",
+            "kev_required_actions",
+            "kev_due_dates",
+            "kev_catalog_status",
+            "kev_risk_contribution",
         }
     )
 
@@ -465,6 +472,7 @@ class ReadOnlyHubTools:
         components: list[dict[str, Any]] | None = None,
         vulnerability_matches: list[dict[str, Any]] | None = None,
         advisory_feed_evidence: list[dict[str, Any]] | None = None,
+        kev_status: dict[str, Any] | None = None,
         now: datetime | None = None,
     ) -> None:
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -516,6 +524,22 @@ class ReadOnlyHubTools:
             self._project_advisory_feed_evidence(item)
             for item in (advisory_feed_evidence or [])[:20]
         ]
+        self.kev_status = self._project_kev_status(kev_status or {})
+
+    def _project_kev_status(self, item: dict[str, Any]) -> dict[str, Any]:
+        active = item.get("active_catalog") if isinstance(item.get("active_catalog"), dict) else {}
+        return {
+            "status": _text(item.get("status"), limit=40) or "KEV data unavailable",
+            "source_id": _text(item.get("source_id"), limit=64) or "cisa-kev-official",
+            "freshness": _text(item.get("freshness"), limit=32) or "unavailable",
+            "catalog_version": _text(active.get("catalog_version"), limit=120) or None,
+            "catalog_import_id": _text(active.get("import_id"), limit=80) or None,
+            "catalog_date_released": _datetime(active.get("catalog_date_released")),
+            "payload_sha256": _text(active.get("payload_sha256"), limit=64) or None,
+            "current_factor_count": int(item.get("current_factor_count") or 0),
+            "current_match_count": int(item.get("current_match_count") or 0),
+            "authority": "signed-cisa-kev-catalog",
+        }
 
     def _project_advisory_feed_evidence(self, item: dict[str, Any]) -> dict[str, Any]:
         preview = item.get("preview") if isinstance(item.get("preview"), dict) else {}
@@ -612,6 +636,8 @@ class ReadOnlyHubTools:
     ) -> dict[str, Any]:
         aliases = item.get("aliases")
         references = item.get("references")
+        kev = item.get("kev") if isinstance(item.get("kev"), dict) else {}
+        kev_records = kev.get("records") if isinstance(kev.get("records"), list) else []
         return {
             "match_id": _text(item.get("match_id"), limit=80),
             "site_id": _text(item.get("site_id"), limit=128),
@@ -681,10 +707,42 @@ class ReadOnlyHubTools:
                 )[:16]
                 if isinstance(value, str)
             ],
+            "kev": {
+                "status": _text(kev.get("status"), limit=48) or "correlation unavailable",
+                "source_id": _text(kev.get("source_id"), limit=64) or "cisa-kev-official",
+                "freshness": _text(kev.get("freshness"), limit=32) or "unavailable",
+                "catalog_version": _text(kev.get("catalog_version"), limit=120) or None,
+                "exact_cve_aliases": [
+                    _text(value, limit=32)
+                    for value in (kev.get("exact_cve_aliases") or [])[:32]
+                    if isinstance(value, str)
+                ],
+                "records": [
+                    {
+                        "kev_record_id": _text(value.get("kev_record_id"), limit=80),
+                        "cve_id": _text(value.get("cve_id"), limit=32),
+                        "priority_status": _text(value.get("priority_status"), limit=40),
+                        "vendor_project": _text(value.get("vendor_project"), limit=500),
+                        "product": _text(value.get("product"), limit=500),
+                        "date_added": value.get("date_added"),
+                        "required_action": _text(value.get("required_action"), limit=1_000),
+                        "cisa_due_date": value.get("cisa_due_date"),
+                        "ransomware_campaign_status": _text(value.get("ransomware_campaign_status"), limit=32) or "Not supplied",
+                        "source_freshness": _text(value.get("source_freshness"), limit=32) or "unknown",
+                        "adjusted_weight": _bounded_number(value.get("adjusted_weight"), minimum=0.0, maximum=25.0),
+                        "local_compromise_established": False,
+                    }
+                    for value in kev_records[:16]
+                    if isinstance(value, dict) and value.get("kev_record_id")
+                ],
+                "local_compromise_established": False,
+                "required_action_execution": "disabled",
+            },
             "authority": "deterministic-vulnerability-matcher",
         }
 
     def _project_finding(self, finding: dict[str, Any]) -> dict[str, Any]:
+        raw_evidence = finding.get("evidence") if isinstance(finding.get("evidence"), list) else []
         return {
             "finding_id": _text(finding.get("finding_id"), limit=160),
             "rule_id": _text(finding.get("rule_id"), limit=64),
@@ -702,6 +760,13 @@ class ReadOnlyHubTools:
             "sensor_id": _text(finding.get("sensor_id"), limit=160) or None,
             "observed_at": _datetime(finding.get("evidence_observed_at") or finding.get("last_seen_at")),
             "freshness": _text(finding.get("evidence_freshness"), limit=32) or "unknown",
+            "match_ids": [
+                _text(item.get("evidence_ref"), limit=80)
+                for item in raw_evidence[:32]
+                if isinstance(item, dict)
+                and item.get("evidence_type") == "vulnerability-match"
+                and item.get("evidence_ref")
+            ],
         }
 
     def _project_sensor(self, sensor: dict[str, Any]) -> dict[str, Any]:
@@ -1367,6 +1432,7 @@ class ReadOnlyHubTools:
                         "asset_id": finding["asset_id"],
                         "severity": finding["severity"],
                         "confidence": finding["confidence"],
+                        "match_ids": finding["match_ids"],
                         "risk": self.asset_risks.get(
                             (finding["site_id"], finding["asset_id"]),
                             {"score": 0, "factors": []},
@@ -1392,6 +1458,95 @@ class ReadOnlyHubTools:
                     item
                     for item in self.advisory_feed_evidence
                     if item["state"] in {"activated", "activated_degraded"}
+                ]
+            )
+        kev_matches = [
+            item
+            for item in self._filtered_vulnerability_matches(site_id, asset_id)
+            if item["match_status"] == "affected" and item["kev"]["records"]
+        ]
+        if tool_name == "kev_prioritized_assets":
+            values: dict[tuple[str, str], dict[str, Any]] = {}
+            for item in kev_matches:
+                key = (item["site_id"], item["asset_id"])
+                value = values.setdefault(
+                    key,
+                    {
+                        "site_id": item["site_id"],
+                        "asset_id": item["asset_id"],
+                        "match_ids": [],
+                        "kev_record_ids": [],
+                        "local_compromise_established": False,
+                        "authority": "deterministic-kev-correlation",
+                    },
+                )
+                value["match_ids"].append(item["match_id"])
+                value["kev_record_ids"].extend(record["kev_record_id"] for record in item["kev"]["records"])
+            return _bounded(list(values.values()))
+        if tool_name == "kev_records_for_matches":
+            return _bounded(kev_matches)
+        if tool_name == "kev_ransomware_matches":
+            return _bounded(
+                [
+                    item
+                    for item in kev_matches
+                    if any(record["ransomware_campaign_status"] == "Known" for record in item["kev"]["records"])
+                ]
+            )
+        if tool_name == "kev_required_actions":
+            return _bounded(
+                [
+                    {
+                        "site_id": item["site_id"],
+                        "asset_id": item["asset_id"],
+                        "component_id": item["component_id"],
+                        "advisory_id": item["advisory_id"],
+                        "match_id": item["match_id"],
+                        "kev_record_id": record["kev_record_id"],
+                        "cve_id": record["cve_id"],
+                        "required_action": record["required_action"],
+                        "execution": "disabled-guidance-only",
+                        "authority": "signed-cisa-kev-catalog",
+                    }
+                    for item in kev_matches
+                    for record in item["kev"]["records"]
+                ]
+            )
+        if tool_name == "kev_due_dates":
+            return _bounded(
+                [
+                    {
+                        "site_id": item["site_id"],
+                        "asset_id": item["asset_id"],
+                        "match_id": item["match_id"],
+                        "kev_record_id": record["kev_record_id"],
+                        "cve_id": record["cve_id"],
+                        "cisa_kev_due_date": record["cisa_due_date"],
+                        "local_sla_created": False,
+                        "authority": "signed-cisa-kev-catalog",
+                    }
+                    for item in kev_matches
+                    for record in item["kev"]["records"]
+                ]
+            )
+        if tool_name == "kev_catalog_status":
+            return dict(self.kev_status)
+        if tool_name == "kev_risk_contribution":
+            return _bounded(
+                [
+                    {
+                        "site_id": item["site_id"],
+                        "asset_id": item["asset_id"],
+                        "match_id": item["match_id"],
+                        "kev_record_id": record["kev_record_id"],
+                        "cve_id": record["cve_id"],
+                        "priority_status": record["priority_status"],
+                        "source_freshness": record["source_freshness"],
+                        "adjusted_weight": record["adjusted_weight"],
+                        "authority": "deterministic-kev-risk-factor",
+                    }
+                    for item in kev_matches
+                    for record in item["kev"]["records"]
                 ]
             )
         if tool_name == "recent_inventory_changes":
@@ -1487,6 +1642,7 @@ class ReadOnlyHubTools:
                 )
             )
         advisory_evidence_ids: set[str] = set()
+        kev_evidence_ids: set[str] = set()
         for item in self._filtered_vulnerability_matches(site_id, asset_id):
             evidence.append(
                 EvidenceItem(
@@ -1529,6 +1685,26 @@ class ReadOnlyHubTools:
                         observed_at=item["evaluated_at"],
                         freshness="unknown",
                         confidence=1.0,
+                    )
+                )
+            for record in item["kev"]["records"]:
+                if record["kev_record_id"] in kev_evidence_ids:
+                    continue
+                kev_evidence_ids.add(record["kev_record_id"])
+                evidence.append(
+                    EvidenceItem(
+                        evidence_id=record["kev_record_id"],
+                        evidence_type="cisa_kev_priority",
+                        summary=(
+                            f"{record['kev_record_id']} lists exact alias {record['cve_id']} in CISA KEV "
+                            "as catalog prioritization intelligence; ransomware campaign status "
+                            f"{record['ransomware_campaign_status']}; local exploitation is not established."
+                        ),
+                        authority="normalized-evidence",
+                        source="signed-cisa-kev-catalog",
+                        observed_at=item["evaluated_at"],
+                        freshness=record["source_freshness"],
+                        confidence=item["match_confidence"],
                     )
                 )
         for item in self._filtered_components(site_id, asset_id):
@@ -1782,10 +1958,25 @@ def select_tools(question: str) -> list[str]:
         (("feed status", "catalog status", "last sync", "signature status"), "advisory_feed_status"),
         (("pending update", "feed preview", "catalog preview"), "advisory_feed_preview"),
         (("activation impact", "risk changed", "newly affected", "resolved after"), "advisory_activation_impact"),
+        (("kev", "known exploited", "exploited in the wild"), "kev_prioritized_assets"),
+        (("kev record", "kev evidence", "exact cve"), "kev_records_for_matches"),
+        (("ransomware", "ransomware campaign"), "kev_ransomware_matches"),
+        (("required action", "cisa guidance"), "kev_required_actions"),
+        (("cisa due", "kev due", "due date"), "kev_due_dates"),
+        (("kev status", "kev freshness", "kev catalog"), "kev_catalog_status"),
+        (("kev risk", "kev contribution"), "kev_risk_contribution"),
     )
     for words, tool_name in rules:
         if any(word in text for word in words) and tool_name not in selected:
             selected.append(tool_name)
+    if "kev" in text:
+        for tool_name in (
+            "kev_records_for_matches",
+            "kev_catalog_status",
+            "kev_risk_contribution",
+        ):
+            if tool_name not in selected:
+                selected.append(tool_name)
     if len(selected) == 2:
         selected.extend(
             [
@@ -1816,9 +2007,14 @@ def build_tool_context(
         "fixed_version_availability",
         "vulnerability_evidence",
         "component_inventory_gaps",
+        "kev_records_for_matches",
+        "kev_ransomware_matches",
+        "kev_required_actions",
+        "kev_due_dates",
+        "kev_risk_contribution",
     ):
         for item in results.get(tool_name, {}).get("items", [])[:8]:
-            for field in ("match_id", "component_id", "advisory_id"):
+            for field in ("match_id", "component_id", "advisory_id", "kev_record_id"):
                 value = item.get(field)
                 if isinstance(value, str):
                     priority_ids.append(value)
@@ -1898,11 +2094,14 @@ class DeterministicDemoProvider:
                 "advisory",
                 "fixed version",
                 "known exploited",
+                "kev",
             )
         ):
-            matches = results.get("vulnerable_components", {}).get(
-                "items",
-                [],
+            kev_matches = results.get("kev_records_for_matches", {}).get("items", [])
+            matches = (
+                kev_matches
+                if "kev" in text and kev_matches
+                else results.get("vulnerable_components", {}).get("items", [])
             )
             match = matches[0] if matches else None
             if match:
@@ -1910,7 +2109,17 @@ class DeterministicDemoProvider:
                     "vulnerability_risk_contribution",
                     {},
                 ).get("items", [])
-                risk_item = risk_items[0] if risk_items else None
+                risk_item = next(
+                    (
+                        value
+                        for value in risk_items
+                        if isinstance(value, dict)
+                        and value.get("site_id") == match.get("site_id")
+                        and value.get("asset_id") == match.get("asset_id")
+                        and match.get("match_id") in (value.get("match_ids") or [])
+                    ),
+                    None,
+                )
                 finding_id = (
                     risk_item.get("finding_id")
                     if isinstance(risk_item, dict)
@@ -1928,6 +2137,27 @@ class DeterministicDemoProvider:
                     if finding_id
                     else ""
                 )
+                kev_records = (
+                    match.get("kev", {}).get("records", [])
+                    if isinstance(match.get("kev"), dict)
+                    else []
+                )
+                kev_record = kev_records[0] if kev_records else None
+                kev_clause = ""
+                if isinstance(kev_record, dict):
+                    ransomware = str(kev_record.get("ransomware_campaign_status") or "Not supplied")
+                    ransomware_text = (
+                        "CISA reports confirmed ransomware campaign use"
+                        if ransomware == "Known"
+                        else f"ransomware campaign status is {ransomware} (unconfirmed, not No)"
+                    )
+                    kev_clause = (
+                        f"CISA KEV record {kev_record['kev_record_id']} lists exact alias "
+                        f"{kev_record['cve_id']}; {ransomware_text}. "
+                        f"CISA KEV due date {kev_record['cisa_due_date']} is not a local SLA, "
+                        "and the required action is unexecuted text guidance. "
+                        "This does not establish local exploitation, compromise, or active ransomware. "
+                    )
                 answer = (
                     f"Deterministic match {match['match_id']} reports "
                     f"component {match['component_id']} as affected by "
@@ -1937,6 +2167,7 @@ class DeterministicDemoProvider:
                     f"Fixed version "
                     f"{match['fixed_version'] or 'is not supplied by the reviewed catalog'}. "
                     f"{finding_clause}"
+                    f"{kev_clause}"
                     "The Advisor is explaining server-issued evidence and did not decide applicability."
                 )
                 evidence_ids = [
@@ -1946,11 +2177,12 @@ class DeterministicDemoProvider:
                         match["component_id"],
                         match["advisory_id"],
                         f"finding:{finding_id}" if finding_id else None,
+                        kev_record.get("kev_record_id") if isinstance(kev_record, dict) else None,
                     )
                     if value
                 ]
                 actions.append(
-                    "Review the cited advisory provenance and test the source-backed fixed version before remediation."
+                    "Review the cited advisory and KEV provenance, then test the source-backed fixed version before remediation; do not execute feed text."
                 )
             else:
                 gaps = results.get("component_inventory_gaps", {}).get(
@@ -2077,6 +2309,7 @@ class DeterministicDemoProvider:
             limitations=[
                 "Classifications, vulnerability matches, findings, and risk scores come only from deterministic engines; this Advisor can explain but cannot create, override, resolve, score, acknowledge, or suppress them.",
                 "The Advisor cannot invent component identity, affected versions, fixed versions, exploitation status, or contact external advisory services.",
+                "CISA KEV prioritizes exact-CVE current affected matches; it does not prove local exploitation, compromise, or active ransomware, and CISA required actions remain unexecuted guidance.",
                 "Advisor output is read-only model commentary and must be validated before remediation.",
             ],
         )

@@ -1,0 +1,41 @@
+{
+  "catalogVersion": "2099.01.02",
+  "dateReleased": "2099-01-02T12:00:00.000Z",
+  "count": 3,
+  "vulnerabilities": [
+    {
+      "cveID": "CVE-2099-10001",
+      "vendorProject": "Fictional Aster Works",
+      "product": "Synthetic Orbit Service",
+      "vulnerabilityName": "Synthetic orbit authorization weakness",
+      "dateAdded": "2098-12-20",
+      "shortDescription": "A fictional service accepts an invalid synthetic authorization state.",
+      "requiredAction": "Apply the reviewed fictional fixed release or discontinue the synthetic service.",
+      "dueDate": "2099-01-20",
+      "knownRansomwareCampaignUse": "Known",
+      "notes": "Synthetic updated test record only; no real product or vulnerability.",
+      "cwes": ["CWE-9999"]
+    },
+    {
+      "cveID": "CVE-2099-10003",
+      "vendorProject": "Fictional Lantern Cooperative",
+      "product": "Synthetic Beacon Runtime",
+      "vulnerabilityName": "Synthetic beacon parsing weakness",
+      "dateAdded": "2098-12-22",
+      "shortDescription": "A fictional runtime accepts a malformed synthetic beacon.",
+      "requiredAction": "Follow the fictional vendor guidance after human review.",
+      "dueDate": "2099-01-22"
+    },
+    {
+      "cveID": "CVE-2099-10004",
+      "vendorProject": "Fictional Northstar Studio",
+      "product": "Synthetic Map Service",
+      "vulnerabilityName": "Synthetic map boundary weakness",
+      "dateAdded": "2099-01-02",
+      "shortDescription": "A fictional service accepts an invalid synthetic map boundary.",
+      "requiredAction": "Review the fictional vendor update; no action is executed by OpenAssetWatch.",
+      "dueDate": "2099-01-30",
+      "knownRansomwareCampaignUse": "Unknown"
+    }
+  ]
+}

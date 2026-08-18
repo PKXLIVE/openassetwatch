@@ -37,6 +37,15 @@ from .advisory_transport import (
     read_single_link_file,
 )
 from .vulnerability_service import evaluate_vulnerabilities
+from .finding_service import evaluate_findings
+from .kev_catalog import (
+    KevCatalog,
+    KevValidationError,
+    changed_cves,
+    parse_kev_catalog_bytes,
+    preview_kev_catalog,
+)
+from .kev_store import import_kev_catalog
 
 
 LOGGER = logging.getLogger(__name__)
@@ -62,8 +71,17 @@ class OawCatalogV1Adapter:
         return bundle.catalog_bytes
 
 
+class CisaKevV1Adapter:
+    adapter_type = "cisa-kev-v1"
+    adapter_version = "1"
+
+    def catalog_bytes(self, bundle: VerifiedBundle) -> bytes:
+        return bundle.catalog_bytes
+
+
 ADAPTERS: dict[str, AdvisoryAdapter] = {
     OawCatalogV1Adapter.adapter_type: OawCatalogV1Adapter(),
+    CisaKevV1Adapter.adapter_type: CisaKevV1Adapter(),
 }
 
 
@@ -85,6 +103,7 @@ def _known_error(exc: Exception) -> tuple[str, str]:
             MirrorSecurityError,
             RegistryError,
             StagingSecurityError,
+            KevValidationError,
         ),
     ):
         return exc.code, exc.summary
@@ -93,9 +112,16 @@ def _known_error(exc: Exception) -> tuple[str, str]:
     return type(exc).__name__[:80], "advisory synchronization failed safely"
 
 
-def _parse_retained_catalog(item: dict[str, Any]) -> tuple[AdvisoryCatalog, str]:
+def _parse_retained_catalog(
+    item: dict[str, Any],
+    source: FeedSource | None,
+) -> tuple[AdvisoryCatalog | KevCatalog, str]:
     data = bytes(item["catalog_bytes"])
-    catalog, checksum = parse_catalog_bytes(data)
+    catalog, checksum = (
+        parse_kev_catalog_bytes(data)
+        if source is not None and source.adapter_type == "cisa-kev-v1"
+        else parse_catalog_bytes(data)
+    )
     if checksum != item["catalog_checksum"] or hashlib.sha256(data).hexdigest() != checksum:
         raise AdvisorySyncError("retained-catalog-digest-invalid", "retained catalog failed digest verification")
     return catalog, checksum
@@ -113,9 +139,15 @@ def _record_digest(record: Any) -> str:
 
 
 def changed_record_ids(
-    current: AdvisoryCatalog,
-    previous: AdvisoryCatalog | None,
+    current: AdvisoryCatalog | KevCatalog,
+    previous: AdvisoryCatalog | KevCatalog | None,
 ) -> list[str]:
+    if isinstance(current, KevCatalog):
+        if previous is not None and not isinstance(previous, KevCatalog):
+            raise AdvisorySyncError("catalog-kind-mismatch", "retained catalog type changed unexpectedly")
+        return changed_cves(current, previous)
+    if isinstance(previous, KevCatalog):
+        raise AdvisorySyncError("catalog-kind-mismatch", "retained catalog type changed unexpectedly")
     current_records = {record.id.casefold(): record for record in current.advisories}
     previous_records = {
         record.id.casefold(): record for record in (previous.advisories if previous else [])
@@ -406,12 +438,35 @@ class AdvisorySyncService:
             raise AdvisorySyncError("adapter-unavailable", "reviewed source adapter is unavailable")
         catalog_bytes = adapter.catalog_bytes(bundle)
         previous_item = self.store.active_catalog(source.source_id, include_bytes=True)
-        previous_catalog = _parse_retained_catalog(previous_item)[0] if previous_item else None
-        preview = preview_bundle(bundle, previous_catalog=previous_catalog, now=self.now()).as_dict()
+        previous_catalog = _parse_retained_catalog(previous_item, source)[0] if previous_item else None
+        if isinstance(bundle.catalog, KevCatalog):
+            if previous_catalog is not None and not isinstance(previous_catalog, KevCatalog):
+                raise AdvisorySyncError("catalog-kind-mismatch", "retained catalog type changed unexpectedly")
+            preview = {
+                **preview_kev_catalog(bundle.catalog, previous_catalog),
+                "source_id": source.source_id,
+                "publisher_key_id": bundle.manifest.publisher_key_id,
+                "signature_status": "verified",
+                "license_identifier": bundle.manifest.license_identifier,
+                "license_status": "approved",
+                "attribution_status": "present",
+                "payload_digest": bundle.payload_digest,
+                "catalog_sequence": bundle.manifest.catalog_sequence,
+                "created_at": bundle.manifest.created_at,
+                "expires_at": bundle.manifest.expires_at,
+            }
+            record_count = len(bundle.catalog.records)
+            aliases = 0
+            references = 0
+        else:
+            if previous_catalog is not None and not isinstance(previous_catalog, AdvisoryCatalog):
+                raise AdvisorySyncError("catalog-kind-mismatch", "retained catalog type changed unexpectedly")
+            preview = preview_bundle(bundle, previous_catalog=previous_catalog, now=self.now()).as_dict()
+            record_count = len(bundle.catalog.advisories)
+            aliases = sum(len(record.aliases) for record in bundle.catalog.advisories)
+            references = sum(len(record.references) for record in bundle.catalog.advisories)
         # Remove private staging before making the verified run available for approval.
         self.staging.cleanup(run_directory)
-        aliases = sum(len(record.aliases) for record in bundle.catalog.advisories)
-        references = sum(len(record.references) for record in bundle.catalog.advisories)
         self.store.save_verified_bundle(
             run_id=run_id,
             source_id=source.source_id,
@@ -431,7 +486,7 @@ class AdvisorySyncService:
             payload_bytes=bundle.payload_bytes,
             catalog_bytes=catalog_bytes,
             preview=preview,
-            advisory_count=len(bundle.catalog.advisories),
+            advisory_count=record_count,
             alias_count=aliases,
             reference_count=references,
             now=self.now(),
@@ -463,14 +518,16 @@ class AdvisorySyncService:
         retained = self.store.catalog_for_run(run_id, include_bytes=True)
         source = self.registry.source(str(retained["source_id"]))
         self._publisher_allows_activation(source, str(retained["publisher_key_id"]), rollback=False)
-        catalog, checksum = _parse_retained_catalog(retained)
-        result = self.store.activate_run(
-            run_id,
-            catalog=catalog,
-            catalog_checksum=checksum,
-            actor=actor,
-            now=self.now(),
-        )
+        catalog, checksum = _parse_retained_catalog(retained, source)
+        arguments = {
+            "catalog": catalog,
+            "catalog_checksum": checksum,
+            "actor": actor,
+            "now": self.now(),
+        }
+        if source.adapter_type == "cisa-kev-v1":
+            arguments["catalog_importer"] = self._catalog_importer(source=source, retained=retained)
+        result = self.store.activate_run(run_id, **arguments)
         result["reevaluation"] = self._reevaluate_activation(result, actor=actor)
         return result
 
@@ -478,17 +535,54 @@ class AdvisorySyncService:
         retained = self.store.get_catalog(catalog_id, include_bytes=True)
         source = self.registry.source(str(retained["source_id"]))
         self._publisher_allows_activation(source, str(retained["publisher_key_id"]), rollback=True)
-        catalog, checksum = _parse_retained_catalog(retained)
-        result = self.store.rollback_catalog(
-            catalog_id,
-            catalog=catalog,
-            catalog_checksum=checksum,
-            actor=actor,
-            cooldown_seconds=source.limits.control_action_cooldown_seconds,
-            now=self.now(),
-        )
+        catalog, checksum = _parse_retained_catalog(retained, source)
+        arguments = {
+            "catalog": catalog,
+            "catalog_checksum": checksum,
+            "actor": actor,
+            "cooldown_seconds": source.limits.control_action_cooldown_seconds,
+            "now": self.now(),
+        }
+        if source.adapter_type == "cisa-kev-v1":
+            arguments["catalog_importer"] = self._catalog_importer(source=source, retained=retained)
+        result = self.store.rollback_catalog(catalog_id, **arguments)
         result["reevaluation"] = self._reevaluate_activation(result, actor=actor)
         return result
+
+    def _catalog_importer(
+        self,
+        *,
+        source: FeedSource,
+        retained: dict[str, Any],
+    ) -> Callable[..., dict[str, Any]]:
+        if source.adapter_type != "cisa-kev-v1":
+            from .advisory_store import import_catalog
+
+            return import_catalog
+
+        def importer(
+            connection: Any,
+            *,
+            catalog: KevCatalog,
+            checksum: str,
+            imported_at: datetime,
+            reactivate_existing: bool,
+        ) -> dict[str, Any]:
+            provenance = retained.get("provenance")
+            if not isinstance(provenance, dict):
+                provenance = {}
+            return import_kev_catalog(
+                connection,
+                catalog=catalog,
+                checksum=checksum,
+                imported_at=imported_at,
+                reactivate_existing=reactivate_existing,
+                catalog_sequence=int(retained.get("catalog_sequence") or 0) or None,
+                source_digest=str(provenance.get("dataset_id") or retained.get("payload_digest") or checksum).rsplit(":", 1)[-1],
+                provenance={"manifest": provenance, "source": catalog.source.model_dump(mode="json")},
+            )
+
+        return importer
 
     def retry_reevaluation(self, activation_id: str, *, actor: str) -> dict[str, Any]:
         activation = self.store.get_activation(activation_id)
@@ -504,14 +598,71 @@ class AdvisorySyncService:
     def _reevaluate_activation(self, activation: dict[str, Any], *, actor: str) -> dict[str, Any]:
         activation_id = str(activation["activation_id"])
         run_ids: list[str] = []
+        failure_impact: dict[str, Any] = {}
         try:
             self.store.mark_reevaluation(activation_id, status="running")
             current_item = self.store.get_catalog(str(activation["catalog_id"]), include_bytes=True)
-            current_catalog, _ = _parse_retained_catalog(current_item)
+            source = (
+                self.registry.source(str(current_item["source_id"]), require_enabled=False)
+                if getattr(self, "registry", None) is not None and current_item.get("source_id")
+                else None
+            )
+            current_catalog, _ = _parse_retained_catalog(current_item, source)
             previous_catalog = None
             if activation.get("previous_catalog_id"):
                 previous_item = self.store.get_catalog(str(activation["previous_catalog_id"]), include_bytes=True)
-                previous_catalog, _ = _parse_retained_catalog(previous_item)
+                previous_catalog, _ = _parse_retained_catalog(previous_item, source)
+            if isinstance(current_catalog, KevCatalog):
+                import_result = activation.get("import") if isinstance(activation.get("import"), dict) else {}
+                persisted_impact = (
+                    activation.get("impact")
+                    if isinstance(activation.get("impact"), dict)
+                    else {}
+                )
+                site_ids = [
+                    str(value)
+                    for value in (
+                        import_result.get("affected_site_ids")
+                        or persisted_impact.get("affected_site_ids")
+                        or []
+                    )[:10_000]
+                ]
+                details = {
+                    "trigger_type": f"kev-catalog-{activation['action']}",
+                    "changed_cve_count": int(
+                        import_result.get("changed_cve_count")
+                        or persisted_impact.get("changed_cve_count")
+                        or 0
+                    ),
+                    "correlation_count": int(
+                        import_result.get("correlation_count")
+                        or persisted_impact.get("correlation_count")
+                        or 0
+                    ),
+                    "priority_factor_count": int(
+                        import_result.get("priority_factor_count")
+                        or persisted_impact.get("priority_factor_count")
+                        or 0
+                    ),
+                    "site_count": len(site_ids),
+                    "affected_site_ids": site_ids,
+                }
+                failure_impact = details
+                for site_id in site_ids:
+                    evaluation = evaluate_findings(
+                        trigger_type=f"kev-catalog-{activation['action']}",
+                        requested_by=actor,
+                        site_id=site_id,
+                        rule_ids=("vulnerable-component",),
+                    )
+                    run_ids.append(str(evaluation.run_id))
+                self.store.mark_reevaluation(
+                    activation_id,
+                    status="completed",
+                    run_ids=run_ids,
+                    impact=details,
+                )
+                return {"status": "completed", "run_ids": run_ids, "details": details}
             record_ids = changed_record_ids(current_catalog, previous_catalog)
             server_ids = [
                 advisory_id_for(
@@ -585,6 +736,7 @@ class AdvisorySyncService:
                     status="failed",
                     run_ids=run_ids,
                     error_code=code,
+                    impact=failure_impact,
                 )
             except Exception as record_exc:  # noqa: BLE001
                 LOGGER.error("catalog reevaluation failure could not be recorded safely: %s", type(record_exc).__name__)

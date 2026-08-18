@@ -142,6 +142,12 @@ Control Tower tables include:
 - `asset_risk_scores`
 - `site_risk_scores`
 - `risk_factors`
+- `kev_catalog_imports`
+- `kev_records`
+- `kev_record_history`
+- `advisory_kev_correlations`
+- `vulnerability_priority_factors`
+- `vulnerability_priority_factor_history`
 - `classification_evidence`
 - `classification_runs`
 - `asset_classifications`
@@ -231,6 +237,32 @@ docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
 The mirror is a static distribution boundary, not a backend scheduler or write
 API. See `docs/ADVISORY_MIRROR.md` for index v1, local commands, publication
 gates, retention, key rotation, recovery, hosting, licensing, and privacy.
+
+Run the offline CISA KEV source/schema, publisher, exact-CVE correlation,
+findings/risk, authenticated API, UI, and AI boundary tests:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace/backend backend `
+  python -m unittest -v tests.test_kev_catalog `
+    tests.test_kev_correlation_risk tests.test_kev_api_ai_ui
+```
+
+Run the synthetic activation/update/rollback demonstration and scale
+benchmark through the same locked backend image:
+
+```powershell
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace backend python scripts/demo_cisa_kev.py
+docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
+  --workdir /workspace backend python scripts/benchmark_cisa_kev.py
+```
+
+The KEV publisher is a separate one-shot process and is never started with the
+backend. KEV only prioritizes deterministic current affected matches; it does
+not determine vulnerable versions or prove local exploitation. See
+`docs/CISA_KEV.md` for source/license, signing, activation, rollback, risk,
+ransomware/due-date semantics, PostgreSQL validation, and limitations.
 
 Run the deterministic classification, conflict, reclassification, and AI
 evidence showcase through the backend image:

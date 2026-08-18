@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 from uuid import uuid4
 
 from sqlalchemy import bindparam, text
@@ -706,9 +706,10 @@ class SqlAdvisorySyncStore:
         self,
         run_id: str,
         *,
-        catalog: AdvisoryCatalog,
+        catalog: Any,
         catalog_checksum: str,
         actor: str,
+        catalog_importer: Callable[..., dict[str, Any]] = import_catalog,
         now: datetime | None = None,
     ) -> dict[str, Any]:
         activated = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -757,7 +758,7 @@ class SqlAdvisorySyncStore:
                     text("UPDATE advisory_feed_runs SET state = 'importing', updated_at = :now WHERE run_id = :run_id"),
                     {"run_id": run_id, "now": activated},
                 )
-                import_result = import_catalog(
+                import_result = catalog_importer(
                     connection,
                     catalog=catalog,
                     checksum=catalog_checksum,
@@ -833,10 +834,11 @@ class SqlAdvisorySyncStore:
         self,
         catalog_id: str,
         *,
-        catalog: AdvisoryCatalog,
+        catalog: Any,
         catalog_checksum: str,
         actor: str,
         cooldown_seconds: int,
+        catalog_importer: Callable[..., dict[str, Any]] = import_catalog,
         now: datetime | None = None,
     ) -> dict[str, Any]:
         rolled_back = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -866,7 +868,7 @@ class SqlAdvisorySyncStore:
                 text("SELECT catalog_id FROM advisory_feed_catalogs WHERE source_id = :source_id AND active = TRUE FOR UPDATE"),
                 {"source_id": source_id},
             ).scalar_one_or_none()
-            import_result = import_catalog(
+            import_result = catalog_importer(
                 connection,
                 catalog=catalog,
                 checksum=catalog_checksum,

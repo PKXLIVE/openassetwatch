@@ -10,6 +10,10 @@ from typing import Any, Mapping, Sequence
 
 
 FORMULA_VERSION = "oaw.risk.v1"
+KEV_FORMULA_VERSION = "oaw.risk.kev.v1"
+KEV_CATEGORY_CAP = 20.0
+KEV_BASE_WEIGHT = 12.0
+KEV_RANSOMWARE_BASE_WEIGHT = 18.0
 SEVERITY_WEIGHTS = {
     "critical": 40.0,
     "high": 25.0,
@@ -102,6 +106,8 @@ class RiskFactor:
     base_weight: float
     adjusted_weight: float
     ordinal: int
+    evidence_ref: str | None = None
+    match_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -193,6 +199,93 @@ def _finding_contributions(
     return tuple(factors), min(total, 100.0)
 
 
+def _kev_contributions(
+    findings: Sequence[Mapping[str, Any]],
+) -> tuple[tuple[RiskFactor, ...], float]:
+    """Add bounded KEV priority without changing vulnerability authority."""
+
+    candidates: list[tuple[Mapping[str, Any], Mapping[str, Any], float]] = []
+    seen: set[tuple[str, str]] = set()
+    for finding in findings:
+        if str(finding.get("rule_id")) != "vulnerable-component":
+            continue
+        finding_id = str(finding.get("finding_id") or "")
+        evidence = finding.get("evidence")
+        if not isinstance(evidence, list):
+            continue
+        for item in evidence:
+            if not isinstance(item, Mapping):
+                continue
+            evidence_type = str(item.get("evidence_type") or "")
+            if evidence_type not in {
+                "kev-prioritization",
+                "kev-prioritization-ransomware",
+            }:
+                continue
+            evidence_ref = str(item.get("evidence_ref") or "")
+            key = (finding_id, evidence_ref)
+            if not evidence_ref or key in seen:
+                continue
+            seen.add(key)
+            base = (
+                KEV_RANSOMWARE_BASE_WEIGHT
+                if evidence_type == "kev-prioritization-ransomware"
+                else KEV_BASE_WEIGHT
+            )
+            confidence = _confidence(finding.get("confidence"))
+            freshness = str(item.get("freshness") or "unknown").lower()
+            freshness_factor = FRESHNESS_FACTORS.get(
+                freshness,
+                FRESHNESS_FACTORS["unknown"],
+            )
+            candidates.append((finding, item, base * confidence * freshness_factor))
+    candidates.sort(
+        key=lambda value: (
+            -value[2],
+            str(value[0].get("finding_id") or ""),
+            str(value[1].get("evidence_ref") or ""),
+        )
+    )
+    total = 0.0
+    factors: list[RiskFactor] = []
+    for ordinal, (finding, evidence, raw) in enumerate(candidates, start=1):
+        remaining = max(0.0, KEV_CATEGORY_CAP - total)
+        adjusted = min(raw, remaining)
+        total += adjusted
+        evidence_type = str(evidence.get("evidence_type") or "")
+        factors.append(
+            RiskFactor(
+                factor_type="kev-priority",
+                finding_id=str(finding.get("finding_id") or "") or None,
+                category="vulnerability-priority",
+                label=(
+                    "CISA KEV ransomware-confirmed priority"
+                    if evidence_type == "kev-prioritization-ransomware"
+                    else "CISA KEV known-exploited priority"
+                ),
+                severity=None,
+                confidence=_confidence(finding.get("confidence")),
+                freshness=str(evidence.get("freshness") or "unknown"),
+                base_weight=round(raw, 4),
+                adjusted_weight=round(adjusted, 4),
+                ordinal=ordinal,
+                evidence_ref=str(evidence.get("evidence_ref") or "") or None,
+                match_id=next(
+                    (
+                        str(item.get("evidence_ref"))
+                        for item in (finding.get("evidence") or [])
+                        if isinstance(item, Mapping)
+                        and item.get("evidence_type") == "vulnerability-match"
+                    ),
+                    None,
+                ),
+            )
+        )
+        if total >= KEV_CATEGORY_CAP:
+            break
+    return tuple(factors), total
+
+
 def calculate_asset_risk(
     *,
     assets: Sequence[Mapping[str, Any]],
@@ -217,6 +310,9 @@ def calculate_asset_risk(
             continue
         asset_findings = by_asset.get((site_id, asset_id), [])
         factors, raw_score = _finding_contributions(asset_findings, config=resolved_config)
+        kev_factors, kev_score = _kev_contributions(asset_findings)
+        factors = factors + kev_factors
+        raw_score = min(raw_score + kev_score, 100.0)
         score = max(0, min(int(round(raw_score)), 100))
         observed_at = asset.get("observed_at") or asset.get("last_seen_at")
         data_as_of = observed_at if isinstance(observed_at, datetime) else None
@@ -226,7 +322,7 @@ def calculate_asset_risk(
                 asset_id=asset_id,
                 score=score,
                 band=risk_band(score),
-                formula_version=FORMULA_VERSION,
+                formula_version=KEV_FORMULA_VERSION if kev_factors else FORMULA_VERSION,
                 finding_count=len(asset_findings),
                 data_as_of=data_as_of,
                 factors=factors,
@@ -343,7 +439,11 @@ def calculate_site_risk(
                 site_id=site_id,
                 score=score,
                 band=risk_band(score),
-                formula_version=FORMULA_VERSION,
+                formula_version=(
+                    KEV_FORMULA_VERSION
+                    if any(item.formula_version == KEV_FORMULA_VERSION for item in scores)
+                    else FORMULA_VERSION
+                ),
                 asset_count=len(scores),
                 finding_count=sum(item.finding_count for item in scores) + len(direct_by_site.get(site_id, [])),
                 data_as_of=max(data_as_of_values) if data_as_of_values else None,

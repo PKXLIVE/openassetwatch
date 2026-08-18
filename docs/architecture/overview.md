@@ -18,6 +18,8 @@ boundary, then use these canonical documents for implemented subsystems:
   normalization, signed publishing, cursor, and operator controls
 - `docs/ADVISORY_MIRROR.md` - vendor-neutral static hosting, signed discovery
   index, retained immutable bundles, hub consumption, and publication gates
+- `docs/CISA_KEV.md` - official-source KEV normalization, signed enrichment,
+  exact-CVE prioritization, findings/risk behavior, UI, and advisory-only AI
 - `docs/DETERMINISTIC_FINDINGS_AND_RISK.md` - authoritative findings,
   lifecycle, and the explainable Operational Attention Score
 - `docs/architecture/ai-advisor.md` and

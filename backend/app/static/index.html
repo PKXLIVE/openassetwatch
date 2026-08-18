@@ -2689,6 +2689,9 @@
                 <button id="advisory-sync" class="button secondary" type="button">Request sync</button>
               </div>
               <p id="advisory-action-status" class="form-status" aria-live="polite"></p>
+              <h3>CISA KEV prioritization</h3>
+              <p id="kev-status" class="muted">KEV status loads through the same authenticated intelligence view.</p>
+              <p class="muted">KEV prioritizes exact-CVE current affected matches. It does not establish local exploitation or compromise; CISA actions are guidance and CISA due dates are not local SLAs.</p>
             </div>
             <div class="settings-card">
               <h3>Pending advisory run</h3>
@@ -2784,7 +2787,8 @@
       advisorStatus: "/api/v1/ai/status",
       advisorQuery: "/api/v1/ai/advisor/query",
       advisoryFeeds: "/api/v1/admin/advisory-feeds",
-      advisoryRuns: "/api/v1/admin/advisory-feed-runs?limit=20&offset=0"
+      advisoryRuns: "/api/v1/admin/advisory-feed-runs?limit=20&offset=0",
+      kevSummary: "/api/v1/kev/summary"
     };
     const DEMO_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed";
     const VIEW_IDS = ["dashboard", "assets", "collectors", "sites", "evidence", "findings", "ai-advisor", "policies", "reports", "settings"];
@@ -4217,6 +4221,7 @@
           const summary = document.createElement("summary");
           const identifiers = document.createElement("p");
           const limitations = document.createElement("p");
+          let kevGuidance = null;
           title.textContent = `${text(match.component_name)}: ${text(match.match_status)}`;
           detail.textContent = `${text(match.title)}; Installed version ${text(match.installed_version, "unknown")}; Fixed version ${text(match.fixed_version, "not supplied")}`;
           badges.className = "badge-row";
@@ -4226,10 +4231,23 @@
             makeBadge(`confidence ${Math.round(Number(match.match_confidence || 0) * 100)}%`),
             makeBadge(match.known_exploited ? "source marks known exploited" : "no known-exploited source flag", match.known_exploited ? "warn" : "")
           );
+          const kev = match.kev && typeof match.kev === "object" ? match.kev : {};
+          const kevRecords = Array.isArray(kev.records) ? kev.records : [];
+          if (kevRecords.length) {
+            badges.append(makeBadge("Known Exploited", "error"));
+            if (kevRecords.some(record => record.ransomware_campaign_status === "Known")) {
+              badges.append(makeBadge("Known Ransomware Campaign", "warn"));
+            }
+            const primaryKev = kevRecords[0];
+            kevGuidance = document.createElement("p");
+            kevGuidance.textContent = `KEV record ${text(primaryKev.kev_record_id)}; exact CVE ${text(primaryKev.cve_id)}; active catalog ${text(primaryKev.catalog_version, kev.catalog_version)}; source CISA Known Exploited Vulnerabilities (${text(primaryKev.license_identifier, "CC0-1.0")}); CISA date added ${text(primaryKev.date_added)}; CISA KEV due date ${text(primaryKev.cisa_due_date)}; ransomware campaign status ${primaryKev.ransomware_campaign_status === "Known" ? "confirmed by CISA" : "unconfirmed (not No)"}; source freshness ${text(primaryKev.source_freshness)}; priority contribution +${Number(primaryKev.adjusted_weight || 0).toFixed(1)}. CISA guidance (text only, not executed): ${text(primaryKev.required_action)} Local exploitation, compromise, and active ransomware are not established.`;
+          }
           summary.textContent = "Advisory range, identifiers, and provenance";
           identifiers.textContent = `Match ${text(match.match_id)}; component ${text(match.component_id)}; advisory ${text(match.advisory_id)}; reviewed range ${text(match.affected_range)}; aliases ${Array.isArray(match.aliases) && match.aliases.length ? match.aliases.join(", ") : "none"}.`;
           limitations.textContent = `Source ${text(match.source)} record ${text(match.source_record_id)}; catalog ${text(match.catalog_version)}; license ${text(match.source_license)}. Uncertain identity or missing version is not a confirmed vulnerability. AI may explain but cannot change this result.`;
-          technical.append(summary, identifiers, limitations);
+          technical.append(summary, identifiers);
+          if (kevGuidance) technical.appendChild(kevGuidance);
+          technical.appendChild(limitations);
           main.append(title, detail, badges, technical);
           row.appendChild(main);
           vulnerabilitySection.appendChild(row);
@@ -4732,6 +4750,10 @@
       status.className = "form-status";
       try {
         const feeds = await loadJSON(endpoints.advisoryFeeds, {headers: advisorHeaders()});
+        const kev = await loadJSON(endpoints.kevSummary, {headers: advisorHeaders()});
+        const kevCatalog = kev.active_catalog || {};
+        const kevCurrent = kev.current || {};
+        byId("kev-status").textContent = `${text(kev.status)}; freshness ${text(kev.freshness)}; catalog ${text(kevCatalog.catalog_version, "none")}; released ${fmtDate(kevCatalog.catalog_date_released)}; ${Number(kevCurrent.matches || 0)} current affected match(es), ${Number(kevCurrent.assets || 0)} asset(s), ${Number(kevCurrent.ransomware_matches || 0)} ransomware-confirmed match(es). Unknown ransomware status remains unconfirmed, not No.`;
         const source = (feeds.items || [])[0];
         state.advisorySourceId = source ? source.source_id : null;
         byId("advisory-feed-status").textContent = source

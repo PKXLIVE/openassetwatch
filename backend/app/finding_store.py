@@ -160,6 +160,8 @@ FINDINGS_SCHEMA_SQL = (
         base_weight DOUBLE PRECISION NOT NULL,
         adjusted_weight DOUBLE PRECISION NOT NULL,
         ordinal INTEGER NOT NULL,
+        evidence_ref TEXT,
+        match_id TEXT,
         evaluation_run_id TEXT NOT NULL REFERENCES finding_evaluation_runs(run_id),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         CHECK (subject_type IN ('asset', 'site')),
@@ -177,6 +179,8 @@ FINDINGS_SCHEMA_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_asset_risk_score_desc ON asset_risk_scores (score DESC, site_id, asset_id)",
     "CREATE INDEX IF NOT EXISTS idx_site_risk_score_desc ON site_risk_scores (score DESC, site_id)",
     "CREATE INDEX IF NOT EXISTS idx_risk_factors_subject ON risk_factors (subject_type, site_id, asset_id, ordinal)",
+    "ALTER TABLE risk_factors ADD COLUMN IF NOT EXISTS evidence_ref TEXT",
+    "ALTER TABLE risk_factors ADD COLUMN IF NOT EXISTS match_id TEXT",
 )
 
 
@@ -545,9 +549,11 @@ class SqlFindingStore:
                 ),
                 {"site_id": site_id, "limit": MAX_RECONCILE_RECORDS + 1},
             ).mappings().all()
+            items = [dict(row) for row in rows]
+            self._attach_evidence(connection, items)
         if len(rows) > MAX_RECONCILE_RECORDS:
             raise ValueError("active finding limit exceeded")
-        return [dict(row) for row in rows]
+        return items
 
     def replace_risk(
         self,
@@ -678,12 +684,14 @@ class SqlFindingStore:
                     INSERT INTO risk_factors (
                         subject_type, site_id, asset_id, finding_id, factor_type,
                         category, label, severity, confidence, freshness,
-                        base_weight, adjusted_weight, ordinal, evaluation_run_id
+                        base_weight, adjusted_weight, ordinal, evidence_ref,
+                        match_id, evaluation_run_id
                     )
                     VALUES (
                         :subject_type, :site_id, :asset_id, :finding_id, :factor_type,
                         :category, :label, :severity, :confidence, :freshness,
-                        :base_weight, :adjusted_weight, :ordinal, :run_id
+                        :base_weight, :adjusted_weight, :ordinal, :evidence_ref,
+                        :match_id, :run_id
                     )
                     """
                 ),
@@ -701,6 +709,8 @@ class SqlFindingStore:
                     "base_weight": factor.base_weight,
                     "adjusted_weight": factor.adjusted_weight,
                     "ordinal": factor.ordinal,
+                    "evidence_ref": getattr(factor, "evidence_ref", None),
+                    "match_id": getattr(factor, "match_id", None),
                     "run_id": run_id,
                 },
             )
@@ -815,7 +825,9 @@ class SqlFindingStore:
         evidence_rows = connection.execute(statement, {"finding_ids": finding_ids}).mappings().all()
         by_finding: dict[str, list[dict[str, Any]]] = {}
         for row in evidence_rows:
-            by_finding.setdefault(str(row["finding_id"]), []).append(dict(row))
+            finding_id = str(row["finding_id"])
+            evidence = {key: value for key, value in dict(row).items() if key != "finding_id"}
+            by_finding.setdefault(finding_id, []).append(evidence)
         for item in items:
             item["evidence"] = by_finding.get(str(item["finding_id"]), [])
 
@@ -906,7 +918,8 @@ class SqlFindingStore:
             text(
                 """
                 SELECT factor_type, finding_id, category, label, severity,
-                       confidence, freshness, base_weight, adjusted_weight, ordinal
+                       confidence, freshness, base_weight, adjusted_weight,
+                       ordinal, evidence_ref, match_id
                 FROM risk_factors
                 WHERE subject_type = :subject_type
                   AND site_id = :site_id
@@ -1058,7 +1071,8 @@ class SqlFindingStore:
                 SELECT
                     subject_type, site_id, asset_id, factor_type, finding_id,
                     category, label, severity, confidence, freshness,
-                    base_weight, adjusted_weight, ordinal, risk_factor_id,
+                    base_weight, adjusted_weight, ordinal, evidence_ref,
+                    match_id, risk_factor_id,
                     ROW_NUMBER() OVER (
                         PARTITION BY subject_type, site_id, asset_id
                         ORDER BY ordinal, risk_factor_id
@@ -1073,7 +1087,7 @@ class SqlFindingStore:
             SELECT
                 site_id, asset_id, factor_type, finding_id, category, label,
                 severity, confidence, freshness, base_weight, adjusted_weight,
-                ordinal
+                ordinal, evidence_ref, match_id
             FROM ranked
             WHERE factor_rank <= 8
             ORDER BY site_id, asset_id, ordinal, risk_factor_id

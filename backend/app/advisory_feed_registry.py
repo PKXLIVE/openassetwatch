@@ -167,7 +167,7 @@ class FeedSource(_StrictModel):
     source_id: str = Field(..., min_length=3, max_length=64)
     display_name: str = Field(..., min_length=1, max_length=120)
     enabled: bool
-    adapter_type: Literal["oaw-catalog-v1"]
+    adapter_type: Literal["oaw-catalog-v1", "cisa-kev-v1"]
     adapter_version: str = Field(..., min_length=1, max_length=40)
     minimum_supported_openassetwatch_version: str | None = Field(
         default=None,
@@ -179,7 +179,7 @@ class FeedSource(_StrictModel):
     mirror: MirrorEndpoint | None = None
     expected_manifest_schema: Literal["oaw.advisory-bundle.manifest.v1"]
     expected_index_schema: Literal["oaw.advisory-mirror-index.v1"] | None = None
-    expected_payload_schema: Literal["oaw.advisory-catalog.v1"]
+    expected_payload_schema: Literal["oaw.advisory-catalog.v1", "oaw.kev-catalog.v1"]
     expected_payload_name: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$")
     expected_catalog_source: str = Field(..., min_length=1, max_length=120)
     trusted_publisher_key_ids: list[str] = Field(..., min_length=1, max_length=16)
@@ -232,6 +232,12 @@ class FeedSource(_StrictModel):
 
     @model_validator(mode="after")
     def validate_retrieval_configuration(self) -> "FeedSource":
+        expected_schema = {
+            "oaw-catalog-v1": "oaw.advisory-catalog.v1",
+            "cisa-kev-v1": "oaw.kev-catalog.v1",
+        }[self.adapter_type]
+        if self.expected_payload_schema != expected_schema:
+            raise ValueError("adapter type and expected payload schema disagree")
         required_types = {"manifest", "signature", "payload"}
         if self.retrieval_mode == "direct-bundle":
             if self.endpoint is None or self.mirror is not None:
