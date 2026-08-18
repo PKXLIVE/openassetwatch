@@ -57,6 +57,14 @@ remain local until an operator independently pins the publisher public key and
 exact hosted artifact paths in this canonical registry and then uses the normal
 preview, approval, activation, and rollback lifecycle.
 
+The separately approved CISA KEV adapter documented in `docs/CISA_KEV.md`
+reuses the same signed bundle, mirror index, verification, preview, approval,
+activation, rollback, and last-known-good controls with a typed
+`kev-prioritization` payload. It is enrichment only: activation correlates exact
+CVE aliases to existing current affected matches and cannot determine package
+version applicability. Its production source template remains disabled until
+the mirror host and distinct public keys complete maintainer review.
+
 To add a source:
 
 1. Complete the decision record in `docs/SOURCE_LICENSING_REGISTRY.md` using
