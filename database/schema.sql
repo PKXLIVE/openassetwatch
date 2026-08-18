@@ -488,6 +488,8 @@ CREATE TABLE IF NOT EXISTS risk_factors (
     base_weight DOUBLE PRECISION NOT NULL,
     adjusted_weight DOUBLE PRECISION NOT NULL,
     ordinal INTEGER NOT NULL,
+    evidence_ref TEXT,
+    match_id TEXT,
     evaluation_run_id TEXT NOT NULL REFERENCES finding_evaluation_runs(run_id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (subject_type IN ('asset', 'site')),
@@ -847,6 +849,141 @@ CREATE INDEX IF NOT EXISTS idx_vulnerability_history_match
     ON vulnerability_match_history (match_id, evaluated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_vulnerability_runs_started
     ON vulnerability_evaluation_runs (started_at DESC);
+
+CREATE TABLE IF NOT EXISTS kev_catalog_imports (
+    import_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    catalog_version TEXT NOT NULL,
+    catalog_date_released TIMESTAMPTZ NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    source_digest TEXT NOT NULL,
+    catalog_sequence BIGINT,
+    license_identifier TEXT NOT NULL,
+    provenance_json JSONB NOT NULL,
+    record_count INTEGER NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT FALSE,
+    imported_at TIMESTAMPTZ NOT NULL,
+    activated_at TIMESTAMPTZ,
+    deactivated_at TIMESTAMPTZ,
+    UNIQUE (source_id, catalog_version, payload_sha256)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_kev_imports_active
+    ON kev_catalog_imports (source_id) WHERE active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_kev_imports_released
+    ON kev_catalog_imports (catalog_date_released DESC, import_id);
+
+CREATE TABLE IF NOT EXISTS kev_records (
+    import_id TEXT NOT NULL REFERENCES kev_catalog_imports(import_id),
+    kev_record_id TEXT NOT NULL,
+    cve_id TEXT NOT NULL,
+    vendor_project TEXT NOT NULL,
+    product TEXT NOT NULL,
+    vulnerability_name TEXT NOT NULL,
+    date_added DATE NOT NULL,
+    short_description TEXT NOT NULL,
+    required_action TEXT NOT NULL,
+    cisa_due_date DATE NOT NULL,
+    ransomware_campaign_status TEXT NOT NULL,
+    notes TEXT,
+    cwes_json JSONB NOT NULL,
+    record_digest TEXT NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (import_id, kev_record_id),
+    UNIQUE (import_id, cve_id),
+    CHECK (ransomware_campaign_status IN ('Known', 'Unknown', 'Not supplied'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_kev_records_cve
+    ON kev_records (cve_id, active);
+CREATE INDEX IF NOT EXISTS idx_kev_records_date_added
+    ON kev_records (date_added DESC, cve_id);
+CREATE INDEX IF NOT EXISTS idx_kev_records_due_date
+    ON kev_records (cisa_due_date, cve_id);
+CREATE INDEX IF NOT EXISTS idx_kev_records_ransomware
+    ON kev_records (ransomware_campaign_status, active);
+CREATE INDEX IF NOT EXISTS idx_kev_records_import
+    ON kev_records (import_id, active);
+
+CREATE TABLE IF NOT EXISTS kev_record_history (
+    history_id BIGSERIAL PRIMARY KEY,
+    kev_record_id TEXT NOT NULL,
+    cve_id TEXT NOT NULL,
+    import_id TEXT NOT NULL REFERENCES kev_catalog_imports(import_id),
+    event_type TEXT NOT NULL,
+    snapshot_json JSONB NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL,
+    CHECK (event_type IN ('added', 'updated', 'removed', 'reactivated'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_kev_history_cve
+    ON kev_record_history (cve_id, recorded_at DESC);
+
+CREATE TABLE IF NOT EXISTS advisory_kev_correlations (
+    correlation_id TEXT PRIMARY KEY,
+    import_id TEXT NOT NULL REFERENCES kev_catalog_imports(import_id),
+    advisory_id TEXT NOT NULL REFERENCES advisories(advisory_id),
+    kev_record_id TEXT NOT NULL,
+    cve_id TEXT NOT NULL,
+    exact_alias TEXT NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    current BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE (import_id, advisory_id, cve_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_kev_correlations_advisory
+    ON advisory_kev_correlations (advisory_id, current);
+CREATE INDEX IF NOT EXISTS idx_kev_correlations_cve
+    ON advisory_kev_correlations (cve_id, current);
+
+CREATE TABLE IF NOT EXISTS vulnerability_priority_factors (
+    factor_id TEXT PRIMARY KEY,
+    import_id TEXT NOT NULL REFERENCES kev_catalog_imports(import_id),
+    match_id TEXT NOT NULL REFERENCES vulnerability_matches(match_id),
+    advisory_id TEXT NOT NULL REFERENCES advisories(advisory_id),
+    kev_record_id TEXT NOT NULL,
+    cve_id TEXT NOT NULL,
+    priority_status TEXT NOT NULL,
+    source_freshness TEXT NOT NULL,
+    base_weight DOUBLE PRECISION NOT NULL,
+    adjusted_weight DOUBLE PRECISION NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    current BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE (import_id, match_id, cve_id),
+    CHECK (priority_status IN ('known_exploited', 'known_exploited_ransomware')),
+    CHECK (source_freshness IN ('fresh', 'aging', 'stale')),
+    CHECK (base_weight >= 0 AND base_weight <= 25),
+    CHECK (adjusted_weight >= 0 AND adjusted_weight <= 25)
+);
+
+CREATE INDEX IF NOT EXISTS idx_kev_factors_match
+    ON vulnerability_priority_factors (match_id, current);
+CREATE INDEX IF NOT EXISTS idx_kev_factors_cve
+    ON vulnerability_priority_factors (cve_id, current);
+CREATE INDEX IF NOT EXISTS idx_kev_factors_import
+    ON vulnerability_priority_factors (import_id, current);
+CREATE INDEX IF NOT EXISTS idx_kev_factors_record_current
+    ON vulnerability_priority_factors (kev_record_id, match_id)
+    WHERE current = TRUE;
+
+CREATE TABLE IF NOT EXISTS vulnerability_priority_factor_history (
+    history_id BIGSERIAL PRIMARY KEY,
+    factor_id TEXT NOT NULL,
+    match_id TEXT NOT NULL,
+    kev_record_id TEXT NOT NULL,
+    cve_id TEXT NOT NULL,
+    previous_current BOOLEAN,
+    current_current BOOLEAN NOT NULL,
+    snapshot_json JSONB NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_kev_factor_history_match
+    ON vulnerability_priority_factor_history (match_id, recorded_at DESC);
 
 CREATE TABLE IF NOT EXISTS advisory_feed_runs (
     run_id TEXT PRIMARY KEY,
