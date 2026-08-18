@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from .advisory_catalog import AdvisoryCatalog, CatalogValidationError, parse_catalog_bytes
 from .advisory_feed_registry import FeedSource, PublisherKey, RegistryError, ReviewedFeedRegistry
+from .kev_catalog import KevCatalog, KevValidationError, canonical_kev_bytes, parse_kev_catalog_bytes
 
 
 MANIFEST_SCHEMA_VERSION = "oaw.advisory-bundle.manifest.v1"
@@ -62,9 +63,12 @@ class AdvisoryBundleManifest(_StrictModel):
     created_at: datetime
     expires_at: datetime
     payload_name: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$")
+    payload_kind: Literal["advisory-catalog", "kev-prioritization"] = "advisory-catalog"
     payload_media_type: Literal[
         "application/vnd.openassetwatch.advisory-catalog+json",
         "application/vnd.openassetwatch.advisory-catalog+gzip",
+        "application/vnd.openassetwatch.kev-catalog+json",
+        "application/vnd.openassetwatch.kev-catalog+gzip",
     ]
     payload_compression: Literal["none", "gzip"]
     payload_sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$")
@@ -92,11 +96,12 @@ class AdvisoryBundleManifest(_StrictModel):
             raise ValueError("manifest expiry must follow creation")
         if self.expires_at - self.created_at > MAX_MANIFEST_VALIDITY:
             raise ValueError("manifest validity interval exceeds one year")
-        expected_media = (
-            "application/vnd.openassetwatch.advisory-catalog+gzip"
-            if self.payload_compression == "gzip"
-            else "application/vnd.openassetwatch.advisory-catalog+json"
+        media_prefix = (
+            "application/vnd.openassetwatch.kev-catalog"
+            if self.payload_kind == "kev-prioritization"
+            else "application/vnd.openassetwatch.advisory-catalog"
         )
+        expected_media = media_prefix + ("+gzip" if self.payload_compression == "gzip" else "+json")
         if self.payload_media_type != expected_media:
             raise ValueError("payload media type and compression disagree")
         if self.payload_compression == "none" and self.compressed_bytes != self.uncompressed_bytes:
@@ -114,7 +119,7 @@ class VerifiedBundle:
     payload_bytes: bytes
     payload_digest: str
     catalog_bytes: bytes
-    catalog: AdvisoryCatalog
+    catalog: AdvisoryCatalog | KevCatalog
     catalog_checksum: str
 
 
@@ -262,6 +267,9 @@ def _validate_manifest_policy(
         raise BundleVerificationError("manifest-expired", "signed manifest has expired")
     if manifest.payload_name != source.expected_payload_name:
         raise BundleVerificationError("payload-name-mismatch", "signed payload name does not match reviewed source configuration")
+    expected_kind = "kev-prioritization" if source.adapter_type == "cisa-kev-v1" else "advisory-catalog"
+    if manifest.payload_kind != expected_kind:
+        raise BundleVerificationError("payload-kind-mismatch", "signed payload kind does not match reviewed source configuration")
     if manifest.adapter_version != source.adapter_version:
         raise BundleVerificationError("adapter-version-mismatch", "signed adapter version is not supported for this source")
     if manifest.minimum_supported_catalog_version > SUPPORTED_CATALOG_FORMAT_VERSION:
@@ -309,10 +317,26 @@ def _decompress_gzip(data: bytes, *, maximum_bytes: int, maximum_ratio: int) -> 
 
 
 def _verify_catalog_metadata(
-    catalog: AdvisoryCatalog,
+    catalog: AdvisoryCatalog | KevCatalog,
     manifest: AdvisoryBundleManifest,
     source: FeedSource,
 ) -> None:
+    if isinstance(catalog, KevCatalog):
+        if catalog.catalog_version != manifest.catalog_version:
+            raise BundleVerificationError("catalog-version-mismatch", "KEV catalog version does not match the signed manifest")
+        if catalog.source.name != source.expected_catalog_source:
+            raise BundleVerificationError("catalog-source-mismatch", "KEV source does not match reviewed configuration")
+        if catalog.source.name != manifest.upstream_provenance.source_name:
+            raise BundleVerificationError("provenance-source-mismatch", "KEV source does not match signed provenance")
+        if catalog.catalog_version != manifest.upstream_provenance.source_version:
+            raise BundleVerificationError("provenance-version-mismatch", "KEV version does not match signed provenance")
+        if catalog.source.license_identifier != manifest.license_identifier:
+            raise BundleVerificationError("license-mismatch", "KEV license does not match the signed manifest")
+        if len(catalog.records) != manifest.advisory_count:
+            raise BundleVerificationError("record-count-mismatch", "KEV record count does not match the signed manifest")
+        if manifest.alias_count != 0 or manifest.reference_count != 0:
+            raise BundleVerificationError("kev-manifest-count-invalid", "KEV bundles must not claim advisory aliases or references")
+        return
     aliases = sum(len(record.aliases) for record in catalog.advisories)
     references = sum(len(record.references) for record in catalog.advisories)
     if catalog.catalog_version != manifest.catalog_version:
@@ -373,16 +397,23 @@ def verify_bundle(
     if len(decoded_catalog_bytes) != manifest.uncompressed_bytes:
         raise BundleVerificationError("uncompressed-size-mismatch", "uncompressed byte count does not match the signed manifest")
     try:
-        catalog, checksum = parse_catalog_bytes(decoded_catalog_bytes)
-    except CatalogValidationError as exc:
-        raise BundleVerificationError("catalog-invalid", "signed payload is not a valid advisory catalog") from exc
+        if source.adapter_type == "cisa-kev-v1":
+            catalog, checksum = parse_kev_catalog_bytes(decoded_catalog_bytes)
+        else:
+            catalog, checksum = parse_catalog_bytes(decoded_catalog_bytes)
+    except (CatalogValidationError, KevValidationError) as exc:
+        raise BundleVerificationError("catalog-invalid", "signed payload is not a valid reviewed catalog") from exc
     _verify_catalog_metadata(catalog, manifest, source)
-    canonical_catalog_bytes = json.dumps(
-        catalog.model_dump(mode="json"),
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
+    canonical_catalog_bytes = (
+        canonical_kev_bytes(catalog)
+        if isinstance(catalog, KevCatalog)
+        else json.dumps(
+            catalog.model_dump(mode="json"),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
     if hashlib.sha256(canonical_catalog_bytes).hexdigest() != checksum:
         raise BundleVerificationError("catalog-canonicalization-failed", "catalog canonical digest could not be verified")
     return VerifiedBundle(
