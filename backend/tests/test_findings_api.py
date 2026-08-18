@@ -8,7 +8,11 @@ from unittest.mock import Mock, patch
 from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
 
-from app.finding_contracts import FindingEvaluateRequest, FindingSuppressRequest
+from app.finding_contracts import (
+    FindingEvaluateRequest,
+    FindingEvidenceResponse,
+    FindingSuppressRequest,
+)
 from app.finding_service import evaluate_site_best_effort
 from app.finding_store import SqlFindingStore
 from app.main import (
@@ -127,6 +131,27 @@ class FindingApiTests(unittest.TestCase):
 
         self.assertNotIn(hostile, where)
         self.assertEqual(params["rule_id"], hostile)
+
+    def test_store_evidence_projection_omits_parent_join_key(self) -> None:
+        connection = Mock()
+        connection.execute.return_value.mappings.return_value.all.return_value = [
+            {
+                "finding_id": FINDING_ID,
+                "evidence_ref": "asset-test",
+                "evidence_type": "asset",
+                "source": "unit-test",
+                "observed_at": NOW,
+                "freshness": "fresh",
+                "confidence": 1.0,
+                "summary": "Synthetic finding evidence.",
+            }
+        ]
+        items = [{"finding_id": FINDING_ID}]
+
+        SqlFindingStore._attach_evidence(connection, items)
+
+        self.assertNotIn("finding_id", items[0]["evidence"][0])
+        FindingEvidenceResponse.model_validate(items[0]["evidence"][0])
 
     def test_admin_evaluation_forwards_only_validated_scope_and_rules(self) -> None:
         result = Mock()
