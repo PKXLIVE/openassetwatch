@@ -6,7 +6,7 @@ import secrets
 import threading
 import time
 from collections import OrderedDict, deque
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -143,6 +143,7 @@ from .vulnerability_service import (
     evaluate_vulnerabilities,
 )
 from .vulnerability_store import SqlVulnerabilityStore
+from .kev_store import SqlKevStore
 
 app = FastAPI(
     title="OpenAssetWatch API",
@@ -164,6 +165,7 @@ class BoundedRequestBodyMiddleware:
         "/api/v1/admin/classifications/evaluate": 64 << 10,
         "/api/v1/admin/vulnerabilities/evaluate": 64 << 10,
         "/api/v1/admin/vulnerabilities/import": 8 << 20,
+        "/api/v1/admin/kev/evaluate": 8 << 10,
     }
     PREFIX_LIMITS = {
         "/api/v1/admin/advisory-feed": 16 << 10,
@@ -1038,6 +1040,10 @@ def _vulnerability_store() -> SqlVulnerabilityStore:
     return SqlVulnerabilityStore()
 
 
+def _kev_store() -> SqlKevStore:
+    return SqlKevStore()
+
+
 @app.get("/api/v1/components", response_model=ComponentListResponse)
 def api_components(
     site_id: str | None = Query(default=None, min_length=1, max_length=128),
@@ -1236,6 +1242,121 @@ def api_vulnerability_catalog_status(
         return _advisory_store().catalog_status()
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to load advisory catalog status") from exc
+
+
+@app.get("/api/v1/kev/status")
+def api_kev_status(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="KEV intelligence")
+    try:
+        return _kev_store().status()
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load KEV catalog status") from exc
+
+
+@app.get("/api/v1/kev")
+def api_kev_records(
+    cve: str | None = Query(default=None, min_length=13, max_length=28),
+    vendor_project: str | None = Query(default=None, min_length=1, max_length=500),
+    ransomware_status: str | None = Query(default=None, max_length=32),
+    date_added_from: date | None = Query(default=None),
+    due_date_to: date | None = Query(default=None),
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    currently_affected: bool | None = Query(default=None),
+    priority: str | None = Query(default=None, max_length=40),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=100_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="KEV intelligence")
+    try:
+        return _kev_store().list_records(
+            cve_id=cve,
+            vendor_project=vendor_project,
+            ransomware_status=ransomware_status,
+            date_added_from=date_added_from,
+            due_date_to=due_date_to,
+            site_id=site_id,
+            asset_id=asset_id,
+            currently_affected=currently_affected,
+            priority=priority,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load KEV records") from exc
+
+
+@app.get("/api/v1/kev/summary")
+def api_kev_summary(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="KEV intelligence")
+    try:
+        return _kev_store().summary(site_id=site_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load KEV summary") from exc
+
+
+@app.get("/api/v1/kev/assets/{asset_id}")
+def api_asset_kev_records(
+    asset_id: str = ApiPath(..., min_length=1, max_length=160),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    limit: int = Query(default=100, ge=1, le=200),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="KEV intelligence")
+    try:
+        return _kev_store().asset_records(asset_id=asset_id, site_id=site_id, limit=limit)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load asset KEV records") from exc
+
+
+@app.get("/api/v1/kev/{cve_id}")
+def api_kev_record(
+    cve_id: str = ApiPath(..., min_length=13, max_length=28),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="KEV intelligence")
+    try:
+        item = _kev_store().get_record(cve_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load KEV record") from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="KEV record not found in active catalog")
+    return item
+
+
+@app.post("/api/v1/admin/kev/evaluate")
+def admin_evaluate_kev(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="KEV administration")
+    if not _full_vulnerability_limiter.allow():
+        raise HTTPException(status_code=429, detail="KEV reevaluation is temporarily rate limited")
+    try:
+        result = _kev_store().rebuild_active()
+        run_ids = []
+        for site_id in result.get("affected_site_ids", [])[:10_000]:
+            evaluation = evaluate_findings(
+                trigger_type="kev-admin-full-rebuild",
+                requested_by="api-admin",
+                site_id=str(site_id),
+                rule_ids=("vulnerable-component",),
+            )
+            run_ids.append(evaluation.run_id)
+        return {**result, "finding_reevaluation_run_ids": run_ids}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to reevaluate KEV priority") from exc
 
 
 @app.post(
@@ -1952,6 +2073,7 @@ def build_read_only_hub_tools(*, include_advisory_feed_evidence: bool = False) -
             if include_advisory_feed_evidence
             else []
         ),
+        kev_status=_kev_store().status(),
     )
 
 
