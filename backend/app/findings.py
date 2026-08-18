@@ -18,7 +18,7 @@ Severity = Literal["critical", "high", "medium", "low", "informational"]
 Freshness = Literal["fresh", "aging", "stale", "unknown"]
 SubjectType = Literal["asset", "sensor", "site"]
 
-RULESET_VERSION = "oaw.findings.v3"
+RULESET_VERSION = "oaw.findings.v4"
 MAX_FINDING_CANDIDATES = 10_000
 MAX_EVIDENCE_REFERENCES = 8
 SUPPORTED_SEVERITIES = frozenset({"critical", "high", "medium", "low", "informational"})
@@ -455,37 +455,71 @@ def _vulnerability_evidence(
     freshness: Freshness,
     confidence: float,
 ) -> tuple[EvidenceReference, ...]:
-    values = (
+    values = [
         (
             _text(match.get("match_id"), limit=80),
             "vulnerability-match",
             "deterministic-vulnerability-matcher",
             "Server-issued deterministic match result.",
+            freshness,
         ),
         (
             _text(match.get("component_id"), limit=80),
             "normalized-component",
             "asset_components",
             "Server-issued normalized component inventory record.",
+            freshness,
         ),
         (
             _text(match.get("advisory_id"), limit=80),
             "reviewed-advisory",
             "local-advisory-catalog",
             "Server-issued reviewed local advisory record.",
+            freshness,
         ),
-    )
+    ]
+    kev = match.get("kev") if isinstance(match.get("kev"), dict) else {}
+    records = kev.get("records") if isinstance(kev.get("records"), list) else []
+    for record in records[:5]:
+        if not isinstance(record, dict):
+            continue
+        record_id = _text(record.get("kev_record_id"), limit=80)
+        cve_id = _text(record.get("cve_id"), limit=32)
+        if not record_id or not cve_id:
+            continue
+        ransomware = record.get("ransomware_campaign_status") == "Known"
+        ransomware_text = (
+            "CISA confirms ransomware campaign use"
+            if ransomware
+            else "ransomware campaign use is unconfirmed"
+        )
+        values.append(
+            (
+                record_id,
+                "kev-prioritization-ransomware" if ransomware else "kev-prioritization",
+                "cisa-kev",
+                (
+                    f"Exact alias {cve_id} is in CISA KEV; {ransomware_text}; "
+                    f"CISA KEV due date {record.get('cisa_due_date')}; local exploitation is not established."
+                )[:500],
+                (
+                    _text(record.get("source_freshness"), limit=16)
+                    if _text(record.get("source_freshness"), limit=16) in {"fresh", "aging", "stale"}
+                    else "unknown"
+                ),
+            )
+        )
     return tuple(
         EvidenceReference(
             evidence_ref=evidence_ref,
             evidence_type=evidence_type,
             source=source,
             observed_at=observed_at,
-            freshness=freshness,
+            freshness=evidence_freshness_value,
             confidence=confidence,
             summary=summary,
         )
-        for evidence_ref, evidence_type, source, summary in values
+        for evidence_ref, evidence_type, source, summary, evidence_freshness_value in values[:MAX_EVIDENCE_REFERENCES]
         if evidence_ref
     )
 
@@ -526,14 +560,15 @@ def _confirmed_vulnerable_components(
             )  # type: ignore[assignment]
             confidence = _confidence(match.get("match_confidence"), 0.0)
             known_exploited = bool(match.get("known_exploited"))
+            kev = match.get("kev") if isinstance(match.get("kev"), dict) else {}
+            kev_records = kev.get("records") if isinstance(kev.get("records"), list) else []
+            kev_prioritized = bool(kev_records)
             component_name = _text(
                 match.get("component_name"),
                 limit=160,
             ) or component_id
-            title = (
-                "Known-exploited vulnerable component"
-                if known_exploited
-                else "Confirmed vulnerable component"
+            title = "KEV-prioritized vulnerable component" if kev_prioritized else (
+                "Known-exploited vulnerable component" if known_exploited else "Confirmed vulnerable component"
             )
             fixed_version = _text(match.get("fixed_version"), limit=160)
             description = (
@@ -541,14 +576,34 @@ def _confirmed_vulnerable_components(
                 f"version {_text(match.get('installed_version'), limit=160) or 'unknown'} "
                 f"is affected by advisory {advisory_id}."
             )
-            recommendation = (
+            if kev_prioritized:
+                exact_cves = sorted(
+                    {
+                        _text(record.get("cve_id"), limit=32)
+                        for record in kev_records
+                        if isinstance(record, dict) and record.get("cve_id")
+                    }
+                )
+                description += (
+                    f" Exact CVE alias correlation lists {', '.join(exact_cves[:5])} in CISA KEV; "
+                    "this prioritizes review and does not establish exploitation or compromise of this asset."
+                )
+                primary = kev_records[0] if isinstance(kev_records[0], dict) else {}
+                guidance = _text(primary.get("required_action"), limit=1_000)
+                due = _text(str(primary.get("cisa_due_date") or ""), limit=32)
+                recommendation = (
+                    f"CISA guidance (text only; not executed): {guidance} "
+                    f"CISA KEV due date: {due}; this is not automatically a local SLA."
+                )
+            else:
+                recommendation = (
                 f"Review and test upgrade to {fixed_version}; no automatic patching occurs."
                 if fixed_version
                 else "Review the cited advisory and establish a tested remediation plan; no automatic patching occurs."
-            )
+                )
             yield _candidate(
                 rule_id=rule_id,
-                rule_version=1,
+                rule_version=2,
                 category="vulnerability",
                 subject_type="asset",
                 site_id=site_id,
@@ -1228,7 +1283,7 @@ RULE_REGISTRY: tuple[RuleDefinition, ...] = (
     ),
     RuleDefinition(
         rule_id="vulnerable-component",
-        version=1,
+        version=2,
         category="vulnerability",
         title="Confirmed vulnerable component",
         rationale="Only an affected result from the deterministic component-to-advisory matcher triggers this rule.",

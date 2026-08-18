@@ -174,6 +174,8 @@ class RiskFactorResponse(StrictFindingContract):
     base_weight: float
     adjusted_weight: float
     ordinal: int
+    evidence_ref: str | None = Field(default=None, max_length=80)
+    match_id: str | None = Field(default=None, max_length=80)
 
 
 class AssetRiskResponse(StrictFindingContract):
