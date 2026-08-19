@@ -888,7 +888,7 @@ This architecture does not require or authorize:
 - unrestricted workflow scripting
 - autonomous remediation
 - active exploitation
-- credential collection or cracking
+- prohibited: credential collection or cracking
 - remote shell functionality
 - command-and-control behavior
 - silent external data sharing

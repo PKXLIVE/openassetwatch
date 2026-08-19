@@ -17,7 +17,7 @@ Reliable IoT, OT, firmware, and appliance intelligence is possible only when the
 
 ## Passive-first safety boundary
 
-NIST OT guidance places active scanning in a higher-risk category because active requests can destabilize devices or interfere with process state. The audited source correction places this material in NIST SP 800-82 Rev. 3 Appendix E.2.2–E.2.3 rather than Section 6.2.1.
+NIST OT guidance places active scanning in a higher-risk category, so it must not be treated as the passive-first default: active requests can destabilize devices or interfere with process state. The audited source correction places this material in NIST SP 800-82 Rev. 3 Appendix E.2.2–E.2.3 rather than Section 6.2.1.
 
 The safe baseline is:
 
