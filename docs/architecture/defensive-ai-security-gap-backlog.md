@@ -967,7 +967,7 @@ OpenAssetWatch must not adopt:
 - command-and-control listeners or beacons
 - arbitrary command endpoints
 - unrestricted shell execution
-- unrestricted active scanning
+- prohibited: unrestricted active scanning
 - destructive remediation
 - automatic firewall or endpoint changes
 - persistence mechanisms

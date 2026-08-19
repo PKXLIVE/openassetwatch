@@ -1620,8 +1620,8 @@ This architecture does not authorize:
 - password cracking
 - remote shell management
 - command-and-control features
-- arbitrary command execution
-- unrestricted active scanning
+- prohibited: arbitrary command execution
+- prohibited: unrestricted active scanning
 - adversary emulation against operational assets
 - self-approving AI actions
 - model-generated findings without evidence
