@@ -121,9 +121,28 @@ docker run --rm --entrypoint sh openassetwatch-backend-lock-check `
 
 ## Database
 
-The default local deployment uses PostgreSQL. Runtime schema initialization is
-implemented in `backend/app/database.py`; first-run Compose initialization uses
-`database/schema.sql`.
+The default local deployment uses PostgreSQL. Versioned, immutable migration
+files under `backend/app/migration_sql/` are the durable schema authority.
+Backend lifespan startup applies and verifies them under a bounded PostgreSQL
+advisory lock before serving requests. Docker health checks use `/ready`, while
+`/health` remains process liveness.
+
+Inspect or apply the current migration state inside the backend container:
+
+```powershell
+docker compose exec backend python -m app.schema_migrations status
+docker compose exec backend python -m app.schema_migrations verify
+docker compose exec backend python -m app.schema_migrations migrate
+```
+
+`database/schema.sql` is a non-executable reference manifest for migration
+0001, not a second initialization path; invoking it with `psql` exits with an
+error before applying DDL. See `docs/DATABASE_MIGRATIONS.md` for checksums,
+existing-database adoption, transactions, failure recovery, future migration
+review, downgrade policy, and live PostgreSQL tests.
+
+Compose mounts backend source read-only at `/app`. Local reload still observes
+source changes, while migration bytes cannot be modified from the container.
 
 Control Tower tables include:
 
@@ -183,6 +202,8 @@ docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
 
 The unit tests mock the database boundary for endpoint behavior and test local
 normalization/schema helpers without requiring a live PostgreSQL instance.
+Migration integration tests are separately gated because they create and drop
+strictly named disposable PostgreSQL databases; see `docs/DATABASE_MIGRATIONS.md`.
 The transitional local-inventory route is compatibility ingestion and does not
 grant direct evidence authority from a client-declared agent or source type.
 Authenticated observation context is passed separately by the server, and

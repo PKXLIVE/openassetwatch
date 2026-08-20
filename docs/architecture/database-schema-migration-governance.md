@@ -2,17 +2,19 @@
 
 ## Purpose
 
-This document defines the future OpenAssetWatch lifecycle for changing the canonical database schema safely across local, self-hosted, distributed, and air-gapped deployments.
+This document defines the OpenAssetWatch lifecycle for changing the canonical database schema safely across local, self-hosted, distributed, and air-gapped deployments.
 
-The current project is still early enough that first-run schema initialization is practical. As deployments persist across releases, OpenAssetWatch needs a deterministic migration history, compatibility policy, backup and recovery process, and explicit startup behavior.
+The current project now has a project-native versioned baseline. As deployments persist across releases, the remaining governance in this document guides historical upgrade coverage, backfills, backup and recovery, and rolling compatibility.
 
 This document is provider-neutral. It does not require a specific migration framework or database vendor. It defines the behavior that any chosen implementation must provide.
 
 ## Architecture Status
 
-- Architecture state: `documented_direction`
-- Runtime impact: none
-- Implementation authorization: none
+- Architecture state: `implemented_baseline`
+- Runtime impact: migration 0001 is applied and verified before API readiness
+- Canonical implementation: `backend/app/schema_migrations.py` and `backend/app/migration_sql/`
+- Operator guide: `docs/DATABASE_MIGRATIONS.md`
+- Deferred: historical upgrades, large backfills, automated restore, rolling mixed-version support, and dedicated migration credentials
 
 ---
 
@@ -698,24 +700,24 @@ These details should be administrator-only and must not reveal credentials or se
 
 ### Phase A — Migration Contract
 
-- select a migration implementation compatible with the current backend
-- add migration tracking
-- define schema compatibility metadata
-- store migrations in source control
+- completed: project-native migration runner compatible with the current backend
+- completed: checksummed migration tracking and compatibility metadata
+- completed: immutable ordered migrations stored in source control
 
 ### Phase B — Current Schema Baseline
 
-- capture the current supported schema as a baseline migration
-- verify fresh-install convergence
-- document existing tables and constraints
-- prevent silent production schema mutation
+- completed: current supported schema captured as migration 0001
+- completed: fresh and compatible-existing database convergence tests
+- completed: existing tables, constraints, and legacy owners documented
+- completed: regression gate prevents silent ordinary-module DDL changes
 
 ### Phase C — Release Gates
 
-- add fresh-install and upgrade tests
-- add migration checksum validation
-- add startup compatibility check
-- add administrator status output
+- completed for the baseline: fresh-install and existing-schema adoption tests
+- completed: migration checksum validation and fail-closed history checks
+- completed: startup compatibility and readiness checks
+- completed: bounded operator status, verify, and migrate commands
+- remaining: multi-release upgrade fixtures once post-baseline migrations exist
 
 ### Phase D — Backfill Integration
 
@@ -725,7 +727,7 @@ These details should be administrator-only and must not reveal credentials or se
 
 ### Phase E — Production Hardening
 
-- add migration locking
+- completed: stable PostgreSQL advisory locking with bounded acquisition
 - add backup confirmation
 - add restore tests
 - add air-gapped migration bundle validation
