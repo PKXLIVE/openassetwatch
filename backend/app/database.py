@@ -376,50 +376,16 @@ def get_engine() -> Engine:
 
 
 def ensure_database_schema() -> None:
-    with get_engine().begin() as connection:
-        connection.execute(text(CREATE_INVENTORY_TABLE_SQL))
-        connection.execute(text(CREATE_RECEIVED_AT_INDEX_SQL))
-        connection.execute(text(CREATE_COLLECTOR_ID_INDEX_SQL))
-        connection.execute(text(CREATE_COLLECTORS_TABLE_SQL))
-        connection.execute(text(CREATE_ASSETS_TABLE_SQL))
-        connection.execute(text(CREATE_ASSET_IP_HISTORY_TABLE_SQL))
-        connection.execute(text(CREATE_ASSET_SOFTWARE_DETECTIONS_TABLE_SQL))
-        connection.execute(text(CREATE_COLLECTOR_POLICIES_TABLE_SQL))
-        connection.execute(text(CREATE_POLICY_ASSIGNMENTS_TABLE_SQL))
-        connection.execute(text(CREATE_SITES_TABLE_SQL))
-        connection.execute(text(CREATE_AGENT_ENROLLMENTS_TABLE_SQL))
-        connection.execute(text(CREATE_SENSOR_ENROLLMENTS_TABLE_SQL))
-        connection.execute(text(CREATE_SENSOR_CREDENTIALS_TABLE_SQL))
-        connection.execute(text(CREATE_SENSOR_IDENTITY_AUDIT_TABLE_SQL))
-        connection.execute(text(CREATE_AGENT_CHECKINS_TABLE_SQL))
-        connection.execute(text(CREATE_LOCAL_INVENTORY_COLLECTIONS_TABLE_SQL))
-        connection.execute(text(CREATE_CONTROL_TOWER_ASSETS_TABLE_SQL))
-        connection.execute(text(CREATE_AI_ADVISOR_RUNS_TABLE_SQL))
-        for statement in NORMALIZATION_INDEX_SQL:
-            connection.execute(text(statement))
-        # Keep the additive findings/risk schema colocated with its lifecycle
-        # repository while initializing it in the same application schema pass.
-        from .finding_store import ensure_findings_schema
+    """Compatibility entrypoint delegating to versioned migrations.
 
-        ensure_findings_schema(connection)
-        from .classification_store import ensure_classification_schema
+    FastAPI startup establishes readiness before requests are accepted. This
+    callable remains for operator scripts and existing service seams; once the
+    process engine is ready, it performs no database work.
+    """
 
-        ensure_classification_schema(connection)
-        from .component_store import ensure_component_schema
+    from .schema_migrations import ensure_schema_ready
 
-        ensure_component_schema(connection)
-        from .advisory_store import ensure_advisory_schema
-
-        ensure_advisory_schema(connection)
-        from .advisory_sync_store import ensure_advisory_sync_schema
-
-        ensure_advisory_sync_schema(connection)
-        from .vulnerability_store import ensure_vulnerability_schema
-
-        ensure_vulnerability_schema(connection)
-        from .kev_store import ensure_kev_schema
-
-        ensure_kev_schema(connection)
+    ensure_schema_ready(get_engine())
 
 
 def save_inventory_submission(

@@ -126,8 +126,11 @@ COMPONENT_SCHEMA_SQL = (
 
 
 def ensure_component_schema(connection: Any) -> None:
-    for statement in COMPONENT_SCHEMA_SQL:
-        connection.execute(text(statement))
+    """Temporary compatibility seam; versioned migrations own durable DDL."""
+
+    from .schema_migrations import ensure_schema_ready
+
+    ensure_schema_ready(connection.engine)
 
 
 def _json(value: Any) -> str:
@@ -555,8 +558,9 @@ class SqlComponentStore:
     def ensure_schema(self) -> None:
         if self._schema_ready:
             return
-        with self._engine().begin() as connection:
-            ensure_component_schema(connection)
+        from .schema_migrations import ensure_schema_ready
+
+        ensure_schema_ready(self._engine())
         self._schema_ready = True
 
     def persist(
