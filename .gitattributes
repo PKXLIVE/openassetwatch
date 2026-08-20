@@ -19,3 +19,5 @@ packaging/sensor/linux/examples/*.json text eol=lf
 backend/advisory_feeds/*.json text eol=lf
 backend/advisory_feeds/fixtures/**/*.json text eol=lf
 backend/advisory_feeds/fixtures/**/*.ed25519 -text
+backend/app/migration_sql/*.sql text eol=lf
+database/schema.sql text eol=lf

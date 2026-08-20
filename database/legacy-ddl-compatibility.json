@@ -1,0 +1,38 @@
+{
+  "schema_version": "oaw.legacy-ddl-compatibility.v1",
+  "purpose": "Frozen, non-executing compatibility references pending removal after migration-only adoption.",
+  "files": {
+    "backend/app/advisory_store.py": {
+      "sha256": "3907a1ba8c75b5ebd05e11d43c1d7f027298c362765fa6e3ec792227807d8ae5",
+      "statement_count": 15
+    },
+    "backend/app/advisory_sync_store.py": {
+      "sha256": "7bd3caa0696853675e26b75c48799b022d898b28b09acaa5f335cf56fef16ab9",
+      "statement_count": 10
+    },
+    "backend/app/classification_store.py": {
+      "sha256": "7b8dc0924b9c1c32b8a9b715f5d8debaede25786abebc36f5f43576f918385fd",
+      "statement_count": 14
+    },
+    "backend/app/component_store.py": {
+      "sha256": "4929aeacde48b2734848e90aac0d19e3485ea36bcc5325a8dfb6d5428be9fe28",
+      "statement_count": 10
+    },
+    "backend/app/database.py": {
+      "sha256": "73e19d8067e57f0481e324927728b5897870349ff7acbf6d16c836248018194f",
+      "statement_count": 64
+    },
+    "backend/app/finding_store.py": {
+      "sha256": "233a6f3a2a3546ce17552eb4146bd434f3601206667036780f3c50ba7947cfe5",
+      "statement_count": 24
+    },
+    "backend/app/kev_store.py": {
+      "sha256": "19477cf7dfd6175e1b7ccd9b352ef041d752364033cabbb9fe17700882b374a7",
+      "statement_count": 21
+    },
+    "backend/app/vulnerability_store.py": {
+      "sha256": "113f1be3e8af50a8e8b4cdf0c4aa0774387af2e5cfce86eaec3997538ccc3195",
+      "statement_count": 9
+    }
+  }
+}
