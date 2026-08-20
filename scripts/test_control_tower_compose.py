@@ -23,8 +23,10 @@ class ControlTowerComposeReadinessTests(unittest.TestCase):
 
     def test_postgres_backend_and_web_healthchecks_exist(self) -> None:
         self.assertIn("pg_isready -U openassetwatch -d openassetwatch", self.compose_text)
-        self.assertIn("urllib.request.urlopen('http://127.0.0.1:8000/health'", self.compose_text)
+        self.assertIn("urllib.request.urlopen('http://127.0.0.1:8000/ready'", self.compose_text)
         self.assertIn("wget -q -O /dev/null http://127.0.0.1/", self.compose_text)
+        self.assertNotIn("docker-entrypoint-initdb.d/schema.sql", self.compose_text)
+        self.assertIn("./backend:/app:ro", self.compose_text)
 
     def test_health_aware_dependency_ordering(self) -> None:
         self.assertRegex(
@@ -46,6 +48,7 @@ class ControlTowerComposeReadinessTests(unittest.TestCase):
             "RUN pip install --no-cache-dir --require-hashes -r /tmp/openassetwatch-requirements.txt",
             dockerfile,
         )
+        self.assertIn("COPY app ./app", dockerfile)
 
     def test_host_ports_are_localhost_only(self) -> None:
         self.assertIn('"127.0.0.1:5432:5432"', self.compose_text)

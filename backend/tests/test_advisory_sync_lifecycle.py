@@ -278,7 +278,12 @@ class AdvisoryLifecycleTests(unittest.TestCase):
         from app import advisory_sync_store
 
         source = inspect.getsource(advisory_sync_store.SqlAdvisorySyncStore)
-        static_schema = (Path(__file__).resolve().parents[2] / "database" / "schema.sql").read_text(encoding="utf-8")
+        static_schema = (
+            Path(__file__).resolve().parents[1]
+            / "app"
+            / "migration_sql"
+            / "0001_current_schema_baseline.sql"
+        ).read_text(encoding="utf-8")
         self.assertIn("idx_advisory_feed_runs_active_source", schema)
         self.assertIn("UNIQUE (source_id, catalog_sequence)", schema)
         self.assertIn("UNIQUE (source_id, manifest_digest)", schema)
