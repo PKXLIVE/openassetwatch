@@ -115,6 +115,36 @@ docker run --rm --volume "${PWD}:/workspace" --workdir /workspace `
   python -c "from app.main import app; print(app.title); print(app.version)"
 ```
 
+## Database Migration Validation
+
+Backend startup now applies the reviewed schema migration baseline before
+serving requests. Compose reports the backend healthy only when `/ready`
+confirms that the applied schema is current and checksum-valid:
+
+```powershell
+docker compose up -d --build postgres backend
+docker compose ps
+curl.exe --fail http://127.0.0.1:8000/health
+curl.exe --fail http://127.0.0.1:8000/ready
+docker compose exec backend python -m app.schema_migrations status
+docker compose exec backend python -m app.schema_migrations verify
+```
+
+Run the destructive migration lifecycle only against the Compose PostgreSQL
+service. The test harness creates random databases under its guarded
+`openassetwatch_schema_test_` prefix and refuses to drop any other database:
+
+```powershell
+docker compose run --rm --volume "${PWD}:/workspace" `
+  --workdir /workspace/backend `
+  --env OPENASSETWATCH_SCHEMA_POSTGRES_TEST=1 backend `
+  python -m unittest -v tests.test_schema_migrations_postgres
+```
+
+Do not point this gated suite at production or a shared database. Migration
+file format, recovery, backup, downgrade, and future-change instructions are
+in `docs/DATABASE_MIGRATIONS.md`.
+
 ## Git Hygiene
 
 Do not commit generated environments or caches. `.gitignore` excludes `.venv/`,

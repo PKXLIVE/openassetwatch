@@ -197,8 +197,11 @@ class AdvisorySyncStoreError(ValueError):
 
 
 def ensure_advisory_sync_schema(connection: Any) -> None:
-    for statement in ADVISORY_SYNC_SCHEMA_SQL:
-        connection.execute(text(statement))
+    """Temporary compatibility seam; versioned migrations own durable DDL."""
+
+    from .schema_migrations import ensure_schema_ready
+
+    ensure_schema_ready(connection.engine)
 
 
 def _json(value: Any) -> str:
@@ -254,8 +257,9 @@ class SqlAdvisorySyncStore:
     def ensure_schema(self) -> None:
         if self._schema_ready:
             return
-        with self._engine().begin() as connection:
-            ensure_advisory_sync_schema(connection)
+        from .schema_migrations import ensure_schema_ready
+
+        ensure_schema_ready(self._engine())
         self._schema_ready = True
 
     def create_run(

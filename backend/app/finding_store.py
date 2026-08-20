@@ -185,8 +185,11 @@ FINDINGS_SCHEMA_SQL = (
 
 
 def ensure_findings_schema(connection: Any) -> None:
-    for statement in FINDINGS_SCHEMA_SQL:
-        connection.execute(text(statement))
+    """Temporary compatibility seam; versioned migrations own durable DDL."""
+
+    from .schema_migrations import ensure_schema_ready
+
+    ensure_schema_ready(connection.engine)
 
 
 def finding_id_for_dedupe(dedupe_key: str) -> str:

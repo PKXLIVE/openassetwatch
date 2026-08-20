@@ -103,7 +103,7 @@ openassetwatch/
 |-- cmd/                      # Go command entry points such as oaw-agent
 |-- collector/                # Python collector package and tests
 |-- configs/                  # Safe configuration examples and reserved namespaces
-|-- database/                 # PostgreSQL schema bootstrap
+|-- database/                 # PostgreSQL schema reference and DDL compatibility inventory
 |-- deployment/               # Deployment planning assets
 |-- docker/                   # Docker-related support files
 |-- docs/                     # Architecture, operations, and release documentation
@@ -568,6 +568,11 @@ Future contribution areas may include:
 * Integrations
 * Splunk TA development
 * AI Advisor design
+
+Database changes are governed by the versioned migration baseline described in
+[`docs/DATABASE_MIGRATIONS.md`](docs/DATABASE_MIGRATIONS.md). The SQL history
+packaged under `backend/app/migration_sql/` is authoritative; startup verifies
+it before the backend becomes ready.
 
 ---
 

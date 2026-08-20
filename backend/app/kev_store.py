@@ -148,8 +148,11 @@ KEV_SCHEMA_SQL = (
 
 
 def ensure_kev_schema(connection: Any) -> None:
-    for statement in KEV_SCHEMA_SQL:
-        connection.execute(text(statement))
+    """Temporary compatibility seam; versioned migrations own durable DDL."""
+
+    from .schema_migrations import ensure_schema_ready
+
+    ensure_schema_ready(connection.engine)
 
 
 def _json(value: Any) -> str:
@@ -867,8 +870,9 @@ class SqlKevStore:
     def ensure_schema(self) -> None:
         if self._schema_ready:
             return
-        with self._engine().begin() as connection:
-            ensure_kev_schema(connection)
+        from .schema_migrations import ensure_schema_ready
+
+        ensure_schema_ready(self._engine())
         self._schema_ready = True
 
     def status(self, *, now: datetime | None = None) -> dict[str, Any]:

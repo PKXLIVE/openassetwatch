@@ -21,17 +21,6 @@ from app.main import (
 )
 
 
-class _FakeBegin:
-    def __init__(self, connection: Mock) -> None:
-        self.connection = connection
-
-    def __enter__(self) -> Mock:
-        return self.connection
-
-    def __exit__(self, *_args: object) -> None:
-        return None
-
-
 class ControlTowerTests(unittest.TestCase):
     def test_health_reports_control_tower_version(self) -> None:
         response = health()
@@ -205,41 +194,44 @@ class ControlTowerTests(unittest.TestCase):
         self.assertEqual(assets[0]["evidence_count"], 2)
 
     def test_schema_initialization_includes_control_tower_tables(self) -> None:
-        connection = Mock()
         fake_engine = Mock()
-        fake_engine.begin.return_value = _FakeBegin(connection)
 
-        with patch("app.database.get_engine", return_value=fake_engine):
+        with patch("app.database.get_engine", return_value=fake_engine), patch(
+            "app.schema_migrations.ensure_schema_ready"
+        ) as ensure:
             ensure_database_schema()
 
-        executed_sql = "\n".join(str(call.args[0]) for call in connection.execute.call_args_list)
-        self.assertIn("CREATE TABLE IF NOT EXISTS sites", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS agent_enrollments", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS sensor_enrollments", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS sensor_credentials", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS sensor_identity_audit_events", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS agent_checkins", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS local_inventory_collections", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS control_tower_assets", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS ai_advisor_runs", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS finding_evaluation_runs", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS findings", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS finding_evidence", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS asset_risk_scores", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS site_risk_scores", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS risk_factors", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS classification_evidence", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS classification_runs", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS asset_classifications", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS asset_classification_history", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS asset_classification_evidence", executed_sql)
-        self.assertIn("CREATE TABLE IF NOT EXISTS classification_conflicts", executed_sql)
-        self.assertIn("idx_local_inventory_observation_batch", executed_sql)
-        self.assertIn("idx_sensor_credentials_sensor_status", executed_sql)
-        self.assertIn("idx_findings_site_status", executed_sql)
-        self.assertIn("idx_classification_evidence_asset", executed_sql)
-        self.assertIn("idx_asset_classifications_filters", executed_sql)
-        self.assertIn("idx_classification_conflicts_open", executed_sql)
+        ensure.assert_called_once_with(fake_engine)
+        migration = (
+            Path(__file__).resolve().parents[1]
+            / "app"
+            / "migration_sql"
+            / "0001_current_schema_baseline.sql"
+        ).read_text(encoding="utf-8")
+        for schema_object in (
+            "sites",
+            "agent_enrollments",
+            "sensor_enrollments",
+            "sensor_credentials",
+            "sensor_identity_audit_events",
+            "agent_checkins",
+            "local_inventory_collections",
+            "control_tower_assets",
+            "ai_advisor_runs",
+            "finding_evaluation_runs",
+            "findings",
+            "finding_evidence",
+            "asset_risk_scores",
+            "site_risk_scores",
+            "risk_factors",
+            "classification_evidence",
+            "classification_runs",
+            "asset_classifications",
+            "asset_classification_history",
+            "asset_classification_evidence",
+            "classification_conflicts",
+        ):
+            self.assertIn(f"CREATE TABLE IF NOT EXISTS {schema_object}", migration)
 
     def test_release_status_is_metadata_only(self) -> None:
         response = api_agent_release_status()

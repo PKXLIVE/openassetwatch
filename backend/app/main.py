@@ -6,6 +6,7 @@ import secrets
 import threading
 import time
 from collections import OrderedDict, deque
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from .database import (
     create_agent_enrollment,
     create_site,
     find_assigned_collector_policy,
+    get_engine,
     latest_inventory_submission,
     list_agent_checkins,
     list_agent_enrollments,
@@ -144,13 +146,44 @@ from .vulnerability_service import (
 )
 from .vulnerability_store import SqlVulnerabilityStore
 from .kev_store import SqlKevStore
+from .schema_migrations import (
+    SchemaMigrationError,
+    ensure_schema_ready,
+    runtime_schema_readiness,
+    set_runtime_migration_failure,
+)
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def application_lifespan(_application: FastAPI):
+    """Establish schema compatibility before the API accepts requests."""
+
+    try:
+        ensure_schema_ready(get_engine())
+    except SchemaMigrationError as exc:
+        LOGGER.error("database schema startup failed: %s", exc.code)
+        raise RuntimeError(
+            f"database schema startup failed ({exc.code})"
+        ) from None
+    except Exception as exc:
+        code = f"database-{type(exc).__name__.lower()}"[:80]
+        set_runtime_migration_failure(code)
+        LOGGER.error("database schema startup failed: %s", code)
+        raise RuntimeError(
+            f"database schema startup failed ({code})"
+        ) from None
+    yield
+
 
 app = FastAPI(
     title="OpenAssetWatch API",
     description="Open-source family network asset intelligence platform.",
     version="0.1.0",
+    lifespan=application_lifespan,
 )
-LOGGER = logging.getLogger(__name__)
 
 
 class BoundedRequestBodyMiddleware:
@@ -630,6 +663,15 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class ReadinessResponse(BaseModel):
+    status: str
+    service: str
+    schema_state: str
+    current_schema_version: int
+    latest_schema_version: int
+    failure_code: str | None = None
+
+
 class SiteRequest(BaseModel):
     site_id: str = Field(..., min_length=1)
     name: str = Field(..., min_length=1)
@@ -725,6 +767,22 @@ def health():
         "service": "openassetwatch-control-tower",
         "version": CONTROL_TOWER_VERSION,
     }
+
+
+@app.get("/ready", response_model=ReadinessResponse)
+def readiness():
+    schema = runtime_schema_readiness()
+    payload = {
+        "status": "ready" if schema["state"] == "ready" else "unready",
+        "service": "openassetwatch-control-tower",
+        "schema_state": schema["state"],
+        "current_schema_version": int(schema["current_version"]),
+        "latest_schema_version": int(schema["latest_available_version"]),
+        "failure_code": schema["failure_code"],
+    }
+    if schema["state"] != "ready":
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 @app.get("/ui", include_in_schema=False)
