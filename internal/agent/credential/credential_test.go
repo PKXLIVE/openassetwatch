@@ -66,6 +66,11 @@ func TestInvalidReplacementPreservesExistingCredential(t *testing.T) {
 
 func TestCredentialRejectsSymlinkAndHardLink(t *testing.T) {
 	root := t.TempDir()
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+		if err := os.Chmod(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	target := filepath.Join(root, "target.json")
 	if err := os.WriteFile(target, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
