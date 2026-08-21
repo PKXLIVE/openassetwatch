@@ -84,9 +84,9 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         second = migrate_database_schema(self.database_engine)
 
         self.assertEqual(first.state, "ready")
-        self.assertEqual(first.current_version, 1)
+        self.assertEqual(first.current_version, 2)
         self.assertEqual(second, first)
-        self.assertEqual(self._state_count(), 1)
+        self.assertEqual(self._state_count(), 2)
         with self.database_engine.connect() as connection:
             table_count = int(
                 connection.execute(
@@ -158,7 +158,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         status = migrate_database_schema(self.database_engine)
 
         self.assertEqual(status.state, "ready")
-        self.assertEqual(self._state_count(), 1)
+        self.assertEqual(self._state_count(), 2)
         with self.database_engine.connect() as connection:
             preserved = connection.execute(
                 text(
@@ -381,7 +381,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
                     INSERT INTO oaw_schema_migrations (
                         version, name, checksum, execution_duration_ms,
                         application_version, minimum_application_version
-                    ) VALUES (2, 'unknown', :checksum, 0, '0.1.0', '0.1.0')
+                    ) VALUES (3, 'unknown', :checksum, 0, '0.1.0', '0.1.0')
                     """
                 ),
                 {"checksum": "a" * 64},
@@ -411,7 +411,26 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(len(results), 2)
         self.assertTrue(all(isinstance(item, type(results[0])) for item in results))
         self.assertTrue(all(getattr(item, "state", None) == "ready" for item in results))
-        self.assertEqual(self._state_count(), 1)
+        self.assertEqual(self._state_count(), 2)
+
+    def test_version_one_database_upgrades_to_endpoint_agent_identity(self) -> None:
+        migrations = discover_migrations()
+        first = migrate_database_schema(self.database_engine, migrations=(migrations[0],))
+
+        self.assertEqual(first.current_version, 1)
+        upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
+
+        self.assertEqual(upgraded.state, "ready")
+        self.assertEqual(upgraded.current_version, 2)
+        self.assertEqual(self._state_count(), 2)
+        with self.database_engine.connect() as connection:
+            tables = {
+                connection.execute(text("SELECT to_regclass('public.endpoint_agent_enrollments')")).scalar_one(),
+                connection.execute(text("SELECT to_regclass('public.endpoint_agent_credentials')")).scalar_one(),
+                connection.execute(text("SELECT to_regclass('public.endpoint_agent_identity_audit_events')")).scalar_one(),
+                connection.execute(text("SELECT to_regclass('public.endpoint_agent_inventory_batches')")).scalar_one(),
+            }
+        self.assertNotIn(None, tables)
 
     def test_lock_contention_times_out_without_schema_change(self) -> None:
         with self.database_engine.connect() as blocker:

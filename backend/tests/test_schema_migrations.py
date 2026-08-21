@@ -73,18 +73,29 @@ class MigrationDiscoveryTests(unittest.TestCase):
     def test_packaged_baseline_is_ordered_checksummed_and_complete(self) -> None:
         migrations = discover_migrations()
 
-        self.assertEqual([item.version for item in migrations], [1])
+        self.assertEqual([item.version for item in migrations], [1, 2])
         self.assertEqual(migrations[0].name, "current_schema_baseline")
+        self.assertEqual(migrations[1].name, "endpoint_agent_identity")
         self.assertEqual(
             migrations[0].checksum,
             hashlib.sha256(
                 (MIGRATION_DIRECTORY / "0001_current_schema_baseline.sql").read_bytes()
             ).hexdigest(),
         )
+        self.assertEqual(
+            migrations[1].checksum,
+            hashlib.sha256(
+                (MIGRATION_DIRECTORY / "0002_endpoint_agent_identity.sql").read_bytes()
+            ).hexdigest(),
+        )
         contract = schema_contract(migrations)
         self.assertIn("oaw_schema_migrations", contract.columns)
         self.assertIn("classification_evidence", contract.columns)
         self.assertIn("vulnerability_priority_factors", contract.columns)
+        self.assertIn("endpoint_agent_enrollments", contract.columns)
+        self.assertIn("endpoint_agent_credentials", contract.columns)
+        self.assertIn("endpoint_agent_identity_audit_events", contract.columns)
+        self.assertIn("endpoint_agent_inventory_batches", contract.columns)
         self.assertGreaterEqual(len(contract.columns), 50)
 
     def test_duplicate_version_is_rejected(self) -> None:
