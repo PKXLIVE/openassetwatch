@@ -2306,8 +2306,8 @@
               </div>
               <div class="table-scroll">
                 <table>
-                  <thead><tr><th>ID</th><th>Site</th><th>Platform</th><th>Version</th><th>Mode</th><th>Last Seen</th><th>Status</th></tr></thead>
-                  <tbody id="endpoint-agents"><tr><td colspan="7" class="empty-state"><strong>Loading endpoint agents</strong>Endpoint records will appear here.</td></tr></tbody>
+                  <thead><tr><th>ID</th><th>Site</th><th>Platform</th><th>Version</th><th>Identity</th><th>Credential</th><th>Inventory</th><th>Authority</th><th>Last Seen</th><th>Status</th></tr></thead>
+                  <tbody id="endpoint-agents"><tr><td colspan="10" class="empty-state"><strong>Loading endpoint agents</strong>Endpoint records will appear here.</td></tr></tbody>
                 </table>
               </div>
             </section>
@@ -2319,8 +2319,8 @@
               </div>
               <div class="table-scroll">
                 <table>
-                  <thead><tr><th>ID</th><th>Site</th><th>Platform</th><th>Version</th><th>Mode</th><th>Last Seen</th><th>Status</th></tr></thead>
-                  <tbody id="passive-sensors"><tr><td colspan="7" class="empty-state"><strong>Loading passive sensors</strong>Sensor records will appear here.</td></tr></tbody>
+                  <thead><tr><th>ID</th><th>Site</th><th>Platform</th><th>Version</th><th>Identity</th><th>Credential</th><th>Inventory</th><th>Authority</th><th>Last Seen</th><th>Status</th></tr></thead>
+                  <tbody id="passive-sensors"><tr><td colspan="10" class="empty-state"><strong>Loading passive sensors</strong>Sensor records will appear here.</td></tr></tbody>
                 </table>
               </div>
             </section>
@@ -4274,7 +4274,7 @@
       clearNode(body);
       if (!values.length) {
         const title = targetId === "endpoint-agents" ? "No agents or sensors yet" : "No passive sensors yet";
-        renderTableEmpty(body, 7, title, "Collector records will appear here after enrollment.");
+        renderTableEmpty(body, 10, title, "Collector records will appear here after enrollment.");
         return;
       }
       values.forEach(agent => {
@@ -4293,7 +4293,10 @@
         appendCell(row, agent.site_id);
         appendCell(row, `${text(agent.platform)} / ${text(agent.architecture)}`);
         appendCell(row, agent.version);
-        appendCell(row, agent.mode);
+        appendCell(row, agent.identity_status || "legacy");
+        appendCell(row, agent.credential_status || "unbound");
+        appendCell(row, agent.latest_inventory_state || "not submitted");
+        appendCell(row, agent.source_authority || "untrusted-legacy");
         appendCell(row, fmtDate(status.latest ? status.latest.received_at : agent.last_seen_at));
         const statusCell = document.createElement("td");
         statusCell.appendChild(makeBadge(status.label, status.kind));
@@ -4328,6 +4331,14 @@
         ["Platform", `${text(agent.platform)} / ${text(agent.architecture)}`],
         ["Mode", agent.mode],
         ["Version", agent.version],
+        ["Identity status", agent.identity_status || "legacy"],
+        ["Credential status", agent.credential_status || "unbound"],
+        ["Credential ID", agent.credential_id || "not issued"],
+        ["Deployment", agent.deployment_id || "not bound"],
+        ["Source authority", agent.source_authority || "untrusted-legacy"],
+        ["Compatibility path", agent.compatibility_legacy ? "legacy / lower trust" : "bound identity"],
+        ["Latest inventory", agent.latest_inventory_state || "not submitted"],
+        ["Latest inventory at", fmtDate(agent.latest_inventory_at)],
         ["Last seen", fmtDate(status.latest ? status.latest.received_at : agent.last_seen_at)],
         ["Derived status", status.label]
       ];
