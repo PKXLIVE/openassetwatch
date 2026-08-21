@@ -5,6 +5,12 @@ forward-only migration runner. This is the versioned baseline for future
 schema changes; it is not a claim that upgrades from releases predating this
 baseline have been tested.
 
+The second ordered migration,
+`backend/app/migration_sql/0002_endpoint_agent_identity.sql`, adds the
+digest-only endpoint-agent identity and idempotent inventory-batch registry.
+It is applied only through this migration runner; endpoint identity service
+modules do not execute DDL.
+
 ## Authority and packaged files
 
 The durable schema authority is the ordered SQL history in

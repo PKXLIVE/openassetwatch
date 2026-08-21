@@ -1,5 +1,11 @@
 # Ingestion API
 
+The authenticated endpoint-agent contract and its authority/idempotency rules
+are documented in
+[ENDPOINT_AGENT_IDENTITY.md](ENDPOINT_AGENT_IDENTITY.md). Existing collector
+and passive-sensor contracts remain available and are not reclassified by the
+new credential path.
+
 This document records the transitional Go local inventory endpoint, the first
 normalized outbound observation-batch contract for future spokes, and the
 identity model needed for future tenant, deployment, and CMDB reconciliation.
