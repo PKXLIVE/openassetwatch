@@ -8,11 +8,12 @@ import (
 )
 
 type AgentPaths struct {
-	IdentityPath string `json:"default_agent_identity_path"`
-	ConfigPath   string `json:"default_agent_config_path"`
-	StateDir     string `json:"default_agent_state_dir"`
-	LogDir       string `json:"default_agent_log_dir"`
-	StatusPath   string `json:"default_agent_status_path"`
+	IdentityPath   string `json:"default_agent_identity_path"`
+	CredentialPath string `json:"default_agent_credential_path"`
+	ConfigPath     string `json:"default_agent_config_path"`
+	StateDir       string `json:"default_agent_state_dir"`
+	LogDir         string `json:"default_agent_log_dir"`
+	StatusPath     string `json:"default_agent_status_path"`
 }
 
 func DefaultAgentPaths() AgentPaths {
@@ -32,12 +33,17 @@ func AgentPathsForOS(goos string, getenv func(string) string) AgentPaths {
 	stateDir := defaultAgentStateDir(goos, getenv)
 	logDir := defaultAgentLogDir(goos, getenv)
 	return AgentPaths{
-		IdentityPath: defaultIdentityPath(goos, dir),
-		ConfigPath:   defaultConfigPath(goos, dir),
-		StateDir:     stateDir,
-		LogDir:       logDir,
-		StatusPath:   defaultStatusPath(goos, stateDir, logDir),
+		IdentityPath:   defaultIdentityPath(goos, dir),
+		CredentialPath: defaultCredentialPath(goos, stateDir),
+		ConfigPath:     defaultConfigPath(goos, dir),
+		StateDir:       stateDir,
+		LogDir:         logDir,
+		StatusPath:     defaultStatusPath(goos, stateDir, logDir),
 	}
+}
+
+func DefaultCredentialPath() string {
+	return DefaultAgentPaths().CredentialPath
 }
 
 func DefaultIdentityPath() string {
@@ -94,6 +100,17 @@ func defaultConfigPath(goos string, dir string) string {
 		return path.Join(dir, "config", "config.json")
 	default:
 		return path.Join(dir, "config.json")
+	}
+}
+
+func defaultCredentialPath(goos string, stateDir string) string {
+	switch goos {
+	case "windows":
+		return windowsPathJoin(stateDir, "credential", "credential.json")
+	case "darwin":
+		return path.Join(stateDir, "credential", "credential.json")
+	default:
+		return path.Join(stateDir, "credential", "credential.json")
 	}
 }
 
