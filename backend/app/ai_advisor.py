@@ -70,6 +70,7 @@ class EvidenceItem(StrictModel):
     asset_id: str | None = None
     finding_id: str | None = None
     authority: Literal["deterministic-engine", "normalized-evidence"] = "normalized-evidence"
+    source_authority: Literal["authenticated-endpoint", "untrusted-legacy"] | None = None
     source: str
     observed_at: datetime | None = None
     freshness: Literal["fresh", "aging", "stale", "unknown"]
@@ -375,9 +376,19 @@ def _project_risk(item: dict[str, Any]) -> dict[str, Any]:
             )
     return {
         "score": int(_bounded_number(item.get("score"), minimum=0.0, maximum=100.0)),
+        "band": _text(item.get("band"), limit=32) or "unknown",
         "formula_version": _text(item.get("formula_version"), limit=64) or "oaw.risk.v1",
+        "evaluation_run_id": _text(item.get("evaluation_run_id"), limit=160) or None,
+        "calculated_at": _datetime(item.get("calculated_at")),
         "factors": projected_factors,
     }
+
+
+def _asset_risk_evidence_id(site_id: str, asset_id: str, risk: dict[str, Any]) -> str | None:
+    run_id = _text(risk.get("evaluation_run_id"), limit=160)
+    if not run_id:
+        return None
+    return f"risk:asset:{site_id}:{asset_id}:{run_id}"
 
 
 def _management_status(asset: dict[str, Any]) -> str:
@@ -423,6 +434,7 @@ class ReadOnlyHubTools:
             "environment_summary",
             "site_summary",
             "sensor_health",
+            "endpoint_agent_identity",
             "highest_risk_assets",
             "unmanaged_assets",
             "findings_by_site",
@@ -793,6 +805,12 @@ class ReadOnlyHubTools:
             "last_seen_at": last_seen,
             "data_freshness": freshness(last_seen, now=self.now),
             "observation_source": _text(sensor.get("mode")) or agent_type,
+            "credential_id": _text(sensor.get("credential_id"), limit=80) or None,
+            "credential_status": _text(sensor.get("credential_status"), limit=32) or "unbound",
+            "source_authority": _text(sensor.get("source_authority"), limit=40) or "untrusted-legacy",
+            "latest_inventory_batch_id": _text(sensor.get("latest_inventory_batch_id"), limit=160) or None,
+            "latest_inventory_state": _text(sensor.get("latest_inventory_state"), limit=32) or "not-submitted",
+            "latest_inventory_at": _datetime(sensor.get("latest_inventory_at")),
         }
 
     def _project_classification(
@@ -1242,6 +1260,14 @@ class ReadOnlyHubTools:
                 reverse=True,
             )
             return _bounded(values)
+        if tool_name == "endpoint_agent_identity":
+            return _bounded(
+                [
+                    sensor
+                    for sensor in self._filtered_sensors(site_id)
+                    if sensor["sensor_type"] == "endpoint-collector"
+                ]
+            )
         if tool_name == "classification_conflicts":
             values = [
                 item
@@ -1593,6 +1619,36 @@ class ReadOnlyHubTools:
                         confidence=finding["confidence"],
                     )
                 )
+        for (risk_site_id, risk_asset_id), risk in self.asset_risks.items():
+            if site_id and risk_site_id != site_id:
+                continue
+            if asset_id and risk_asset_id != asset_id:
+                continue
+            risk_evidence_id = _asset_risk_evidence_id(
+                risk_site_id,
+                risk_asset_id,
+                risk,
+            )
+            if risk_evidence_id is None:
+                continue
+            evidence.append(
+                EvidenceItem(
+                    evidence_id=risk_evidence_id,
+                    evidence_type="deterministic_asset_risk",
+                    summary=(
+                        f"{risk_evidence_id}: deterministic asset risk is "
+                        f"{risk['score']} ({risk['band']}) under "
+                        f"{risk['formula_version']}."
+                    ),
+                    site_id=risk_site_id,
+                    asset_id=risk_asset_id,
+                    authority="deterministic-engine",
+                    source="deterministic-findings-risk-engine",
+                    observed_at=risk["calculated_at"],
+                    freshness=freshness(risk["calculated_at"], now=self.now),
+                    confidence=1.0,
+                )
+            )
         for classification in self._filtered_classifications(site_id, asset_id):
             evidence.append(
                 EvidenceItem(
@@ -1796,7 +1852,35 @@ class ReadOnlyHubTools:
                         confidence=1.0,
                     )
                 )
-        for sensor in ([] if self.authoritative_findings else self._filtered_sensors(site_id)):
+        for sensor in self._filtered_sensors(site_id):
+            if sensor["sensor_type"] == "endpoint-collector":
+                source_authority = sensor["source_authority"]
+                evidence.append(
+                    EvidenceItem(
+                        evidence_id=f"agent:{sensor['sensor_id']}:identity",
+                        evidence_type="endpoint_agent_identity",
+                        summary=(
+                            f"Endpoint agent {sensor['sensor_id']} identity is "
+                            f"{sensor['identity_status']}; credential is "
+                            f"{sensor['credential_status']}; latest inventory is "
+                            f"{sensor['latest_inventory_state']}; source authority is "
+                            f"{source_authority}."
+                        ),
+                        site_id=sensor["site_id"],
+                        sensor_id=sensor["sensor_id"],
+                        source_authority=source_authority,
+                        source="endpoint-agent-identity-registry",
+                        observed_at=sensor["latest_inventory_at"] or sensor["last_seen_at"],
+                        freshness=sensor["data_freshness"],
+                        confidence=(
+                            1.0
+                            if source_authority == "authenticated-endpoint"
+                            else 0.35
+                        ),
+                    )
+                )
+            if self.authoritative_findings:
+                continue
             if sensor["sensor_status"] not in {"stale", "never-seen"}:
                 continue
             evidence.append(
@@ -1910,6 +1994,7 @@ def select_tools(question: str) -> list[str]:
     rules = (
         (("site", "compare", "posture"), "site_summary"),
         (("sensor", "checking in", "check-in", "stopped"), "sensor_health"),
+        (("agent identity", "agent enrollment", "credential status", "inventory completeness"), "endpoint_agent_identity"),
         (("risk", "attention", "first", "risky"), "highest_risk_assets"),
         (("unmanaged", "weakly managed", "weakly-managed"), "unmanaged_assets"),
         (("finding", "findings", "why"), "findings_by_site"),
@@ -2025,6 +2110,23 @@ def build_tool_context(
         finding_id = item.get("finding_id")
         if isinstance(finding_id, str):
             priority_ids.append(f"finding:{finding_id}")
+        risk = item.get("risk")
+        if isinstance(risk, dict):
+            risk_evidence_id = _asset_risk_evidence_id(
+                str(item.get("site_id") or ""),
+                str(item.get("asset_id") or ""),
+                risk,
+            )
+            if risk_evidence_id:
+                priority_ids.append(risk_evidence_id)
+    for item in results.get("endpoint_agent_identity", {}).get("items", [])[:8]:
+        sensor_id = item.get("sensor_id")
+        if isinstance(sensor_id, str):
+            priority_ids.append(f"agent:{sensor_id}:identity")
+    for item in results.get("classification_evidence", {}).get("items", [])[:8]:
+        evidence_id = item.get("evidence_id")
+        if isinstance(evidence_id, str):
+            priority_ids.append(evidence_id)
     evidence = tools.evidence_catalog(
         site_id=site_id,
         asset_id=asset_id,
@@ -2137,6 +2239,63 @@ class DeterministicDemoProvider:
                     if finding_id
                     else ""
                 )
+                risk_evidence_id = (
+                    _asset_risk_evidence_id(
+                        str(risk_item.get("site_id") or ""),
+                        str(risk_item.get("asset_id") or ""),
+                        risk_item.get("risk") or {},
+                    )
+                    if isinstance(risk_item, dict)
+                    else None
+                )
+                endpoint_agents = results.get(
+                    "endpoint_agent_identity",
+                    {},
+                ).get("items", [])
+                endpoint_agent = endpoint_agents[0] if endpoint_agents else None
+                agent_evidence_id = (
+                    f"agent:{endpoint_agent['sensor_id']}:identity"
+                    if isinstance(endpoint_agent, dict)
+                    and "agent identity" in text
+                    else None
+                )
+                agent_clause = (
+                    (
+                        f"Authenticated endpoint identity {endpoint_agent['sensor_id']} "
+                        f"(evidence {agent_evidence_id}) is "
+                        f"{endpoint_agent['identity_status']}. "
+                    )
+                    if agent_evidence_id
+                    and endpoint_agent.get("source_authority")
+                    == "authenticated-endpoint"
+                    else (
+                        f"Lower-trust legacy endpoint identity "
+                        f"{endpoint_agent['sensor_id']} "
+                        f"(evidence {agent_evidence_id}) is "
+                        f"{endpoint_agent['identity_status']}; it is not "
+                        f"authenticated endpoint authority. "
+                    )
+                    if agent_evidence_id
+                    else ""
+                )
+                classification_evidence = results.get(
+                    "classification_evidence",
+                    {},
+                ).get("items", [])
+                direct_evidence = next(
+                    (
+                        item
+                        for item in classification_evidence
+                        if isinstance(item, dict) and item.get("direct")
+                    ),
+                    None,
+                )
+                classification_evidence_id = (
+                    direct_evidence.get("evidence_id")
+                    if isinstance(direct_evidence, dict)
+                    and "classification evidence" in text
+                    else None
+                )
                 kev_records = (
                     match.get("kev", {}).get("records", [])
                     if isinstance(match.get("kev"), dict)
@@ -2159,6 +2318,7 @@ class DeterministicDemoProvider:
                         "This does not establish local exploitation, compromise, or active ransomware. "
                     )
                 answer = (
+                    f"{agent_clause}"
                     f"Deterministic match {match['match_id']} reports "
                     f"component {match['component_id']} as affected by "
                     f"advisory {match['advisory_id']} "
@@ -2177,6 +2337,9 @@ class DeterministicDemoProvider:
                         match["component_id"],
                         match["advisory_id"],
                         f"finding:{finding_id}" if finding_id else None,
+                        risk_evidence_id,
+                        agent_evidence_id,
+                        classification_evidence_id,
                         kev_record.get("kev_record_id") if isinstance(kev_record, dict) else None,
                     )
                     if value
