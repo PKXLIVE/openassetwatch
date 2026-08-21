@@ -344,7 +344,10 @@ class ObservationBatchTests(unittest.TestCase):
     def test_authenticated_observation_context_is_server_derived(self) -> None:
         payload = batch_payload()
         with (
-            patch("app.database.create_agent_enrollment"),
+            patch("app.database.create_agent_enrollment") as legacy_enrollment,
+            patch(
+                "app.database._refresh_authenticated_observation_agent"
+            ) as refresh_identity,
             patch(
                 "app.database.record_local_inventory_collection",
                 return_value={
@@ -361,6 +364,12 @@ class ObservationBatchTests(unittest.TestCase):
                 source_authenticated=True,
             )
 
+        legacy_enrollment.assert_not_called()
+        self.assertEqual(refresh_identity.call_args.kwargs["agent_id"], "sensor-home")
+        self.assertEqual(refresh_identity.call_args.kwargs["site_id"], "home")
+        self.assertEqual(
+            refresh_identity.call_args.kwargs["agent_type"], "network-sensor"
+        )
         self.assertTrue(record_local.call_args.kwargs["source_authenticated"])
 
 

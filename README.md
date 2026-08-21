@@ -6,6 +6,10 @@ The long-term vision is to provide enterprise-grade asset visibility using open-
 
 > Status: Early MVP / active development
 
+The authenticated Go endpoint-agent enrollment and canonical inventory path is
+documented in
+[docs/ENDPOINT_AGENT_IDENTITY.md](docs/ENDPOINT_AGENT_IDENTITY.md).
+
 ---
 
 ## Official Project

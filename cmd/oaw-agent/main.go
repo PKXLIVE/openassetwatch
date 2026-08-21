@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -17,6 +18,8 @@ import (
 	"time"
 
 	agentconfig "github.com/openassetwatch/openassetwatch/internal/agent/config"
+	agentcredential "github.com/openassetwatch/openassetwatch/internal/agent/credential"
+	agenthubclient "github.com/openassetwatch/openassetwatch/internal/agent/hubclient"
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
 	agentinstallplan "github.com/openassetwatch/openassetwatch/internal/agent/installplan"
 	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
@@ -45,6 +48,18 @@ func main() {
 }
 
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "enroll" {
+		return runEnroll(args[1:], os.Stdin, stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "credential-status" {
+		return runCredentialStatus(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "replace-credential" {
+		return runReplaceCredential(args[1:], stderr)
+	}
+	if len(args) > 0 && args[0] == "clear-credential" {
+		return runClearCredential(args[1:], stdout, stderr)
+	}
 	if len(args) > 0 && args[0] == "collect" {
 		return runCollect(args[1:], stdout, stderr)
 	}
@@ -164,12 +179,14 @@ func runCollect(args []string, stdout io.Writer, stderr io.Writer) int {
 
 func runCheckIn(args []string, stdout io.Writer, stderr io.Writer) int {
 	var configPath string
+	var credentialPath string
 	var identityPath string
 	var serverURL string
 
 	flags := flag.NewFlagSet("oaw-agent check-in", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&configPath, "config", "", "optional non-secret local agent config JSON file")
+	flags.StringVar(&credentialPath, "credential-file", "", "protected endpoint-agent credential record")
 	flags.StringVar(&identityPath, "identity-file", "", "non-secret local agent identity JSON file")
 	flags.StringVar(&serverURL, "server-url", "", "explicit OpenAssetWatch backend URL")
 	if err := flags.Parse(args); err != nil {
@@ -201,13 +218,237 @@ func runCheckIn(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 1
 	}
 
-	statusCode, err := postJSON(context.Background(), submitHTTPClient(), serverURL, agentCheckInPath, body)
+	credentialRecord, credentialFound, err := loadOptionalAgentCredential(credentialPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "failed to load endpoint-agent credential")
+		return 1
+	}
+	statusCode := 0
+	if credentialFound {
+		if err := validateCredentialIdentity(credentialRecord, identity); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		client, clientErr := agenthubclient.New(serverURL)
+		if clientErr != nil {
+			fmt.Fprintln(stderr, clientErr)
+			return 2
+		}
+		statusCode, err = client.CheckIn(
+			context.Background(),
+			credentialRecord.Credential,
+			buildBoundAgentCheckInPayload(identity),
+		)
+	} else {
+		statusCode, err = postJSON(context.Background(), submitHTTPClient(), serverURL, agentCheckInPath, body)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "check-in failed: %v\n", err)
 		return 1
 	}
 
 	fmt.Fprintf(stdout, "agent check-in accepted: HTTP %d\n", statusCode)
+	return 0
+}
+
+func runEnroll(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
+	var configPath string
+	var credentialPath string
+	var displayName string
+	var enrollmentTokenFile string
+	var enrollmentTokenStdin bool
+	var identityPath string
+	var installationID string
+	var serverURL string
+
+	flags := flag.NewFlagSet("oaw-agent enroll", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&configPath, "config", "", "optional non-secret local agent config JSON file")
+	flags.StringVar(&credentialPath, "credential-file", "", "protected endpoint-agent credential output")
+	flags.StringVar(&displayName, "display-name", "", "optional bounded agent display name")
+	flags.StringVar(&enrollmentTokenFile, "enrollment-token-file", "", "protected one-time enrollment token file")
+	flags.BoolVar(&enrollmentTokenStdin, "enrollment-token-stdin", false, "read the one-time enrollment token from stdin")
+	flags.StringVar(&identityPath, "identity-file", "", "non-secret authoritative identity output")
+	flags.StringVar(&installationID, "installation-id", "", "optional reviewed deployment identifier")
+	flags.StringVar(&serverURL, "server-url", "", "explicit OpenAssetWatch backend URL")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if (enrollmentTokenFile == "") == !enrollmentTokenStdin {
+		fmt.Fprintln(stderr, "choose exactly one enrollment token input")
+		return 2
+	}
+	var err error
+	serverURL, err = resolveBackendServerURL(serverURL, configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if strings.TrimSpace(credentialPath) == "" {
+		credentialPath = defaultAgentPaths().CredentialPath
+	}
+	if strings.TrimSpace(identityPath) == "" {
+		identityPath = defaultAgentPaths().IdentityPath
+	}
+	if config.IsQuarantinedPath(credentialPath) || config.IsQuarantinedPath(identityPath) {
+		fmt.Fprintln(stderr, "refusing to use a quarantined agent state path")
+		return 2
+	}
+	if err := agentcredential.EnsureAbsent(credentialPath); err != nil {
+		fmt.Fprintln(stderr, "endpoint-agent credential output is not empty")
+		return 1
+	}
+	if _, err := os.Lstat(identityPath); err == nil {
+		fmt.Fprintln(stderr, "agent identity file already exists")
+		return 1
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(stderr, "agent identity output is unavailable")
+		return 1
+	}
+	token := ""
+	if enrollmentTokenFile != "" {
+		token, err = agentcredential.ReadSecretFile(enrollmentTokenFile, true)
+	} else {
+		data, readErr := io.ReadAll(io.LimitReader(stdin, agentcredential.MaxSecretBytes+2))
+		if readErr != nil || len(data) > agentcredential.MaxSecretBytes+1 {
+			err = errors.New("read enrollment token")
+		} else {
+			token = strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
+			if !agentcredential.ValidEnrollmentToken(token) {
+				err = errors.New("invalid enrollment token")
+			}
+		}
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "failed to read a valid enrollment token")
+		return 1
+	}
+	client, err := agenthubclient.New(serverURL)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	response, err := client.Enroll(context.Background(), agenthubclient.EnrollmentRequest{
+		EnrollmentToken: token,
+		InstallationID:  strings.TrimSpace(installationID),
+		DisplayName:     strings.TrimSpace(displayName),
+		AgentVersion:    version.Number,
+		Platform:        runtime.GOOS,
+		Architecture:    runtime.GOARCH,
+		AgentType:       "endpoint-agent",
+	})
+	token = ""
+	if err != nil {
+		fmt.Fprintln(stderr, "endpoint-agent enrollment failed")
+		return 1
+	}
+	record := agentcredential.Record{
+		SchemaVersion: agentcredential.SchemaVersion,
+		SiteID:        response.SiteID, AgentID: response.AgentID,
+		DeploymentID: response.DeploymentID, AgentType: response.AgentType,
+		CredentialID: response.CredentialID, Credential: response.AgentCredential,
+		IssuedAt: response.IssuedAt,
+	}
+	if err := agentcredential.Write(credentialPath, record, false); err != nil {
+		fmt.Fprintln(stderr, "failed to store endpoint-agent credential")
+		return 1
+	}
+	identity := agentidentity.Identity{
+		AgentID: response.AgentID, SiteID: response.SiteID,
+		DeploymentID: response.DeploymentID,
+		CreatedAt:    response.IssuedAt, UpdatedAt: response.IssuedAt,
+	}
+	if err := agentidentity.WriteFile(identityPath, identity); err != nil {
+		fmt.Fprintln(stderr, "credential stored; failed to store non-secret agent identity")
+		return 1
+	}
+	fmt.Fprintln(stdout, "endpoint-agent enrollment completed; credential stored securely")
+	return 0
+}
+
+func runCredentialStatus(args []string, stdout io.Writer, stderr io.Writer) int {
+	var path string
+	flags := flag.NewFlagSet("oaw-agent credential-status", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&path, "credential-file", "", "protected endpoint-agent credential record")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	record, found, err := loadOptionalAgentCredential(path)
+	if err != nil || !found {
+		fmt.Fprintln(stderr, "endpoint-agent credential is unavailable")
+		return 1
+	}
+	status := map[string]any{
+		"configured": true, "schema_version": record.SchemaVersion,
+		"site_id": record.SiteID, "agent_id": record.AgentID,
+		"deployment_id": record.DeploymentID, "agent_type": record.AgentType,
+		"credential_id": record.CredentialID, "issued_at": record.IssuedAt,
+	}
+	if err := output.WriteJSON(stdout, status); err != nil {
+		fmt.Fprintln(stderr, "failed to write credential status")
+		return 1
+	}
+	return 0
+}
+
+func runReplaceCredential(args []string, stderr io.Writer) int {
+	var credentialID string
+	var newCredentialFile string
+	var path string
+	flags := flag.NewFlagSet("oaw-agent replace-credential", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&credentialID, "credential-id", "", "server-issued replacement credential ID")
+	flags.StringVar(&newCredentialFile, "new-credential-file", "", "protected replacement credential value file")
+	flags.StringVar(&path, "credential-file", "", "protected endpoint-agent credential record")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	current, found, err := loadOptionalAgentCredential(path)
+	if err != nil || !found || newCredentialFile == "" || credentialID == "" {
+		fmt.Fprintln(stderr, "current and replacement credential inputs are required")
+		return 2
+	}
+	value, err := agentcredential.ReadSecretFile(newCredentialFile, false)
+	if err != nil {
+		fmt.Fprintln(stderr, "replacement credential input is invalid")
+		return 1
+	}
+	current.Credential = value
+	current.CredentialID = credentialID
+	current.IssuedAt = time.Now().UTC()
+	if strings.TrimSpace(path) == "" {
+		path = defaultAgentPaths().CredentialPath
+	}
+	if err := agentcredential.Write(path, current, true); err != nil {
+		fmt.Fprintln(stderr, "failed to replace endpoint-agent credential")
+		return 1
+	}
+	return 0
+}
+
+func runClearCredential(args []string, stdout io.Writer, stderr io.Writer) int {
+	var confirm bool
+	var path string
+	flags := flag.NewFlagSet("oaw-agent clear-credential", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.BoolVar(&confirm, "confirm-clear", false, "confirm permanent local credential removal")
+	flags.StringVar(&path, "credential-file", "", "protected endpoint-agent credential record")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if !confirm {
+		fmt.Fprintln(stderr, "clear-credential requires --confirm-clear")
+		return 2
+	}
+	if strings.TrimSpace(path) == "" {
+		path = defaultAgentPaths().CredentialPath
+	}
+	if err := agentcredential.Clear(path); err != nil {
+		fmt.Fprintln(stderr, "failed to clear endpoint-agent credential")
+		return 1
+	}
+	fmt.Fprintln(stdout, "endpoint-agent credential cleared")
 	return 0
 }
 
@@ -467,12 +708,14 @@ func runConfigInit(args []string, stdout io.Writer, stderr io.Writer) int {
 
 func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	var configPath string
+	var credentialPath string
 	var filePath string
 	var serverURL string
 
 	flags := flag.NewFlagSet("oaw-agent submit", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&configPath, "config", "", "optional non-secret local agent config JSON file")
+	flags.StringVar(&credentialPath, "credential-file", "", "protected endpoint-agent credential record")
 	flags.StringVar(&filePath, "file", "", "local inventory JSON file to submit")
 	flags.StringVar(&serverURL, "server-url", "", "explicit OpenAssetWatch backend URL")
 	if err := flags.Parse(args); err != nil {
@@ -501,13 +744,43 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 
-	statusCode, err := postJSON(context.Background(), submitHTTPClient(), serverURL, localInventorySubmitPath, data)
+	credentialRecord, credentialFound, err := loadOptionalAgentCredential(credentialPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "failed to load endpoint-agent credential")
+		return 1
+	}
+	statusCode := 0
+	if credentialFound {
+		var inventory models.Inventory
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&inventory); err != nil {
+			fmt.Fprintln(stderr, "collection file is not a supported endpoint inventory")
+			return 2
+		}
+		if strings.TrimSpace(inventory.SiteID) != "" && inventory.SiteID != credentialRecord.SiteID {
+			fmt.Fprintln(stderr, "collection site conflicts with endpoint-agent credential")
+			return 2
+		}
+		client, clientErr := agenthubclient.New(serverURL)
+		if clientErr != nil {
+			fmt.Fprintln(stderr, clientErr)
+			return 2
+		}
+		statusCode, err = client.SubmitInventory(
+			context.Background(),
+			credentialRecord.Credential,
+			buildEndpointInventoryPayload(inventory, credentialRecord),
+		)
+	} else {
+		statusCode, err = postJSON(context.Background(), submitHTTPClient(), serverURL, localInventorySubmitPath, data)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "submit failed: %v\n", err)
 		return 1
 	}
 
-	fmt.Fprintf(stdout, "submitted local inventory collection: HTTP %d\n", statusCode)
+	fmt.Fprintf(stdout, "submitted inventory collection: HTTP %d\n", statusCode)
 	return 0
 }
 
@@ -732,13 +1005,34 @@ func executeRunOnceContext(ctx context.Context, configPath string, identityPath 
 		report.Errors = append(report.Errors, "config site_id conflicts with identity file site_id")
 		return report
 	}
+	credentialRecord, credentialFound, err := loadOptionalAgentCredential("")
+	if err != nil {
+		report.Errors = append(report.Errors, "load endpoint-agent credential failed")
+		return report
+	}
+	if credentialFound {
+		if err := validateCredentialIdentity(credentialRecord, identity); err != nil {
+			report.Errors = append(report.Errors, err.Error())
+			return report
+		}
+	}
 
 	checkInBody, err := json.Marshal(buildAgentCheckInPayload(identity))
 	if err != nil {
 		report.Errors = append(report.Errors, "build check-in payload failed")
 		return report
 	}
-	statusCode, err := postJSON(ctx, submitHTTPClient(), agentCfg.ServerURL, agentCheckInPath, checkInBody)
+	statusCode := 0
+	if credentialFound {
+		client, clientErr := agenthubclient.New(agentCfg.ServerURL)
+		if clientErr != nil {
+			report.Errors = append(report.Errors, clientErr.Error())
+			return report
+		}
+		statusCode, err = client.CheckIn(ctx, credentialRecord.Credential, buildBoundAgentCheckInPayload(identity))
+	} else {
+		statusCode, err = postJSON(ctx, submitHTTPClient(), agentCfg.ServerURL, agentCheckInPath, checkInBody)
+	}
 	if err != nil {
 		report.CheckIn = runOnceStep{OK: false, HTTPStatus: statusCode, Message: "check-in failed"}
 		report.Errors = append(report.Errors, "check-in failed: "+err.Error())
@@ -780,7 +1074,21 @@ func executeRunOnceContext(ctx context.Context, configPath string, identityPath 
 	report.InventoryPath = inventoryPath
 	report.Collect = runOnceStep{OK: true, Message: "local inventory collected"}
 
-	statusCode, err = postJSON(ctx, submitHTTPClient(), agentCfg.ServerURL, localInventorySubmitPath, inventoryData)
+	if credentialFound {
+		client, clientErr := agenthubclient.New(agentCfg.ServerURL)
+		if clientErr != nil {
+			report.Submit = runOnceStep{OK: false, Message: "inventory submit failed"}
+			report.Errors = append(report.Errors, "inventory submit failed")
+			return report
+		}
+		statusCode, err = client.SubmitInventory(
+			ctx,
+			credentialRecord.Credential,
+			buildEndpointInventoryPayload(inventory, credentialRecord),
+		)
+	} else {
+		statusCode, err = postJSON(ctx, submitHTTPClient(), agentCfg.ServerURL, localInventorySubmitPath, inventoryData)
+	}
 	if err != nil {
 		report.Submit = runOnceStep{OK: false, HTTPStatus: statusCode, Message: "inventory submit failed"}
 		report.Errors = append(report.Errors, "inventory submit failed: "+err.Error())
@@ -1302,6 +1610,124 @@ func buildAgentCheckInPayload(identity agentidentity.Identity) map[string]any {
 		payload["hostname"] = strings.TrimSpace(hostname)
 	}
 	return payload
+}
+
+func buildBoundAgentCheckInPayload(identity agentidentity.Identity) map[string]any {
+	payload := map[string]any{
+		"site_id": identity.SiteID, "agent_id": identity.AgentID,
+		"agent_type": "endpoint-agent", "agent_version": version.Number,
+		"platform": runtime.GOOS, "architecture": runtime.GOARCH,
+		"supported_capabilities":   []string{"check-in", "endpoint-inventory-v1"},
+		"inventory_schema_version": "oaw.endpoint-inventory.v1",
+		"health":                   "healthy", "observed_at": time.Now().UTC(),
+	}
+	if identity.DeploymentID != "" {
+		payload["deployment_id"] = identity.DeploymentID
+	}
+	if hostname, err := os.Hostname(); err == nil && strings.TrimSpace(hostname) != "" {
+		payload["hostname"] = strings.TrimSpace(hostname)
+	}
+	return payload
+}
+
+func buildEndpointInventoryPayload(inventory models.Inventory, record agentcredential.Record) map[string]any {
+	assets := make([]map[string]any, 0, len(inventory.Assets))
+	for _, asset := range inventory.Assets {
+		interfaces := make([]map[string]any, 0, len(asset.PrimaryInterfaces))
+		for _, networkInterface := range asset.PrimaryInterfaces {
+			addresses := make([]map[string]string, 0, len(networkInterface.IPAddresses))
+			for _, address := range networkInterface.IPAddresses {
+				item := map[string]string{"address": address.Address}
+				if address.Family == "ipv4" || address.Family == "ipv6" {
+					item["family"] = address.Family
+				}
+				addresses = append(addresses, item)
+			}
+			item := map[string]any{"name": networkInterface.Name, "ip_addresses": addresses}
+			if networkInterface.MACAddress != "" {
+				item["mac_address"] = networkInterface.MACAddress
+			}
+			interfaces = append(interfaces, item)
+		}
+		evidence := make([]map[string]any, 0, 8)
+		if asset.Hostname != "" {
+			evidence = append(evidence, map[string]any{"kind": "hostname", "value": asset.Hostname, "method": "endpoint-inventory", "confidence": 0.95})
+		}
+		if asset.OS != "" {
+			evidence = append(evidence, map[string]any{"kind": "operating-system", "value": asset.OS, "method": "endpoint-inventory", "confidence": 0.9})
+		}
+		item := map[string]any{
+			"interfaces": interfaces, "evidence": evidence,
+			"components": []any{}, "management_capabilities": []string{},
+		}
+		for key, value := range map[string]string{
+			"asset_id": asset.AssetID, "hostname": asset.Hostname, "fqdn": asset.FQDN,
+			"os": asset.OS, "platform": asset.Platform, "architecture": asset.Architecture,
+		} {
+			if strings.TrimSpace(value) != "" {
+				item[key] = value
+			}
+		}
+		assets = append(assets, item)
+	}
+	canonical, _ := json.Marshal(inventory)
+	digest := sha256.Sum256(canonical)
+	observedAt := inventory.CollectedAt
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
+	return map[string]any{
+		"schema_version":     "oaw.endpoint-inventory.v1",
+		"inventory_batch_id": fmt.Sprintf("batch_%x", digest[:16]),
+		"observed_at":        observedAt.UTC(), "inventory_mode": "complete",
+		"site_id": record.SiteID, "agent_id": record.AgentID,
+		"deployment_id": emptyStringAsNil(record.DeploymentID),
+		"agent_type":    "endpoint-agent", "agent_version": version.Number,
+		"platform": runtime.GOOS, "architecture": runtime.GOARCH,
+		"supported_capabilities": []string{"endpoint-inventory-v1"},
+		"collection_limitations": []string{"installed-component-collection-not-yet-supported"},
+		"assets":                 assets,
+	}
+}
+
+func emptyStringAsNil(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
+}
+
+func loadOptionalAgentCredential(path string) (agentcredential.Record, bool, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = strings.TrimSpace(defaultAgentPaths().CredentialPath)
+	}
+	if path == "" {
+		return agentcredential.Record{}, false, nil
+	}
+	if config.IsQuarantinedPath(path) {
+		return agentcredential.Record{}, false, errors.New("credential path is quarantined")
+	}
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return agentcredential.Record{}, false, nil
+	} else if err != nil {
+		return agentcredential.Record{}, false, errors.New("inspect credential file")
+	}
+	record, err := agentcredential.Load(path)
+	if err != nil {
+		return agentcredential.Record{}, false, err
+	}
+	return record, true, nil
+}
+
+func validateCredentialIdentity(record agentcredential.Record, identity agentidentity.Identity) error {
+	if record.SiteID != strings.TrimSpace(identity.SiteID) ||
+		record.AgentID != strings.TrimSpace(identity.AgentID) ||
+		record.DeploymentID != strings.TrimSpace(identity.DeploymentID) ||
+		record.AgentType != "endpoint-agent" {
+		return errors.New("credential binding conflicts with local agent identity")
+	}
+	return nil
 }
 
 func resolveCheckInIdentityPath(identityPath string) (string, bool, error) {

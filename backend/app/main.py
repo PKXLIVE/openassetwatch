@@ -32,6 +32,11 @@ from .ai_advisor import (
 )
 
 from .database import (
+    EndpointInventoryAuthorizationRejected,
+    EndpointInventoryRateLimitExceeded,
+    EndpointInventoryReplayConflict,
+    LegacyAgentIdentityConflict,
+    ObservationBatchAuthorizationRejected,
     control_tower_summary,
     create_policy_assignment,
     create_agent_enrollment,
@@ -49,12 +54,46 @@ from .database import (
     list_sites,
     normalize_inventory_submission,
     record_agent_checkin,
+    record_authenticated_endpoint_inventory,
     record_ai_advisor_run,
     record_local_inventory_collection,
     record_observation_batch,
+    set_endpoint_inventory_reevaluation_state,
     save_inventory_submission,
     upsert_collector_policy,
     upsert_collector_metadata,
+)
+from .endpoint_agent_contracts import (
+    AgentCheckInRequest as BoundAgentCheckInRequest,
+    AgentCheckInResponse as BoundAgentCheckInResponse,
+    AgentCredentialIssueResponse,
+    AgentCredentialListResponse,
+    AgentEnrollmentCreateRequest as BoundAgentEnrollmentCreateRequest,
+    AgentEnrollmentCreateResponse as BoundAgentEnrollmentCreateResponse,
+    AgentEnrollmentExchangeRequest,
+    AgentEnrollmentExchangeResponse,
+    AgentEnrollmentListResponse as BoundAgentEnrollmentListResponse,
+    AgentEnrollmentPublic as BoundAgentEnrollmentPublic,
+    EndpointInventoryRequest,
+    EndpointInventoryResponse,
+)
+from .endpoint_agent_identity import (
+    AgentAuthenticationRejected,
+    AgentEnrollmentRejected,
+    AgentIdentityConflict as EndpointAgentIdentityConflict,
+    AgentIdentityNotFound as EndpointAgentIdentityNotFound,
+    authenticate_agent_request,
+    create_agent_enrollment as create_bound_agent_enrollment,
+    exchange_agent_enrollment,
+    get_agent_enrollment as get_bound_agent_enrollment,
+    list_agent_credentials,
+    list_agent_enrollments as list_bound_agent_enrollments,
+    list_agent_identity_audit,
+    record_authenticated_agent_checkin,
+    revoke_agent as revoke_bound_agent,
+    revoke_agent_credential as revoke_bound_agent_credential,
+    revoke_agent_enrollment as revoke_bound_agent_enrollment,
+    rotate_agent_credential,
 )
 from .classification_contracts import (
     ClassificationEvaluateRequest,
@@ -190,6 +229,9 @@ class BoundedRequestBodyMiddleware:
     """Enforce sensitive ingestion limits even for chunked request bodies."""
 
     LIMITS = {
+        "/api/v1/agents/enroll": 8 << 10,
+        "/api/v1/agents/check-in": 16 << 10,
+        "/api/v1/agents/inventory": 4 << 20,
         "/api/v1/sensors/enroll": 8 << 10,
         "/api/v1/sensors/check-in": 16 << 10,
         "/api/v1/observations/batches": 2 << 20,
@@ -289,7 +331,12 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-OpenAssetWatch-Collector-Token", "X-OpenAssetWatch-Admin-Token"],
+    allow_headers=[
+        "Content-Type",
+        "X-OpenAssetWatch-Collector-Token",
+        "X-OpenAssetWatch-Agent-Credential",
+        "X-OpenAssetWatch-Admin-Token",
+    ],
 )
 
 if UI_STATIC_DIR.exists():
@@ -298,6 +345,7 @@ if UI_STATIC_DIR.exists():
 
 COLLECTOR_TOKEN_ENV = "OPENASSETWATCH_COLLECTOR_TOKEN"
 COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
+AGENT_CREDENTIAL_HEADER = "X-OpenAssetWatch-Agent-Credential"
 ADMIN_TOKEN_ENV = "OPENASSETWATCH_ADMIN_TOKEN"
 ADMIN_TOKEN_HEADER = "X-OpenAssetWatch-Admin-Token"
 ADVISORY_API_ACTOR = "api-admin-token"
@@ -375,6 +423,7 @@ class _EnrollmentAttemptLimiter:
 
 
 _sensor_enrollment_attempts = _EnrollmentAttemptLimiter()
+_agent_enrollment_attempts = _EnrollmentAttemptLimiter()
 
 
 def _sensor_request_source(request: Request) -> str:
@@ -398,6 +447,56 @@ def _raise_sensor_admin_error(exc: SensorIdentityNotFound | SensorIdentityConfli
     if isinstance(exc, SensorIdentityNotFound):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _raise_endpoint_agent_admin_error(
+    exc: EndpointAgentIdentityNotFound | EndpointAgentIdentityConflict,
+) -> None:
+    if isinstance(exc, EndpointAgentIdentityNotFound):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _run_endpoint_inventory_reevaluation(
+    *, storage_id: int, site_id: str, asset_ids: list[str]
+) -> None:
+    """Run bounded deterministic work without changing ingestion acceptance."""
+
+    try:
+        set_endpoint_inventory_reevaluation_state(storage_id=storage_id, state="running")
+        if asset_ids:
+            evaluate_classifications(
+                trigger_type="endpoint-inventory",
+                requested_by="endpoint-agent-ingestion",
+                site_id=site_id,
+                asset_ids=asset_ids,
+                reevaluate_findings=False,
+            )
+            for asset_id in asset_ids:
+                evaluate_vulnerabilities(
+                    trigger_type="endpoint-inventory",
+                    requested_by="endpoint-agent-ingestion",
+                    site_id=site_id,
+                    asset_id=asset_id,
+                    update_findings=False,
+                )
+                evaluate_findings(
+                    trigger_type="endpoint-inventory",
+                    requested_by="endpoint-agent-ingestion",
+                    site_id=site_id,
+                    asset_id=asset_id,
+                )
+        set_endpoint_inventory_reevaluation_state(storage_id=storage_id, state="completed")
+    except Exception as exc:  # noqa: BLE001 - persistence already succeeded.
+        LOGGER.warning("endpoint inventory reevaluation failed safely: %s", type(exc).__name__)
+        try:
+            set_endpoint_inventory_reevaluation_state(
+                storage_id=storage_id,
+                state="retryable-failure",
+                error_code=f"reevaluation-{type(exc).__name__.lower()}"[:80],
+            )
+        except Exception as state_exc:  # noqa: BLE001 - never surface raw errors.
+            LOGGER.warning("endpoint inventory state update failed safely: %s", type(state_exc).__name__)
 
 
 def _queue_site_evaluation(
@@ -834,8 +933,184 @@ def api_create_agent_enrollment(payload: AgentEnrollmentRequest):
             platform=payload.platform.strip() if isinstance(payload.platform, str) else None,
             architecture=payload.architecture.strip() if isinstance(payload.architecture, str) else None,
         )
+    except LegacyAgentIdentityConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="legacy agent identity conflicts with bound identity",
+        ) from exc
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to save agent enrollment") from exc
+
+
+@app.post(
+    "/api/v1/admin/agent-enrollments",
+    response_model=BoundAgentEnrollmentCreateResponse,
+    response_model_exclude_none=True,
+)
+def admin_create_bound_agent_enrollment(
+    payload: BoundAgentEnrollmentCreateRequest,
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="endpoint-agent identity administration")
+    try:
+        return create_bound_agent_enrollment(
+            site_id=payload.site_id,
+            requested_deployment_id=payload.requested_deployment_id,
+            requested_display_name=payload.requested_display_name,
+            requested_agent_type=payload.requested_agent_type,
+            expires_in_minutes=payload.expires_in_minutes,
+            actor="api-admin-token",
+        )
+    except (EndpointAgentIdentityNotFound, EndpointAgentIdentityConflict) as exc:
+        _raise_endpoint_agent_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to create endpoint-agent enrollment") from exc
+
+
+@app.get(
+    "/api/v1/admin/agent-enrollments",
+    response_model=BoundAgentEnrollmentListResponse,
+)
+def admin_list_bound_agent_enrollments(
+    limit: int = Query(default=100, ge=1, le=500),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="endpoint-agent identity administration")
+    try:
+        return {"enrollments": list_bound_agent_enrollments(limit=limit)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load endpoint-agent enrollments") from exc
+
+
+@app.get(
+    "/api/v1/admin/agent-enrollments/{enrollment_id}",
+    response_model=BoundAgentEnrollmentPublic,
+    response_model_exclude_none=True,
+)
+def admin_get_bound_agent_enrollment(
+    enrollment_id: str = ApiPath(..., pattern=r"^aenr_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="endpoint-agent identity administration")
+    try:
+        return get_bound_agent_enrollment(enrollment_id)
+    except (EndpointAgentIdentityNotFound, EndpointAgentIdentityConflict) as exc:
+        _raise_endpoint_agent_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load endpoint-agent enrollment") from exc
+
+
+@app.post(
+    "/api/v1/admin/agent-enrollments/{enrollment_id}/revoke",
+    response_model=BoundAgentEnrollmentPublic,
+    response_model_exclude_none=True,
+)
+def admin_revoke_bound_agent_enrollment(
+    enrollment_id: str = ApiPath(..., pattern=r"^aenr_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="endpoint-agent identity administration")
+    try:
+        return revoke_bound_agent_enrollment(enrollment_id, actor="api-admin-token")
+    except (EndpointAgentIdentityNotFound, EndpointAgentIdentityConflict) as exc:
+        _raise_endpoint_agent_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to revoke endpoint-agent enrollment") from exc
+
+
+@app.get("/api/v1/admin/agents", response_model=AgentCredentialListResponse)
+def admin_list_bound_agent_credentials(
+    limit: int = Query(default=500, ge=1, le=500),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="endpoint-agent identity administration")
+    try:
+        return {"credentials": list_agent_credentials(limit=limit)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load endpoint-agent credentials") from exc
+
+
+@app.post(
+    "/api/v1/admin/agents/{agent_id}/credentials/rotate",
+    response_model=AgentCredentialIssueResponse,
+)
+def admin_rotate_bound_agent_credential(
+    agent_id: str = ApiPath(..., pattern=r"^agent_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="endpoint-agent identity administration")
+    try:
+        return rotate_agent_credential(agent_id, actor="api-admin-token")
+    except (EndpointAgentIdentityNotFound, EndpointAgentIdentityConflict) as exc:
+        _raise_endpoint_agent_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to rotate endpoint-agent credential") from exc
+
+
+@app.post("/api/v1/admin/agents/{agent_id}/credentials/{credential_id}/revoke")
+def admin_revoke_bound_agent_credential(
+    agent_id: str = ApiPath(..., pattern=r"^agent_[0-9a-f]{32}$"),
+    credential_id: str = ApiPath(..., pattern=r"^acred_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="endpoint-agent identity administration")
+    try:
+        return revoke_bound_agent_credential(agent_id, credential_id, actor="api-admin-token")
+    except (EndpointAgentIdentityNotFound, EndpointAgentIdentityConflict) as exc:
+        _raise_endpoint_agent_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to revoke endpoint-agent credential") from exc
+
+
+@app.post("/api/v1/admin/agents/{agent_id}/revoke")
+def admin_revoke_bound_agent(
+    agent_id: str = ApiPath(..., pattern=r"^agent_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="endpoint-agent identity administration")
+    try:
+        return revoke_bound_agent(agent_id, actor="api-admin-token")
+    except (EndpointAgentIdentityNotFound, EndpointAgentIdentityConflict) as exc:
+        _raise_endpoint_agent_admin_error(exc)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to revoke endpoint-agent") from exc
+
+
+@app.get("/api/v1/admin/agent-identity/audit")
+def admin_bound_agent_identity_audit(
+    limit: int = Query(default=100, ge=1, le=500),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(admin_token, capability="endpoint-agent identity administration")
+    try:
+        return {"events": list_agent_identity_audit(limit=limit)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load endpoint-agent identity audit") from exc
+
+
+@app.post("/api/v1/agents/enroll", response_model=AgentEnrollmentExchangeResponse)
+def endpoint_agent_enroll(
+    payload: AgentEnrollmentExchangeRequest,
+    request: Request,
+    content_length: str | None = Header(default=None, alias="Content-Length"),
+):
+    _require_bounded_enrollment_request(content_length)
+    if not _agent_enrollment_attempts.allow(_sensor_request_source(request)):
+        raise HTTPException(status_code=429, detail="endpoint-agent enrollment temporarily unavailable")
+    try:
+        return exchange_agent_enrollment(
+            enrollment_token=payload.enrollment_token.get_secret_value(),
+            installation_id=payload.installation_id,
+            display_name=payload.display_name,
+            agent_version=payload.agent_version,
+            platform=payload.platform,
+            architecture=payload.architecture,
+            agent_type=payload.agent_type,
+        )
+    except AgentEnrollmentRejected as exc:
+        raise HTTPException(status_code=401, detail="endpoint-agent enrollment failed") from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="endpoint-agent enrollment failed") from exc
 
 
 @app.post(
@@ -2331,6 +2606,15 @@ LOCAL_INVENTORY_FORBIDDEN_TOP_LEVEL_FIELDS = frozenset(
         "password",
         "hash",
         "script_content",
+        "source_authenticated",
+        "authoritative",
+        "risk",
+        "finding",
+        "severity_override",
+        "management_state",
+        "tenant_authority",
+        "site_authority",
+        "agent_authority",
     }
 )
 AGENT_CHECKIN_FORBIDDEN_TOP_LEVEL_FIELDS = frozenset(
@@ -2341,6 +2625,15 @@ AGENT_CHECKIN_FORBIDDEN_TOP_LEVEL_FIELDS = frozenset(
         "password",
         "hash",
         "script_content",
+        "source_authenticated",
+        "authoritative",
+        "risk",
+        "finding",
+        "severity_override",
+        "management_state",
+        "tenant_authority",
+        "site_authority",
+        "agent_authority",
     }
 )
 
@@ -2675,13 +2968,16 @@ def forbidden_agent_checkin_fields(payload: dict[str, Any]) -> list[str]:
 
 @app.post(
     "/api/v1/agents/check-in",
-    response_model=AgentCheckInResponse,
+    response_model=BoundAgentCheckInResponse,
     response_model_exclude_none=True,
 )
 def agent_check_in(
     raw_payload: Any = Body(...),
     background_tasks: BackgroundTasks = None,
+    agent_credential: str | None = Header(default=None, alias=AGENT_CREDENTIAL_HEADER),
 ):
+    if not isinstance(agent_credential, str):
+        agent_credential = None
     if not isinstance(raw_payload, dict):
         raise HTTPException(status_code=400, detail="agent check-in payload must be a JSON object")
     if not raw_payload:
@@ -2694,9 +2990,51 @@ def agent_check_in(
             detail="agent check-in payload contains forbidden top-level fields: " + ", ".join(forbidden_fields),
         )
 
+    received_at = datetime.now(timezone.utc)
+    if agent_credential:
+        try:
+            if agent_credential.startswith("oaw_agent_v1."):
+                payload = BoundAgentCheckInRequest.model_validate(raw_payload)
+                auth_context = authenticate_agent_request(
+                    provided_token=agent_credential,
+                    claimed_site_id=payload.site_id,
+                    claimed_agent_id=payload.agent_id,
+                    claimed_deployment_id=payload.deployment_id,
+                    claimed_agent_type=payload.agent_type,
+                )
+                record_authenticated_agent_checkin(
+                    context=auth_context,
+                    payload=payload.model_dump(mode="json", exclude_none=True),
+                    received_at=received_at,
+                )
+                _queue_site_evaluation(
+                    background_tasks,
+                    site_id=str(auth_context.site_id),
+                    sensor_id=str(auth_context.agent_id),
+                )
+                return BoundAgentCheckInResponse(
+                    status="accepted",
+                    site_id=str(auth_context.site_id),
+                    agent_id=auth_context.agent_id,
+                    agent_type="endpoint-agent",
+                    credential_id=auth_context.credential_id,
+                    identity_status="active",
+                    source_authority="authenticated-endpoint",
+                    received_at=received_at,
+                    message="authenticated endpoint-agent check-in accepted",
+                )
+            shared_context = authenticate_agent_request(provided_token=agent_credential)
+            if shared_context.mode != "development-shared":
+                raise AgentAuthenticationRejected("valid agent credential required")
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail="invalid endpoint-agent check-in contract") from exc
+        except AgentAuthenticationRejected as exc:
+            raise HTTPException(status_code=401, detail="valid endpoint-agent credential required") from exc
+        except SQLAlchemyError as exc:
+            raise HTTPException(status_code=500, detail="failed to persist agent check-in") from exc
+
     site_id = agent_checkin_site_id(raw_payload)
     agent_id = agent_checkin_optional_text(raw_payload, "agent_id")
-    received_at = datetime.now(timezone.utc)
     try:
         record_agent_checkin(
             payload=raw_payload,
@@ -2704,6 +3042,11 @@ def agent_check_in(
             agent_id=agent_id,
             received_at=received_at,
         )
+    except LegacyAgentIdentityConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="legacy agent identity conflicts with bound identity",
+        ) from exc
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist agent check-in") from exc
 
@@ -2712,12 +3055,137 @@ def agent_check_in(
         site_id=site_id,
         sensor_id=agent_id,
     )
-    return AgentCheckInResponse(
+    return BoundAgentCheckInResponse(
         status="accepted",
         site_id=site_id,
         agent_id=agent_id,
+        agent_type="endpoint-agent",
+        identity_status="legacy",
+        source_authority="untrusted-legacy",
         received_at=received_at,
-        message="agent check-in accepted as identity and health metadata",
+        message="legacy agent check-in accepted as untrusted compatibility metadata",
+    )
+
+
+@app.post("/api/v1/agents/inventory", response_model=EndpointInventoryResponse)
+def authenticated_endpoint_inventory(
+    payload: EndpointInventoryRequest,
+    background_tasks: BackgroundTasks = None,
+    agent_credential: str | None = Header(default=None, alias=AGENT_CREDENTIAL_HEADER),
+):
+    try:
+        context = authenticate_agent_request(
+            provided_token=agent_credential,
+            claimed_site_id=payload.site_id,
+            claimed_agent_id=payload.agent_id,
+            claimed_deployment_id=payload.deployment_id,
+            claimed_agent_type=payload.agent_type,
+        )
+    except AgentAuthenticationRejected as exc:
+        raise HTTPException(status_code=401, detail="valid endpoint-agent credential required") from exc
+    if context.mode != "bound-agent" or not all(
+        (context.site_id, context.agent_id, context.credential_id)
+    ):
+        raise HTTPException(status_code=401, detail="bound endpoint-agent credential required")
+
+    client_payload = payload.model_dump(mode="json", exclude_none=True)
+    canonical_bytes = json.dumps(
+        client_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    normalized_assets = []
+    for asset in client_payload["assets"]:
+        interfaces = list(asset.pop("interfaces", []))
+        addresses = [address for interface in interfaces for address in interface.get("ip_addresses", [])]
+        mac_addresses = [
+            {"address": interface["mac_address"]}
+            for interface in interfaces
+            if interface.get("mac_address")
+        ]
+        normalized_assets.append(
+            {
+                **asset,
+                "primary_interfaces": interfaces,
+                "ip_addresses": addresses,
+                "mac_addresses": mac_addresses,
+                "component_inventory_complete": payload.inventory_mode == "complete",
+            }
+        )
+    received_at = datetime.now(timezone.utc)
+    server_payload = {
+        "schema_version": payload.schema_version,
+        "observation_batch_id": payload.inventory_batch_id,
+        "inventory_batch_id": payload.inventory_batch_id,
+        "observed_at": payload.observed_at.isoformat(),
+        "collected_at": payload.observed_at.isoformat(),
+        "inventory_mode": payload.inventory_mode,
+        "component_inventory_complete": payload.inventory_mode == "complete",
+        "agent_id": context.agent_id,
+        "site_id": context.site_id,
+        "sensor_type": "endpoint-agent",
+        "observation_source": "endpoint-inventory",
+        "source_authenticated": True,
+        "source_authority": "authenticated-endpoint",
+        "credential_id": context.credential_id,
+        "ingested_at": received_at.isoformat(),
+        "agent_version": payload.agent_version,
+        "platform": payload.platform,
+        "architecture": payload.architecture,
+        "supported_capabilities": payload.supported_capabilities,
+        "collection_limitations": payload.collection_limitations,
+        "assets": normalized_assets,
+    }
+    try:
+        result = record_authenticated_endpoint_inventory(
+            payload=server_payload,
+            payload_sha256=hashlib.sha256(canonical_bytes).hexdigest(),
+            site_id=str(context.site_id),
+            agent_id=str(context.agent_id),
+            credential_id=str(context.credential_id),
+            inventory_batch_id=payload.inventory_batch_id,
+            inventory_mode=payload.inventory_mode,
+            observed_at=payload.observed_at,
+            received_at=received_at,
+        )
+    except EndpointInventoryReplayConflict as exc:
+        raise HTTPException(status_code=409, detail="inventory batch content conflict") from exc
+    except EndpointInventoryRateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="endpoint-agent inventory admission window exceeded",
+        ) from exc
+    except EndpointInventoryAuthorizationRejected as exc:
+        raise HTTPException(status_code=401, detail="valid endpoint-agent credential required") from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to persist endpoint inventory") from exc
+
+    if not result["duplicate"] and background_tasks is not None:
+        background_tasks.add_task(
+            _run_endpoint_inventory_reevaluation,
+            storage_id=result["storage_id"],
+            site_id=str(context.site_id),
+            asset_ids=list(result.get("asset_ids") or []),
+        )
+    return EndpointInventoryResponse(
+        status="duplicate" if result["duplicate"] else "accepted",
+        inventory_batch_id=payload.inventory_batch_id,
+        storage_id=result["storage_id"],
+        collection_id=result["collection_id"],
+        site_id=str(context.site_id),
+        agent_id=str(context.agent_id),
+        credential_id=str(context.credential_id),
+        received_at=result["received_at"],
+        observed_asset_count=result["observed_asset_count"],
+        normalized_asset_count=result["normalized_asset_count"],
+        component_count=result["component_count"],
+        reevaluation_state=result["reevaluation_state"],
+        message=(
+            "identical inventory delivery already accepted"
+            if result["duplicate"]
+            else "authenticated endpoint inventory accepted; deterministic reevaluation queued"
+        ),
     )
 
 
@@ -2795,6 +3263,8 @@ def observation_batch(
             received_at=received_at,
             source_authenticated=source_authenticated,
         )
+    except ObservationBatchAuthorizationRejected as exc:
+        raise HTTPException(status_code=401, detail="valid sensor credential required") from exc
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist observation batch") from exc
     duplicate = bool(result.get("duplicate"))

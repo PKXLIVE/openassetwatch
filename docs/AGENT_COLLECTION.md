@@ -1,5 +1,10 @@
 # Agent Collection
 
+For site-bound enrollment, protected credential storage, authenticated
+check-in, and canonical `oaw.endpoint-inventory.v1` submission, see
+[ENDPOINT_AGENT_IDENTITY.md](ENDPOINT_AGENT_IDENTITY.md). The unauthenticated
+workflow below remains a lower-trust compatibility path.
+
 The Go `oaw-agent` command can run a one-time passive local inventory
 collection and write JSON output for review, export experiments, or future
 agent workflows.

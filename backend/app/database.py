@@ -25,6 +25,28 @@ INVALID_MAC_TEXT_VALUES = {
     "null",
 }
 MAX_OBSERVATION_FUTURE_SKEW = timedelta(minutes=5)
+ENDPOINT_INVENTORY_RATE_WINDOW = timedelta(minutes=1)
+MAX_ENDPOINT_INVENTORY_BATCHES_PER_WINDOW = 12
+
+
+class EndpointInventoryReplayConflict(Exception):
+    """A batch identifier was reused with different authenticated content."""
+
+
+class EndpointInventoryAuthorizationRejected(Exception):
+    """The bound credential or endpoint identity is no longer active."""
+
+
+class EndpointInventoryRateLimitExceeded(Exception):
+    """A bound endpoint agent exceeded the persistent batch admission window."""
+
+
+class LegacyAgentIdentityConflict(Exception):
+    """Lower-trust compatibility input collided with a bound identity."""
+
+
+class ObservationBatchAuthorizationRejected(Exception):
+    """The authenticated observation source no longer has an active identity."""
 
 
 CREATE_INVENTORY_TABLE_SQL = """
@@ -1655,6 +1677,7 @@ def create_agent_enrollment(
             mode = COALESCE(EXCLUDED.mode, agent_enrollments.mode),
             last_seen_at = COALESCE(EXCLUDED.last_seen_at, agent_enrollments.last_seen_at),
             updated_at = NOW()
+        WHERE agent_enrollments.identity_status = 'legacy'
         RETURNING
             agent_id,
             site_id,
@@ -1672,7 +1695,7 @@ def create_agent_enrollment(
         """
     )
     with get_engine().begin() as connection:
-        row = connection.execute(
+        selected = connection.execute(
             statement,
             {
                 "agent_id": agent_id,
@@ -1686,7 +1709,10 @@ def create_agent_enrollment(
                 "mode": mode,
                 "last_seen_at": last_seen_at,
             },
-        ).mappings().one()
+        ).mappings().one_or_none()
+        if selected is None:
+            raise LegacyAgentIdentityConflict("legacy agent identity conflicts with bound identity")
+        row = selected
     return dict(row)
 
 
@@ -1700,22 +1726,50 @@ def list_agent_enrollments(
     statement = text(
         """
         SELECT
-            agent_id,
-            site_id,
-            display_name,
-            agent_type,
-            platform,
-            architecture,
-            version,
-            hostname,
-            mode,
-            created_at,
-            updated_at,
-            last_seen_at,
-            identity_status
-          FROM agent_enrollments
-          WHERE (:site_id IS NULL OR site_id = :site_id)
-          ORDER BY last_seen_at DESC NULLS LAST, updated_at DESC, agent_id ASC
+            a.agent_id,
+            a.site_id,
+            a.display_name,
+            a.agent_type,
+            a.platform,
+            a.architecture,
+            a.version,
+            a.hostname,
+            a.mode,
+            a.created_at,
+            a.updated_at,
+            a.last_seen_at,
+            a.identity_status,
+            c.credential_id,
+            c.credential_status,
+            c.deployment_id,
+            b.inventory_batch_id AS latest_inventory_batch_id,
+            b.reevaluation_state AS latest_inventory_state,
+            b.received_at AS latest_inventory_at,
+            CASE
+                WHEN c.credential_status = 'active' AND a.identity_status = 'active'
+                    THEN 'authenticated-endpoint'
+                WHEN a.agent_type = 'network-sensor' AND a.identity_status = 'active'
+                    THEN 'authenticated-sensor'
+                ELSE 'untrusted-legacy'
+            END AS source_authority,
+            CASE WHEN c.credential_id IS NULL THEN TRUE ELSE FALSE END AS compatibility_legacy
+          FROM agent_enrollments a
+          LEFT JOIN LATERAL (
+              SELECT credential_id, status AS credential_status, deployment_id
+              FROM endpoint_agent_credentials
+              WHERE agent_id = a.agent_id
+              ORDER BY created_at DESC, credential_id DESC
+              LIMIT 1
+          ) c ON TRUE
+          LEFT JOIN LATERAL (
+              SELECT inventory_batch_id, reevaluation_state, received_at
+              FROM endpoint_agent_inventory_batches
+              WHERE agent_id = a.agent_id
+              ORDER BY received_at DESC, storage_id DESC
+              LIMIT 1
+          ) b ON TRUE
+          WHERE (:site_id IS NULL OR a.site_id = :site_id)
+          ORDER BY a.last_seen_at DESC NULLS LAST, a.updated_at DESC, a.agent_id ASC
         """
         + limit_clause
     )
@@ -1742,6 +1796,20 @@ def record_agent_checkin(
     mode = _clean_text(payload.get("mode"))
     checked_in_at = _parse_datetime(payload.get("timestamp") or payload.get("check_in_at"))
     stored_payload = {key: value for key, value in payload.items() if key != "enrollment_token"}
+
+    if agent_id:
+        create_agent_enrollment(
+            agent_id=agent_id,
+            site_id=site_id,
+            display_name=hostname or agent_id,
+            agent_type="endpoint-agent",
+            platform=platform,
+            architecture=architecture,
+            version=version,
+            hostname=hostname,
+            mode=mode,
+            last_seen_at=received_at,
+        )
 
     statement = text(
         """
@@ -1789,19 +1857,6 @@ def record_agent_checkin(
             },
         ).scalar_one()
 
-    if agent_id:
-        create_agent_enrollment(
-            agent_id=agent_id,
-            site_id=site_id,
-            display_name=hostname or agent_id,
-            agent_type="endpoint-agent",
-            platform=platform,
-            architecture=architecture,
-            version=version,
-            hostname=hostname,
-            mode=mode,
-            last_seen_at=received_at,
-        )
     return int(checkin_id)
 
 
@@ -2231,7 +2286,46 @@ def record_local_inventory_collection(
 ) -> dict[str, int | bool | list[str]]:
     ensure_site_record(site_id=site_id)
     normalized_assets = normalize_local_inventory_assets(payload, site_id=site_id, received_at=received_at)
-    observation_batch_id = _clean_text(payload.get("observation_batch_id"))
+    with get_engine().begin() as connection:
+        result = _store_local_inventory_collection(
+            connection,
+            payload=payload,
+            site_id=site_id,
+            received_at=received_at,
+            observed_asset_count=observed_asset_count,
+            normalized_assets=normalized_assets,
+        )
+    if bool(result["duplicate"]):
+        return result
+    _persist_classification_evidence_best_effort(
+        normalized_assets=normalized_assets,
+        payload=payload,
+        source_authenticated=source_authenticated,
+    )
+    _persist_component_inventory_best_effort(
+        normalized_assets=normalized_assets,
+        payload=payload,
+        received_at=received_at,
+        source_authenticated=source_authenticated,
+    )
+    return result
+
+
+def _store_local_inventory_collection(
+    connection: Any,
+    *,
+    payload: dict[str, Any],
+    site_id: str,
+    received_at: datetime,
+    observed_asset_count: int,
+    normalized_assets: list[dict[str, Any]],
+    deduplicate: bool = True,
+) -> dict[str, int | bool | list[str]]:
+    """Store one normalized collection using an existing caller-owned transaction."""
+
+    observation_batch_id = (
+        _clean_text(payload.get("observation_batch_id")) if deduplicate else None
+    )
     observation_source = _clean_text(payload.get("observation_source")) or "local-inventory"
     observed_at = _bounded_observed_at(
         payload.get("observed_at") or payload.get("collected_at"),
@@ -2281,69 +2375,300 @@ def record_local_inventory_collection(
         RETURNING id
         """
     )
-    with get_engine().begin() as connection:
-        collection_id = connection.execute(
-            statement,
+    source_agent_id = _clean_text(payload.get("sensor_id") or payload.get("agent_id"))
+    collection_id = connection.execute(
+        statement,
+        {
+            "site_id": site_id,
+            "source_agent_id": source_agent_id,
+            "schema_version": _clean_text(payload.get("schema_version")),
+            "collected_at": _parse_datetime(payload.get("collected_at")),
+            "received_at": received_at,
+            "observed_asset_count": observed_asset_count,
+            "normalized_asset_count": len(normalized_assets),
+            "observation_batch_id": observation_batch_id,
+            "observation_source": observation_source,
+            "observed_at": observed_at,
+            "delivery_state": delivery_state,
+            "confidence": confidence,
+            "payload_json": _json_payload(payload),
+        },
+    ).scalar_one_or_none()
+    if collection_id is None and observation_batch_id:
+        existing = connection.execute(
+            text(
+                """
+                SELECT id, normalized_asset_count
+                FROM local_inventory_collections
+                WHERE site_id = :site_id
+                  AND source_agent_id = :source_agent_id
+                  AND observation_batch_id = :observation_batch_id
+                """
+            ),
             {
                 "site_id": site_id,
-                "source_agent_id": _clean_text(payload.get("sensor_id") or payload.get("agent_id")),
-                "schema_version": _clean_text(payload.get("schema_version")),
-                "collected_at": _parse_datetime(payload.get("collected_at")),
-                "received_at": received_at,
-                "observed_asset_count": observed_asset_count,
-                "normalized_asset_count": len(normalized_assets),
+                "source_agent_id": source_agent_id,
                 "observation_batch_id": observation_batch_id,
-                "observation_source": observation_source,
-                "observed_at": observed_at,
-                "delivery_state": delivery_state,
-                "confidence": confidence,
-                "payload_json": _json_payload(payload),
             },
-        ).scalar_one_or_none()
-        if collection_id is None and observation_batch_id:
-            existing = connection.execute(
-                text(
-                    """
-                    SELECT id, normalized_asset_count
-                    FROM local_inventory_collections
-                    WHERE site_id = :site_id
-                      AND source_agent_id = :source_agent_id
-                      AND observation_batch_id = :observation_batch_id
-                    """
-                ),
-                {
-                    "site_id": site_id,
-                    "source_agent_id": _clean_text(payload.get("sensor_id") or payload.get("agent_id")),
-                    "observation_batch_id": observation_batch_id,
-                },
-            ).mappings().one()
-            return {
-                "collection_id": int(existing["id"]),
-                "normalized_asset_count": int(existing["normalized_asset_count"]),
-                "duplicate": True,
-                "asset_ids": [],
-            }
-        if collection_id is None:
-            raise RuntimeError("local inventory collection was not stored")
-        for asset in normalized_assets:
-            _upsert_control_tower_asset(connection, asset)
-    _persist_classification_evidence_best_effort(
-        normalized_assets=normalized_assets,
-        payload=payload,
-        source_authenticated=source_authenticated,
-    )
-    _persist_component_inventory_best_effort(
-        normalized_assets=normalized_assets,
-        payload=payload,
-        received_at=received_at,
-        source_authenticated=source_authenticated,
-    )
+        ).mappings().one()
+        return {
+            "collection_id": int(existing["id"]),
+            "normalized_asset_count": int(existing["normalized_asset_count"]),
+            "duplicate": True,
+            "asset_ids": [],
+        }
+    if collection_id is None:
+        raise RuntimeError("local inventory collection was not stored")
+    for asset in normalized_assets:
+        _upsert_control_tower_asset(connection, asset)
     return {
         "collection_id": int(collection_id),
         "normalized_asset_count": len(normalized_assets),
         "duplicate": False,
         "asset_ids": [asset["asset_id"] for asset in normalized_assets],
     }
+
+
+def record_authenticated_endpoint_inventory(
+    *,
+    payload: dict[str, Any],
+    payload_sha256: str,
+    site_id: str,
+    agent_id: str,
+    credential_id: str,
+    inventory_batch_id: str,
+    inventory_mode: str,
+    observed_at: datetime,
+    received_at: datetime,
+) -> dict[str, Any]:
+    """Persist one bound endpoint snapshot and its normalized evidence atomically."""
+
+    ensure_site_record(site_id=site_id)
+    observed_asset_count = len(payload.get("assets") or [])
+    component_count = sum(
+        len(asset.get("components") or [])
+        for asset in payload.get("assets") or []
+        if isinstance(asset, dict)
+    )
+    with get_engine().begin() as connection:
+        active_binding = connection.execute(
+            text(
+                """
+                SELECT 1
+                FROM endpoint_agent_credentials c
+                JOIN agent_enrollments a
+                  ON a.agent_id = c.agent_id
+                 AND a.site_id = c.site_id
+                 AND a.agent_type = c.agent_type
+                WHERE c.credential_id = :credential_id
+                  AND c.agent_id = :agent_id
+                  AND c.site_id = :site_id
+                  AND c.agent_type = 'endpoint-agent'
+                  AND c.status = 'active'
+                  AND (c.expires_at IS NULL OR c.expires_at > :received_at)
+                  AND a.identity_status = 'active'
+                FOR UPDATE OF c, a
+                """
+            ),
+            {
+                "credential_id": credential_id,
+                "agent_id": agent_id,
+                "site_id": site_id,
+                "received_at": received_at,
+            },
+        ).scalar_one_or_none()
+        if active_binding is None:
+            raise EndpointInventoryAuthorizationRejected(
+                "bound endpoint-agent credential is no longer active"
+            )
+
+        existing = connection.execute(
+            text(
+                """
+                SELECT storage_id, payload_sha256, collection_id,
+                       observed_asset_count, normalized_asset_count,
+                       component_count, reevaluation_state, received_at
+                FROM endpoint_agent_inventory_batches
+                WHERE site_id = :site_id
+                  AND agent_id = :agent_id
+                  AND inventory_batch_id = :inventory_batch_id
+                FOR UPDATE
+                """
+            ),
+            {
+                "inventory_batch_id": inventory_batch_id,
+                "site_id": site_id,
+                "agent_id": agent_id,
+            },
+        ).mappings().one_or_none()
+        if existing is not None:
+            if str(existing["payload_sha256"]) != payload_sha256:
+                raise EndpointInventoryReplayConflict("inventory-batch-content-conflict")
+            return {
+                "storage_id": int(existing["storage_id"]),
+                "collection_id": int(existing["collection_id"]),
+                "duplicate": True,
+                "observed_asset_count": int(existing["observed_asset_count"]),
+                "normalized_asset_count": int(existing["normalized_asset_count"]),
+                "component_count": int(existing["component_count"]),
+                "reevaluation_state": str(existing["reevaluation_state"]),
+                "received_at": existing["received_at"],
+                "asset_ids": [],
+            }
+
+        recent_batches = int(
+            connection.execute(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM endpoint_agent_inventory_batches
+                    WHERE site_id = :site_id
+                      AND agent_id = :agent_id
+                      AND received_at > :window_start
+                    """
+                ),
+                {
+                    "site_id": site_id,
+                    "agent_id": agent_id,
+                    "window_start": received_at - ENDPOINT_INVENTORY_RATE_WINDOW,
+                },
+            ).scalar_one()
+        )
+        if recent_batches >= MAX_ENDPOINT_INVENTORY_BATCHES_PER_WINDOW:
+            raise EndpointInventoryRateLimitExceeded(
+                "endpoint-agent inventory admission window exceeded"
+            )
+
+        normalized_assets = normalize_local_inventory_assets(
+            payload,
+            site_id=site_id,
+            received_at=received_at,
+        )
+        inserted = connection.execute(
+            text(
+                """
+                INSERT INTO endpoint_agent_inventory_batches (
+                    inventory_batch_id, payload_sha256, site_id, agent_id,
+                    credential_id, inventory_mode, observed_at, received_at,
+                    observed_asset_count, component_count
+                ) VALUES (
+                    :inventory_batch_id, :payload_sha256, :site_id, :agent_id,
+                    :credential_id, :inventory_mode, :observed_at, :received_at,
+                    :observed_asset_count, :component_count
+                )
+                RETURNING storage_id
+                """
+            ),
+            {
+                "inventory_batch_id": inventory_batch_id,
+                "payload_sha256": payload_sha256,
+                "site_id": site_id,
+                "agent_id": agent_id,
+                "credential_id": credential_id,
+                "inventory_mode": inventory_mode,
+                "observed_at": observed_at,
+                "received_at": received_at,
+                "observed_asset_count": observed_asset_count,
+                "component_count": component_count,
+            },
+        ).scalar_one()
+        collection = _store_local_inventory_collection(
+            connection,
+            payload=payload,
+            site_id=site_id,
+            received_at=received_at,
+            observed_asset_count=observed_asset_count,
+            normalized_assets=normalized_assets,
+            deduplicate=False,
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE endpoint_agent_inventory_batches
+                SET collection_id = :collection_id,
+                    normalized_asset_count = :normalized_asset_count,
+                    reevaluation_updated_at = :received_at
+                WHERE storage_id = :storage_id
+                """
+            ),
+            {
+                "collection_id": collection["collection_id"],
+                "normalized_asset_count": collection["normalized_asset_count"],
+                "received_at": received_at,
+                "storage_id": inserted,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO endpoint_agent_identity_audit_events (
+                    event_type, outcome, actor, credential_id, agent_id, site_id,
+                    reason_code, metadata_json, created_at
+                ) VALUES (
+                    'inventory_accepted', 'success', 'endpoint-agent',
+                    :credential_id, :agent_id, :site_id, NULL,
+                    CAST(:metadata_json AS JSONB), :created_at
+                )
+                """
+            ),
+            {
+                "credential_id": credential_id,
+                "agent_id": agent_id,
+                "site_id": site_id,
+                "metadata_json": _json_payload(
+                    {
+                        "storage_id": int(inserted),
+                        "inventory_batch_id": inventory_batch_id,
+                        "inventory_mode": inventory_mode,
+                    }
+                ),
+                "created_at": received_at,
+            },
+        )
+
+    _persist_classification_evidence_best_effort(
+        normalized_assets=normalized_assets,
+        payload=payload,
+        source_authenticated=True,
+    )
+    _persist_component_inventory_best_effort(
+        normalized_assets=normalized_assets,
+        payload=payload,
+        received_at=received_at,
+        source_authenticated=True,
+    )
+    return {
+        "storage_id": int(inserted),
+        "collection_id": int(collection["collection_id"]),
+        "duplicate": False,
+        "observed_asset_count": observed_asset_count,
+        "normalized_asset_count": int(collection["normalized_asset_count"]),
+        "component_count": component_count,
+        "reevaluation_state": "queued",
+        "received_at": received_at,
+        "asset_ids": list(collection.get("asset_ids") or []),
+    }
+
+
+def set_endpoint_inventory_reevaluation_state(
+    *, storage_id: int, state: str, error_code: str | None = None
+) -> None:
+    ensure_database_schema()
+    if state not in {"queued", "running", "completed", "retryable-failure"}:
+        raise ValueError("unsupported endpoint inventory reevaluation state")
+    with get_engine().begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE endpoint_agent_inventory_batches
+                SET reevaluation_state = :state,
+                    reevaluation_error_code = :error_code,
+                    reevaluation_updated_at = NOW()
+                WHERE storage_id = :storage_id
+                """
+            ),
+            {"storage_id": storage_id, "state": state, "error_code": error_code},
+        )
 
 
 def record_observation_batch(
@@ -2355,18 +2680,27 @@ def record_observation_batch(
     sensor_id = str(payload["sensor_id"])
     site_id = str(payload["site_id"])
     sensor_type = str(payload["sensor_type"])
-    create_agent_enrollment(
-        agent_id=sensor_id,
-        site_id=site_id,
-        display_name=_clean_text(payload.get("sensor_name")) or sensor_id,
-        agent_type="endpoint-agent" if sensor_type == "endpoint-collector" else "network-sensor",
-        platform=None,
-        architecture=None,
-        version=_clean_text(payload.get("sensor_version")),
-        hostname=_clean_text(payload.get("sensor_name")),
-        mode=_clean_text(payload.get("observation_source")),
-        last_seen_at=received_at,
+    agent_type = (
+        "endpoint-agent" if sensor_type == "endpoint-collector" else "network-sensor"
     )
+    identity_values = {
+        "agent_id": sensor_id,
+        "site_id": site_id,
+        "display_name": _clean_text(payload.get("sensor_name")) or sensor_id,
+        "agent_type": agent_type,
+        "version": _clean_text(payload.get("sensor_version")),
+        "hostname": _clean_text(payload.get("sensor_name")),
+        "mode": _clean_text(payload.get("observation_source")),
+        "last_seen_at": received_at,
+    }
+    if source_authenticated:
+        _refresh_authenticated_observation_agent(**identity_values)
+    else:
+        create_agent_enrollment(
+            **identity_values,
+            platform=None,
+            architecture=None,
+        )
     assets = payload.get("assets")
     observed_asset_count = len(assets) if isinstance(assets, list) else 0
     return record_local_inventory_collection(
@@ -2376,6 +2710,52 @@ def record_observation_batch(
         observed_asset_count=observed_asset_count,
         source_authenticated=source_authenticated,
     )
+
+
+def _refresh_authenticated_observation_agent(
+    *,
+    agent_id: str,
+    site_id: str,
+    display_name: str,
+    agent_type: str,
+    version: str | None,
+    hostname: str | None,
+    mode: str | None,
+    last_seen_at: datetime,
+) -> None:
+    ensure_database_schema()
+    with get_engine().begin() as connection:
+        result = connection.execute(
+            text(
+                """
+                UPDATE agent_enrollments
+                SET display_name = :display_name,
+                    version = :version,
+                    hostname = :hostname,
+                    mode = :mode,
+                    last_seen_at = GREATEST(COALESCE(last_seen_at, :last_seen_at), :last_seen_at),
+                    updated_at = GREATEST(updated_at, :last_seen_at)
+                WHERE agent_id = :agent_id
+                  AND site_id = :site_id
+                  AND agent_type = :agent_type
+                  AND identity_status = 'active'
+                """
+            ),
+            {
+                "agent_id": agent_id,
+                "site_id": site_id,
+                "display_name": display_name,
+                "agent_type": agent_type,
+                "version": version,
+                "hostname": hostname,
+                "mode": mode,
+                "last_seen_at": last_seen_at,
+            },
+        )
+        if result.rowcount != 1:
+            raise ObservationBatchAuthorizationRejected(
+                "authenticated observation identity is not active"
+            )
 
 
 def list_agent_checkins(limit: int = 25) -> list[dict[str, Any]]:

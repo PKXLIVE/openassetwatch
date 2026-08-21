@@ -86,10 +86,10 @@ func TestDefaultLogAndStatusPathsResolveForOS(t *testing.T) {
 
 func TestDefaultAgentPathsIncludeOnlyPaths(t *testing.T) {
 	paths := DefaultAgentPaths()
-	if paths.IdentityPath == "" || paths.ConfigPath == "" || paths.StateDir == "" || paths.LogDir == "" || paths.StatusPath == "" {
+	if paths.IdentityPath == "" || paths.CredentialPath == "" || paths.ConfigPath == "" || paths.StateDir == "" || paths.LogDir == "" || paths.StatusPath == "" {
 		t.Fatalf("default paths must be populated: %+v", paths)
 	}
-	combined := strings.ToLower(paths.IdentityPath + paths.ConfigPath + paths.StateDir + paths.LogDir + paths.StatusPath)
+	combined := strings.ToLower(paths.IdentityPath + paths.CredentialPath + paths.ConfigPath + paths.StateDir + paths.LogDir + paths.StatusPath)
 	for _, forbidden := range []string{"token", "secret", "password", "enrollment"} {
 		if strings.Contains(combined, forbidden) {
 			t.Fatalf("default paths include forbidden term %q: %+v", forbidden, paths)
@@ -109,33 +109,36 @@ func TestAgentPathsForOS(t *testing.T) {
 			goos: "windows",
 			env:  map[string]string{"ProgramData": `D:\ProgramData`},
 			want: AgentPaths{
-				IdentityPath: `D:\ProgramData\OpenAssetWatch\Agent\identity\identity.json`,
-				ConfigPath:   `D:\ProgramData\OpenAssetWatch\Agent\config\config.json`,
-				StateDir:     `D:\ProgramData\OpenAssetWatch\Agent\state`,
-				LogDir:       `D:\ProgramData\OpenAssetWatch\Agent\logs`,
-				StatusPath:   `D:\ProgramData\OpenAssetWatch\Agent\state\status.json`,
+				IdentityPath:   `D:\ProgramData\OpenAssetWatch\Agent\identity\identity.json`,
+				CredentialPath: `D:\ProgramData\OpenAssetWatch\Agent\state\credential\credential.json`,
+				ConfigPath:     `D:\ProgramData\OpenAssetWatch\Agent\config\config.json`,
+				StateDir:       `D:\ProgramData\OpenAssetWatch\Agent\state`,
+				LogDir:         `D:\ProgramData\OpenAssetWatch\Agent\logs`,
+				StatusPath:     `D:\ProgramData\OpenAssetWatch\Agent\state\status.json`,
 			},
 		},
 		{
 			name: "linux",
 			goos: "linux",
 			want: AgentPaths{
-				IdentityPath: "/etc/openassetwatch/agent/identity.json",
-				ConfigPath:   "/etc/openassetwatch/agent/config.json",
-				StateDir:     "/var/lib/openassetwatch/agent",
-				LogDir:       "/var/log/openassetwatch/agent",
-				StatusPath:   "/var/log/openassetwatch/agent/status.json",
+				IdentityPath:   "/etc/openassetwatch/agent/identity.json",
+				CredentialPath: "/var/lib/openassetwatch/agent/credential/credential.json",
+				ConfigPath:     "/etc/openassetwatch/agent/config.json",
+				StateDir:       "/var/lib/openassetwatch/agent",
+				LogDir:         "/var/log/openassetwatch/agent",
+				StatusPath:     "/var/log/openassetwatch/agent/status.json",
 			},
 		},
 		{
 			name: "darwin",
 			goos: "darwin",
 			want: AgentPaths{
-				IdentityPath: "/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json",
-				ConfigPath:   "/Library/Application Support/OpenAssetWatch/Agent/config/config.json",
-				StateDir:     "/Library/Application Support/OpenAssetWatch/Agent/state",
-				LogDir:       "/Library/Logs/OpenAssetWatch/Agent",
-				StatusPath:   "/Library/Application Support/OpenAssetWatch/Agent/state/status.json",
+				IdentityPath:   "/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json",
+				CredentialPath: "/Library/Application Support/OpenAssetWatch/Agent/state/credential/credential.json",
+				ConfigPath:     "/Library/Application Support/OpenAssetWatch/Agent/config/config.json",
+				StateDir:       "/Library/Application Support/OpenAssetWatch/Agent/state",
+				LogDir:         "/Library/Logs/OpenAssetWatch/Agent",
+				StatusPath:     "/Library/Application Support/OpenAssetWatch/Agent/state/status.json",
 			},
 		},
 	}
