@@ -3,7 +3,7 @@
 # Keep this file readable and reviewable. Regenerate the fully resolved,
 # hashed requirements.txt after changing a constraint; see backend/README.md.
 fastapi>=0.141.1,<1
-uvicorn[standard]>=0.52.3,<1
+uvicorn[standard]>=0.52.4,<1
 sqlalchemy>=2.0.52,<3
 psycopg2-binary>=2.9.12,<3
 pydantic>=2.13.4,<3
