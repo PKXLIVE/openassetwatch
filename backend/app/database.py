@@ -486,22 +486,32 @@ def latest_inventory_submission() -> dict[str, Any] | None:
     statement = text(
         """
         SELECT
-            id,
-            collector_guid,
-            collector_id,
-            collector_name,
-            mode,
-            schema_version,
-            collector_version,
-            collected_at,
-            received_at,
-            device_count,
-            network_observation_count,
-            software_count,
-            payload_json,
-            created_at
-        FROM collector_inventory_submissions
-        ORDER BY received_at DESC, id DESC
+            s.id,
+            s.collector_guid,
+            s.collector_id,
+            s.collector_name,
+            s.mode,
+            s.schema_version,
+            s.collector_version,
+            s.collected_at,
+            s.received_at,
+            s.device_count,
+            s.network_observation_count,
+            s.software_count,
+            s.payload_json,
+            s.created_at,
+            m.canonical_collection_id,
+            c.evaluation_state,
+            src.source_authority,
+            src.compatibility_status
+        FROM collector_inventory_submissions s
+        LEFT JOIN legacy_submission_mappings m
+          ON m.legacy_submission_id = s.id
+        LEFT JOIN canonical_inventory_collections c
+          ON c.canonical_collection_id = m.canonical_collection_id
+        LEFT JOIN canonical_ingestion_sources src
+          ON src.source_id = c.source_id
+        ORDER BY s.received_at DESC, s.id DESC
         LIMIT 1
         """
     )
@@ -529,6 +539,10 @@ def latest_inventory_submission() -> dict[str, Any] | None:
         "network_observation_count": row["network_observation_count"],
         "software_count": row["software_count"],
         "created_at": row["created_at"],
+        "canonical_collection_id": row["canonical_collection_id"],
+        "evaluation_state": row["evaluation_state"],
+        "source_authority": row["source_authority"],
+        "compatibility_status": row["compatibility_status"],
         "payload": payload,
     }
 
@@ -2188,7 +2202,7 @@ def _persist_classification_evidence_best_effort(
     normalized_assets: list[dict[str, Any]],
     payload: dict[str, Any],
     source_authenticated: bool,
-) -> None:
+) -> bool:
     """Persist classification provenance without making ingestion dependent on it."""
 
     from .classification_store import (
@@ -2224,6 +2238,8 @@ def _persist_classification_evidence_best_effort(
             "classification evidence persistence failed safely: %s",
             type(exc).__name__,
         )
+        return False
+    return True
 
 
 def _persist_component_inventory_best_effort(
@@ -2232,7 +2248,7 @@ def _persist_component_inventory_best_effort(
     payload: dict[str, Any],
     received_at: datetime,
     source_authenticated: bool,
-) -> None:
+) -> bool:
     """Persist component evidence without making accepted ingestion depend on it."""
 
     from .component_intelligence import (
@@ -2262,7 +2278,7 @@ def _persist_component_inventory_best_effort(
             if complete_scope is not None:
                 complete_assets.append(complete_scope)
         if not components and not complete_assets:
-            return
+            return True
         with get_engine().begin() as connection:
             persist_components(
                 connection,
@@ -2274,6 +2290,8 @@ def _persist_component_inventory_best_effort(
             "component inventory persistence failed safely: %s",
             type(exc).__name__,
         )
+        return False
+    return True
 
 
 def record_local_inventory_collection(
@@ -2320,6 +2338,7 @@ def _store_local_inventory_collection(
     observed_asset_count: int,
     normalized_assets: list[dict[str, Any]],
     deduplicate: bool = True,
+    store_assets: bool = True,
 ) -> dict[str, int | bool | list[str]]:
     """Store one normalized collection using an existing caller-owned transaction."""
 
@@ -2419,8 +2438,9 @@ def _store_local_inventory_collection(
         }
     if collection_id is None:
         raise RuntimeError("local inventory collection was not stored")
-    for asset in normalized_assets:
-        _upsert_control_tower_asset(connection, asset)
+    if store_assets:
+        for asset in normalized_assets:
+            _upsert_control_tower_asset(connection, asset)
     return {
         "collection_id": int(collection_id),
         "normalized_asset_count": len(normalized_assets),
@@ -2799,6 +2819,7 @@ def list_control_tower_assets(
     statement = text(
         """
         SELECT
+            cta.asset_key,
             cta.asset_id,
             cta.site_id,
             cta.hostname,
@@ -2818,6 +2839,11 @@ def list_control_tower_assets(
             cta.metadata_json,
             cta.created_at,
             cta.updated_at,
+            caa.canonical_collection_id,
+            caa.source_authority,
+            caa.adapter_type AS ingestion_adapter_type,
+            caa.compatibility_status,
+            caa.trust_rank AS source_trust_rank,
             ac.classification_id,
             ac.classifier_version,
             ac.category AS classification_category,
@@ -2852,6 +2878,8 @@ def list_control_tower_assets(
                   )
             ) AS classification_has_endpoint_evidence
           FROM control_tower_assets cta
+          LEFT JOIN canonical_asset_authority caa
+            ON caa.asset_key = cta.asset_key
           LEFT JOIN asset_classifications ac
             ON ac.site_id = cta.site_id AND ac.asset_id = cta.asset_id
           WHERE (:site_id IS NULL OR cta.site_id = :site_id)
