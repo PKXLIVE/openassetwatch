@@ -14,6 +14,7 @@ from pydantic import (
 
 
 MAX_OBSERVATIONS_PER_BATCH = 500
+MAX_COMPONENTS_PER_BATCH = 32_000
 MAX_OBSERVATION_FUTURE_SKEW = timedelta(minutes=5)
 SITE_ID_PATTERN = r"^[A-Za-z0-9._-]+$"
 SENSOR_ID_PATTERN = r"^[A-Za-z0-9._:-]+$"
@@ -119,6 +120,25 @@ class ObservationBatchRequest(StrictContract):
     component_inventory_complete: bool = False
     assets: list[ObservationAsset] = Field(default_factory=list, max_length=MAX_OBSERVATIONS_PER_BATCH)
 
+    @model_validator(mode="before")
+    @classmethod
+    def bound_aggregate_components(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        assets = value.get("assets")
+        if not isinstance(assets, list):
+            return value
+        component_count = 0
+        for asset in assets:
+            if not isinstance(asset, dict):
+                continue
+            components = asset.get("components")
+            if isinstance(components, list):
+                component_count += len(components)
+                if component_count > MAX_COMPONENTS_PER_BATCH:
+                    raise ValueError("observation component limit exceeded")
+        return value
+
     @field_validator("observed_at")
     @classmethod
     def require_timezone(cls, value: datetime) -> datetime:
@@ -159,11 +179,21 @@ class ObservationBatchResponse(StrictContract):
     status: Literal["accepted", "duplicate"]
     observation_batch_id: str
     storage_id: int
+    canonical_collection_id: str = Field(..., pattern=r"^col_[0-9a-f]{32}$")
     site_id: str
     sensor_id: str
     received_at: datetime
     observed_asset_count: int
     normalized_asset_count: int
+    source_authority: Literal[
+        "authenticated-passive-sensor", "untrusted-transitional"
+    ]
+    adapter_type: Literal["passive-sensor"] = "passive-sensor"
+    compatibility_status: Literal["canonical", "deprecated"]
+    evaluation_state: Literal[
+        "queued", "running", "completed", "retryable-failure", "not-required"
+    ]
+    warnings: list[str] = Field(default_factory=list, max_length=16)
     message: str
 
 

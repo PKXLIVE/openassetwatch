@@ -276,6 +276,7 @@ class EndpointInventoryResponse(StrictContract):
     inventory_batch_id: str
     storage_id: int = Field(..., ge=1)
     collection_id: int = Field(..., ge=1)
+    canonical_collection_id: str = Field(..., pattern=r"^col_[0-9a-f]{32}$")
     site_id: str
     agent_id: str
     credential_id: str
@@ -283,5 +284,11 @@ class EndpointInventoryResponse(StrictContract):
     observed_asset_count: int = Field(..., ge=0, le=MAX_ASSETS)
     normalized_asset_count: int = Field(..., ge=0, le=MAX_ASSETS)
     component_count: int = Field(..., ge=0, le=32_000)
-    reevaluation_state: Literal["queued", "running", "completed", "retryable-failure"]
+    reevaluation_state: Literal[
+        "queued", "running", "completed", "retryable-failure", "not-required"
+    ]
+    source_authority: Literal["authenticated-endpoint"] = "authenticated-endpoint"
+    adapter_type: Literal["endpoint-agent"] = "endpoint-agent"
+    compatibility_status: Literal["canonical"] = "canonical"
+    warnings: list[str] = Field(default_factory=list, max_length=16)
     message: str
