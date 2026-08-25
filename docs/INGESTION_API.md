@@ -3,8 +3,10 @@
 The authenticated endpoint-agent contract and its authority/idempotency rules
 are documented in
 [ENDPOINT_AGENT_IDENTITY.md](ENDPOINT_AGENT_IDENTITY.md). Existing collector
-and passive-sensor contracts remain available and are not reclassified by the
-new credential path.
+and passive-sensor contracts remain available. All four inventory submission
+routes now translate into one server-owned canonical collection model while
+retaining their distinct trust classifications; see
+[CANONICAL_INGESTION_COMPATIBILITY.md](CANONICAL_INGESTION_COMPATIBILITY.md).
 
 This document records the transitional Go local inventory endpoint, the first
 normalized outbound observation-batch contract for future spokes, and the
@@ -108,11 +110,16 @@ neighbor data as passive observations. Client-submitted values are not treated
 as privileged truth and do not by themselves establish tenant ownership,
 license entitlement, or final asset identity.
 
+The submitted `site_id` must already exist in the hub. This compatibility route
+cannot create a site or elevate payload-declared site, source, sensor, agent,
+deployment, trust, or authority fields. Identical replay is idempotent and a
+conflicting reuse of its batch identifier fails closed.
+
 That boundary also applies to deterministic classification: the transitional
 route may contribute bounded inferred evidence, but a client-declared
 `agent_id`, `sensor_id`, `sensor_type`, or `observation_source` does not make
 the evidence direct. All submissions on that route share the server-assigned
-`untrusted-local-inventory` evidence identity, preventing fabricated
+`untrusted-transitional` evidence identity, preventing fabricated
 independent-source agreement. Direct endpoint classification requires a
 server-authenticated ingestion context. Observation times more than five
 minutes ahead of hub receive time are clamped to receive time.

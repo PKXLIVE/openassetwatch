@@ -90,11 +90,13 @@ The hub injects source authentication, source authority, canonical IDs,
 credential lineage, source type, and ingestion time. Payload fields cannot set
 risk, findings, management state, severity, or site/agent/tenant authority.
 
-Idempotency is keyed by `(site_id, canonical agent_id, inventory_batch_id)`.
-The hub hashes the canonical validated client body. An identical retry returns
-the original storage and collection IDs without duplicating evidence, audit
-events, components, vulnerability matches, findings, or risk. Reusing a batch
-ID with different content returns a conflict.
+Idempotency is persisted by the common canonical ingestion service under the
+server-derived endpoint source and `inventory_batch_id`. The hub hashes the
+canonical validated client body. An identical retry returns the original
+canonical, storage, and compatibility collection IDs without duplicating
+assets, components, vulnerability matches, findings, or risk. Reusing a batch
+ID with different content returns a conflict. See
+[CANONICAL_INGESTION_COMPATIBILITY.md](CANONICAL_INGESTION_COMPATIBILITY.md).
 
 New snapshots record reevaluation as `queued`. Bounded background work targets
 only the affected site and assets, then records `running`, `completed`, or
