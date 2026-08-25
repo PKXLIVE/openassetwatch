@@ -73,9 +73,10 @@ class MigrationDiscoveryTests(unittest.TestCase):
     def test_packaged_baseline_is_ordered_checksummed_and_complete(self) -> None:
         migrations = discover_migrations()
 
-        self.assertEqual([item.version for item in migrations], [1, 2])
+        self.assertEqual([item.version for item in migrations], [1, 2, 3])
         self.assertEqual(migrations[0].name, "current_schema_baseline")
         self.assertEqual(migrations[1].name, "endpoint_agent_identity")
+        self.assertEqual(migrations[2].name, "canonical_ingestion_compatibility")
         self.assertEqual(
             migrations[0].checksum,
             hashlib.sha256(
@@ -88,6 +89,15 @@ class MigrationDiscoveryTests(unittest.TestCase):
                 (MIGRATION_DIRECTORY / "0002_endpoint_agent_identity.sql").read_bytes()
             ).hexdigest(),
         )
+        self.assertEqual(
+            migrations[2].checksum,
+            hashlib.sha256(
+                (
+                    MIGRATION_DIRECTORY
+                    / "0003_canonical_ingestion_compatibility.sql"
+                ).read_bytes()
+            ).hexdigest(),
+        )
         contract = schema_contract(migrations)
         self.assertIn("oaw_schema_migrations", contract.columns)
         self.assertIn("classification_evidence", contract.columns)
@@ -96,6 +106,11 @@ class MigrationDiscoveryTests(unittest.TestCase):
         self.assertIn("endpoint_agent_credentials", contract.columns)
         self.assertIn("endpoint_agent_identity_audit_events", contract.columns)
         self.assertIn("endpoint_agent_inventory_batches", contract.columns)
+        self.assertIn("canonical_ingestion_sources", contract.columns)
+        self.assertIn("canonical_inventory_collections", contract.columns)
+        self.assertIn("canonical_asset_authority", contract.columns)
+        self.assertIn("legacy_submission_mappings", contract.columns)
+        self.assertIn("ingestion_compatibility_events", contract.columns)
         self.assertGreaterEqual(len(contract.columns), 50)
 
     def test_duplicate_version_is_rejected(self) -> None:
@@ -215,6 +230,14 @@ class MigrationDiscoveryTests(unittest.TestCase):
         conflicting = _normalize_sql_fragment("(a OR b) AND c")
 
         self.assertNotEqual(expected, conflicting)
+
+    def test_check_normalization_accepts_postgres_typed_array_deparse(self) -> None:
+        expected = _normalize_sql_fragment("adapter_type IN ('one', 'two')")
+        actual = _normalize_sql_fragment(
+            "adapter_type = ANY (ARRAY['one'::text, 'two'::text]::text[])"
+        )
+
+        self.assertEqual(actual, expected)
 
     def test_static_schema_is_only_a_reference_to_the_canonical_migration(self) -> None:
         reference = (ROOT / "database" / "schema.sql").read_text(encoding="utf-8")

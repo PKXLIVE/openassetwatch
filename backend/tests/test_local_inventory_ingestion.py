@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from fastapi import BackgroundTasks, HTTPException
 
+from app.canonical_ingestion import CanonicalIngestionAcknowledgement
 from app.database import normalize_local_inventory_assets
 from app.main import app, local_inventory_collection
 
@@ -99,6 +100,26 @@ def local_inventory_payload() -> dict[str, object]:
     }
 
 
+def transitional_acknowledgement() -> CanonicalIngestionAcknowledgement:
+    return CanonicalIngestionAcknowledgement(
+        status="accepted",
+        canonical_collection_id="col_" + "4" * 32,
+        canonical_asset_ids=("local-host",),
+        replay_state="new",
+        evidence_count=0,
+        component_count=0,
+        evaluation_state="queued",
+        warnings=("transitional compatibility input is untrusted and deprecated",),
+        adapter_type="transitional-local",
+        compatibility_status="deprecated",
+        source_authority="untrusted-transitional",
+        compatibility_collection_id=1,
+        received_at=datetime.now(timezone.utc),
+        observed_asset_count=1,
+        normalized_asset_count=1,
+    )
+
+
 def post_raw_json(path: str, body: bytes) -> tuple[int, bytes]:
     messages: list[dict[str, object]] = []
     sent_body = False
@@ -147,9 +168,9 @@ def post_raw_json(path: str, body: bytes) -> tuple[int, bytes]:
 class LocalInventoryIngestionTests(unittest.TestCase):
     def test_valid_collection_json_is_accepted(self) -> None:
         with patch(
-            "app.main.record_local_inventory_collection",
-            return_value={"collection_id": 1, "normalized_asset_count": 1},
-        ) as record:
+            "app.main.ingest_canonical_inventory",
+            return_value=transitional_acknowledgement(),
+        ) as ingest:
             response = local_inventory_collection(local_inventory_payload())
 
         self.assertEqual(response.status, "accepted")
@@ -157,18 +178,15 @@ class LocalInventoryIngestionTests(unittest.TestCase):
         self.assertEqual(response.site_id, "site-local")
         self.assertEqual(response.observed_asset_count, 1)
         self.assertEqual(response.normalized_asset_count, 1)
-        self.assertEqual(record.call_args.kwargs["site_id"], "site-local")
-        self.assertFalse(record.call_args.kwargs["source_authenticated"])
+        envelope = ingest.call_args.args[0]
+        self.assertEqual(envelope.site_id, "site-local")
+        self.assertEqual(envelope.source_authority, "untrusted-transitional")
 
     def test_collection_queues_only_persisted_assets_for_classification(self) -> None:
         background = BackgroundTasks()
         with patch(
-            "app.main.record_local_inventory_collection",
-            return_value={
-                "collection_id": 1,
-                "normalized_asset_count": 1,
-                "asset_ids": ["local-host"],
-            },
+            "app.main.ingest_canonical_inventory",
+            return_value=transitional_acknowledgement(),
         ):
             response = local_inventory_collection(
                 local_inventory_payload(),
@@ -179,7 +197,9 @@ class LocalInventoryIngestionTests(unittest.TestCase):
         self.assertEqual(len(background.tasks), 1)
         self.assertEqual(
             background.tasks[0].kwargs,
-            {"site_id": "site-local", "asset_ids": ["local-host"]},
+            {
+                "canonical_collection_id": "col_" + "4" * 32,
+            },
         )
 
     def test_malformed_json_is_rejected(self) -> None:
@@ -205,38 +225,37 @@ class LocalInventoryIngestionTests(unittest.TestCase):
         payload["sensor_id"] = "33333333-3333-4333-8333-333333333333"
 
         with patch(
-            "app.main.record_local_inventory_collection",
-            return_value={"collection_id": 1, "normalized_asset_count": 1},
-        ):
+            "app.main.ingest_canonical_inventory",
+            return_value=transitional_acknowledgement(),
+        ) as ingest:
             response = local_inventory_collection(payload)
 
         self.assertEqual(response.status, "accepted")
-        saved_payload = payload
-        self.assertEqual(saved_payload["deployment_id"], "11111111-1111-4111-8111-111111111111")
-        self.assertEqual(saved_payload["agent_id"], "22222222-2222-4222-8222-222222222222")
-        self.assertEqual(saved_payload["sensor_id"], "33333333-3333-4333-8333-333333333333")
+        envelope = ingest.call_args.args[0]
+        self.assertIsNone(envelope.bound_identity_id)
+        self.assertIsNone(envelope.credential_id)
+        self.assertEqual(envelope.source_authority, "untrusted-transitional")
+        self.assertNotIn("agent_id", envelope.provenance)
+        self.assertNotIn("sensor_id", envelope.provenance)
+        self.assertNotIn("deployment_id", envelope.provenance)
 
     def test_payload_without_optional_installed_identity_is_accepted(self) -> None:
         payload = local_inventory_payload()
 
         with patch(
-            "app.main.record_local_inventory_collection",
-            return_value={"collection_id": 1, "normalized_asset_count": 1},
+            "app.main.ingest_canonical_inventory",
+            return_value=transitional_acknowledgement(),
         ):
             response = local_inventory_collection(payload)
 
         self.assertEqual(response.status, "accepted")
-        saved_payload = payload
-        self.assertNotIn("deployment_id", saved_payload)
-        self.assertNotIn("agent_id", saved_payload)
-        self.assertNotIn("sensor_id", saved_payload)
 
     def test_external_ci_hints_are_accepted_as_observations(self) -> None:
         payload = local_inventory_payload()
 
         with patch(
-            "app.main.record_local_inventory_collection",
-            return_value={"collection_id": 1, "normalized_asset_count": 1},
+            "app.main.ingest_canonical_inventory",
+            return_value=transitional_acknowledgement(),
         ):
             response = local_inventory_collection(payload)
 
@@ -249,8 +268,8 @@ class LocalInventoryIngestionTests(unittest.TestCase):
         payload = local_inventory_payload()
 
         with patch(
-            "app.main.record_local_inventory_collection",
-            return_value={"collection_id": 1, "normalized_asset_count": 1},
+            "app.main.ingest_canonical_inventory",
+            return_value=transitional_acknowledgement(),
         ):
             response = local_inventory_collection(payload)
 
@@ -290,8 +309,8 @@ class LocalInventoryIngestionTests(unittest.TestCase):
 
     def test_http_valid_collection_returns_json_response(self) -> None:
         with patch(
-            "app.main.record_local_inventory_collection",
-            return_value={"collection_id": 1, "normalized_asset_count": 1},
+            "app.main.ingest_canonical_inventory",
+            return_value=transitional_acknowledgement(),
         ):
             status, response_body = post_raw_json(
                 "/api/v1/collections/local-inventory",
