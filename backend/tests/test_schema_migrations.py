@@ -73,10 +73,11 @@ class MigrationDiscoveryTests(unittest.TestCase):
     def test_packaged_baseline_is_ordered_checksummed_and_complete(self) -> None:
         migrations = discover_migrations()
 
-        self.assertEqual([item.version for item in migrations], [1, 2, 3])
+        self.assertEqual([item.version for item in migrations], [1, 2, 3, 4])
         self.assertEqual(migrations[0].name, "current_schema_baseline")
         self.assertEqual(migrations[1].name, "endpoint_agent_identity")
         self.assertEqual(migrations[2].name, "canonical_ingestion_compatibility")
+        self.assertEqual(migrations[3].name, "native_software_source_presence")
         self.assertEqual(
             migrations[0].checksum,
             hashlib.sha256(
@@ -98,6 +99,15 @@ class MigrationDiscoveryTests(unittest.TestCase):
                 ).read_bytes()
             ).hexdigest(),
         )
+        self.assertEqual(
+            migrations[3].checksum,
+            hashlib.sha256(
+                (
+                    MIGRATION_DIRECTORY
+                    / "0004_native_software_source_presence.sql"
+                ).read_bytes()
+            ).hexdigest(),
+        )
         contract = schema_contract(migrations)
         self.assertIn("oaw_schema_migrations", contract.columns)
         self.assertIn("classification_evidence", contract.columns)
@@ -111,6 +121,9 @@ class MigrationDiscoveryTests(unittest.TestCase):
         self.assertIn("canonical_asset_authority", contract.columns)
         self.assertIn("legacy_submission_mappings", contract.columns)
         self.assertIn("ingestion_compatibility_events", contract.columns)
+        self.assertIn("component_source_snapshots", contract.columns)
+        self.assertIn("component_collection_sources", contract.columns)
+        self.assertIn("component_source_presence", contract.columns)
         self.assertGreaterEqual(len(contract.columns), 50)
 
     def test_duplicate_version_is_rejected(self) -> None:

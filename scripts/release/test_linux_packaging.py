@@ -6,6 +6,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -13,6 +14,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import linux_packaging as linuxsrc
 from release_common import validate_version
+import validate_agent_rpm as rpmvalidator
 
 
 class LinuxPackagingSourceTests(unittest.TestCase):
@@ -38,7 +40,11 @@ class LinuxPackagingSourceTests(unittest.TestCase):
         self.assertNotIn(linuxsrc.OPT_BINARY_PACKAGE_PATH, linuxsrc.SERVICE_OWNED_DIRS)
         self.assertEqual(
             set(linuxsrc.SERVICE_OWNED_DIRS),
-            {"./var/lib/openassetwatch/agent", "./var/log/openassetwatch/agent"},
+            {
+                "./var/lib/openassetwatch/agent",
+                "./var/lib/openassetwatch/agent/credential",
+                "./var/log/openassetwatch/agent",
+            },
         )
 
     def test_helper_scripts_are_exact_no_argument_wrappers(self) -> None:
@@ -126,6 +132,11 @@ class LinuxPackagingSourceTests(unittest.TestCase):
         self.assertIn("systemctl disable oaw-agent.timer", spec)
         self.assertIn("rm -f /etc/systemd/system/timers.target.wants/oaw-agent.timer", spec)
         self.assertIn("grep -Eq '^(sudo|admin|wheel)$'", spec)
+        self.assertIn(
+            "%dir %attr(0700,openassetwatch,openassetwatch) "
+            "/var/lib/openassetwatch/agent/credential",
+            spec,
+        )
         self.assertNotIn("|| true", spec)
         self.assertNotIn("systemctl enable oaw-agent.service", spec)
         self.assertNotIn("systemctl restart oaw-agent.service", spec)
@@ -158,6 +169,44 @@ class LinuxPackagingSourceTests(unittest.TestCase):
             with self.subTest(version=bad):
                 with self.assertRaises(ValueError):
                     validate_version(bad)
+
+    def test_forbidden_content_scan_allows_only_declared_credential_directory(self) -> None:
+        manifest_path = linuxsrc.RELEASE_MANIFEST_PACKAGE_PATH
+        declared_layout = (
+            b'{"directories":["./var/lib/openassetwatch/agent/credential"],'
+            b'"ownership":{"openassetwatch:openassetwatch":'
+            b'["/var/lib/openassetwatch/agent/credential"]}}'
+        )
+        self.assertFalse(linuxsrc.contains_forbidden_package_content(manifest_path, declared_layout))
+
+        for forbidden in (
+            b'{"credential":"synthetic-value"}',
+            b'{"path":"/var/lib/openassetwatch/agent/credential.json"}',
+            b'{"path":"/tmp/credential"}',
+            b'{"token":"synthetic-value"}',
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertTrue(linuxsrc.contains_forbidden_package_content(manifest_path, forbidden))
+
+        self.assertTrue(
+            linuxsrc.contains_forbidden_package_content(
+                "./usr/share/doc/openassetwatch-agent/README.md",
+                b"/var/lib/openassetwatch/agent/credential",
+            )
+        )
+
+    def test_rpm_payload_listing_allows_only_declared_credential_directory(self) -> None:
+        expected = {
+            rpmvalidator.install_path(path)
+            for path in rpmvalidator.RPM_EXPECTED_FILES
+        } | set(rpmvalidator.RPM_PAYLOAD_LISTING_EXPECTED_DIRS)
+        with patch.object(rpmvalidator, "run_rpm", return_value="\n".join(sorted(expected))):
+            rpmvalidator.validate_rpm_payload_listing(Path("synthetic.rpm"))
+
+        unsafe = expected | {f"{linuxsrc.CREDENTIAL_DIR}/credential.json"}
+        with patch.object(rpmvalidator, "run_rpm", return_value="\n".join(sorted(unsafe))):
+            with self.assertRaisesRegex(ValueError, "forbidden paths"):
+                rpmvalidator.validate_rpm_payload_listing(Path("synthetic.rpm"))
 
 
 if __name__ == "__main__":

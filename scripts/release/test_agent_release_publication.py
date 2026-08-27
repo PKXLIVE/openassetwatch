@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 import validate_agent_release_publication as releasepub
+import validate_agent_windows_msi as windowsmsi
 
 
 def write_artifact(root: Path, relative: str, contents: bytes = b"artifact") -> tuple[Path, str]:
@@ -152,6 +153,76 @@ def run_release_validator(repo: Path, dist_root: Path) -> dict[str, object]:
 
 
 class ReleasePublicationTests(unittest.TestCase):
+    def test_windows_credential_directory_uses_exact_protected_dacl(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        windowsmsi.validate_wix_source(repo)
+
+    def test_windows_credential_directory_rejects_unprotected_or_broad_dacl(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        source = (repo / windowsmsi.WXS_RELATIVE).read_text(encoding="utf-8")
+        exact = f'<PermissionEx Sddl="{windowsmsi.CREDENTIAL_DIRECTORY_SDDL}" />'
+        mutations = {
+            "unprotected": exact.replace('G:SYD:P', 'G:SYD:'),
+            "ordinary-users-read": exact.replace(
+                ')" />',
+                ')(A;OICI;GR;;;BU)" />',
+            ),
+            "legacy-additive-acl": (
+                '<util:PermissionEx Domain="NT SERVICE" User="OpenAssetWatchAgent" '
+                'GenericRead="yes" GenericWrite="yes" GenericExecute="yes" />'
+            ),
+        }
+        for label, replacement in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                fixture = Path(tmp)
+                wxs = fixture / windowsmsi.WXS_RELATIVE
+                wxs.parent.mkdir(parents=True)
+                wxs.write_text(source.replace(exact, replacement), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "exact protected service-specific DACL"):
+                    windowsmsi.validate_wix_source(fixture)
+
+    def test_windows_credential_component_must_stay_under_credential_directory(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        source = (repo / windowsmsi.WXS_RELATIVE).read_text(encoding="utf-8")
+        mutated = source.replace(
+            '<DirectoryRef Id="AgentCredentialDir">',
+            '<DirectoryRef Id="AgentLogsDir">',
+            1,
+        )
+        self.assertNotEqual(mutated, source)
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp)
+            wxs = fixture / windowsmsi.WXS_RELATIVE
+            wxs.parent.mkdir(parents=True)
+            wxs.write_text(mutated, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "directly attached to AgentCredentialDir"):
+                windowsmsi.validate_wix_source(fixture)
+
+    def test_windows_credential_acl_repair_is_deferred_and_fail_closed(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        source = (repo / windowsmsi.WXS_RELATIVE).read_text(encoding="utf-8")
+        mutations = {
+            "impersonated": ('Impersonate="no"', 'Impersonate="yes"'),
+            "ignored-failure": ('Return="check"', 'Return="ignore"'),
+            "argument-bearing": (
+                'ExeCommand="repair-private-state-acl"',
+                'ExeCommand="repair-private-state-acl [AgentCredentialDir]"',
+            ),
+            "late-schedule": ('After="InstallFiles"', 'After="StartServices"'),
+            "runs-on-uninstall": (
+                'Condition="NOT (REMOVE~=&quot;ALL&quot;)"',
+                'Condition="1"',
+            ),
+        }
+        for label, (old, new) in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                fixture = Path(tmp)
+                wxs = fixture / windowsmsi.WXS_RELATIVE
+                wxs.parent.mkdir(parents=True)
+                wxs.write_text(source.replace(old, new), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "credential ACL repair"):
+                    windowsmsi.validate_wix_source(fixture)
+
     def test_version_normalization_stable(self) -> None:
         value = releasepub.normalize_version("v0.1.0")
         self.assertEqual(value.source_version, "0.1.0")

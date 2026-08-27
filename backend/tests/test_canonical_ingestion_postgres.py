@@ -14,6 +14,9 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.pool import NullPool
 
 from app import main
+from app.advisory_catalog import load_catalog
+from app.advisory_store import SqlAdvisoryStore
+from app.ai_advisor import AdvisorQueryRequest, ProviderConfig, run_advisor
 from app.canonical_ingestion import (
     CanonicalIngestionRejected,
     CanonicalReplayConflict,
@@ -24,9 +27,12 @@ from app.canonical_ingestion import (
     transitional_envelope,
 )
 from app.endpoint_agent_contracts import EndpointInventoryRequest
+from app.finding_store import SqlFindingStore
 from app.hub_contracts import ObservationBatchRequest
 from app.main import CollectorInventoryRequest
 from app.schema_migrations import migrate_database_schema
+from app.component_store import SqlComponentStore
+from app.vulnerability_store import SqlVulnerabilityStore
 
 
 ENABLED = os.getenv("OPENASSETWATCH_CANONICAL_INGESTION_POSTGRES_TEST") == "1"
@@ -58,7 +64,7 @@ class CanonicalIngestionPostgresTests(unittest.TestCase):
             poolclass=NullPool,
         )
         migration = migrate_database_schema(self.database_engine)
-        self.assertEqual(migration.current_version, 3)
+        self.assertEqual(migration.current_version, 4)
         self.patchers = [
             patch("app.database.get_engine", return_value=self.database_engine),
             patch("app.database.ensure_database_schema"),
@@ -221,6 +227,73 @@ class CanonicalIngestionPostgresTests(unittest.TestCase):
                                 "purl": "pkg:pypi/fictional-package@1.0.0",
                             }
                         ],
+                    }
+                ],
+            }
+        )
+
+    @staticmethod
+    def _native_endpoint_payload(
+        *,
+        now: datetime,
+        batch_id: str,
+        status: str,
+        packages: tuple[tuple[str, str], ...],
+        truncated: bool = False,
+        error_code: str | None = None,
+        limitations: tuple[str, ...] = (),
+    ) -> EndpointInventoryRequest:
+        components = [
+            {
+                "component_type": "operating-system-package",
+                "ecosystem": "deb",
+                "name": name,
+                "version": version,
+                "architecture": "amd64",
+                "package_manager": "dpkg",
+                "install_scope": "system",
+                "collection_source_id": "linux-dpkg",
+                "source_record_id": f"{name}:amd64",
+                "evidence_method": "dpkg-native-query",
+                "observed_at": now.isoformat(),
+                "confidence": 0.95,
+            }
+            for name, version in packages
+        ]
+        source: dict[str, object] = {
+            "source_id": "linux-dpkg",
+            "platform": "linux",
+            "status": status,
+            "observed_at": now.isoformat(),
+            "record_count": len(components),
+            "truncated": truncated,
+        }
+        if error_code:
+            source["error_code"] = error_code
+        if limitations:
+            source["limitations"] = list(limitations)
+        elif status == "partial":
+            source["limitations"] = ["synthetic-partial-source"]
+        elif status in {"failed", "unsupported"}:
+            source["error_code"] = "package-manager-unavailable"
+        return EndpointInventoryRequest.model_validate(
+            {
+                "schema_version": "oaw.endpoint-inventory.v1",
+                "inventory_batch_id": batch_id,
+                "observed_at": now.isoformat(),
+                "inventory_mode": "complete",
+                "agent_version": "0.1.0",
+                "platform": "linux",
+                "architecture": "amd64",
+                "software_sources": [source],
+                "assets": [
+                    {
+                        "asset_id": "native-software-host",
+                        "hostname": "native-software-host.example.test",
+                        "os": "Fictional Linux 1",
+                        "platform": "linux",
+                        "architecture": "amd64",
+                        "components": components,
                     }
                 ],
             }
@@ -488,6 +561,551 @@ class CanonicalIngestionPostgresTests(unittest.TestCase):
                 {"collection_id": acknowledgement.canonical_collection_id},
             ).scalar_one()
         self.assertEqual(final_state, "completed")
+
+    def test_native_source_lifecycle_preserves_history_and_resolves_risk(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        endpoint_context, _ = self._provision_bound_sources(now)
+        catalog, checksum = load_catalog(
+            os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "catalogs",
+                "synthetic-native-software-advisory-catalog.json",
+            )
+        )
+        SqlAdvisoryStore().import_catalog(
+            catalog=catalog,
+            checksum=checksum,
+            imported_at=now,
+        )
+
+        initial_payload = self._native_endpoint_payload(
+            now=now,
+            batch_id="native-software-complete-0001",
+            status="complete",
+            packages=(
+                ("fictional-native-library", "1.5.0"),
+                ("fictional-native-helper", "3.0.0"),
+            ),
+        )
+        initial_envelope = endpoint_envelope(
+            payload=initial_payload,
+            context=endpoint_context,
+            received_at=now,
+        )
+        initial = ingest(initial_envelope)
+        main._run_canonical_inventory_evaluation(
+            canonical_collection_id=initial.canonical_collection_id
+        )
+
+        component_store = SqlComponentStore()
+        vulnerability_store = SqlVulnerabilityStore()
+        finding_store = SqlFindingStore()
+        components = component_store.list_components(
+            site_id="site-canonical-a",
+            asset_id="native-software-host",
+            active=None,
+        )["items"]
+        vulnerable_component = next(
+            item
+            for item in components
+            if item["name"] == "fictional-native-library"
+        )
+        initial_matches = vulnerability_store.list_matches(
+            site_id="site-canonical-a",
+            asset_id="native-software-host",
+        )["items"]
+        initial_findings = finding_store.list_findings(
+            site_id="site-canonical-a",
+            asset_id="native-software-host",
+            rule_id="vulnerable-component",
+        )["items"]
+        initial_risk = finding_store.get_asset_risk(
+            site_id="site-canonical-a",
+            asset_id="native-software-host",
+        )
+        self.assertTrue(vulnerable_component["active"])
+        self.assertEqual(initial_matches[0]["match_status"], "affected")
+        self.assertEqual(initial_findings[0]["status"], "active")
+        self.assertIsNotNone(initial_risk)
+        self.assertTrue(
+            any(
+                factor.get("finding_id") == initial_findings[0]["finding_id"]
+                and factor.get("category") == "vulnerability"
+                for factor in initial_risk["factors"]
+            ),
+            initial_risk,
+        )
+        source_snapshot_id = vulnerable_component["collection_sources"][0][
+            "source_snapshot_id"
+        ]
+
+        tools = main.build_read_only_hub_tools()
+        advisor = run_advisor(
+            request=AdvisorQueryRequest(
+                question=(
+                    "Explain the native software vulnerability, finding, and risk "
+                    "contribution for native-software-host."
+                ),
+                site_id="site-canonical-a",
+                asset_id="native-software-host",
+            ),
+            tools=tools,
+            config=ProviderConfig("demo", False, None, None, None, 10),
+        )
+        evidence_ids = {item.evidence_id for item in advisor.evidence}
+        self.assertIn(vulnerable_component["component_id"], evidence_ids)
+        self.assertIn(initial_matches[0]["match_id"], evidence_ids)
+        self.assertIn(
+            f"finding:{initial_findings[0]['finding_id']}", evidence_ids
+        )
+        self.assertIn(source_snapshot_id, evidence_ids)
+        self.assertTrue(any(value.startswith("risk:asset:") for value in evidence_ids))
+
+        with self.database_engine.connect() as connection:
+            replay_counts_before = {
+                table: int(connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one())
+                for table in (
+                    "component_source_snapshots",
+                    "component_source_presence",
+                    "asset_component_history",
+                    "vulnerability_matches",
+                    "vulnerability_match_history",
+                    "findings",
+                    "finding_evaluation_runs",
+                )
+            }
+        replay = ingest(initial_envelope)
+        self.assertEqual(replay.status, "duplicate")
+        self.assertEqual(replay.canonical_collection_id, initial.canonical_collection_id)
+        with self.database_engine.connect() as connection:
+            replay_counts_after = {
+                table: int(connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one())
+                for table in replay_counts_before
+            }
+        self.assertEqual(replay_counts_after, replay_counts_before)
+
+        partial_time = now + timedelta(seconds=1)
+        partial = ingest(
+            endpoint_envelope(
+                payload=self._native_endpoint_payload(
+                    now=partial_time,
+                    batch_id="native-software-partial-0002",
+                    status="partial",
+                    packages=(("fictional-native-helper", "3.0.0"),),
+                ),
+                context=endpoint_context,
+                received_at=partial_time,
+            )
+        )
+        main._run_canonical_inventory_evaluation(
+            canonical_collection_id=partial.canonical_collection_id
+        )
+        after_partial = component_store.list_components(
+            site_id="site-canonical-a",
+            asset_id="native-software-host",
+            active=None,
+        )["items"]
+        self.assertTrue(
+            next(
+                item
+                for item in after_partial
+                if item["component_id"] == vulnerable_component["component_id"]
+            )["active"]
+        )
+        preserved_component = next(
+            item
+            for item in after_partial
+            if item["component_id"] == vulnerable_component["component_id"]
+        )
+        preserved_source = preserved_component["collection_sources"][0]
+        self.assertEqual(
+            preserved_source["canonical_collection_id"],
+            initial.canonical_collection_id,
+        )
+        self.assertEqual(preserved_source["collection_status"], "complete")
+        self.assertEqual(
+            vulnerability_store.list_matches(
+                site_id="site-canonical-a", asset_id="native-software-host"
+            )["items"][0]["match_status"],
+            "affected",
+        )
+
+        failed_time = now + timedelta(seconds=2)
+        failed_projection = ingest(
+            endpoint_envelope(
+                payload=self._native_endpoint_payload(
+                    now=failed_time,
+                    batch_id="native-software-rollback-0003",
+                    status="complete",
+                    packages=(("fictional-native-helper", "3.0.0"),),
+                ),
+                context=endpoint_context,
+                received_at=failed_time,
+            )
+        )
+        with patch(
+            "app.component_store._record_source_state",
+            side_effect=RuntimeError("synthetic transactional rollback"),
+        ):
+            main._run_canonical_inventory_evaluation(
+                canonical_collection_id=failed_projection.canonical_collection_id
+            )
+        with self.database_engine.connect() as connection:
+            failed_state = connection.execute(
+                text(
+                    "SELECT evaluation_state FROM canonical_inventory_collections "
+                    "WHERE canonical_collection_id=:collection_id"
+                ),
+                {"collection_id": failed_projection.canonical_collection_id},
+            ).scalar_one()
+            presence_after_rollback = connection.execute(
+                text(
+                    "SELECT active FROM component_source_presence "
+                    "WHERE component_id=:component_id"
+                ),
+                {"component_id": vulnerable_component["component_id"]},
+            ).scalar_one()
+        self.assertEqual(failed_state, "retryable-failure")
+        self.assertTrue(presence_after_rollback)
+
+        complete_time = now + timedelta(seconds=3)
+        withdrawn = ingest(
+            endpoint_envelope(
+                payload=self._native_endpoint_payload(
+                    now=complete_time,
+                    batch_id="native-software-complete-0004",
+                    status="complete",
+                    packages=(("fictional-native-helper", "3.0.0"),),
+                ),
+                context=endpoint_context,
+                received_at=complete_time,
+            )
+        )
+        main._run_canonical_inventory_evaluation(
+            canonical_collection_id=withdrawn.canonical_collection_id
+        )
+
+        final_components = component_store.list_components(
+            site_id="site-canonical-a",
+            asset_id="native-software-host",
+            active=None,
+        )["items"]
+        historical = next(
+            item
+            for item in final_components
+            if item["component_id"] == vulnerable_component["component_id"]
+        )
+        final_matches = vulnerability_store.list_matches(
+            site_id="site-canonical-a",
+            asset_id="native-software-host",
+        )["items"]
+        final_findings = finding_store.list_findings(
+            site_id="site-canonical-a",
+            asset_id="native-software-host",
+            rule_id="vulnerable-component",
+        )["items"]
+        final_risk = finding_store.get_asset_risk(
+            site_id="site-canonical-a",
+            asset_id="native-software-host",
+        )
+        self.assertFalse(historical["active"])
+        self.assertEqual(final_matches[0]["match_status"], "not-affected")
+        self.assertEqual(final_findings[0]["status"], "resolved")
+        self.assertIsNotNone(final_risk)
+        self.assertFalse(
+            any(
+                factor.get("category") == "vulnerability"
+                for factor in final_risk["factors"]
+            )
+        )
+        self.assertLess(int(final_risk["score"]), int(initial_risk["score"]))
+
+        self.database_engine.dispose()
+        with self.database_engine.connect() as connection:
+            persisted = connection.execute(
+                text(
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM component_source_snapshots) AS snapshots,
+                        (SELECT COUNT(*) FROM component_source_presence) AS presence,
+                        (SELECT COUNT(*) FROM asset_component_history
+                         WHERE component_id=:component_id) AS component_history,
+                        (SELECT COUNT(*) FROM vulnerability_match_history) AS match_history,
+                        (SELECT COUNT(*) FROM finding_evaluation_runs) AS finding_runs
+                    """
+                ),
+                {"component_id": vulnerable_component["component_id"]},
+            ).mappings().one()
+        self.assertGreaterEqual(int(persisted["snapshots"]), 3)
+        self.assertGreaterEqual(int(persisted["presence"]), 2)
+        self.assertGreaterEqual(int(persisted["component_history"]), 2)
+        self.assertGreaterEqual(int(persisted["match_history"]), 2)
+        self.assertGreaterEqual(int(persisted["finding_runs"]), 2)
+
+    def test_unsuccessful_native_sources_never_withdraw_prior_presence(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        endpoint_context, _ = self._provision_bound_sources(now)
+        initial = ingest(
+            endpoint_envelope(
+                payload=self._native_endpoint_payload(
+                    now=now,
+                    batch_id="native-preserve-initial-0001",
+                    status="complete",
+                    packages=(("fictional-preserved-package", "1.0.0"),),
+                ),
+                context=endpoint_context,
+                received_at=now,
+            )
+        )
+        main._run_canonical_inventory_evaluation(
+            canonical_collection_id=initial.canonical_collection_id
+        )
+        component = next(
+            item
+            for item in SqlComponentStore().list_components(
+                site_id="site-canonical-a",
+                asset_id="native-software-host",
+                active=None,
+            )["items"]
+            if item["name"] == "fictional-preserved-package"
+        )
+
+        attempts = (
+            ("partial", False, "command-timeout", ("source-timeout",)),
+            ("partial", True, "output-limit", ("output-truncated",)),
+            ("failed", False, "command-failed", ()),
+            ("unsupported", False, "package-manager-unavailable", ()),
+        )
+        for index, (status, truncated, error_code, limitations) in enumerate(
+            attempts,
+            start=1,
+        ):
+            attempt_time = now + timedelta(seconds=index)
+            acknowledgement = ingest(
+                endpoint_envelope(
+                    payload=self._native_endpoint_payload(
+                        now=attempt_time,
+                        batch_id=f"native-preserve-{status}-{index:04d}",
+                        status=status,
+                        packages=(),
+                        truncated=truncated,
+                        error_code=error_code,
+                        limitations=limitations,
+                    ),
+                    context=endpoint_context,
+                    received_at=attempt_time,
+                )
+            )
+            main._run_canonical_inventory_evaluation(
+                canonical_collection_id=acknowledgement.canonical_collection_id
+            )
+            with self.subTest(status=status, error_code=error_code):
+                with self.database_engine.connect() as connection:
+                    state = connection.execute(
+                        text(
+                            "SELECT active, not_observed_at "
+                            "FROM component_source_presence "
+                            "WHERE component_id=:component_id"
+                        ),
+                        {"component_id": component["component_id"]},
+                    ).mappings().one()
+                self.assertTrue(state["active"])
+                self.assertIsNone(state["not_observed_at"])
+
+    def test_concurrent_native_snapshots_preserve_newest_source_state(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        endpoint_context, _ = self._provision_bound_sources(now)
+
+        initial = ingest(
+            endpoint_envelope(
+                payload=self._native_endpoint_payload(
+                    now=now,
+                    batch_id="native-race-initial-0001",
+                    status="complete",
+                    packages=(("fictional-race-package", "1.0.0"),),
+                ),
+                context=endpoint_context,
+                received_at=now,
+            )
+        )
+        main._run_canonical_inventory_evaluation(
+            canonical_collection_id=initial.canonical_collection_id
+        )
+        component_id = SqlComponentStore().list_components(
+            site_id="site-canonical-a",
+            asset_id="native-software-host",
+        )["items"][0]["component_id"]
+
+        older_time = now + timedelta(seconds=1)
+        newer_time = now + timedelta(seconds=2)
+        older = ingest(
+            endpoint_envelope(
+                payload=self._native_endpoint_payload(
+                    now=older_time,
+                    batch_id="native-race-older-0002",
+                    status="complete",
+                    packages=(),
+                ),
+                context=endpoint_context,
+                received_at=older_time,
+            )
+        )
+        newer = ingest(
+            endpoint_envelope(
+                payload=self._native_endpoint_payload(
+                    now=newer_time,
+                    batch_id="native-race-newer-0003",
+                    status="complete",
+                    packages=(("fictional-race-package", "1.0.0"),),
+                ),
+                context=endpoint_context,
+                received_at=newer_time,
+            )
+        )
+        barrier = threading.Barrier(2)
+
+        def evaluate(collection_id: str) -> None:
+            barrier.wait(timeout=5)
+            main._run_canonical_inventory_evaluation(
+                canonical_collection_id=collection_id
+            )
+
+        workers = [
+            threading.Thread(target=evaluate, args=(older.canonical_collection_id,)),
+            threading.Thread(target=evaluate, args=(newer.canonical_collection_id,)),
+        ]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=20)
+        self.assertFalse(any(worker.is_alive() for worker in workers))
+
+        with self.database_engine.connect() as connection:
+            component = connection.execute(
+                text(
+                    "SELECT active, not_observed_at FROM asset_components "
+                    "WHERE component_id=:component_id"
+                ),
+                {"component_id": component_id},
+            ).mappings().one()
+            source = connection.execute(
+                text(
+                    """
+                    SELECT collection_status, last_attempt_at,
+                           canonical_collection_id
+                    FROM component_collection_sources
+                    WHERE site_id='site-canonical-a'
+                      AND asset_id='native-software-host'
+                      AND collection_source_id='linux-dpkg'
+                    """
+                )
+            ).mappings().one()
+            states = connection.execute(
+                text(
+                    "SELECT canonical_collection_id, evaluation_state "
+                    "FROM canonical_inventory_collections "
+                    "WHERE canonical_collection_id IN (:older, :newer)"
+                ),
+                {
+                    "older": older.canonical_collection_id,
+                    "newer": newer.canonical_collection_id,
+                },
+            ).mappings().all()
+        self.assertTrue(component["active"])
+        self.assertIsNone(component["not_observed_at"])
+        self.assertEqual(source["last_attempt_at"], newer_time)
+        self.assertEqual(source["canonical_collection_id"], newer.canonical_collection_id)
+        self.assertEqual(
+            {str(item["canonical_collection_id"]) for item in states},
+            {older.canonical_collection_id, newer.canonical_collection_id},
+        )
+        self.assertTrue(
+            all(
+                item["evaluation_state"] in {"completed", "retryable-failure"}
+                for item in states
+            )
+        )
+
+    def test_stale_native_projection_fails_closed_after_newer_projection(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        endpoint_context, _ = self._provision_bound_sources(now)
+        initial = ingest(
+            endpoint_envelope(
+                payload=self._native_endpoint_payload(
+                    now=now,
+                    batch_id="native-stale-initial-0001",
+                    status="complete",
+                    packages=(("fictional-stale-package", "1.0.0"),),
+                ),
+                context=endpoint_context,
+                received_at=now,
+            )
+        )
+        main._run_canonical_inventory_evaluation(
+            canonical_collection_id=initial.canonical_collection_id
+        )
+        older_time = now + timedelta(seconds=1)
+        newer_time = now + timedelta(seconds=2)
+        older = ingest(
+            endpoint_envelope(
+                payload=self._native_endpoint_payload(
+                    now=older_time,
+                    batch_id="native-stale-older-0002",
+                    status="complete",
+                    packages=(),
+                ),
+                context=endpoint_context,
+                received_at=older_time,
+            )
+        )
+        newer = ingest(
+            endpoint_envelope(
+                payload=self._native_endpoint_payload(
+                    now=newer_time,
+                    batch_id="native-stale-newer-0003",
+                    status="complete",
+                    packages=(("fictional-stale-package", "1.0.0"),),
+                ),
+                context=endpoint_context,
+                received_at=newer_time,
+            )
+        )
+        main._run_canonical_inventory_evaluation(
+            canonical_collection_id=newer.canonical_collection_id
+        )
+        main._run_canonical_inventory_evaluation(
+            canonical_collection_id=older.canonical_collection_id
+        )
+
+        with self.database_engine.connect() as connection:
+            source = connection.execute(
+                text(
+                    "SELECT canonical_collection_id, last_attempt_at "
+                    "FROM component_collection_sources "
+                    "WHERE site_id='site-canonical-a' "
+                    "AND asset_id='native-software-host' "
+                    "AND collection_source_id='linux-dpkg'"
+                )
+            ).mappings().one()
+            component_active = connection.execute(
+                text(
+                    "SELECT active FROM asset_components "
+                    "WHERE site_id='site-canonical-a' "
+                    "AND asset_id='native-software-host' "
+                    "AND normalized_name='fictional-stale-package'"
+                )
+            ).scalar_one()
+            older_state = connection.execute(
+                text(
+                    "SELECT evaluation_state FROM canonical_inventory_collections "
+                    "WHERE canonical_collection_id=:collection_id"
+                ),
+                {"collection_id": older.canonical_collection_id},
+            ).scalar_one()
+        self.assertEqual(source["canonical_collection_id"], newer.canonical_collection_id)
+        self.assertEqual(source["last_attempt_at"], newer_time)
+        self.assertTrue(component_active)
+        self.assertEqual(older_state, "retryable-failure")
 
     def test_all_adapters_share_one_authority_and_replay_model(self) -> None:
         now = datetime.now(timezone.utc).replace(microsecond=0)
