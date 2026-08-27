@@ -1,6 +1,6 @@
 # Temporal Intelligence Roadmap
 
-- **Status:** Accepted design; not yet implemented
+- **Status:** Accepted design; Phase 1 signal projection implemented
 - **Decision:** `docs/architecture/decisions/0003-native-agent-investigation-and-temporal-intelligence.md`
 
 ## Purpose
@@ -444,6 +444,10 @@ Controls should include:
 
 ### Phase 1 — Signal projection
 
+**Implemented.** See `docs/TEMPORAL_SIGNAL_FOUNDATION.md` for the governed
+registry, UTC bucketing, bounded read-only projection/API, missingness and
+backfill behavior, conservative metric deferrals, and Environment Trends UI.
+
 - define temporal signal registry;
 - create deterministic bucket rules;
 - project selected existing histories into signals;
@@ -485,8 +489,10 @@ Temporal Intelligence does not approve:
 - replacing current finding rules with anomaly scores; or
 - making an advanced forecasting model a required OpenAssetWatch dependency.
 
-## Documentation-only status
+## Implementation status
 
-This roadmap defines future native temporal capabilities. No temporal signal
-registry, expected-range engine, advanced forecasting provider, deviation rule,
-or temporal UI described here is currently implemented.
+Phase 1 signal projection is implemented. The accepted Phase 2 expected-range
+engine, Phase 3 deviation candidates, Phase 4 advanced forecasting research,
+and related AI Advisor temporal explanations remain unimplemented. The Phase 1
+UI displays observed signals and data-quality states only; it does not display
+expected bands, forecasts, or anomaly indicators.
