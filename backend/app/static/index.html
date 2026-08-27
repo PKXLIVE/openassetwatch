@@ -2951,6 +2951,7 @@
       acknowledgedFindings: "/api/v1/findings?status=acknowledged&limit=200",
       risk: "/api/v1/risk/summary?limit=200",
       components: "/api/v1/components?active=true&limit=200",
+      historicalComponents: "/api/v1/components?active=false&limit=200",
       vulnerabilities: "/api/v1/vulnerabilities?limit=200",
       release: "/api/v1/releases/agent",
       advisorStatus: "/api/v1/ai/status",
@@ -4366,14 +4367,20 @@
           const summary = document.createElement("summary");
           const identifiers = document.createElement("p");
           title.textContent = `${text(component.name)} ${text(component.version, "version unknown")}`;
-          detail.textContent = `${text(component.ecosystem)}; ${text(component.source_type)}; ${text(component.freshness)} evidence`;
+          const sourceStates = Array.isArray(component.collection_sources) ? component.collection_sources : [];
+          const sourceSummary = sourceStates.length
+            ? sourceStates.map(source => `${text(source.collection_source_id)} ${text(source.collection_status)}`).join(", ")
+            : text(component.source_type);
+          detail.textContent = `${text(component.ecosystem)}; ${sourceSummary}; ${text(component.freshness)} evidence`;
           badges.className = "badge-row";
           badges.append(
             makeBadge(component.component_type),
-            makeBadge(component.normalization_status, component.normalization_status === "normalized" ? "ok" : "warn")
+            makeBadge(component.normalization_status, component.normalization_status === "normalized" ? "ok" : "warn"),
+            makeBadge(component.active ? "current" : "no longer observed", component.active ? "ok" : "warn")
           );
           summary.textContent = "Technical identity and provenance";
-          identifiers.textContent = `Component ${text(component.component_id)}; canonical identifier ${text(component.canonical_identifier)}; architecture ${text(component.architecture)}; source ${text(component.source_id)}; firmware evidence ${text(component.firmware_evidence_type)}.`;
+          const sourceEvidence = sourceStates.map(source => `snapshot ${text(source.source_snapshot_id)}; collection ${text(source.canonical_collection_id)}; source ${text(source.collection_source_id)}; presence ${source.presence_active ? "current" : "historical"}`).join(" | ");
+          identifiers.textContent = `Component ${text(component.component_id)}; canonical identifier ${text(component.canonical_identifier)}; architecture ${text(component.architecture)}; authenticated source ${text(component.source_id)}; firmware evidence ${text(component.firmware_evidence_type)}.${sourceEvidence ? ` ${sourceEvidence}.` : ""}`;
           technical.append(summary, identifiers);
           main.append(title, detail, badges, technical);
           row.appendChild(main);
@@ -4532,6 +4539,25 @@
         dl.append(dt, dd);
       });
       target.appendChild(dl);
+      const softwareSources = Array.isArray(agent.software_sources) ? agent.software_sources : [];
+      const sourceHeading = document.createElement("h3");
+      sourceHeading.textContent = "Native software collection";
+      target.appendChild(sourceHeading);
+      if (!softwareSources.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = "No native package-source status has been persisted for this agent.";
+        target.appendChild(empty);
+      } else {
+        softwareSources.forEach(source => {
+          target.appendChild(compactRow(
+            `${text(source.source_id)} on ${text(source.asset_id)}`,
+            `${text(source.platform)}; ${Number(source.record_count || 0)} components; last complete ${fmtDate(source.last_successful_complete_at)}`,
+            text(source.status),
+            source.status === "complete" ? "ok" : "warn"
+          ));
+        });
+      }
     }
 
     function renderEvidence(data) {
@@ -5424,8 +5450,12 @@
         }
         try {
           const componentInventory = await loadJSON(endpoints.components, {headers: advisorHeaders()});
+          const historicalComponentInventory = await loadJSON(endpoints.historicalComponents, {headers: advisorHeaders()});
           const vulnerabilityIntelligence = await loadJSON(endpoints.vulnerabilities, {headers: advisorHeaders()});
-          components = componentInventory.items || [];
+          components = [
+            ...(componentInventory.items || []),
+            ...(historicalComponentInventory.items || [])
+          ];
           vulnerabilities = vulnerabilityIntelligence.items || [];
         } catch (error) {
           state.vulnerabilityError = text(error.message, "Component and vulnerability intelligence require admin authentication.");
