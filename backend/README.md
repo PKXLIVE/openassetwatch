@@ -19,6 +19,8 @@ service backed by PostgreSQL through SQLAlchemy.
 - local-only fictional vendor catalog with safe reviewed replacement
 - normalized software, package, operating-system, and reviewed firmware
   inventory with material history
+- authenticated native Windows registry, Linux dpkg/RPM, and macOS receipt
+  source snapshots with exact-scope component presence and collection status
 - strict versioned offline advisory catalogs with licensing, provenance, and
   checksums
 - reviewed signed-feed synchronization with Ed25519 verification, bounded
@@ -184,6 +186,9 @@ Control Tower tables include:
 - `asset_classification_evidence`
 - `classification_conflicts`
 - `asset_components`
+- `component_source_snapshots`
+- `component_collection_sources`
+- `component_source_presence`
 - `asset_component_history`
 - `component_evidence`
 - `advisory_catalog_imports`

@@ -12,7 +12,11 @@ The third migration,
 `backend/app/migration_sql/0003_canonical_ingestion_compatibility.sql`, adds
 the canonical source, collection, asset-authority, compatibility-mapping, and
 bounded event records used by all inventory adapters. Both are applied only
-through this migration runner; service modules do not execute DDL.
+through this migration runner; service modules do not execute DDL. Migration
+`0004_native_software_source_presence.sql` adds authenticated native-package
+source snapshots, latest source status, and exact-scope component presence.
+It is additive and preserves component history; complete-source omission marks
+matching presence inactive rather than deleting rows.
 
 ## Authority and packaged files
 
@@ -88,6 +92,12 @@ that must run outside a transaction.
 
 For a fresh database, migration 0001 creates the complete current schema and
 records itself only after verification. Repeated execution is idempotent.
+
+A database at version 3 upgrades transactionally to version 4. The upgrade
+creates only the three native-source tables and their exact-scope indexes and
+foreign keys. It performs no ambiguous historical backfill and grants no
+legacy source withdrawal authority. Existing components remain unchanged
+until a new bound endpoint-agent source snapshot is accepted and evaluated.
 
 For an existing database created by the former startup and store-owned DDL,
 the runner first inspects the schema. It permits objects that are genuinely
@@ -209,8 +219,8 @@ docker compose run --rm --volume "${PWD}:/workspace" `
 - Advisory-lock acquisition is bounded, but this baseline does not yet impose
   a PostgreSQL statement timeout on reviewed DDL; operators must schedule
   upgrades to avoid unbounded waits on application-held table locks.
-- The baseline does not add endpoint identity, tenant ownership, RBAC, job
-  scheduling, EPSS, feeds, dashboard redesign, or AI/multi-agent behavior.
+- Migration 0004 does not add tenancy, RBAC, job scheduling, EPSS, new feeds,
+  dashboard redesign, or AI mutation authority.
 
 The broader target architecture and release policy remain documented in
 `docs/architecture/database-schema-migration-governance.md`.
