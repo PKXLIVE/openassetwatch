@@ -19,6 +19,7 @@ import (
 
 	agentconfig "github.com/openassetwatch/openassetwatch/internal/agent/config"
 	agentcredential "github.com/openassetwatch/openassetwatch/internal/agent/credential"
+	agentcredentialacl "github.com/openassetwatch/openassetwatch/internal/agent/credentialacl"
 	agenthubclient "github.com/openassetwatch/openassetwatch/internal/agent/hubclient"
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
 	agentinstallplan "github.com/openassetwatch/openassetwatch/internal/agent/installplan"
@@ -38,6 +39,9 @@ var submitHTTPClient = func() *http.Client {
 }
 var defaultAgentPaths = agentpaths.DefaultAgentPaths
 var readOSRelease = os.ReadFile
+var repairDefaultCredentialACL = func() error {
+	return agentcredentialacl.RepairDefault()
+}
 
 const localInventorySubmitPath = "/api/v1/collections/local-inventory"
 const agentCheckInPath = "/api/v1/agents/check-in"
@@ -48,6 +52,17 @@ func main() {
 }
 
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "repair-private-state-acl" {
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "repair-private-state-acl accepts no arguments")
+			return 2
+		}
+		if err := repairDefaultCredentialACL(); err != nil {
+			fmt.Fprintln(stderr, "private state ACL repair failed")
+			return 1
+		}
+		return 0
+	}
 	if len(args) > 0 && args[0] == "enroll" {
 		return runEnroll(args[1:], os.Stdin, stdout, stderr)
 	}
