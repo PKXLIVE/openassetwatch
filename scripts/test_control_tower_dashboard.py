@@ -31,6 +31,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
             "/api/v1/releases/agent",
             "/api/v1/ai/status",
             "/api/v1/ai/advisor/query",
+            "/api/v1/temporal/metrics",
+            "/api/v1/temporal/signals",
         )
         self.assertIn('http://127.0.0.1:8000', self.dashboard)
         for endpoint in expected_endpoints:
@@ -41,6 +43,7 @@ class ControlTowerDashboardTests(unittest.TestCase):
         required_sections = (
             "Control Tower Dashboard",
             "Dashboard",
+            "Environment Trends",
             "Assets",
             "Collectors",
             "Sites",
@@ -96,8 +99,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
                 self.assertIn(section, self.dashboard)
 
     def test_dashboard_version_marks_visual_composition_pass(self) -> None:
-        self.assertIn('const DASHBOARD_VERSION = "control-tower-command-center-v6";', self.dashboard)
-        self.assertIn("control-tower-command-center-v6", self.dashboard)
+        self.assertIn('const DASHBOARD_VERSION = "control-tower-command-center-v7";', self.dashboard)
+        self.assertIn("control-tower-command-center-v7", self.dashboard)
 
     def test_dashboard_overview_command_center_sections_are_present(self) -> None:
         expected_markup = (

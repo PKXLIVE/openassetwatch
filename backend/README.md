@@ -36,6 +36,10 @@ service backed by PostgreSQL through SQLAlchemy.
 - deterministic and optional external AI Advisor providers
 - bounded read-only AI evidence tools and audit metadata
 - focused AI Advisor dashboard view
+- governed deterministic temporal metric registry and bounded daily UTC signal
+  projection
+- read-only Environment Trends dashboard with explicit missingness and
+  incomplete/stale source states
 - release/artifact metadata placeholder
 - static dashboard mount at `/ui`
 - legacy Python collector ingestion and policy endpoints
@@ -332,6 +336,9 @@ formats, download and staging controls, approval, activation, rollback, CLI,
 admin API, Settings UI, AI evidence, offline behavior, and source onboarding.
 See `docs/ADVISORY_MIRROR.md` for vendor-neutral static distribution of the
 same complete signed bundles through a separately signed discovery index.
+See `docs/TEMPORAL_SIGNAL_FOUNDATION.md` for the Phase 1 signal contract,
+governed registry, supported and deferred metrics, UTC bucketing, read-only API,
+missingness/backfill behavior, security boundaries, and Environment Trends UI.
 
 ## Safety Boundaries
 

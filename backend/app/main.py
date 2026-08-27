@@ -200,6 +200,18 @@ from .schema_migrations import (
     runtime_schema_readiness,
     set_runtime_migration_failure,
 )
+from .temporal_contracts import (
+    METRIC_KEY_PATTERN,
+    TemporalMetricRegistryResponse,
+    TemporalSignalSeriesResponse,
+    temporal_registry_public,
+)
+from .temporal_projection import (
+    TemporalProjectionError,
+    TemporalProjectionService,
+    TemporalSiteNotFound,
+)
+from .temporal_store import SqlTemporalStore
 
 
 LOGGER = logging.getLogger(__name__)
@@ -1611,6 +1623,65 @@ def _vulnerability_store() -> SqlVulnerabilityStore:
 
 def _kev_store() -> SqlKevStore:
     return SqlKevStore()
+
+
+def _temporal_store() -> SqlTemporalStore:
+    return SqlTemporalStore()
+
+
+def _temporal_service() -> TemporalProjectionService:
+    return TemporalProjectionService(store=_temporal_store())
+
+
+@app.get(
+    "/api/v1/temporal/metrics",
+    response_model=TemporalMetricRegistryResponse,
+)
+def api_temporal_metrics(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="temporal signal access",
+    )
+    return temporal_registry_public()
+
+
+@app.get(
+    "/api/v1/temporal/signals",
+    response_model=TemporalSignalSeriesResponse,
+)
+def api_temporal_signals(
+    metric_key: str = Query(..., pattern=METRIC_KEY_PATTERN, max_length=120),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    start: datetime = Query(...),
+    end: datetime = Query(...),
+    granularity: str = Query(default="daily", min_length=1, max_length=16),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="temporal signal access",
+    )
+    try:
+        return _temporal_service().series(
+            metric_key=metric_key,
+            site_id=site_id,
+            start=start,
+            end=end,
+            granularity=granularity,
+            asset_id=asset_id,
+        )
+    except TemporalSiteNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TemporalProjectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="failed to project temporal signals",
+        ) from exc
 
 
 @app.get("/api/v1/components", response_model=ComponentListResponse)
