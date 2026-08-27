@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -68,6 +69,32 @@ class ComponentObservation(StrictContract):
     ] = "unknown"
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
     evidence_ids: list[str] = Field(default_factory=list, max_length=16)
+    collection_source_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+    )
+    source_record_id: str | None = Field(default=None, min_length=1, max_length=240)
+    evidence_method: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+    )
+    metadata: dict[str, str] = Field(default_factory=dict, max_length=4)
+
+    @field_validator("metadata")
+    @classmethod
+    def bound_component_metadata(cls, value: dict[str, str]) -> dict[str, str]:
+        if any(
+            not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", key)
+            or len(item) > 240
+            or any(ord(character) < 32 or ord(character) == 127 for character in item)
+            for key, item in value.items()
+        ):
+            raise ValueError("component metadata must contain bounded safe strings")
+        return value
 
     @field_validator("observed_at")
     @classmethod
@@ -87,6 +114,19 @@ class ComponentObservation(StrictContract):
                 "component observed_at exceeds the allowed future clock skew"
             )
         return value
+
+    @model_validator(mode="after")
+    def require_complete_native_source_reference(self) -> "ComponentObservation":
+        fields = (
+            self.collection_source_id,
+            self.source_record_id,
+            self.evidence_method,
+        )
+        if any(fields) and not all(fields):
+            raise ValueError(
+                "native component source fields must be supplied together"
+            )
+        return self
 
 
 class ObservationAsset(StrictContract):
