@@ -7,11 +7,26 @@
       Version="$(var.MsiVersion)"
       UpgradeCode="{9D05C0CF-BB78-4A3B-8E4C-3F9911846D9B}"
       Scope="perMachine"
+      InstallerVersion="500"
       Compressed="yes">
 
     <SummaryInformation Description="OpenAssetWatch Agent $(var.ReleaseVersion) $(var.TargetArch)" Manufacturer="OpenAssetWatch" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of OpenAssetWatch Agent is already installed." />
     <MediaTemplate EmbedCab="yes" />
+
+    <CustomAction
+        Id="RepairPrivateStateAcl"
+        FileRef="AgentExe"
+        ExeCommand="repair-private-state-acl"
+        Execute="deferred"
+        Impersonate="no"
+        Return="check" />
+    <InstallExecuteSequence>
+      <Custom
+          Action="RepairPrivateStateAcl"
+          After="InstallFiles"
+          Condition="NOT (REMOVE~=&quot;ALL&quot;)" />
+    </InstallExecuteSequence>
 
     <Feature Id="MainFeature" Title="OpenAssetWatch Agent" Level="1">
       <ComponentGroupRef Id="AgentComponents" />
@@ -30,7 +45,9 @@
         <Directory Id="AgentProgramData" Name="Agent">
           <Directory Id="AgentConfigDir" Name="config" />
           <Directory Id="AgentIdentityDir" Name="identity" />
-          <Directory Id="AgentStateDir" Name="state" />
+          <Directory Id="AgentStateDir" Name="state">
+            <Directory Id="AgentCredentialDir" Name="credential" />
+          </Directory>
           <Directory Id="AgentLogsDir" Name="logs" />
         </Directory>
       </Directory>
@@ -41,6 +58,7 @@
       <ComponentRef Id="AgentConfigExampleComponent" />
       <ComponentRef Id="AgentIdentityExampleComponent" />
       <ComponentRef Id="AgentStateDirectoryComponent" />
+      <ComponentRef Id="AgentCredentialDirectoryComponent" />
       <ComponentRef Id="AgentLogsDirectoryComponent" />
       <ComponentRef Id="AgentServiceComponent" />
     </ComponentGroup>
@@ -107,6 +125,15 @@
           <util:PermissionEx Domain="NT SERVICE" User="OpenAssetWatchAgent" GenericRead="yes" GenericWrite="yes" GenericExecute="yes" />
         </CreateFolder>
         <RegistryValue Root="HKLM" Key="Software\OpenAssetWatch\Agent" Name="StateDir" Type="string" Value="[AgentStateDir]" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="AgentCredentialDir">
+      <Component Id="AgentCredentialDirectoryComponent" Guid="{F89267BA-8532-43D8-9F69-51F9AA3E654B}" Bitness="always64">
+        <CreateFolder>
+          <PermissionEx Sddl="O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;S-1-5-80-630466807-4251148593-2853048944-3410275790-4186592652)" />
+        </CreateFolder>
+        <RegistryValue Root="HKLM" Key="Software\OpenAssetWatch\Agent" Name="CredentialDir" Type="string" Value="[AgentCredentialDir]" KeyPath="yes" />
       </Component>
     </DirectoryRef>
 

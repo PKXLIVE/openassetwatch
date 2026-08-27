@@ -101,6 +101,10 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./...
+      - name: Native Linux package-source count-only smoke
+        run: go test -v ./internal/collector/software -run '^TestNativeSoftwareCountOnlySmoke$'
+        env:
+          OPENASSETWATCH_NATIVE_SOFTWARE_SMOKE: "1"
       - name: race tests
         run: go test -race ./cmd/oaw-agent ./internal/agent/supervisor
       - name: Windows cross-build
@@ -426,6 +430,12 @@ jobs:
           sudo systemctl is-enabled --quiet oaw-agent.timer
           sudo systemctl status oaw-agent.timer --no-pager || true
           sudo systemctl status oaw-agent.service --no-pager || true
+          test "$(sudo stat -c '%U:%G %a' /var/lib/openassetwatch/agent/credential)" = "openassetwatch:openassetwatch 700"
+          sudo -u openassetwatch /bin/sh -c 'umask 077; printf "%s\n" synthetic-package-lifecycle-fixture > /var/lib/openassetwatch/agent/credential/credential.json'
+          test "$(sudo stat -c '%U:%G %a %h' /var/lib/openassetwatch/agent/credential/credential.json)" = "openassetwatch:openassetwatch 600 1"
+          sudo -u openassetwatch test -r /var/lib/openassetwatch/agent/credential/credential.json
+          sudo -u openassetwatch test -w /var/lib/openassetwatch/agent/credential/credential.json
+          CREDENTIAL_HASH="$(sudo sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '{print $1}')"
 
           sudo install -d -m 0750 -o root -g openassetwatch /etc/openassetwatch/agent
           printf '%s\n' '{"server_url":"http://127.0.0.1:18080","site_id":"ci-linux"}' | sudo tee /etc/openassetwatch/agent/config.json >/dev/null
@@ -446,6 +456,7 @@ jobs:
           test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
           test -f /var/lib/openassetwatch/agent/state-survival.txt
           test -f /var/log/openassetwatch/agent/log-survival.txt
+          test "$CREDENTIAL_HASH" = "$(sudo sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '{print $1}')"
           sudo systemctl is-enabled --quiet oaw-agent.timer
 
           sudo dpkg -i "$NEW_DEB"
@@ -453,6 +464,7 @@ jobs:
           test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
           test -f /var/lib/openassetwatch/agent/state-survival.txt
           test -f /var/log/openassetwatch/agent/log-survival.txt
+          test "$CREDENTIAL_HASH" = "$(sudo sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '{print $1}')"
           sudo systemctl is-enabled --quiet oaw-agent.timer
 
           sudo dpkg -i --force-downgrade "$OLD_DEB"
@@ -460,6 +472,7 @@ jobs:
           test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
           test -f /var/lib/openassetwatch/agent/state-survival.txt
           test -f /var/log/openassetwatch/agent/log-survival.txt
+          test "$CREDENTIAL_HASH" = "$(sudo sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '{print $1}')"
 
           sudo dpkg -r openassetwatch-agent
           sudo systemctl daemon-reload
@@ -474,6 +487,7 @@ jobs:
           assert_file /etc/openassetwatch/agent/identity.json
           assert_file /var/lib/openassetwatch/agent/state-survival.txt
           assert_file /var/log/openassetwatch/agent/log-survival.txt
+          assert_file /var/lib/openassetwatch/agent/credential/credential.json
 
   linux-rpm-lifecycle:
     needs: agent-change-scope
@@ -624,6 +638,12 @@ jobs:
               test -f /usr/lib/systemd/system/oaw-agent.service
               test -f /usr/lib/systemd/system/oaw-agent.timer
               systemctl is-enabled --quiet oaw-agent.timer
+              test "$(stat -c "%U:%G %a" /var/lib/openassetwatch/agent/credential)" = "openassetwatch:openassetwatch 700"
+              runuser -u openassetwatch -- /bin/sh -c "umask 077; printf %s\n synthetic-package-lifecycle-fixture > /var/lib/openassetwatch/agent/credential/credential.json"
+              test "$(stat -c "%U:%G %a %h" /var/lib/openassetwatch/agent/credential/credential.json)" = "openassetwatch:openassetwatch 600 1"
+              runuser -u openassetwatch -- test -r /var/lib/openassetwatch/agent/credential/credential.json
+              runuser -u openassetwatch -- test -w /var/lib/openassetwatch/agent/credential/credential.json
+              CREDENTIAL_HASH="$(sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '"'"'{print $1}'"'"')"
 
               install -d -m 0750 -o root -g openassetwatch /etc/openassetwatch/agent
               printf "%s\n" "{\"server_url\":\"http://127.0.0.1:18080\",\"site_id\":\"ci-linux\"}" > /etc/openassetwatch/agent/config.json
@@ -644,6 +664,7 @@ jobs:
               test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
               test -f /var/lib/openassetwatch/agent/state-survival.txt
               test -f /var/log/openassetwatch/agent/log-survival.txt
+              test "$CREDENTIAL_HASH" = "$(sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '"'"'{print $1}'"'"')"
               systemctl is-enabled --quiet oaw-agent.timer
 
               rpm -Uvh "$NEW_RPM"
@@ -651,6 +672,7 @@ jobs:
               test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
               test -f /var/lib/openassetwatch/agent/state-survival.txt
               test -f /var/log/openassetwatch/agent/log-survival.txt
+              test "$CREDENTIAL_HASH" = "$(sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '"'"'{print $1}'"'"')"
               systemctl is-enabled --quiet oaw-agent.timer
 
               rpm -Uvh --oldpackage "$OLD_RPM"
@@ -658,6 +680,7 @@ jobs:
               test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
               test -f /var/lib/openassetwatch/agent/state-survival.txt
               test -f /var/log/openassetwatch/agent/log-survival.txt
+              test "$CREDENTIAL_HASH" = "$(sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '"'"'{print $1}'"'"')"
 
               rpm -e openassetwatch-agent
               test ! -e /opt/openassetwatch/agent/bin/oaw-agent
@@ -670,6 +693,7 @@ jobs:
               test -f /etc/openassetwatch/agent/identity.json
               test -f /var/lib/openassetwatch/agent/state-survival.txt
               test -f /var/log/openassetwatch/agent/log-survival.txt
+              test -f /var/lib/openassetwatch/agent/credential/credential.json
             '
 
   windows-agent:
@@ -707,6 +731,10 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./...
+      - name: Native Windows registry count-only smoke
+        run: go test -v ./internal/collector/software -run '^TestNativeSoftwareCountOnlySmoke$'
+        env:
+          OPENASSETWATCH_NATIVE_SOFTWARE_SMOKE: "1"
 
       - name: Build Windows artifact
         shell: pwsh
@@ -827,6 +855,53 @@ jobs:
           $log = Join-Path $env:RUNNER_TEMP "oaw-msi-install.log"
           $configPath = "C:\ProgramData\OpenAssetWatch\Agent\config\config.json"
           $identityPath = "C:\ProgramData\OpenAssetWatch\Agent\identity\identity.json"
+          $credentialDir = "C:\ProgramData\OpenAssetWatch\Agent\state\credential"
+          $credentialPath = Join-Path $credentialDir "credential.json"
+          $serviceSid = "S-1-5-80-630466807-4251148593-2853048944-3410275790-4186592652"
+          function Assert-CredentialDirectoryAcl {
+            $acl = Get-Acl -LiteralPath $credentialDir
+            if (-not $acl.AreAccessRulesProtected) { throw "Credential directory DACL still inherits parent permissions." }
+            if ($acl.Owner -notin @("NT AUTHORITY\SYSTEM", "S-1-5-18")) { throw "Credential directory owner is not SYSTEM." }
+            $broadAccess = $acl.Access | Where-Object { $_.IdentityReference.Value -match "(^|\\)(Users|Everyone|Authenticated Users)$|^S-1-(1-0|5-(11|32-545))$" -and $_.AccessControlType -eq "Allow" }
+            if ($broadAccess) { throw "Credential directory grants broad non-administrative access." }
+            $serviceModify = $acl.Access | Where-Object { ($_.IdentityReference.Value -eq "NT SERVICE\OpenAssetWatchAgent" -or $_.IdentityReference.Value -eq $serviceSid) -and $_.FileSystemRights.ToString() -match "Modify|FullControl" -and $_.AccessControlType -eq "Allow" }
+            if (-not $serviceModify) { throw "Credential directory does not grant the service SID required modify access." }
+            foreach ($principal in @("NT AUTHORITY\SYSTEM", "BUILTIN\Administrators")) {
+              $fullControl = $acl.Access | Where-Object { $_.IdentityReference.Value -eq $principal -and $_.FileSystemRights.ToString() -match "FullControl" -and $_.AccessControlType -eq "Allow" }
+              if (-not $fullControl) { throw "Credential directory does not grant $principal full control." }
+            }
+          }
+          function Assert-CredentialFileAcl {
+            param([bool]$RequireProtected = $false)
+            $acl = Get-Acl -LiteralPath $credentialPath
+            if ($RequireProtected -and -not $acl.AreAccessRulesProtected) { throw "Credential file DACL still inherits parent permissions." }
+            if ($RequireProtected -and $acl.Owner -notin @("NT AUTHORITY\SYSTEM", "S-1-5-18")) { throw "Repaired credential file owner is not SYSTEM." }
+            $broadAccess = $acl.Access | Where-Object { $_.IdentityReference.Value -match "(^|\\)(Users|Everyone|Authenticated Users)$|^S-1-(1-0|5-(11|32-545))$" -and $_.AccessControlType -eq "Allow" }
+            if ($broadAccess) { throw "Credential file grants broad non-administrative access." }
+            $serviceAccess = $acl.Access | Where-Object { ($_.IdentityReference.Value -eq "NT SERVICE\OpenAssetWatchAgent" -or $_.IdentityReference.Value -eq $serviceSid) -and $_.FileSystemRights.ToString() -match "Modify|FullControl" -and $_.AccessControlType -eq "Allow" }
+            if (-not $serviceAccess) { throw "Credential file does not grant the service SID required access." }
+          }
+          function Set-LegacyCredentialAclFixture {
+            $usersSid = [System.Security.Principal.SecurityIdentifier]::new("S-1-5-32-545")
+            $directoryAcl = Get-Acl -LiteralPath $credentialDir
+            $directoryAcl.SetAccessRuleProtection($false, $true)
+            $directoryAcl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+              $usersSid,
+              [System.Security.AccessControl.FileSystemRights]::ReadAndExecute,
+              [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit",
+              [System.Security.AccessControl.PropagationFlags]::None,
+              [System.Security.AccessControl.AccessControlType]::Allow
+            ))
+            Set-Acl -LiteralPath $credentialDir -AclObject $directoryAcl
+            $fileAcl = Get-Acl -LiteralPath $credentialPath
+            $fileAcl.SetAccessRuleProtection($false, $true)
+            $fileAcl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+              $usersSid,
+              [System.Security.AccessControl.FileSystemRights]::Read,
+              [System.Security.AccessControl.AccessControlType]::Allow
+            ))
+            Set-Acl -LiteralPath $credentialPath -AclObject $fileAcl
+          }
           try {
             New-Item -ItemType Directory -Force -Path "C:\ProgramData\OpenAssetWatch\Agent\config","C:\ProgramData\OpenAssetWatch\Agent\identity" | Out-Null
             '{"server_url":"http://127.0.0.1:18080","site_id":"ci-msi-site"}' | Set-Content -Encoding utf8 $configPath
@@ -834,15 +909,28 @@ jobs:
             $proc = Start-Process msiexec.exe -ArgumentList @("/i", $msi, "/qn", "/norestart", "/l*v", $log) -Wait -PassThru
             if ($proc.ExitCode -ne 0) { throw "MSI install failed with $($proc.ExitCode)." }
             if (-not (Get-Service -Name OpenAssetWatchAgent -ErrorAction SilentlyContinue)) { throw "MSI did not create service." }
+            if (-not (Test-Path -LiteralPath $credentialDir -PathType Container)) { throw "MSI did not create the credential directory." }
+            Assert-CredentialDirectoryAcl
+            "synthetic-package-lifecycle-fixture" | Set-Content -Encoding ascii -LiteralPath $credentialPath
+            Assert-CredentialFileAcl
+            $credentialHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $credentialPath).Hash
+            Set-LegacyCredentialAclFixture
             $repair = Start-Process msiexec.exe -ArgumentList @("/fa", $msi, "/qn", "/norestart") -Wait -PassThru
             if ($repair.ExitCode -ne 0) { throw "MSI repair failed with $($repair.ExitCode)." }
             if (-not (Select-String -LiteralPath $configPath -Pattern "ci-msi-site" -Quiet)) { throw "MSI repair did not preserve config." }
             if (-not (Select-String -LiteralPath $identityPath -Pattern "33333333-3333-4333-8333-333333333333" -Quiet)) { throw "MSI repair did not preserve identity." }
+            Assert-CredentialDirectoryAcl
+            Assert-CredentialFileAcl -RequireProtected $true
+            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $credentialPath).Hash -ne $credentialHash) { throw "MSI repair did not preserve credential state." }
+            Set-LegacyCredentialAclFixture
             $upgrade = Start-Process msiexec.exe -ArgumentList @("/i", $msiUpgrade, "/qn", "/norestart") -Wait -PassThru
             if ($upgrade.ExitCode -ne 0) { throw "MSI major upgrade failed with $($upgrade.ExitCode)." }
             if (-not (Get-Service -Name OpenAssetWatchAgent -ErrorAction SilentlyContinue)) { throw "MSI major upgrade removed service." }
             if (-not (Select-String -LiteralPath $configPath -Pattern "ci-msi-site" -Quiet)) { throw "MSI major upgrade did not preserve config." }
             if (-not (Select-String -LiteralPath $identityPath -Pattern "33333333-3333-4333-8333-333333333333" -Quiet)) { throw "MSI major upgrade did not preserve identity." }
+            Assert-CredentialDirectoryAcl
+            Assert-CredentialFileAcl -RequireProtected $true
+            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $credentialPath).Hash -ne $credentialHash) { throw "MSI major upgrade did not preserve credential state." }
           }
           finally {
             $uninstall = Start-Process msiexec.exe -ArgumentList @("/x", $msiUpgrade, "/qn", "/norestart") -Wait -PassThru
@@ -853,6 +941,10 @@ jobs:
           }
           if (-not (Test-Path $configPath)) { throw "MSI uninstall did not preserve config." }
           if (-not (Test-Path $identityPath)) { throw "MSI uninstall did not preserve identity." }
+          if (-not (Test-Path -LiteralPath $credentialPath -PathType Leaf)) { throw "MSI uninstall did not preserve credential state." }
+          Assert-CredentialDirectoryAcl
+          Assert-CredentialFileAcl -RequireProtected $true
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $credentialPath).Hash -ne $credentialHash) { throw "MSI uninstall did not preserve credential state content." }
 
   macos-arm64-agent:
     needs: agent-change-scope
@@ -880,6 +972,10 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./...
+      - name: Native macOS receipt count-only smoke
+        run: go test -v ./internal/collector/software -run '^TestNativeSoftwareCountOnlySmoke$'
+        env:
+          OPENASSETWATCH_NATIVE_SOFTWARE_SMOKE: "1"
       - name: race tests
         run: go test -race ./cmd/oaw-agent ./internal/agent/supervisor ./internal/collector/network
       - name: macOS package script syntax
@@ -902,6 +998,8 @@ jobs:
           CONFIG="$APP_ROOT/config/config.json"
           IDENTITY="$APP_ROOT/identity/identity.json"
           STATE="$APP_ROOT/state"
+          CREDENTIAL_DIR="$STATE/credential"
+          CREDENTIAL_FILE="$CREDENTIAL_DIR/credential.json"
           LOG_DIR="/Library/Logs/OpenAssetWatch/Agent"
           PLIST="/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           MOCK="$RUNNER_TEMP/oaw_mock_backend.py"
@@ -962,6 +1060,11 @@ jobs:
           else:
               assert health in ("degraded", "healthy"), status
           PY
+          check_owner_mode "$CREDENTIAL_DIR" "_openassetwatch:_openassetwatch 700"
+          sudo install -o _openassetwatch -g _openassetwatch -m 0600 /dev/null "$CREDENTIAL_FILE"
+          sudo -u _openassetwatch test -r "$CREDENTIAL_FILE"
+          sudo -u _openassetwatch test -w "$CREDENTIAL_FILE"
+          CREDENTIAL_HASH="$(sudo shasum -a 256 "$CREDENTIAL_FILE" | awk '{print $1}')"
           sudo mkdir -p "$APP_ROOT/config" "$APP_ROOT/identity"
           printf '%s\n' '{"server_url":"http://127.0.0.1:18080","site_id":"ci-macos"}' | sudo tee "$CONFIG" >/dev/null
           printf '%s\n' '{"site_id":"ci-macos","agent_id":"55555555-5555-4555-8555-555555555555","deployment_id":"66666666-6666-4666-8666-666666666666","tenant_id":"ci","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}' | sudo tee "$IDENTITY" >/dev/null
@@ -1020,6 +1123,8 @@ jobs:
           check_owner_mode "$CONFIG" "root:_openassetwatch 640"
           check_owner_mode "$IDENTITY" "root:_openassetwatch 640"
           check_owner_mode "$STATE" "_openassetwatch:_openassetwatch 750"
+          check_owner_mode "$CREDENTIAL_DIR" "_openassetwatch:_openassetwatch 700"
+          test "$CREDENTIAL_HASH" = "$(sudo shasum -a 256 "$CREDENTIAL_FILE" | awk '{print $1}')"
           check_owner_mode "$LOG_DIR" "_openassetwatch:_openassetwatch 750"
           sudo launchctl print "system/$LABEL" >/dev/null
           deadline=$((SECONDS + 90))
@@ -1042,12 +1147,14 @@ jobs:
           sudo installer -pkg "$PKG" -target /
           sudo grep -q "ci-macos" "$CONFIG"
           sudo grep -q "55555555-5555-4555-8555-555555555555" "$IDENTITY"
+          test "$CREDENTIAL_HASH" = "$(sudo shasum -a 256 "$CREDENTIAL_FILE" | awk '{print $1}')"
           if sudo installer -pkg "$OLD_PKG" -target /; then
             echo "Downgrade unexpectedly succeeded"
             exit 1
           fi
           sudo grep -q "ci-macos" "$CONFIG"
           sudo grep -q "55555555-5555-4555-8555-555555555555" "$IDENTITY"
+          test "$CREDENTIAL_HASH" = "$(sudo shasum -a 256 "$CREDENTIAL_FILE" | awk '{print $1}')"
           sudo launchctl bootout system "/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           sudo launchctl bootstrap system "/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           sudo launchctl print "system/$LABEL" >/dev/null
@@ -1058,6 +1165,7 @@ jobs:
           fi
           sudo test -f "$CONFIG"
           sudo test -f "$IDENTITY"
+          sudo test -f "$CREDENTIAL_FILE"
 
   macos-intel-agent:
     needs: agent-change-scope
@@ -1079,6 +1187,7 @@ jobs:
           if [ -n "$changed" ]; then echo "$changed"; exit 1; fi
           go vet ./...
           go test ./...
+          OPENASSETWATCH_NATIVE_SOFTWARE_SMOKE=1 go test -v ./internal/collector/software -run '^TestNativeSoftwareCountOnlySmoke$'
           go test -race ./cmd/oaw-agent ./internal/agent/supervisor ./internal/collector/network
       - name: Build Intel PKG
         run: bash scripts/release/build_agent_macos_pkg.sh --version 0.1.101 --arch-mode amd64

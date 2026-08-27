@@ -6,8 +6,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +21,15 @@ from release_common import get_repo_root, is_inside, read_json, resolve_repo_pat
 TARGET_ARCH = "amd64"
 PACKAGE_PREFIX = "OpenAssetWatchAgent"
 WXS_RELATIVE = Path("packaging") / "agent" / "windows" / "OpenAssetWatchAgent.wxs"
+TABLE_VALIDATOR_RELATIVE = Path("scripts") / "release" / "validate_agent_windows_msi_tables.ps1"
+WIX_NAMESPACE = "http://wixtoolset.org/schemas/v4/wxs"
+UTIL_NAMESPACE = "http://wixtoolset.org/schemas/v4/wxs/util"
+AGENT_SERVICE_SID = "S-1-5-80-630466807-4251148593-2853048944-3410275790-4186592652"
+CREDENTIAL_DIRECTORY_SDDL = (
+    "O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+    f"(A;OICI;0x1301bf;;;{AGENT_SERVICE_SID})"
+)
+CREDENTIAL_ACL_REPAIR_COMMAND = "repair-private-state-acl"
 FORBIDDEN_RE = re.compile(
     r"(credential|password|token|api[_-]?key|private[_-]?key|secret|Task Scheduler|run-once --config)",
     re.IGNORECASE,
@@ -130,6 +143,7 @@ def validate_wix_source(repo_root: Path) -> None:
     text = wxs.read_text(encoding="utf-8")
     required = (
         'Name="OpenAssetWatchAgent"',
+        'InstallerVersion="500"',
         'DisplayName="OpenAssetWatch Agent"',
         'Account="NT AUTHORITY\\LocalService"',
         'Start="auto"',
@@ -149,6 +163,10 @@ def validate_wix_source(repo_root: Path) -> None:
         'ServiceSidType',
         'Domain="NT SERVICE"',
         'User="OpenAssetWatchAgent"',
+        '<Directory Id="AgentCredentialDir" Name="credential" />',
+        '<Component Id="AgentCredentialDirectoryComponent"',
+        'Name="CredentialDir" Type="string" Value="[AgentCredentialDir]"',
+        'Id="RepairPrivateStateAcl"',
     )
     missing = [item for item in required if item not in text]
     if missing:
@@ -157,9 +175,113 @@ def validate_wix_source(repo_root: Path) -> None:
         raise ValueError("WiX source must not grant broad LocalService write ACLs.")
     if text.count('Domain="NT SERVICE" User="OpenAssetWatchAgent"') < 4:
         raise ValueError("WiX source must use service-specific SID ACLs for binary/config/identity/state/log paths.")
-    forbidden = sorted({match.group(0) for match in FORBIDDEN_RE.finditer(text)})
+
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ValueError("WiX source is not valid XML.") from exc
+    wix = f"{{{WIX_NAMESPACE}}}"
+    util = f"{{{UTIL_NAMESPACE}}}"
+    credential_ref = root.find(f".//{wix}DirectoryRef[@Id='AgentCredentialDir']")
+    component = (
+        credential_ref.find(f"{wix}Component[@Id='AgentCredentialDirectoryComponent']")
+        if credential_ref is not None
+        else None
+    )
+    matching_components = root.findall(
+        f".//{wix}Component[@Id='AgentCredentialDirectoryComponent']"
+    )
+    if component is None or len(matching_components) != 1 or component is not matching_components[0]:
+        raise ValueError(
+            "WiX credential directory component must be directly attached to AgentCredentialDir."
+        )
+    create_folder = component.find(f"{wix}CreateFolder") if component is not None else None
+    children = list(create_folder) if create_folder is not None else []
+    permission = [child for child in children if child.tag == f"{wix}PermissionEx"]
+    legacy_permissions = [child for child in children if child.tag == f"{util}PermissionEx"]
+    if (
+        len(children) != 1
+        or len(permission) != 1
+        or legacy_permissions
+        or permission[0].attrib != {"Sddl": CREDENTIAL_DIRECTORY_SDDL}
+    ):
+        raise ValueError(
+            "WiX credential directory must use the exact protected service-specific DACL."
+        )
+    repair = root.find(f".//{wix}CustomAction[@Id='RepairPrivateStateAcl']")
+    expected_repair = {
+        "Id": "RepairPrivateStateAcl",
+        "FileRef": "AgentExe",
+        "ExeCommand": CREDENTIAL_ACL_REPAIR_COMMAND,
+        "Execute": "deferred",
+        "Impersonate": "no",
+        "Return": "check",
+    }
+    sequence = root.find(
+        f".//{wix}InstallExecuteSequence/{wix}Custom[@Action='RepairPrivateStateAcl']"
+    )
+    expected_sequence = {
+        "Action": "RepairPrivateStateAcl",
+        "After": "InstallFiles",
+        "Condition": 'NOT (REMOVE~="ALL")',
+    }
+    if (
+        repair is None
+        or repair.attrib != expected_repair
+        or sequence is None
+        or sequence.attrib != expected_sequence
+    ):
+        raise ValueError(
+            "WiX credential ACL repair must run deferred as SYSTEM after files install."
+        )
+    sanitized = text
+    for allowed in (
+        "AgentCredentialDir",
+        "AgentCredentialDirectoryComponent",
+        'Name="credential"',
+        'Name="CredentialDir"',
+    ):
+        sanitized = sanitized.replace(allowed, "reviewed-private-state")
+    forbidden = sorted({match.group(0) for match in FORBIDDEN_RE.finditer(sanitized)})
     if forbidden:
         raise ValueError(f"WiX source contains forbidden text: {', '.join(forbidden)}.")
+
+
+def validate_compiled_msi_tables(repo_root: Path, msi: Path) -> dict[str, Any] | None:
+    if os.name != "nt":
+        return None
+    powershell = shutil.which("pwsh") or shutil.which("powershell")
+    if not powershell:
+        raise ValueError("PowerShell is required for compiled MSI table validation on Windows.")
+    validator = repo_root / TABLE_VALIDATOR_RELATIVE
+    if not validator.is_file():
+        raise ValueError("Compiled MSI table validator is missing.")
+    completed = subprocess.run(
+        [
+            powershell,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            str(validator),
+            "-Msi",
+            str(msi),
+        ],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        raise ValueError("Compiled MSI credential-security table validation failed.")
+    try:
+        result = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Compiled MSI table validator returned invalid output.") from exc
+    if result.get("ok") is not True or not all(result.get("checks", {}).values()):
+        raise ValueError("Compiled MSI credential-security table validation failed.")
+    return result
 
 
 def parse_args() -> argparse.Namespace:
@@ -185,6 +307,17 @@ def main() -> int:
         reporter.check("msi checksum", True, "MSI checksum matches the artifact and manifest.")
         validate_wix_source(repo_root)
         reporter.check("wix source", True, "WiX source contains the approved native service model.")
+        compiled = validate_compiled_msi_tables(repo_root, msi)
+        if compiled is None:
+            reporter.warnings.append(
+                "Compiled MSI table validation requires Windows Installer APIs and was not run."
+            )
+        else:
+            reporter.check(
+                "compiled msi tables",
+                True,
+                "Compiled MSI contains the approved credential ACL and pre-service repair action.",
+            )
     except Exception as exc:
         reporter.check("windows msi validator", False, str(exc))
 

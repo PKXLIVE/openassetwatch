@@ -97,6 +97,7 @@ EXPECTED_DATA_DIRS = (
     "./var/lib",
     "./var/lib/openassetwatch",
     "./var/lib/openassetwatch/agent",
+    "./var/lib/openassetwatch/agent/credential",
     "./var/log",
     "./var/log/openassetwatch",
     "./var/log/openassetwatch/agent",
@@ -352,7 +353,8 @@ def owner_for_data_path(path: str) -> tuple[str, str]:
 
 def add_dir(tar: tarfile.TarFile, path: str, mtime: int) -> None:
     owner, group = owner_for_data_path(path)
-    tar.addfile(tarinfo_for(path, None, 0o755, mtime, owner, group))
+    mode = 0o700 if path == linuxsrc.CREDENTIAL_DIR_PACKAGE_PATH else 0o755
+    tar.addfile(tarinfo_for(path, None, mode, mtime, owner, group))
 
 
 def add_file(tar: tarfile.TarFile, path: str, data: bytes, mode: int, mtime: int) -> None:
@@ -765,11 +767,13 @@ def validate_deb_contents(package_path: Path, reporter: Reporter) -> None:
             continue
         if FORBIDDEN_CONTENT_RE.search(PurePosixPath(name).name):
             raise ValueError(f"DEB data archive contains forbidden path: {name}")
-        if contents and FORBIDDEN_CONTENT_RE.search(contents.decode("utf-8", errors="ignore")):
+        if contents and linuxsrc.contains_forbidden_package_content(name, contents):
             raise ValueError(f"DEB data archive contains forbidden content: {name}")
     for path in SERVICE_OWNED_DIRS:
         if ownership.get(path) != (SERVICE_USER, SERVICE_GROUP):
             raise ValueError(f"DEB data archive ownership for {path} must be {SERVICE_USER}:{SERVICE_GROUP}.")
+    if modes.get(linuxsrc.CREDENTIAL_DIR_PACKAGE_PATH) != 0o700:
+        raise ValueError("DEB credential directory must use mode 0700 in package metadata.")
     for path in ROOT_OWNED_DIRS:
         if ownership.get(path) != ("root", "root"):
             raise ValueError(f"DEB data archive ownership for {path} must be root:root.")

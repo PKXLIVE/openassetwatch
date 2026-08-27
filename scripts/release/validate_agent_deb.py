@@ -89,6 +89,7 @@ ALLOWED_DATA_DIRS = {
     "./var/lib",
     "./var/lib/openassetwatch",
     "./var/lib/openassetwatch/agent",
+    linuxsrc.CREDENTIAL_DIR_PACKAGE_PATH,
     "./var/log",
     "./var/log/openassetwatch",
     "./var/log/openassetwatch/agent",
@@ -729,8 +730,7 @@ def validate_forbidden_content(data_files: dict[str, bytes]) -> None:
         leaf = PurePosixPath(name).name
         if FORBIDDEN_TEXT_RE.search(leaf):
             raise ValueError(f"DEB data archive contains forbidden path: {name}")
-        text = data.decode("utf-8", errors="ignore")
-        if FORBIDDEN_TEXT_RE.search(text):
+        if linuxsrc.contains_forbidden_package_content(name, data):
             raise ValueError(f"DEB data archive contains forbidden content: {name}")
 
 
@@ -759,6 +759,8 @@ def validate_data_archive(
     for path in SERVICE_OWNED_DIRS:
         if ownership.get(path) != (SERVICE_USER, SERVICE_GROUP):
             raise ValueError(f"DEB data archive ownership for {path} must be {SERVICE_USER}:{SERVICE_GROUP}.")
+    if modes.get(linuxsrc.CREDENTIAL_DIR_PACKAGE_PATH) != 0o700:
+        raise ValueError("DEB credential directory must use mode 0700 in package metadata.")
     for path in ROOT_OWNED_DIRS:
         if ownership.get(path) != ("root", "root"):
             raise ValueError(f"DEB data archive ownership for {path} must be root:root.")

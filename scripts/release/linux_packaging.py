@@ -33,6 +33,8 @@ SERVICE_COMMAND = (
     "--identity-file /etc/openassetwatch/agent/identity.json "
     "--output-dir /var/lib/openassetwatch/agent"
 )
+CREDENTIAL_DIR = "/var/lib/openassetwatch/agent/credential"
+CREDENTIAL_DIR_PACKAGE_PATH = "./var/lib/openassetwatch/agent/credential"
 TIMER_INSTALL_PATH = "/lib/systemd/system/oaw-agent.timer"
 SUDOERS_PACKAGE_PATH = "./etc/sudoers.d/openassetwatch-agent"
 SUDOERS_INSTALL_PATH = "/etc/sudoers.d/openassetwatch-agent"
@@ -50,6 +52,7 @@ PRIVILEGED_HELPERS = (
 )
 SERVICE_OWNED_DIRS = (
     "./var/lib/openassetwatch/agent",
+    CREDENTIAL_DIR_PACKAGE_PATH,
     "./var/log/openassetwatch/agent",
 )
 ROOT_OWNED_DIRS = (
@@ -72,6 +75,7 @@ FORBIDDEN_CONTENT_RE = re.compile(
     r"status\.json|\.log$|\.pem$|\.key$)",
     re.IGNORECASE,
 )
+RELEASE_MANIFEST_PACKAGE_PATH = "./usr/share/doc/openassetwatch-agent/release-manifest.json"
 REQUIRED_BINARY_FIELDS = (
     "artifact_name",
     "version",
@@ -81,6 +85,24 @@ REQUIRED_BINARY_FIELDS = (
     "sha256",
     "git_commit",
 )
+
+
+def contains_forbidden_package_content(package_path: str, contents: bytes) -> bool:
+    """Reject packaged secrets while permitting the declared credential directory layout."""
+    text = contents.decode("utf-8", errors="ignore")
+    if package_path == RELEASE_MANIFEST_PACKAGE_PATH:
+        # The release manifest is validated structurally by each package validator.
+        # Only the exact service-owned directory name is expected here; credential
+        # files, values, alternate paths, and every other forbidden term remain fatal.
+        text = text.replace(
+            f'"{CREDENTIAL_DIR_PACKAGE_PATH}"',
+            '"./var/lib/openassetwatch/agent/private-state"',
+        )
+        text = text.replace(
+            f'"{CREDENTIAL_DIR}"',
+            '"/var/lib/openassetwatch/agent/private-state"',
+        )
+    return FORBIDDEN_CONTENT_RE.search(text) is not None
 
 
 def linux_source_root() -> Path:

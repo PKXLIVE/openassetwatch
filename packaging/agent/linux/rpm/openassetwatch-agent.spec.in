@@ -110,6 +110,7 @@ exit 0
 %attr(0644,root,root) /usr/lib/systemd/system/oaw-agent.service
 %attr(0644,root,root) /usr/lib/systemd/system/oaw-agent.timer
 %dir %attr(0755,openassetwatch,openassetwatch) /var/lib/openassetwatch/agent
+%dir %attr(0700,openassetwatch,openassetwatch) /var/lib/openassetwatch/agent/credential
 %dir %attr(0755,openassetwatch,openassetwatch) /var/log/openassetwatch/agent
 %doc /usr/share/doc/openassetwatch-agent/README.md
 %license /usr/share/doc/openassetwatch-agent/LICENSE
