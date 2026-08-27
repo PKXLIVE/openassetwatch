@@ -70,8 +70,16 @@ They extend the implemented architecture but are not implementation claims:
 - `docs/architecture/temporal-intelligence-roadmap.md` - historical signal
   projections, transparent expected ranges, deterministic deviation handling,
   and optional future forecasting providers.
+- `docs/architecture/defensive-content-and-model-robustness.md` - structural
+  versus heuristic AI safety controls, monotonic context taint, transformed
+  secret egress protection, sensitive-content inspection, current security
+  intelligence, parser robustness, adversarial model evaluation, and ML score
+  provenance.
 - `docs/architecture/decisions/0003-native-agent-investigation-and-temporal-intelligence.md`
   - accepted cross-subsystem authority and sequencing decisions.
+- `docs/architecture/decisions/0005-defensive-content-and-model-robustness.md`
+  - accepted defensive content, intelligence, parser, and model robustness
+  boundaries and implementation sequence.
 
 These designs preserve deterministic product authority, passive-first behavior,
 local-first operation, and human review.
@@ -98,6 +106,7 @@ are recorded under:
 - `docs/architecture/decisions/README.md`
 - `docs/architecture/decisions/0001-research-aligned-expansion.md`
 - `docs/architecture/decisions/0002-additive-external-intelligence-enrichment.md`
+- `docs/architecture/decisions/0005-defensive-content-and-model-robustness.md`
 
 Third-party advisory, fingerprint, and external-intelligence source decisions
 are governed by:
