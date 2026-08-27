@@ -232,6 +232,8 @@ docker compose down -v --remove-orphans
 | `OPENASSETWATCH_AI_MODEL` | Local or hosted model identifier. |
 | `OPENASSETWATCH_AI_API_KEY` | Optional and omitted from requests for approved local endpoints; required for hosted providers. |
 | `OPENASSETWATCH_AI_TIMEOUT_SECONDS` | Provider timeout clamped to 2-90 seconds locally and 2-30 seconds when hosted. |
+| `OPENASSETWATCH_AI_LOCAL_PROVIDER_HOSTS` | Optional comma-separated exact local service hostnames. Wildcards, CIDRs, IP addresses, metadata hosts, and malformed entries are rejected. |
+| `OPENASSETWATCH_AI_QUALIFICATION_RESULT` | Optional operator-owned `oaw.local-ai.v1` JSON result. When configured, an invalid, mismatched, or unapproved result disables local Advisor use. |
 | `OPENASSETWATCH_CONTROL_TOWER_VERSION` | API/server version reported by `/health`. |
 | `OPENASSETWATCH_EXPECTED_AGENT_VERSION` | Placeholder expected agent version in release metadata. |
 | `OPENASSETWATCH_AGENT_RELEASE_CHANNEL` | Placeholder release channel such as `local`. |
