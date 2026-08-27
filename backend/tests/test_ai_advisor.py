@@ -4,7 +4,6 @@ import json
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
-from urllib.error import HTTPError, URLError
 from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
@@ -18,6 +17,7 @@ from app.ai_advisor import (
     ProviderUnavailableError,
     ReadOnlyHubTools,
     GeneratedAnswer,
+    _configured_local_provider_hosts,
     _provider_endpoint,
     configured_provider,
     load_provider_config,
@@ -25,6 +25,10 @@ from app.ai_advisor import (
     run_advisor,
 )
 from app.main import api_ai_advisor_query, require_admin_token
+from app.local_ai_transport import (
+    LocalAITransportResponse,
+    LocalAITransportSecurityError,
+)
 
 
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
@@ -129,6 +133,8 @@ class AIAdvisorTests(unittest.TestCase):
                 "OPENASSETWATCH_AI_BASE_URL": "",
                 "OPENASSETWATCH_AI_API_KEY": "",
                 "OPENASSETWATCH_AI_MODEL": "",
+                "OPENASSETWATCH_AI_LOCAL_PROVIDER_HOSTS": "",
+                "OPENASSETWATCH_AI_QUALIFICATION_RESULT": "",
             },
             clear=False,
         )
@@ -599,8 +605,7 @@ class AIAdvisorTests(unittest.TestCase):
             timeout_seconds=10,
         )
         provider = OpenAICompatibleProvider(config)
-        response = Mock()
-        response.read.return_value = json.dumps(
+        response_body = json.dumps(
             {
                 "choices": [
                     {
@@ -620,15 +625,21 @@ class AIAdvisorTests(unittest.TestCase):
                 ]
             }
         ).encode()
-        opener = Mock()
-        opener.open.return_value = response
+        transport_response = LocalAITransportResponse(
+            status=200,
+            headers=(),
+            body=response_body,
+            peer_ip="127.0.0.1",
+        )
 
-        with patch("app.ai_advisor.build_opener", return_value=opener):
+        with patch(
+            "app.ai_advisor.local_ai_request",
+            return_value=transport_response,
+        ) as local_request:
             provider.generate(question="Summarize.", context={"tool_results": {}, "evidence": []})
 
-        request = opener.open.call_args.args[0]
-        self.assertNotIn("Authorization", request.headers)
-        request_body = json.loads(request.data.decode("utf-8"))
+        self.assertNotIn("Authorization", local_request.call_args.kwargs["headers"])
+        request_body = json.loads(local_request.call_args.kwargs["body"].decode("utf-8"))
         self.assertNotIn("tools", request_body)
         self.assertNotIn("functions", request_body)
         self.assertNotIn("tool_choice", request_body)
@@ -650,6 +661,114 @@ class AIAdvisorTests(unittest.TestCase):
             with self.subTest(url=url):
                 with self.assertRaises(ProviderUnavailableError):
                     _provider_endpoint(url)
+
+    def test_exact_configured_local_provider_hostname_is_narrowly_trusted(self) -> None:
+        configured = _configured_local_provider_hosts("rocmfpx")
+
+        self.assertEqual(configured, frozenset({"rocmfpx"}))
+        self.assertEqual(
+            _provider_endpoint(
+                "http://rocmfpx:8080/v1",
+                local_provider_hosts=configured,
+            ),
+            "http://rocmfpx:8080/v1/chat/completions",
+        )
+        with self.assertRaises(ProviderUnavailableError):
+            _provider_endpoint("http://rocmfpx:8080/v1")
+        with self.assertRaises(ProviderUnavailableError):
+            _provider_endpoint(
+                "http://random-service:8080/v1",
+                local_provider_hosts=configured,
+            )
+
+    def test_configured_local_provider_hosts_reject_wildcards_addresses_and_malformed_entries(self) -> None:
+        invalid_values = (
+            "*.internal",
+            ".internal",
+            "rocmfpx.*",
+            "10.0.0.4",
+            "10.0.0.0/8",
+            "rocmfpx:8080",
+            "http://rocmfpx",
+            "rocmfpx,,other",
+            "metadata.google.internal",
+        )
+        for value in invalid_values:
+            with self.subTest(value=value):
+                with self.assertRaises(ProviderUnavailableError):
+                    _configured_local_provider_hosts(value)
+
+    def test_private_and_metadata_addresses_remain_blocked_when_local_hosts_are_configured(self) -> None:
+        configured = _configured_local_provider_hosts("rocmfpx")
+        blocked = (
+            "http://10.1.2.3:8080/v1",
+            "http://172.16.0.5:8080/v1",
+            "http://192.168.1.5:8080/v1",
+            "http://169.254.169.254/latest",
+            "https://metadata.google.internal/v1",
+        )
+        for url in blocked:
+            with self.subTest(url=url):
+                with self.assertRaises(ProviderUnavailableError):
+                    _provider_endpoint(
+                        url,
+                        local_provider_hosts=configured,
+                    )
+
+    def test_provider_urls_reject_credentials_and_unsupported_components(self) -> None:
+        for url in (
+            "http://user:password@localhost:8080/v1",
+            "http://localhost:8080/v1?target=other",
+            "http://localhost:8080/v1#fragment",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(ProviderUnavailableError):
+                    _provider_endpoint(url)
+
+    def test_local_provider_does_not_follow_redirects_to_blocked_targets(self) -> None:
+        config = ProviderConfig(
+            provider="openai-compatible",
+            external_enabled=False,
+            base_url="http://rocmfpx:8080/v1",
+            api_key=None,
+            model="local-model",
+            timeout_seconds=2,
+            local_provider_hosts=frozenset({"rocmfpx"}),
+        )
+        provider = OpenAICompatibleProvider(config)
+        redirect = LocalAITransportSecurityError(
+            "redirect-rejected",
+            "local provider redirects are disabled",
+        )
+
+        with patch(
+            "app.ai_advisor.local_ai_request",
+            side_effect=redirect,
+        ) as local_request:
+            with self.assertRaisesRegex(ProviderUnavailableError, r"rejected.*safely"):
+                provider.generate(
+                    question="Summarize.",
+                    context={"tool_results": {}, "evidence": []},
+                )
+        local_request.assert_called_once()
+
+    def test_malformed_local_host_environment_fails_closed_in_status(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "OPENASSETWATCH_AI_PROVIDER": "openai-compatible",
+                "OPENASSETWATCH_AI_BASE_URL": "http://rocmfpx:8080/v1",
+                "OPENASSETWATCH_AI_MODEL": "local-model",
+                "OPENASSETWATCH_AI_LOCAL_PROVIDER_HOSTS": "*.internal",
+            },
+            clear=False,
+        ):
+            status = provider_status()
+
+        self.assertFalse(status.enabled)
+        self.assertFalse(status.available)
+        self.assertEqual(status.qualification_state, "invalid")
+        self.assertIn("exact DNS hostnames", status.message)
 
     def test_hosted_https_provider_requires_api_key_and_explicit_enablement(self) -> None:
         missing_key = ProviderConfig(
@@ -738,15 +857,21 @@ class AIAdvisorTests(unittest.TestCase):
         )
         provider = OpenAICompatibleProvider(config)
         failures = (
-            (URLError("connection refused"), "not reachable"),
-            (TimeoutError(), "timed out"),
-            (HTTPError(provider.endpoint, 404, "not found", None, None), "not installed"),
+            (OSError("connection refused"), None, "not reachable"),
+            (TimeoutError(), None, "timed out"),
+            (
+                None,
+                LocalAITransportResponse(status=404, headers=(), body=b"", peer_ip="127.0.0.1"),
+                "not installed",
+            ),
         )
-        for failure, expected in failures:
+        for failure, result, expected in failures:
             with self.subTest(expected=expected):
-                opener = Mock()
-                opener.open.side_effect = failure
-                with patch("app.ai_advisor.build_opener", return_value=opener):
+                with patch(
+                    "app.ai_advisor.local_ai_request",
+                    side_effect=failure,
+                    return_value=result,
+                ):
                     with self.assertRaises(ProviderUnavailableError) as raised:
                         provider.generate(question="Summarize.", context={"tool_results": {}, "evidence": []})
                 self.assertIn(expected, str(raised.exception))
@@ -781,12 +906,14 @@ class AIAdvisorTests(unittest.TestCase):
             timeout_seconds=2,
         )
         provider = OpenAICompatibleProvider(config)
-        response = Mock()
-        response.read.return_value = json.dumps({"choices": [{"message": {"content": "not-json"}}]}).encode()
-        opener = Mock()
-        opener.open.return_value = response
+        response = LocalAITransportResponse(
+            status=200,
+            headers=(),
+            body=json.dumps({"choices": [{"message": {"content": "not-json"}}]}).encode(),
+            peer_ip="127.0.0.1",
+        )
 
-        with patch("app.ai_advisor.build_opener", return_value=opener):
+        with patch("app.ai_advisor.local_ai_request", return_value=response):
             with self.assertRaises(ProviderOutputError) as raised:
                 provider.generate(question="Summarize.", context={"tool_results": {}, "evidence": []})
 

@@ -16,6 +16,14 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from .local_ai import (
+    LocalAIRuntimeMetadata,
+    QualificationState,
+    RuntimeHealthStatus,
+    load_qualification_result,
+)
+from .local_ai_transport import LocalAITransportSecurityError, local_ai_request
+
 
 MAX_TOOL_ITEMS = 50
 MAX_EVIDENCE_ITEMS = 30
@@ -34,8 +42,19 @@ AI_BASE_URL_ENV = "OPENASSETWATCH_AI_BASE_URL"
 AI_API_KEY_ENV = "OPENASSETWATCH_AI_API_KEY"
 AI_MODEL_ENV = "OPENASSETWATCH_AI_MODEL"
 AI_TIMEOUT_ENV = "OPENASSETWATCH_AI_TIMEOUT_SECONDS"
+AI_LOCAL_PROVIDER_HOSTS_ENV = "OPENASSETWATCH_AI_LOCAL_PROVIDER_HOSTS"
+AI_QUALIFICATION_RESULT_ENV = "OPENASSETWATCH_AI_QUALIFICATION_RESULT"
 LOCAL_PROVIDER_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
-BLOCKED_PROVIDER_HOSTS = frozenset({"169.254.169.254", "metadata.google.internal", "metadata.google"})
+BLOCKED_PROVIDER_HOSTS = frozenset(
+    {
+        "169.254.169.254",
+        "instance-data",
+        "instance-data.ec2.internal",
+        "metadata.azure.internal",
+        "metadata.google",
+        "metadata.google.internal",
+    }
+)
 ProviderMode = Literal["demo", "local", "external"]
 EvidenceId = Annotated[str, Field(min_length=1, max_length=500)]
 RecommendedAction = Annotated[str, Field(min_length=1, max_length=500)]
@@ -59,6 +78,10 @@ class ProviderStatusResponse(StrictModel):
     available: bool
     external_data_sharing: bool
     model: str | None = None
+    runtime: LocalAIRuntimeMetadata | None = None
+    health_status: RuntimeHealthStatus = "unknown"
+    last_health_check: datetime | None = None
+    qualification_state: QualificationState = "not-configured"
     message: str
 
 
@@ -129,10 +152,58 @@ class ProviderConfig:
     api_key: str | None
     model: str | None
     timeout_seconds: float
+    local_provider_hosts: frozenset[str] = frozenset()
+    qualification_result_path: str | None = None
 
 
 def _enabled(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _configured_local_provider_hosts(value: str | None) -> frozenset[str]:
+    """Parse exact trusted service names without creating a private-network allowlist."""
+
+    if not value or not value.strip():
+        return frozenset()
+    hosts: set[str] = set()
+    for raw_entry in value.split(","):
+        entry = raw_entry.strip().lower()
+        if not entry:
+            raise ProviderUnavailableError(
+                f"{AI_LOCAL_PROVIDER_HOSTS_ENV} contains an empty hostname entry"
+            )
+        if entry.endswith(".") or "://" in entry or any(character in entry for character in "*/\\[]:@"):
+            raise ProviderUnavailableError(
+                f"{AI_LOCAL_PROVIDER_HOSTS_ENV} accepts exact DNS hostnames only"
+            )
+        try:
+            ip_address(entry)
+        except ValueError:
+            pass
+        else:
+            raise ProviderUnavailableError(
+                f"{AI_LOCAL_PROVIDER_HOSTS_ENV} does not accept IP addresses"
+            )
+        if len(entry) > 253:
+            raise ProviderUnavailableError(
+                f"{AI_LOCAL_PROVIDER_HOSTS_ENV} contains an invalid hostname"
+            )
+        labels = entry.split(".")
+        if any(
+            not label
+            or len(label) > 63
+            or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
+            for label in labels
+        ):
+            raise ProviderUnavailableError(
+                f"{AI_LOCAL_PROVIDER_HOSTS_ENV} contains an invalid hostname"
+            )
+        if entry in BLOCKED_PROVIDER_HOSTS:
+            raise ProviderUnavailableError(
+                f"{AI_LOCAL_PROVIDER_HOSTS_ENV} cannot trust a metadata hostname"
+            )
+        hosts.add(entry)
+    return frozenset(hosts)
 
 
 def load_provider_config() -> ProviderConfig:
@@ -142,10 +213,13 @@ def load_provider_config() -> ProviderConfig:
     except ValueError:
         timeout = 10.0
     base_url = (os.getenv(AI_BASE_URL_ENV) or "").strip() or None
+    local_provider_hosts = _configured_local_provider_hosts(
+        os.getenv(AI_LOCAL_PROVIDER_HOSTS_ENV)
+    )
     timeout_limit = MAX_HOSTED_PROVIDER_TIMEOUT_SECONDS
     if base_url:
         try:
-            if _provider_mode(base_url) == "local":
+            if _provider_mode(base_url, local_provider_hosts=local_provider_hosts) == "local":
                 timeout_limit = MAX_LOCAL_PROVIDER_TIMEOUT_SECONDS
         except ProviderUnavailableError:
             pass
@@ -156,7 +230,30 @@ def load_provider_config() -> ProviderConfig:
         api_key=(os.getenv(AI_API_KEY_ENV) or "").strip() or None,
         model=(os.getenv(AI_MODEL_ENV) or "").strip() or None,
         timeout_seconds=max(2.0, min(timeout, timeout_limit)),
+        local_provider_hosts=local_provider_hosts,
+        qualification_result_path=(
+            (os.getenv(AI_QUALIFICATION_RESULT_ENV) or "").strip() or None
+        ),
     )
+
+
+def _qualification_for_status(
+    config: ProviderConfig,
+) -> tuple[QualificationState, LocalAIRuntimeMetadata | None, str | None]:
+    if not config.qualification_result_path:
+        return "not-configured", None, None
+    try:
+        qualification = load_qualification_result(config.qualification_result_path)
+    except (OSError, ValueError, ValidationError):
+        return "invalid", None, "Configured qualification result is unreadable or invalid."
+    if (
+        not config.base_url
+        or qualification.runtime.base_url.rstrip("/") != config.base_url.rstrip("/")
+        or qualification.model.model_name != config.model
+    ):
+        return "invalid", None, "Qualification result does not match the configured endpoint and model."
+    state: QualificationState = "approved" if qualification.advisor_approved else "rejected"
+    return state, qualification.runtime, None
 
 
 def provider_status(
@@ -164,7 +261,20 @@ def provider_status(
     *,
     check_availability: bool = True,
 ) -> ProviderStatusResponse:
-    config = config or load_provider_config()
+    if config is None:
+        try:
+            config = load_provider_config()
+        except ProviderUnavailableError as exc:
+            return ProviderStatusResponse(
+                provider=(os.getenv(AI_PROVIDER_ENV, "demo").strip().lower() or "demo"),
+                mode="external",
+                enabled=False,
+                available=False,
+                external_data_sharing=False,
+                health_status="unavailable",
+                qualification_state="invalid",
+                message=str(exc),
+            )
     if config.provider == "demo":
         return ProviderStatusResponse(
             provider="demo",
@@ -185,7 +295,14 @@ def provider_status(
             message="Unknown provider; select demo or openai-compatible.",
         )
     try:
-        mode = _provider_mode(config.base_url) if config.base_url else "external"
+        mode = (
+            _provider_mode(
+                config.base_url,
+                local_provider_hosts=config.local_provider_hosts,
+            )
+            if config.base_url
+            else "external"
+        )
     except ProviderUnavailableError as exc:
         return ProviderStatusResponse(
             provider=config.provider,
@@ -207,18 +324,38 @@ def provider_status(
             message="OpenAI-compatible provider configuration is incomplete.",
         )
     if mode == "local":
+        checked_at = datetime.now(timezone.utc) if check_availability else None
         available, message = (
             _probe_local_provider(config)
             if check_availability
             else (True, "OpenAI-compatible local model is configured for bounded advisory requests.")
         )
+        qualification_state, runtime, qualification_message = _qualification_for_status(config)
+        health_status: RuntimeHealthStatus = (
+            "available" if available else "unavailable"
+        ) if check_availability else "unknown"
+        if runtime is not None:
+            runtime.health_status = health_status
+            runtime.last_health_check = checked_at
+        if qualification_message:
+            message = f"{message} {qualification_message}"
+        qualification_allows_use = qualification_state in {
+            "not-configured",
+            "approved",
+        }
+        if not qualification_allows_use:
+            message = f"{message} Local Advisor use is disabled until qualification is approved."
         return ProviderStatusResponse(
             provider=config.provider,
             mode="local",
-            enabled=True,
-            available=available,
+            enabled=qualification_allows_use,
+            available=available and qualification_allows_use,
             external_data_sharing=False,
             model=config.model,
+            runtime=runtime,
+            health_status=health_status,
+            last_health_check=checked_at,
+            qualification_state=qualification_state,
             message=message,
         )
     configured = bool(config.external_enabled and config.api_key)
@@ -2544,22 +2681,50 @@ class _NoRedirectHandler(HTTPRedirectHandler):
         return None
 
 
-def _provider_endpoint(base_url: str) -> str:
-    validated_base, _ = _validated_provider_base(base_url)
+def _provider_endpoint(
+    base_url: str,
+    *,
+    local_provider_hosts: frozenset[str] = frozenset(),
+) -> str:
+    validated_base, _ = _validated_provider_base(
+        base_url,
+        local_provider_hosts=local_provider_hosts,
+    )
     return validated_base + "/chat/completions"
 
 
-def _provider_models_endpoint(base_url: str) -> str:
-    validated_base, _ = _validated_provider_base(base_url)
+def _provider_models_endpoint(
+    base_url: str,
+    *,
+    local_provider_hosts: frozenset[str] = frozenset(),
+) -> str:
+    validated_base, _ = _validated_provider_base(
+        base_url,
+        local_provider_hosts=local_provider_hosts,
+    )
     return validated_base + "/models"
 
 
-def _provider_mode(base_url: str) -> Literal["local", "external"]:
-    _, mode = _validated_provider_base(base_url)
+def _provider_mode(
+    base_url: str,
+    *,
+    local_provider_hosts: frozenset[str] = frozenset(),
+) -> Literal["local", "external"]:
+    _, mode = _validated_provider_base(
+        base_url,
+        local_provider_hosts=local_provider_hosts,
+    )
     return mode
 
 
-def _validated_provider_base(base_url: str) -> tuple[str, Literal["local", "external"]]:
+def _validated_provider_base(
+    base_url: str,
+    *,
+    local_provider_hosts: frozenset[str] = frozenset(),
+) -> tuple[str, Literal["local", "external"]]:
+    validated_local_hosts = _configured_local_provider_hosts(
+        ",".join(sorted(local_provider_hosts))
+    )
     parsed = urlparse(base_url)
     if parsed.scheme not in {"https", "http"} or not parsed.hostname:
         raise ProviderUnavailableError("provider URL must be an absolute HTTP(S) URL")
@@ -2572,7 +2737,7 @@ def _validated_provider_base(base_url: str) -> tuple[str, Literal["local", "exte
     hostname = parsed.hostname.rstrip(".").lower()
     if hostname in BLOCKED_PROVIDER_HOSTS:
         raise ProviderUnavailableError("provider URL targets a blocked metadata or link-local host")
-    local = hostname in LOCAL_PROVIDER_HOSTS
+    local = hostname in LOCAL_PROVIDER_HOSTS or hostname in validated_local_hosts
     if not local:
         try:
             address = ip_address(hostname)
@@ -2583,6 +2748,10 @@ def _validated_provider_base(base_url: str) -> tuple[str, Literal["local", "exte
     if parsed.scheme == "http" and not local:
         raise ProviderUnavailableError("hosted provider URLs must use HTTPS")
     return base_url.rstrip("/"), "local" if local else "external"
+
+
+def _hosted_provider_opener():  # noqa: ANN201
+    return build_opener(_NoRedirectHandler())
 
 
 def _provider_headers(config: ProviderConfig, *, content_type: bool = False) -> dict[str, str]:
@@ -2597,24 +2766,29 @@ def _provider_headers(config: ProviderConfig, *, content_type: bool = False) -> 
 def _probe_local_provider(config: ProviderConfig) -> tuple[bool, str]:
     if not config.base_url or not config.model:
         return False, "OpenAI-compatible local provider configuration is incomplete."
-    request = Request(
-        _provider_models_endpoint(config.base_url),
-        method="GET",
-        headers=_provider_headers(config),
-    )
     try:
-        response = build_opener(_NoRedirectHandler()).open(request, timeout=PROVIDER_HEALTH_TIMEOUT_SECONDS)
-        raw = response.read(MAX_PROVIDER_HEALTH_BYTES + 1)
-    except HTTPError as exc:
-        if exc.code == 404:
-            return False, "Local model endpoint is reachable, but the models API is unavailable."
+        response = local_ai_request(
+            url=_provider_models_endpoint(
+                config.base_url,
+                local_provider_hosts=config.local_provider_hosts,
+            ),
+            method="GET",
+            headers=_provider_headers(config),
+            body=None,
+            timeout_seconds=PROVIDER_HEALTH_TIMEOUT_SECONDS,
+            maximum_response_bytes=MAX_PROVIDER_HEALTH_BYTES,
+        )
+    except LocalAITransportSecurityError:
         return False, "Local model health check was rejected safely."
     except TimeoutError:
         return False, "Local model health check timed out."
-    except (URLError, OSError):
+    except OSError:
         return False, "Local model is not reachable from the backend."
-    if len(raw) > MAX_PROVIDER_HEALTH_BYTES:
-        return False, "Local model health response exceeded the safety limit."
+    if response.status == 404:
+        return False, "Local model endpoint is reachable, but the models API is unavailable."
+    if response.status != 200:
+        return False, "Local model health check was rejected safely."
+    raw = response.body
     try:
         payload = json.loads(raw.decode("utf-8"))
         models = payload["data"]
@@ -2632,11 +2806,23 @@ class OpenAICompatibleProvider:
     def __init__(self, config: ProviderConfig) -> None:
         if not config.base_url or not config.model:
             raise ProviderUnavailableError("OpenAI-compatible provider configuration is incomplete.")
-        self.mode = _provider_mode(config.base_url)
+        self.mode = _provider_mode(
+            config.base_url,
+            local_provider_hosts=config.local_provider_hosts,
+        )
         if self.mode == "external" and (not config.external_enabled or not config.api_key):
             raise ProviderUnavailableError("Hosted providers require explicit external enablement and an API key.")
+        if self.mode == "local" and config.qualification_result_path:
+            qualification_state, _, _ = _qualification_for_status(config)
+            if qualification_state != "approved":
+                raise ProviderUnavailableError(
+                    "configured local provider qualification is not approved"
+                )
         self.config = config
-        self.endpoint = _provider_endpoint(config.base_url)
+        self.endpoint = _provider_endpoint(
+            config.base_url,
+            local_provider_hosts=config.local_provider_hosts,
+        )
 
     def generate(self, *, question: str, context: dict[str, Any]) -> GeneratedAnswer:
         serialized_context = json.dumps(context, default=str, sort_keys=True, separators=(",", ":"))
@@ -2674,21 +2860,44 @@ class OpenAICompatibleProvider:
             method="POST",
             headers=_provider_headers(self.config, content_type=True),
         )
-        try:
-            response = build_opener(_NoRedirectHandler()).open(request, timeout=self.config.timeout_seconds)
-            raw = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
-        except HTTPError as exc:
-            if self.mode == "local" and exc.code == 404:
-                raise ProviderUnavailableError("local model is unavailable or not installed") from exc
-            raise ProviderUnavailableError(f"{self.mode} provider rejected the request safely") from exc
-        except TimeoutError as exc:
-            raise ProviderUnavailableError(f"{self.mode} provider request timed out safely") from exc
-        except URLError as exc:
-            if isinstance(exc.reason, TimeoutError):
-                raise ProviderUnavailableError(f"{self.mode} provider request timed out safely") from exc
-            raise ProviderUnavailableError(f"{self.mode} provider is not reachable from the backend") from exc
-        except OSError as exc:
-            raise ProviderUnavailableError(f"{self.mode} provider is not reachable from the backend") from exc
+        if self.mode == "local":
+            try:
+                local_response = local_ai_request(
+                    url=self.endpoint,
+                    method="POST",
+                    headers=_provider_headers(self.config, content_type=True),
+                    body=body,
+                    timeout_seconds=self.config.timeout_seconds,
+                    maximum_response_bytes=MAX_PROVIDER_RESPONSE_BYTES,
+                )
+            except LocalAITransportSecurityError as exc:
+                raise ProviderUnavailableError("local provider request was rejected safely") from exc
+            except TimeoutError as exc:
+                raise ProviderUnavailableError("local provider request timed out safely") from exc
+            except OSError as exc:
+                raise ProviderUnavailableError("local provider is not reachable from the backend") from exc
+            if local_response.status == 404:
+                raise ProviderUnavailableError("local model is unavailable or not installed")
+            if local_response.status != 200:
+                raise ProviderUnavailableError("local provider rejected the request safely")
+            raw = local_response.body
+        else:
+            try:
+                response = _hosted_provider_opener().open(
+                    request,
+                    timeout=self.config.timeout_seconds,
+                )
+                raw = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
+            except HTTPError as exc:
+                raise ProviderUnavailableError("external provider rejected the request safely") from exc
+            except TimeoutError as exc:
+                raise ProviderUnavailableError("external provider request timed out safely") from exc
+            except URLError as exc:
+                if isinstance(exc.reason, TimeoutError):
+                    raise ProviderUnavailableError("external provider request timed out safely") from exc
+                raise ProviderUnavailableError("external provider is not reachable from the backend") from exc
+            except OSError as exc:
+                raise ProviderUnavailableError("external provider is not reachable from the backend") from exc
         if len(raw) > MAX_PROVIDER_RESPONSE_BYTES:
             raise ProviderOutputError("external provider response exceeded the safety limit")
         try:
