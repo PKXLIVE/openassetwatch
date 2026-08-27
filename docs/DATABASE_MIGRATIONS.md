@@ -8,8 +8,11 @@ baseline have been tested.
 The second ordered migration,
 `backend/app/migration_sql/0002_endpoint_agent_identity.sql`, adds the
 digest-only endpoint-agent identity and idempotent inventory-batch registry.
-It is applied only through this migration runner; endpoint identity service
-modules do not execute DDL.
+The third migration,
+`backend/app/migration_sql/0003_canonical_ingestion_compatibility.sql`, adds
+the canonical source, collection, asset-authority, compatibility-mapping, and
+bounded event records used by all inventory adapters. Both are applied only
+through this migration runner; service modules do not execute DDL.
 
 ## Authority and packaged files
 

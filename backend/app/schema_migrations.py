@@ -362,7 +362,7 @@ def _normalize_sql_fragment(value: str) -> str:
     normalized = re.sub(r"\(\s+", "(", normalized)
     normalized = re.sub(r"\s+\)", ")", normalized)
     normalized = re.sub(
-        r"::(?:text|character\s+varying|double\s+precision|numeric|integer|bigint|boolean|date)\b",
+        r"::(?:text|character\s+varying|double\s+precision|numeric|integer|bigint|boolean|date)\b(?:\[\])?",
         "",
         normalized,
     )

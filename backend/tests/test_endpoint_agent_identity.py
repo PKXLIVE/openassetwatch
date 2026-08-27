@@ -8,11 +8,12 @@ from unittest.mock import patch
 from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
 
-from app.database import (
-    EndpointInventoryAuthorizationRejected,
-    EndpointInventoryRateLimitExceeded,
-    LegacyAgentIdentityConflict,
+from app.canonical_ingestion import (
+    CanonicalAdmissionRejected,
+    CanonicalAuthorizationRejected,
+    CanonicalIngestionAcknowledgement,
 )
+from app.database import LegacyAgentIdentityConflict
 from app.endpoint_agent_contracts import EndpointInventoryRequest
 from app.endpoint_agent_identity import (
     AGENT_CREDENTIAL_PREFIX,
@@ -79,6 +80,29 @@ def inventory_payload() -> dict[str, object]:
             }
         ],
     }
+
+
+def canonical_acknowledgement(
+    *, status: str = "accepted"
+) -> CanonicalIngestionAcknowledgement:
+    return CanonicalIngestionAcknowledgement(
+        status=status,
+        canonical_collection_id="col_" + "3" * 32,
+        canonical_asset_ids=("host-a",) if status == "accepted" else (),
+        replay_state="new" if status == "accepted" else "identical-replay",
+        evidence_count=1,
+        component_count=1,
+        evaluation_state="queued",
+        warnings=("authenticated identity does not prove every reported fact",),
+        adapter_type="endpoint-agent",
+        compatibility_status="canonical",
+        source_authority="authenticated-endpoint",
+        compatibility_collection_id=8,
+        endpoint_storage_id=7,
+        received_at=datetime.now(timezone.utc),
+        observed_asset_count=1,
+        normalized_asset_count=1,
+    )
 
 
 class EndpointAgentIdentityTests(unittest.TestCase):
@@ -188,32 +212,25 @@ class EndpointAgentIdentityTests(unittest.TestCase):
             credential_id="acred_" + "2" * 32,
         )
         payload = EndpointInventoryRequest.model_validate(inventory_payload())
-        result = {
-            "storage_id": 7,
-            "collection_id": 8,
-            "duplicate": False,
-            "observed_asset_count": 1,
-            "normalized_asset_count": 1,
-            "component_count": 1,
-            "reevaluation_state": "queued",
-            "received_at": datetime.now(timezone.utc),
-            "asset_ids": ["host-a"],
-        }
         tasks = BackgroundTasks()
         with (
             patch("app.main.authenticate_agent_request", return_value=context),
-            patch("app.main.record_authenticated_endpoint_inventory", return_value=result) as record,
+            patch(
+                "app.main.ingest_canonical_inventory",
+                return_value=canonical_acknowledgement(),
+            ) as ingest,
         ):
             response = authenticated_endpoint_inventory(
                 payload,
                 background_tasks=tasks,
                 agent_credential=issue_agent_credential().raw,
             )
-        stored = record.call_args.kwargs["payload"]
-        self.assertEqual(stored["site_id"], context.site_id)
-        self.assertEqual(stored["agent_id"], context.agent_id)
-        self.assertTrue(stored["source_authenticated"])
-        self.assertEqual(stored["source_authority"], "authenticated-endpoint")
+        envelope = ingest.call_args.args[0]
+        self.assertEqual(envelope.site_id, context.site_id)
+        self.assertEqual(envelope.bound_identity_id, context.agent_id)
+        self.assertTrue(envelope.source_authenticated)
+        self.assertEqual(envelope.source_authority, "authenticated-endpoint")
+        self.assertEqual(response.canonical_collection_id, "col_" + "3" * 32)
         self.assertEqual(response.reevaluation_state, "queued")
         self.assertEqual(len(tasks.tasks), 1)
 
@@ -228,14 +245,14 @@ class EndpointAgentIdentityTests(unittest.TestCase):
         )
         payload = EndpointInventoryRequest.model_validate(inventory_payload())
         for failure, status_code in (
-            (EndpointInventoryRateLimitExceeded("rate"), 429),
-            (EndpointInventoryAuthorizationRejected("inactive"), 401),
+            (CanonicalAdmissionRejected("rate"), 429),
+            (CanonicalAuthorizationRejected("inactive"), 401),
         ):
             with (
                 self.subTest(status_code=status_code),
                 patch("app.main.authenticate_agent_request", return_value=context),
                 patch(
-                    "app.main.record_authenticated_endpoint_inventory",
+                    "app.main.ingest_canonical_inventory",
                     side_effect=failure,
                 ),
                 self.assertRaises(HTTPException) as raised,

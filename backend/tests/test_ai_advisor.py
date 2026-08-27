@@ -85,6 +85,7 @@ def sample_tools(
                 "last_seen_at": NOW - timedelta(minutes=10 + index),
                 "observed_at": NOW - timedelta(minutes=10 + index),
                 "observation_source": "control-tower-demo-seed",
+                "source_authority": "authenticated-endpoint",
                 "delivery_state": "cached-retry" if site_id == "office" else "live",
                 "confidence": 0.9,
                 "evidence_count": 3,
@@ -416,6 +417,106 @@ class AIAdvisorTests(unittest.TestCase):
 
         self.assertEqual(response.affected_assets, ["asset-office-1"])
         self.assertIn("91/100", response.answer)
+
+    def test_untrusted_common_word_asset_cannot_hijack_implicit_scope(self) -> None:
+        tools = ReadOnlyHubTools(
+            sites=[{"site_id": "untrusted-site", "name": "Untrusted Site"}],
+            sensors=[],
+            assets=[
+                {
+                    "asset_id": "risk",
+                    "site_id": "untrusted-site",
+                    "hostname": "risk",
+                    "source_authority": "untrusted-transitional",
+                    "last_seen_at": NOW,
+                    "observed_at": NOW,
+                    "metadata": {"risk_score": 100},
+                }
+            ],
+            now=NOW,
+        )
+
+        response = run_advisor(
+            request=AdvisorQueryRequest(question="What risk needs attention first?"),
+            tools=tools,
+        )
+
+        self.assertEqual(response.affected_assets, [])
+        self.assertFalse(
+            any(item.asset_id == "risk" for item in response.evidence)
+        )
+
+    def test_legacy_unmapped_asset_cannot_hijack_implicit_scope(self) -> None:
+        tools = ReadOnlyHubTools(
+            sites=[{"site_id": "legacy-site", "name": "Legacy Site"}],
+            sensors=[],
+            assets=[
+                {
+                    "asset_id": "attention",
+                    "site_id": "legacy-site",
+                    "hostname": "attention",
+                    "last_seen_at": NOW,
+                    "observed_at": NOW,
+                    "metadata": {"risk_score": 100},
+                }
+            ],
+            now=NOW,
+        )
+
+        response = run_advisor(
+            request=AdvisorQueryRequest(
+                question="What attention is needed first?"
+            ),
+            tools=tools,
+        )
+
+        self.assertEqual(response.affected_assets, [])
+        self.assertFalse(
+            any(item.asset_id == "attention" for item in response.evidence)
+        )
+
+    def test_duplicate_cross_site_asset_scope_fails_closed(self) -> None:
+        tools = ReadOnlyHubTools(
+            sites=[
+                {"site_id": "site-a", "name": "Site A"},
+                {"site_id": "site-b", "name": "Site B"},
+            ],
+            sensors=[],
+            assets=[
+                {
+                    "asset_id": "shared-id",
+                    "site_id": site_id,
+                    "hostname": f"{site_id}.example.test",
+                    "source_authority": "authenticated-endpoint",
+                    "last_seen_at": NOW,
+                    "observed_at": NOW,
+                    "metadata": {"risk_score": risk_score},
+                }
+                for site_id, risk_score in (("site-a", 91), ("site-b", 12))
+            ],
+            now=NOW,
+        )
+
+        with self.assertRaisesRegex(
+            ProviderOutputError,
+            "asset scope is ambiguous",
+        ):
+            run_advisor(
+                request=AdvisorQueryRequest(
+                    question="Explain shared-id risk."
+                ),
+                tools=tools,
+            )
+
+        scoped = run_advisor(
+            request=AdvisorQueryRequest(
+                question="Explain shared-id risk.",
+                site_id="site-b",
+            ),
+            tools=tools,
+        )
+        self.assertEqual(scoped.affected_sites, ["site-b"])
+        self.assertEqual(scoped.affected_assets, ["shared-id"])
 
     def test_inventory_prompt_injection_cannot_select_or_execute_tools(self) -> None:
         tools = sample_tools(injection=True)

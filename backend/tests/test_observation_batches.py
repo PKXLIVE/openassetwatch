@@ -10,9 +10,11 @@ from unittest.mock import patch
 from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
 
+from app.canonical_ingestion import CanonicalIngestionAcknowledgement
 from app.database import record_observation_batch as persist_observation_batch
 from app.hub_contracts import ObservationBatchRequest
 from app.main import observation_batch
+from app import main as main_module
 from app.sensor_identity import SensorAuthContext, SensorAuthenticationRejected
 
 
@@ -41,7 +43,44 @@ def batch_payload() -> dict[str, object]:
     }
 
 
+def sensor_acknowledgement(
+    *,
+    status: str = "accepted",
+    source_authority: str = "authenticated-passive-sensor",
+    asset_ids: tuple[str, ...] = ("home-router",),
+) -> CanonicalIngestionAcknowledgement:
+    return CanonicalIngestionAcknowledgement(
+        status=status,
+        canonical_collection_id="col_" + "5" * 32,
+        canonical_asset_ids=asset_ids if status == "accepted" else (),
+        replay_state="new" if status == "accepted" else "identical-replay",
+        evidence_count=0,
+        component_count=0,
+        evaluation_state="queued",
+        warnings=("passive observations do not prove endpoint ownership",),
+        adapter_type="passive-sensor",
+        compatibility_status=(
+            "canonical"
+            if source_authority == "authenticated-passive-sensor"
+            else "deprecated"
+        ),
+        source_authority=source_authority,
+        compatibility_collection_id=7,
+        received_at=datetime.now(timezone.utc),
+        observed_asset_count=1,
+        normalized_asset_count=1,
+    )
+
+
 class ObservationBatchTests(unittest.TestCase):
+    def setUp(self) -> None:
+        with main_module._canonical_evaluation_lock:
+            main_module._canonical_evaluations_pending.clear()
+
+    def tearDown(self) -> None:
+        with main_module._canonical_evaluation_lock:
+            main_module._canonical_evaluations_pending.clear()
+
     def test_exact_go_sensor_fixture_is_accepted_by_pydantic(self) -> None:
         fixture_path = Path(__file__).parent / "fixtures" / "passive_sensor_batch.json"
         payload = ObservationBatchRequest(**json.loads(fixture_path.read_text(encoding="utf-8")))
@@ -66,17 +105,19 @@ class ObservationBatchTests(unittest.TestCase):
                 ),
             ) as authenticate,
             patch(
-                "app.main.record_observation_batch",
-                return_value={"collection_id": 7, "normalized_asset_count": 1, "duplicate": False},
-            ) as record,
+                "app.main.ingest_canonical_inventory",
+                return_value=sensor_acknowledgement(),
+            ) as ingest,
         ):
             response = observation_batch(payload, collector_token="collector-test-value")
 
         self.assertEqual(response.status, "accepted")
         self.assertEqual(response.storage_id, 7)
         self.assertEqual(response.sensor_id, "sensor-home")
-        self.assertEqual(record.call_args.kwargs["payload"]["delivery_state"], "cached-retry")
-        self.assertTrue(record.call_args.kwargs["source_authenticated"])
+        envelope = ingest.call_args.args[0]
+        self.assertEqual(envelope.source_authority, "authenticated-passive-sensor")
+        self.assertEqual(envelope.bound_identity_id, "sensor-home")
+        self.assertEqual(envelope.credential_id, "scred_test")
         self.assertEqual(authenticate.call_args.kwargs["claimed_site_id"], "home")
         self.assertEqual(authenticate.call_args.kwargs["claimed_sensor_id"], "sensor-home")
 
@@ -97,8 +138,11 @@ class ObservationBatchTests(unittest.TestCase):
         with (
             patch.dict(os.environ, {"OPENASSETWATCH_COLLECTOR_TOKEN": "explicit-development-token"}, clear=False),
             patch(
-                "app.main.record_observation_batch",
-                return_value={"collection_id": 7, "normalized_asset_count": 1, "duplicate": True},
+                "app.main.ingest_canonical_inventory",
+                return_value=sensor_acknowledgement(
+                    status="duplicate",
+                    source_authority="untrusted-transitional",
+                ),
             ),
         ):
             response = observation_batch(payload, collector_token="explicit-development-token")
@@ -126,13 +170,8 @@ class ObservationBatchTests(unittest.TestCase):
                 ),
             ),
             patch(
-                "app.main.record_observation_batch",
-                return_value={
-                    "collection_id": 7,
-                    "normalized_asset_count": 1,
-                    "duplicate": False,
-                    "asset_ids": ["home-router"],
-                },
+                "app.main.ingest_canonical_inventory",
+                return_value=sensor_acknowledgement(),
             ),
         ):
             response = observation_batch(
@@ -142,21 +181,15 @@ class ObservationBatchTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status, "accepted")
-        self.assertEqual(len(background.tasks), 2)
+        self.assertEqual(len(background.tasks), 1)
         self.assertEqual(
             background.tasks[0].kwargs,
-            {"site_id": "home", "asset_ids": ["home-router"]},
-        )
-        self.assertEqual(
-            background.tasks[1].kwargs,
             {
-                "site_id": "home",
-                "trigger_type": "component-ingestion",
-                "requested_by": "control-tower",
+                "canonical_collection_id": "col_" + "5" * 32,
             },
         )
 
-    def test_development_shared_token_is_not_authoritative_or_auto_evaluated(
+    def test_development_shared_token_remains_untrusted_when_queued(
         self,
     ) -> None:
         payload = ObservationBatchRequest(**batch_payload())
@@ -168,14 +201,11 @@ class ObservationBatchTests(unittest.TestCase):
                 clear=False,
             ),
             patch(
-                "app.main.record_observation_batch",
-                return_value={
-                    "collection_id": 7,
-                    "normalized_asset_count": 1,
-                    "duplicate": False,
-                    "asset_ids": ["home-router"],
-                },
-            ) as record,
+                "app.main.ingest_canonical_inventory",
+                return_value=sensor_acknowledgement(
+                    source_authority="untrusted-transitional",
+                ),
+            ) as ingest,
         ):
             response = observation_batch(
                 payload,
@@ -184,11 +214,16 @@ class ObservationBatchTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status, "accepted")
-        self.assertFalse(record.call_args.kwargs["source_authenticated"])
+        envelope = ingest.call_args.args[0]
+        self.assertFalse(envelope.source_authenticated)
+        self.assertEqual(envelope.source_authority, "untrusted-transitional")
+        self.assertIsNone(envelope.bound_identity_id)
         self.assertEqual(len(background.tasks), 1)
         self.assertEqual(
             background.tasks[0].kwargs,
-            {"site_id": "home", "asset_ids": ["home-router"]},
+            {
+                "canonical_collection_id": "col_" + "5" * 32,
+            },
         )
 
     def test_duplicate_batch_does_not_queue_classification(self) -> None:
@@ -201,13 +236,11 @@ class ObservationBatchTests(unittest.TestCase):
                 clear=False,
             ),
             patch(
-                "app.main.record_observation_batch",
-                return_value={
-                    "collection_id": 7,
-                    "normalized_asset_count": 1,
-                    "duplicate": True,
-                    "asset_ids": ["home-router"],
-                },
+                "app.main.ingest_canonical_inventory",
+                return_value=sensor_acknowledgement(
+                    status="duplicate",
+                    source_authority="untrusted-transitional",
+                ),
             ),
         ):
             response = observation_batch(
@@ -229,6 +262,24 @@ class ObservationBatchTests(unittest.TestCase):
         oversized["assets"] = [batch_payload()["assets"][0]] * 501
         with self.assertRaises(ValidationError):
             ObservationBatchRequest(**oversized)
+
+    def test_contract_rejects_aggregate_components_before_asset_models(self) -> None:
+        payload = batch_payload()
+        component = {
+            "component_type": "firmware",
+            "ecosystem": "generic",
+            "name": "example-firmware",
+        }
+        payload["assets"] = [
+            {
+                "asset_id": f"asset-{index}",
+                "components": [component] * 1_000,
+            }
+            for index in range(33)
+        ]
+
+        with self.assertRaisesRegex(ValidationError, "component limit"):
+            ObservationBatchRequest(**payload)
 
     def test_contract_requires_stable_identity_and_bounded_confidence(self) -> None:
         invalid = batch_payload()

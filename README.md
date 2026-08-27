@@ -9,6 +9,9 @@ The long-term vision is to provide enterprise-grade asset visibility using open-
 The authenticated Go endpoint-agent enrollment and canonical inventory path is
 documented in
 [docs/ENDPOINT_AGENT_IDENTITY.md](docs/ENDPOINT_AGENT_IDENTITY.md).
+The common canonical write path, trust ranking, compatibility adapters, replay
+rules, and historical preview are documented in
+[docs/CANONICAL_INGESTION_COMPATIBILITY.md](docs/CANONICAL_INGESTION_COMPATIBILITY.md).
 
 ---
 
@@ -248,7 +251,7 @@ Current and planned backend endpoints include:
 | `GET /api/v1/agents` | Available | List endpoint agents and future sensors |
 | `POST /api/v1/agents/enrollments` | Available | Create or update agent/sensor enrollment records |
 | `POST /api/v1/agents/check-in` | Available | Agent health and identity check-in |
-| `POST /api/v1/collections/local-inventory` | Available | Go agent local inventory ingestion |
+| `POST /api/v1/collections/local-inventory` | Available | Deprecated untrusted local-inventory compatibility adapter |
 | `GET /api/v1/control-tower/summary` | Available | Dashboard counts |
 | `GET /api/v1/control-tower/assets` | Available | Normalized Control Tower assets |
 | `GET /api/v1/classifications` | Available | Bounded deterministic classifications with reviewed filters |
@@ -272,13 +275,15 @@ Current and planned backend endpoints include:
 | `POST /api/v1/admin/advisory-feed-runs/{run_id}/activate` | Available | Serialized atomic activation and targeted reevaluation |
 | `POST /api/v1/admin/advisory-catalog/rollback` | Available | Explicit local last-known-good rollback |
 | `POST /api/v1/observations/batches` | Available | Authenticated, idempotent normalized spoke observations |
+| `GET /api/v1/admin/ingestion/compatibility-status` | Available | Admin-protected canonical adapter and historical-mapping status |
+| `POST /api/v1/admin/ingestion/{canonical_collection_id}/retry` | Available | Admin-protected retry of persisted failed deterministic evaluation |
 | `GET /api/v1/hub/sites/summary` | Available | Read-only cross-site intelligence summary |
 | `GET /api/v1/hub/sensors` | Available | Read-only sensor/spoke health and freshness |
 | `GET /api/v1/ai/status` | Available | AI provider mode and availability without secrets |
 | `POST /api/v1/ai/advisor/query` | Available | Read-only evidence-backed AI Advisor query |
 | `GET /api/v1/releases/agent` | Available | Agent release metadata placeholder |
 | `POST /api/v1/collectors/checkin` | Available | Legacy Python collector heartbeat/check-in |
-| `POST /api/v1/collectors/inventory` | Available | Legacy Python collector inventory upload |
+| `POST /api/v1/collectors/inventory` | Available | Lower-trust Python collector compatibility adapter |
 
 ---
 

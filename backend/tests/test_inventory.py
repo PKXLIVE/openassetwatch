@@ -7,12 +7,44 @@ from unittest.mock import Mock, patch
 from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.canonical_ingestion import (
+    CanonicalIngestionAcknowledgement,
+    CanonicalIngestionRejected,
+)
 from app.database import (
     _normalize_mac_address,
     _upsert_collector,
     policy_assignment_matches,
     select_matching_policy_assignment,
 )
+
+
+def collector_acknowledgement(
+    *,
+    submission_id: int = 1,
+    asset_count: int = 1,
+    component_count: int = 0,
+) -> CanonicalIngestionAcknowledgement:
+    return CanonicalIngestionAcknowledgement(
+        status="accepted",
+        canonical_collection_id="col_" + "6" * 32,
+        canonical_asset_ids=tuple(
+            f"collector-asset-{index + 1}" for index in range(asset_count)
+        ),
+        replay_state="new",
+        evidence_count=0,
+        component_count=component_count,
+        evaluation_state="queued" if asset_count else "not-required",
+        warnings=("legacy collector compatibility input is lower trust",),
+        adapter_type="python-collector",
+        compatibility_status="compatibility",
+        source_authority="legacy-collector",
+        compatibility_collection_id=100 + submission_id,
+        legacy_submission_id=submission_id,
+        received_at=datetime.now(timezone.utc),
+        observed_asset_count=asset_count,
+        normalized_asset_count=asset_count,
+    )
 from app.main import (
     AdminPolicyAssignmentRequest,
     AdminPolicyRequest,
@@ -90,21 +122,23 @@ class CollectorInventoryTests(unittest.TestCase):
 
     def test_inventory_accepts_correct_token_when_configured(self) -> None:
         with patch.dict("os.environ", {COLLECTOR_TOKEN_ENV: "change-me-dev-token"}):
-            with patch("app.main.save_inventory_submission", return_value=9):
-                with patch(
-                    "app.main.normalize_inventory_submission",
-                    return_value={"normalized_asset_count": 1, "normalized_software_count": 0},
-                ):
-                    response = collector_inventory(
-                        {
-                            "collector_id": "collector-token-test",
-                            "mode": "device",
-                            "device": {"hostname": "test-host"},
-                        },
-                        collector_token="change-me-dev-token",
-                    )
+            with patch(
+                "app.main.ingest_canonical_inventory",
+                return_value=collector_acknowledgement(submission_id=9),
+            ) as ingest:
+                response = collector_inventory(
+                    {
+                        "collector_id": "collector-token-test",
+                        "mode": "device",
+                        "device": {"hostname": "test-host"},
+                    },
+                    collector_token="change-me-dev-token",
+                )
 
         self.assertEqual(response.status, "accepted")
+        envelope = ingest.call_args.args[0]
+        self.assertEqual(envelope.authentication_class, "legacy-shared")
+        self.assertEqual(envelope.source_authority, "legacy-collector")
 
     def test_policy_endpoint_returns_default_safe_policy(self) -> None:
         with patch("app.main.find_assigned_collector_policy", return_value=None):
@@ -471,19 +505,18 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertEqual(_normalize_mac_address("aabb.ccdd.eeff"), "aa:bb:cc:dd:ee:ff")
 
     def test_valid_device_only_inventory_returns_accepted(self) -> None:
-        with patch("app.main.save_inventory_submission", return_value=1) as save:
-            with patch(
-                "app.main.normalize_inventory_submission",
-                return_value={"normalized_asset_count": 1, "normalized_software_count": 0},
-            ) as normalize:
-                response = collector_inventory(
-                    {
-                        "collector": {"id": "local-dev-collector-01"},
-                        "collector_name": "Local Dev Collector",
-                        "mode": "device",
-                        "device": {"hostname": "test-host"},
-                    }
-                )
+        with patch(
+            "app.main.ingest_canonical_inventory",
+            return_value=collector_acknowledgement(submission_id=1),
+        ) as ingest:
+            response = collector_inventory(
+                {
+                    "collector": {"id": "local-dev-collector-01"},
+                    "collector_name": "Local Dev Collector",
+                    "mode": "device",
+                    "device": {"hostname": "test-host"},
+                }
+            )
 
         self.assertEqual(response.status, "accepted")
         self.assertEqual(response.submission_id, 1)
@@ -494,44 +527,51 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertEqual(response.software_count, 0)
         self.assertEqual(response.normalized_asset_count, 1)
         self.assertEqual(response.normalized_software_count, 0)
-        save.assert_called_once()
-        self.assertEqual(save.call_args.kwargs["collector_name"], "Local Dev Collector")
-        normalize.assert_called_once()
+        envelope = ingest.call_args.args[0]
+        self.assertEqual(envelope.source_authority, "legacy-collector")
+        self.assertEqual(envelope.authentication_class, "unauthenticated")
+        self.assertEqual(envelope.legacy_submission["collector_name"], "Local Dev Collector")
 
     def test_valid_software_only_inventory_returns_accepted(self) -> None:
-        with patch("app.main.save_inventory_submission", return_value=2):
-            with patch(
-                "app.main.normalize_inventory_submission",
-                return_value={"normalized_asset_count": 0, "normalized_software_count": 0},
-            ):
-                response = collector_inventory(
-                    {
-                        "collector_id": "collector-software",
-                        "mode": "device",
-                        "software": [
-                            {
-                                "name": "Microsoft Defender",
-                                "category": "edr",
-                                "detected": True,
-                            }
-                        ],
-                    }
-                )
+        with patch(
+            "app.main.ingest_canonical_inventory",
+            return_value=collector_acknowledgement(
+                submission_id=2,
+                asset_count=1,
+                component_count=1,
+            ),
+        ):
+            response = collector_inventory(
+                {
+                    "collector_id": "collector-software",
+                    "mode": "device",
+                    "software": [
+                        {
+                            "name": "Microsoft Defender",
+                            "category": "edr",
+                            "detected": True,
+                        }
+                    ],
+                }
+            )
 
         self.assertEqual(response.submission_id, 2)
         self.assertEqual(response.collector_id, "collector-software")
         self.assertEqual(response.device_count, 0)
         self.assertEqual(response.software_count, 1)
-        self.assertEqual(response.normalized_asset_count, 0)
-        self.assertEqual(response.normalized_software_count, 0)
+        self.assertEqual(response.normalized_asset_count, 1)
+        self.assertEqual(response.normalized_software_count, 1)
 
     def test_valid_hybrid_inventory_returns_accepted(self) -> None:
-        with patch("app.main.save_inventory_submission", return_value=3):
-            with patch(
-                "app.main.normalize_inventory_submission",
-                return_value={"normalized_asset_count": 3, "normalized_software_count": 1},
-            ) as normalize:
-                response = collector_inventory(
+        with patch(
+            "app.main.ingest_canonical_inventory",
+            return_value=collector_acknowledgement(
+                submission_id=3,
+                asset_count=3,
+                component_count=1,
+            ),
+        ) as ingest:
+            response = collector_inventory(
                     {
                         "schema_version": "1.0",
                         "collector": {"id": "collector-hybrid", "name": "Hybrid Collector"},
@@ -583,12 +623,13 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertEqual(response.software_count, 1)
         self.assertEqual(response.normalized_asset_count, 3)
         self.assertEqual(response.normalized_software_count, 1)
+        envelope = ingest.call_args.args[0]
         self.assertEqual(
-            normalize.call_args.kwargs["supported_capabilities"],
+            envelope.legacy_submission["supported_capabilities"],
             ["device_inventory", "network_neighbors", "open_detector"],
         )
         self.assertEqual(
-            normalize.call_args.kwargs["enabled_capabilities"],
+            envelope.legacy_submission["enabled_capabilities"],
             ["device_inventory", "network_neighbors", "open_detector"],
         )
 
@@ -600,7 +641,10 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertIn("device, network, software", raised.exception.detail)
 
     def test_database_error_returns_500(self) -> None:
-        with patch("app.main.save_inventory_submission", side_effect=SQLAlchemyError("db down")):
+        with patch(
+            "app.main.ingest_canonical_inventory",
+            side_effect=SQLAlchemyError("db down"),
+        ):
             with self.assertRaises(HTTPException) as raised:
                 collector_inventory(
                     {
@@ -613,20 +657,22 @@ class CollectorInventoryTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 500)
         self.assertIn("failed to persist inventory submission", raised.exception.detail)
 
-    def test_normalization_error_returns_500(self) -> None:
-        with patch("app.main.save_inventory_submission", return_value=4):
-            with patch("app.main.normalize_inventory_submission", side_effect=SQLAlchemyError("db down")):
-                with self.assertRaises(HTTPException) as raised:
-                    collector_inventory(
-                        {
-                            "collector": {"id": "collector-normalize-error"},
-                            "mode": "device",
-                            "device": {"hostname": "test-host"},
-                        }
-                    )
+    def test_canonical_normalization_error_returns_400(self) -> None:
+        with patch(
+            "app.main.ingest_canonical_inventory",
+            side_effect=CanonicalIngestionRejected("invalid bounded input"),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                collector_inventory(
+                    {
+                        "collector": {"id": "collector-normalize-error"},
+                        "mode": "device",
+                        "device": {"hostname": "test-host"},
+                    }
+                )
 
-        self.assertEqual(raised.exception.status_code, 500)
-        self.assertIn("failed to normalize inventory submission", raised.exception.detail)
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("invalid collector compatibility payload", raised.exception.detail)
 
     def test_latest_endpoint_returns_stored_submission(self) -> None:
         received_at = datetime.now(timezone.utc)

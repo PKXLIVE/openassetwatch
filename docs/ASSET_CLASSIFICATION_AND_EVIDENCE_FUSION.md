@@ -114,7 +114,7 @@ validated. The transitional unauthenticated
 compatibility, but its payload-declared `agent_id`, `sensor_type`, or
 `observation_source` cannot create direct evidence. The hub also replaces all
 payload-declared source identities on that route with one server-assigned
-`untrusted-local-inventory` identity, so callers cannot manufacture
+`untrusted-transitional` identity, so callers cannot manufacture
 independent-source agreement.
 
 For each candidate category:
@@ -192,9 +192,10 @@ Startup adds only additive tables:
 - `asset_classification_evidence`
 - `classification_conflicts`
 
-Evidence ingestion commits before classification is queued. Endpoint/local
-inventory and passive observation batches enqueue only the affected asset IDs.
-An idempotent duplicate observation batch does not enqueue evaluation.
+Canonical evidence ingestion commits before classification is queued.
+Endpoint, Python collector, transitional local inventory, and passive
+observation adapters enqueue only the affected site and asset IDs for new
+collections. An idempotent replay does not enqueue evaluation.
 Classification failure is logged with a bounded exception type and cannot
 invalidate accepted evidence.
 

@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
+from . import database as database_module
 from .ai_advisor import (
     AdvisorQueryRequest,
     AdvisorResponse,
@@ -32,11 +33,7 @@ from .ai_advisor import (
 )
 
 from .database import (
-    EndpointInventoryAuthorizationRejected,
-    EndpointInventoryRateLimitExceeded,
-    EndpointInventoryReplayConflict,
     LegacyAgentIdentityConflict,
-    ObservationBatchAuthorizationRejected,
     control_tower_summary,
     create_policy_assignment,
     create_agent_enrollment,
@@ -52,16 +49,28 @@ from .database import (
     list_collector_policies,
     list_policy_assignments,
     list_sites,
-    normalize_inventory_submission,
     record_agent_checkin,
-    record_authenticated_endpoint_inventory,
     record_ai_advisor_run,
-    record_local_inventory_collection,
-    record_observation_batch,
     set_endpoint_inventory_reevaluation_state,
-    save_inventory_submission,
     upsert_collector_policy,
     upsert_collector_metadata,
+)
+from .canonical_ingestion import (
+    CanonicalAdmissionRejected,
+    CanonicalAuthorizationRejected,
+    CanonicalIngestionRejected,
+    CanonicalReplayConflict,
+    endpoint_envelope,
+    ingest as ingest_canonical_inventory,
+    legacy_collector_envelope,
+    sensor_envelope,
+    transitional_envelope,
+)
+from .canonical_ingestion_store import (
+    claim_evaluation_work as claim_canonical_evaluation_work,
+    compatibility_status as canonical_compatibility_status,
+    requeue_evaluation as requeue_canonical_evaluation,
+    set_evaluation_state as set_canonical_evaluation_state,
 )
 from .endpoint_agent_contracts import (
     AgentCheckInRequest as BoundAgentCheckInRequest,
@@ -499,6 +508,154 @@ def _run_endpoint_inventory_reevaluation(
             LOGGER.warning("endpoint inventory state update failed safely: %s", type(state_exc).__name__)
 
 
+def _run_canonical_inventory_evaluation(
+    *,
+    canonical_collection_id: str,
+) -> None:
+    """Run bounded deterministic work after canonical acceptance commits."""
+
+    try:
+        work = claim_canonical_evaluation_work(
+            canonical_collection_id=canonical_collection_id
+        )
+        if work is None:
+            return
+        site_id = str(work["site_id"])
+        asset_ids = list(work["asset_ids"])
+        if not database_module._persist_classification_evidence_best_effort(
+            normalized_assets=work["normalized_assets"],
+            payload=work["payload"],
+            source_authenticated=bool(work["source_authenticated"]),
+        ) or not database_module._persist_component_inventory_best_effort(
+            normalized_assets=work["normalized_assets"],
+            payload=work["payload"],
+            received_at=work["received_at"],
+            source_authenticated=bool(work["source_authenticated"]),
+        ):
+            raise RuntimeError("canonical evidence projection failed")
+        if asset_ids:
+            evaluate_classifications(
+                trigger_type="canonical-inventory",
+                requested_by="canonical-ingestion",
+                site_id=site_id,
+                asset_ids=asset_ids,
+                reevaluate_findings=False,
+            )
+            for asset_id in asset_ids:
+                evaluate_vulnerabilities(
+                    trigger_type="canonical-inventory",
+                    requested_by="canonical-ingestion",
+                    site_id=site_id,
+                    asset_id=asset_id,
+                    update_findings=False,
+                )
+                evaluate_findings(
+                    trigger_type="canonical-inventory",
+                    requested_by="canonical-ingestion",
+                    site_id=site_id,
+                    asset_id=asset_id,
+                )
+        set_canonical_evaluation_state(
+            canonical_collection_id=canonical_collection_id,
+            state="completed",
+        )
+    except Exception as exc:  # noqa: BLE001 - acceptance already committed.
+        LOGGER.warning(
+            "canonical inventory evaluation failed safely: %s",
+            type(exc).__name__,
+        )
+        try:
+            set_canonical_evaluation_state(
+                canonical_collection_id=canonical_collection_id,
+                state="retryable-failure",
+                error_code=f"reevaluation-{type(exc).__name__.lower()}"[:80],
+            )
+        except Exception as state_exc:  # noqa: BLE001 - never expose raw errors.
+            LOGGER.warning(
+                "canonical evaluation state update failed safely: %s",
+                type(state_exc).__name__,
+            )
+
+
+_canonical_evaluation_lock = threading.Lock()
+_canonical_evaluations_pending: set[str] = set()
+MAX_PENDING_CANONICAL_EVALUATIONS = 4_096
+
+
+def _run_coalesced_canonical_evaluation(
+    *,
+    canonical_collection_id: str,
+) -> None:
+    try:
+        _run_canonical_inventory_evaluation(
+            canonical_collection_id=canonical_collection_id,
+        )
+    finally:
+        with _canonical_evaluation_lock:
+            _canonical_evaluations_pending.discard(canonical_collection_id)
+
+
+def _queue_canonical_evaluation(
+    background_tasks: BackgroundTasks | None,
+    *,
+    canonical_collection_id: str,
+    has_work: bool,
+) -> str:
+    if not has_work:
+        return "not-required"
+    if background_tasks is None:
+        # FastAPI always provides BackgroundTasks on the HTTP path. Direct
+        # in-process compatibility callers retain the durable queued state for
+        # an explicit worker or administrator retry instead of touching the DB.
+        return "queued"
+    queue_error_code: str | None = None
+    with _canonical_evaluation_lock:
+        if canonical_collection_id in _canonical_evaluations_pending:
+            return "queued"
+        if len(_canonical_evaluations_pending) >= MAX_PENDING_CANONICAL_EVALUATIONS:
+            queue_error_code = "reevaluation-queue-capacity"
+        else:
+            _canonical_evaluations_pending.add(canonical_collection_id)
+    if queue_error_code is not None:
+        try:
+            set_canonical_evaluation_state(
+                canonical_collection_id=canonical_collection_id,
+                state="retryable-failure",
+                error_code=queue_error_code,
+            )
+        except Exception as exc:  # noqa: BLE001 - acceptance is already durable.
+            LOGGER.warning(
+                "canonical queue failure state update failed safely: %s",
+                type(exc).__name__,
+            )
+        return "retryable-failure"
+    try:
+        background_tasks.add_task(
+            _run_coalesced_canonical_evaluation,
+            canonical_collection_id=canonical_collection_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - acceptance is already durable.
+        with _canonical_evaluation_lock:
+            _canonical_evaluations_pending.discard(canonical_collection_id)
+        try:
+            set_canonical_evaluation_state(
+                canonical_collection_id=canonical_collection_id,
+                state="retryable-failure",
+                error_code="reevaluation-queue-error",
+            )
+        except Exception as state_exc:  # noqa: BLE001 - never expose raw errors.
+            LOGGER.warning(
+                "canonical queue error state update failed safely: %s",
+                type(state_exc).__name__,
+            )
+        LOGGER.warning(
+            "canonical evaluation queue failed safely: %s",
+            type(exc).__name__,
+        )
+        return "retryable-failure"
+    return "queued"
+
+
 def _queue_site_evaluation(
     background_tasks: BackgroundTasks | None,
     *,
@@ -710,6 +867,7 @@ class CollectorInventoryRequest(BaseModel):
 class CollectorInventoryResponse(BaseModel):
     status: str
     submission_id: int
+    canonical_collection_id: str
     received_at: datetime
     collector_guid: str | None = None
     collector_id: str | None = None
@@ -719,6 +877,11 @@ class CollectorInventoryResponse(BaseModel):
     software_count: int
     normalized_asset_count: int
     normalized_software_count: int
+    source_authority: str
+    adapter_type: str
+    compatibility_status: str
+    evaluation_state: str
+    warnings: list[str] = Field(default_factory=list)
 
 
 class CollectorInventoryLatestResponse(BaseModel):
@@ -735,16 +898,26 @@ class CollectorInventoryLatestResponse(BaseModel):
     network_observation_count: int
     software_count: int
     created_at: datetime
+    canonical_collection_id: str | None = None
+    evaluation_state: str | None = None
+    source_authority: str | None = None
+    compatibility_status: str | None = None
     payload: dict[str, Any]
 
 
 class LocalInventoryCollectionResponse(BaseModel):
     status: str
     observation_batch_id: int
+    canonical_collection_id: str
     site_id: str
     received_at: datetime
     observed_asset_count: int
     normalized_asset_count: int = 0
+    source_authority: str
+    adapter_type: str
+    compatibility_status: str
+    evaluation_state: str
+    warnings: list[str] = Field(default_factory=list)
     message: str
 
 
@@ -1343,6 +1516,69 @@ def api_control_tower_assets():
         return {"assets": list_control_tower_assets()}
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to load control tower assets") from exc
+
+
+@app.get("/api/v1/admin/ingestion/compatibility-status")
+def api_ingestion_compatibility_status(
+    limit: int = Query(default=20, ge=1, le=100),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        return canonical_compatibility_status(limit=limit)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="failed to load ingestion compatibility status",
+        ) from exc
+
+
+@app.post("/api/v1/admin/ingestion/{canonical_collection_id}/retry")
+def api_retry_canonical_ingestion_evaluation(
+    background_tasks: BackgroundTasks,
+    canonical_collection_id: str = ApiPath(
+        ..., pattern=r"^col_[0-9a-f]{32}$"
+    ),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="canonical ingestion evaluation retry",
+    )
+    try:
+        # A failing worker records retryable state before its coalescing wrapper
+        # removes the process-local pending marker. Refuse that narrow window so
+        # the old wrapper cannot discard a newly queued retry task.
+        with _canonical_evaluation_lock:
+            if canonical_collection_id in _canonical_evaluations_pending:
+                raise HTTPException(
+                    status_code=409,
+                    detail="canonical evaluation is still finalizing",
+                )
+        if not requeue_canonical_evaluation(
+            canonical_collection_id=canonical_collection_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="canonical evaluation is not retryable",
+            )
+        state = _queue_canonical_evaluation(
+            background_tasks,
+            canonical_collection_id=canonical_collection_id,
+            has_work=True,
+        )
+        return {
+            "canonical_collection_id": canonical_collection_id,
+            "evaluation_state": state,
+            "message": "canonical deterministic evaluation retry accepted",
+        }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="failed to retry canonical evaluation",
+        ) from exc
 
 
 def _finding_store() -> SqlFindingStore:
@@ -3088,103 +3324,69 @@ def authenticated_endpoint_inventory(
     ):
         raise HTTPException(status_code=401, detail="bound endpoint-agent credential required")
 
-    client_payload = payload.model_dump(mode="json", exclude_none=True)
-    canonical_bytes = json.dumps(
-        client_payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
-    normalized_assets = []
-    for asset in client_payload["assets"]:
-        interfaces = list(asset.pop("interfaces", []))
-        addresses = [address for interface in interfaces for address in interface.get("ip_addresses", [])]
-        mac_addresses = [
-            {"address": interface["mac_address"]}
-            for interface in interfaces
-            if interface.get("mac_address")
-        ]
-        normalized_assets.append(
-            {
-                **asset,
-                "primary_interfaces": interfaces,
-                "ip_addresses": addresses,
-                "mac_addresses": mac_addresses,
-                "component_inventory_complete": payload.inventory_mode == "complete",
-            }
-        )
     received_at = datetime.now(timezone.utc)
-    server_payload = {
-        "schema_version": payload.schema_version,
-        "observation_batch_id": payload.inventory_batch_id,
-        "inventory_batch_id": payload.inventory_batch_id,
-        "observed_at": payload.observed_at.isoformat(),
-        "collected_at": payload.observed_at.isoformat(),
-        "inventory_mode": payload.inventory_mode,
-        "component_inventory_complete": payload.inventory_mode == "complete",
-        "agent_id": context.agent_id,
-        "site_id": context.site_id,
-        "sensor_type": "endpoint-agent",
-        "observation_source": "endpoint-inventory",
-        "source_authenticated": True,
-        "source_authority": "authenticated-endpoint",
-        "credential_id": context.credential_id,
-        "ingested_at": received_at.isoformat(),
-        "agent_version": payload.agent_version,
-        "platform": payload.platform,
-        "architecture": payload.architecture,
-        "supported_capabilities": payload.supported_capabilities,
-        "collection_limitations": payload.collection_limitations,
-        "assets": normalized_assets,
-    }
     try:
-        result = record_authenticated_endpoint_inventory(
-            payload=server_payload,
-            payload_sha256=hashlib.sha256(canonical_bytes).hexdigest(),
-            site_id=str(context.site_id),
-            agent_id=str(context.agent_id),
-            credential_id=str(context.credential_id),
-            inventory_batch_id=payload.inventory_batch_id,
-            inventory_mode=payload.inventory_mode,
-            observed_at=payload.observed_at,
-            received_at=received_at,
+        acknowledgement = ingest_canonical_inventory(
+            endpoint_envelope(
+                payload=payload,
+                context=context,
+                received_at=received_at,
+            )
         )
-    except EndpointInventoryReplayConflict as exc:
+    except CanonicalReplayConflict as exc:
         raise HTTPException(status_code=409, detail="inventory batch content conflict") from exc
-    except EndpointInventoryRateLimitExceeded as exc:
+    except CanonicalAdmissionRejected as exc:
         raise HTTPException(
             status_code=429,
             detail="endpoint-agent inventory admission window exceeded",
         ) from exc
-    except EndpointInventoryAuthorizationRejected as exc:
+    except CanonicalAuthorizationRejected as exc:
         raise HTTPException(status_code=401, detail="valid endpoint-agent credential required") from exc
+    except (CanonicalIngestionRejected, ValidationError) as exc:
+        raise HTTPException(status_code=422, detail="invalid canonical endpoint inventory") from exc
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist endpoint inventory") from exc
+    if acknowledgement.endpoint_storage_id is None:
+        raise HTTPException(
+            status_code=500,
+            detail="canonical endpoint acknowledgement is incomplete",
+        )
 
-    if not result["duplicate"] and background_tasks is not None:
-        background_tasks.add_task(
-            _run_endpoint_inventory_reevaluation,
-            storage_id=result["storage_id"],
-            site_id=str(context.site_id),
-            asset_ids=list(result.get("asset_ids") or []),
+    response_evaluation_state = acknowledgement.evaluation_state
+    if (
+        acknowledgement.status == "accepted"
+        and acknowledgement.evaluation_state == "queued"
+    ):
+        response_evaluation_state = _queue_canonical_evaluation(
+            background_tasks,
+            canonical_collection_id=acknowledgement.canonical_collection_id,
+            has_work=bool(acknowledgement.canonical_asset_ids),
         )
     return EndpointInventoryResponse(
-        status="duplicate" if result["duplicate"] else "accepted",
+        status=acknowledgement.status,
         inventory_batch_id=payload.inventory_batch_id,
-        storage_id=result["storage_id"],
-        collection_id=result["collection_id"],
+        storage_id=acknowledgement.endpoint_storage_id,
+        collection_id=acknowledgement.compatibility_collection_id,
+        canonical_collection_id=acknowledgement.canonical_collection_id,
         site_id=str(context.site_id),
         agent_id=str(context.agent_id),
         credential_id=str(context.credential_id),
-        received_at=result["received_at"],
-        observed_asset_count=result["observed_asset_count"],
-        normalized_asset_count=result["normalized_asset_count"],
-        component_count=result["component_count"],
-        reevaluation_state=result["reevaluation_state"],
+        received_at=acknowledgement.received_at,
+        observed_asset_count=acknowledgement.observed_asset_count,
+        normalized_asset_count=acknowledgement.normalized_asset_count,
+        component_count=acknowledgement.component_count,
+        reevaluation_state=response_evaluation_state,
+        source_authority="authenticated-endpoint",
+        adapter_type="endpoint-agent",
+        compatibility_status="canonical",
+        warnings=list(acknowledgement.warnings),
         message=(
             "identical inventory delivery already accepted"
-            if result["duplicate"]
-            else "authenticated endpoint inventory accepted; deterministic reevaluation queued"
+            if acknowledgement.status == "duplicate"
+            else (
+                "authenticated endpoint inventory accepted; deterministic "
+                f"reevaluation {response_evaluation_state}"
+            )
         ),
     )
 
@@ -3210,32 +3412,61 @@ def local_inventory_collection(
         )
 
     site_id = local_inventory_site_id(raw_payload)
-    observed_asset_count = local_inventory_observed_asset_count(raw_payload)
+    local_inventory_observed_asset_count(raw_payload)
     received_at = datetime.now(timezone.utc)
     try:
-        collection_result = record_local_inventory_collection(
-            payload=raw_payload,
-            site_id=site_id,
-            received_at=received_at,
-            observed_asset_count=observed_asset_count,
-            source_authenticated=False,
+        acknowledgement = ingest_canonical_inventory(
+            transitional_envelope(
+                payload=raw_payload,
+                received_at=received_at,
+            )
         )
+    except CanonicalReplayConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="local inventory idempotency content conflict",
+        ) from exc
+    except CanonicalAdmissionRejected as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="local inventory admission window exceeded",
+        ) from exc
+    except CanonicalIngestionRejected as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="invalid local inventory compatibility payload",
+        ) from exc
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist local inventory collection") from exc
 
-    _queue_asset_classification(
-        background_tasks,
-        site_id=site_id,
-        asset_ids=list(collection_result.get("asset_ids") or []),
-    )
+    response_evaluation_state = acknowledgement.evaluation_state
+    if (
+        acknowledgement.status == "accepted"
+        and acknowledgement.evaluation_state == "queued"
+    ):
+        response_evaluation_state = _queue_canonical_evaluation(
+            background_tasks,
+            canonical_collection_id=acknowledgement.canonical_collection_id,
+            has_work=bool(acknowledgement.canonical_asset_ids),
+        )
     return LocalInventoryCollectionResponse(
-        status="accepted",
-        observation_batch_id=collection_result["collection_id"],
+        status=acknowledgement.status,
+        observation_batch_id=acknowledgement.compatibility_collection_id,
+        canonical_collection_id=acknowledgement.canonical_collection_id,
         site_id=site_id,
-        received_at=received_at,
-        observed_asset_count=observed_asset_count,
-        normalized_asset_count=collection_result["normalized_asset_count"],
-        message="local inventory collection accepted as passive observations",
+        received_at=acknowledgement.received_at,
+        observed_asset_count=acknowledgement.observed_asset_count,
+        normalized_asset_count=acknowledgement.normalized_asset_count,
+        source_authority=acknowledgement.source_authority,
+        adapter_type=acknowledgement.adapter_type,
+        compatibility_status=acknowledgement.compatibility_status,
+        evaluation_state=response_evaluation_state,
+        warnings=list(acknowledgement.warnings),
+        message=(
+            "identical transitional inventory delivery already accepted"
+            if acknowledgement.status == "duplicate"
+            else "transitional local inventory accepted as untrusted compatibility input"
+        ),
     )
 
 
@@ -3255,42 +3486,61 @@ def observation_batch(
     except SensorAuthenticationRejected as exc:
         raise HTTPException(status_code=401, detail="valid sensor credential required") from exc
     received_at = datetime.now(timezone.utc)
-    stored_payload = payload.model_dump(mode="json")
-    source_authenticated = auth_context.mode == "bound-sensor"
     try:
-        result = record_observation_batch(
-            payload=stored_payload,
-            received_at=received_at,
-            source_authenticated=source_authenticated,
+        acknowledgement = ingest_canonical_inventory(
+            sensor_envelope(
+                payload=payload,
+                context=auth_context,
+                received_at=received_at,
+            )
         )
-    except ObservationBatchAuthorizationRejected as exc:
+    except CanonicalAuthorizationRejected as exc:
         raise HTTPException(status_code=401, detail="valid sensor credential required") from exc
+    except CanonicalReplayConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="observation batch content conflict",
+        ) from exc
+    except CanonicalAdmissionRejected as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="observation batch admission window exceeded",
+        ) from exc
+    except CanonicalIngestionRejected as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="invalid canonical observation batch",
+        ) from exc
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist observation batch") from exc
-    duplicate = bool(result.get("duplicate"))
-    if not duplicate:
-        _queue_asset_classification(
+    response_evaluation_state = acknowledgement.evaluation_state
+    if (
+        acknowledgement.status == "accepted"
+        and acknowledgement.evaluation_state == "queued"
+    ):
+        response_evaluation_state = _queue_canonical_evaluation(
             background_tasks,
-            site_id=payload.site_id,
-            asset_ids=list(result.get("asset_ids") or []),
+            canonical_collection_id=acknowledgement.canonical_collection_id,
+            has_work=bool(acknowledgement.canonical_asset_ids),
         )
-        if source_authenticated:
-            _queue_vulnerability_evaluation(
-                background_tasks,
-                site_id=payload.site_id,
-            )
     return ObservationBatchResponse(
-        status="duplicate" if duplicate else "accepted",
+        status=acknowledgement.status,
         observation_batch_id=payload.observation_batch_id,
-        storage_id=int(result["collection_id"]),
+        storage_id=acknowledgement.compatibility_collection_id,
+        canonical_collection_id=acknowledgement.canonical_collection_id,
         site_id=payload.site_id,
         sensor_id=payload.sensor_id,
-        received_at=received_at,
-        observed_asset_count=len(payload.assets),
-        normalized_asset_count=int(result["normalized_asset_count"]),
+        received_at=acknowledgement.received_at,
+        observed_asset_count=acknowledgement.observed_asset_count,
+        normalized_asset_count=acknowledgement.normalized_asset_count,
+        source_authority=acknowledgement.source_authority,
+        adapter_type="passive-sensor",
+        compatibility_status=acknowledgement.compatibility_status,
+        evaluation_state=response_evaluation_state,
+        warnings=list(acknowledgement.warnings),
         message=(
             "observation batch was already stored; no duplicate asset evidence was added"
-            if duplicate
+            if acknowledgement.status == "duplicate"
             else "normalized outbound observation batch accepted"
         ),
     )
@@ -3299,6 +3549,7 @@ def observation_batch(
 @app.post("/api/v1/collectors/inventory", response_model=CollectorInventoryResponse)
 def collector_inventory(
     raw_payload: Any = Body(...),
+    background_tasks: BackgroundTasks = None,
     collector_token: str | None = Header(default=None, alias=COLLECTOR_TOKEN_HEADER),
 ):
     require_collector_token(collector_token)
@@ -3323,51 +3574,68 @@ def collector_inventory(
     network_count = network_observation_count(payload.network)
     software_count = len(payload.software) if isinstance(payload.software, list) else 0
     try:
-        submission_id = save_inventory_submission(
-            collector_guid=collector_guid,
-            collector_id=collector_id,
-            collector_name=collector_name,
-            mode=payload.mode,
-            schema_version=payload.schema_version,
-            collector_version=payload.collector_version,
-            collected_at=payload.collected_at,
+        envelope = legacy_collector_envelope(
+            payload=payload,
             received_at=received_at,
-            device_count=device_count,
-            network_observation_count=network_count,
-            software_count=software_count,
-            payload=raw_payload,
+            authentication_class=(
+                "legacy-shared"
+                if os.getenv(COLLECTOR_TOKEN_ENV)
+                else "unauthenticated"
+            ),
         )
+        acknowledgement = ingest_canonical_inventory(envelope)
+    except CanonicalReplayConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="collector inventory idempotency content conflict",
+        ) from exc
+    except CanonicalAdmissionRejected as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="collector inventory admission window exceeded",
+        ) from exc
+    except CanonicalIngestionRejected as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="invalid collector compatibility payload",
+        ) from exc
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to persist inventory submission") from exc
-
-    try:
-        normalization_counts = normalize_inventory_submission(
-            submission_id=submission_id,
-            payload=raw_payload,
-            collector_guid=collector_guid,
-            collector_id=collector_id,
-            collector_name=collector_name,
-            collector_version=payload.collector_version,
-            mode=payload.mode,
-            received_at=received_at,
-            supported_capabilities=payload.supported_capabilities,
-            enabled_capabilities=payload.enabled_capabilities,
+    if acknowledgement.legacy_submission_id is None:
+        raise HTTPException(
+            status_code=500,
+            detail="canonical collector acknowledgement is incomplete",
         )
-    except SQLAlchemyError as exc:
-        raise HTTPException(status_code=500, detail="failed to normalize inventory submission") from exc
+
+    response_evaluation_state = acknowledgement.evaluation_state
+    if (
+        acknowledgement.status == "accepted"
+        and acknowledgement.evaluation_state == "queued"
+    ):
+        response_evaluation_state = _queue_canonical_evaluation(
+            background_tasks,
+            canonical_collection_id=acknowledgement.canonical_collection_id,
+            has_work=bool(acknowledgement.canonical_asset_ids),
+        )
 
     return CollectorInventoryResponse(
-        status="accepted",
-        submission_id=submission_id,
-        received_at=received_at,
+        status=acknowledgement.status,
+        submission_id=acknowledgement.legacy_submission_id,
+        canonical_collection_id=acknowledgement.canonical_collection_id,
+        received_at=acknowledgement.received_at,
         collector_guid=collector_guid,
         collector_id=collector_id,
         mode=payload.mode,
         device_count=device_count,
         network_observation_count=network_count,
         software_count=software_count,
-        normalized_asset_count=normalization_counts["normalized_asset_count"],
-        normalized_software_count=normalization_counts["normalized_software_count"],
+        normalized_asset_count=acknowledgement.normalized_asset_count,
+        normalized_software_count=acknowledgement.component_count,
+        source_authority=acknowledgement.source_authority,
+        adapter_type=acknowledgement.adapter_type,
+        compatibility_status=acknowledgement.compatibility_status,
+        evaluation_state=response_evaluation_state,
+        warnings=list(acknowledgement.warnings),
     )
 
 

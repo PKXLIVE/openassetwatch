@@ -595,7 +595,8 @@ class ControlTowerDashboardTests(unittest.TestCase):
 
     def test_asset_and_collector_rows_update_read_only_detail(self) -> None:
         expected_code = (
-            "row.addEventListener(\"click\", () => selectAsset(asset.asset_id))",
+            "row.addEventListener(\"click\", () => selectAsset(asset.asset_key))",
+            "value.asset_key === item.asset_key",
             "row.addEventListener(\"click\", () => selectCollector(agent.agent_id))",
             "function renderAssetDetail",
             "function renderCollectorDetail",

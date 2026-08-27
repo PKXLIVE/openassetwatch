@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from ipaddress import ip_address
@@ -974,6 +975,32 @@ class ReadOnlyHubTools:
         observed_at = _datetime(asset.get("observed_at") or asset.get("last_seen_at"))
         site_id = _text(asset.get("site_id"), limit=128)
         asset_id = _text(asset.get("asset_id"), limit=160)
+        canonical_collection_id = _text(
+            asset.get("canonical_collection_id"),
+            limit=36,
+        )
+        if not (
+            len(canonical_collection_id) == 36
+            and canonical_collection_id.startswith("col_")
+            and all(character in "0123456789abcdef" for character in canonical_collection_id[4:])
+        ):
+            canonical_collection_id = ""
+        source_authority = _text(asset.get("source_authority"), limit=40)
+        if source_authority not in {
+            "authenticated-endpoint",
+            "authenticated-passive-sensor",
+            "legacy-collector",
+            "untrusted-transitional",
+        }:
+            source_authority = "legacy-unmapped"
+        adapter_type = _text(asset.get("ingestion_adapter_type"), limit=40)
+        if adapter_type not in {
+            "endpoint-agent",
+            "passive-sensor",
+            "python-collector",
+            "transitional-local",
+        }:
+            adapter_type = "legacy-unmapped"
         authoritative_findings = [
             finding
             for finding in self.findings
@@ -1016,6 +1043,14 @@ class ReadOnlyHubTools:
             "source_sensor_id": _text(asset.get("source_agent_id"), limit=160) or None,
             "observation_source": _text(asset.get("observation_source") or metadata.get("source")) or "inventory",
             "observation_batch_id": _text(asset.get("observation_batch_id"), limit=160) or None,
+            "canonical_collection_id": canonical_collection_id or None,
+            "source_authority": source_authority,
+            "ingestion_adapter_type": adapter_type,
+            "compatibility_status": _text(
+                asset.get("compatibility_status"),
+                limit=24,
+            )
+            or "historical-unmapped",
             "delivery_state": _text(asset.get("delivery_state")) or "live",
             "demonstration": bool(metadata.get("demo") or metadata.get("sample_data")),
             "observed_at": observed_at,
@@ -1781,6 +1816,32 @@ class ReadOnlyHubTools:
                     observed_at=item["observed_at"],
                     freshness=item["freshness"],
                     confidence=item["confidence"],
+                )
+            )
+        canonical_ids: set[str] = set()
+        for asset in self._filtered_assets(site_id):
+            if asset_id and asset["asset_id"] != asset_id:
+                continue
+            collection_id = asset.get("canonical_collection_id")
+            if not collection_id or collection_id in canonical_ids:
+                continue
+            canonical_ids.add(collection_id)
+            evidence.append(
+                EvidenceItem(
+                    evidence_id=collection_id,
+                    evidence_type="canonical_inventory_collection",
+                    summary=(
+                        f"{collection_id}: persisted {asset['source_authority']} "
+                        f"inventory via {asset['ingestion_adapter_type']} "
+                        f"({asset['compatibility_status']})."
+                    ),
+                    site_id=asset["site_id"],
+                    asset_id=asset["asset_id"],
+                    authority="normalized-evidence",
+                    source="canonical-inventory-ingestion",
+                    observed_at=asset["observed_at"],
+                    freshness=asset["data_freshness"],
+                    confidence=asset["confidence"],
                 )
             )
         for item in self.advisory_feed_evidence:
@@ -2657,10 +2718,34 @@ def run_advisor(
     resolved_asset_id = request.asset_id
     if not resolved_asset_id:
         question_text = request.question.lower()
-        resolved_asset_id = next(
-            (asset["asset_id"] for asset in tools.assets if asset["asset_id"].lower() in question_text),
-            None,
-        )
+        inferred: list[tuple[str, str]] = []
+        for asset in tools.assets:
+            authority = asset.get("source_authority")
+            if authority not in {
+                "authenticated-endpoint",
+                "authenticated-passive-sensor",
+            }:
+                continue
+            if request.site_id and asset.get("site_id") != request.site_id:
+                continue
+            asset_id = str(asset["asset_id"])
+            if re.search(
+                rf"(?<![a-z0-9._:-]){re.escape(asset_id.lower())}(?![a-z0-9._:-])",
+                question_text,
+            ):
+                inferred.append((str(asset.get("site_id") or ""), asset_id))
+        unique_inferred = set(inferred)
+        sites_by_asset: dict[str, set[str]] = {}
+        for inferred_site_id, inferred_asset_id in unique_inferred:
+            sites_by_asset.setdefault(inferred_asset_id, set()).add(
+                inferred_site_id
+            )
+        if any(len(site_ids) > 1 for site_ids in sites_by_asset.values()):
+            raise ProviderOutputError(
+                "AI advisor asset scope is ambiguous; specify a site"
+            )
+        if len(unique_inferred) == 1:
+            resolved_asset_id = next(iter(unique_inferred))[1]
     context, tool_names, evidence = build_tool_context(
         tools,
         question=request.question,

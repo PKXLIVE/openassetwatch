@@ -25,6 +25,10 @@ service backed by PostgreSQL through SQLAlchemy.
   private staging, explicit approval, atomic activation, and rollback
 - ecosystem-aware deterministic vulnerability matches and match history
 - idempotent outbound observation batches with site/sensor provenance
+- one canonical inventory write service for endpoint, passive-sensor, Python
+  collector, and transitional local-inventory routes
+- persisted source trust precedence, canonical acknowledgements, compatibility
+  mappings, and retryable downstream evaluation state
 - one-time passive-sensor enrollment and bound, rotatable credentials
 - site and sensor health/freshness summaries
 - versioned deterministic finding rules with persisted lifecycle and evidence
@@ -195,8 +199,8 @@ Run backend tests through the Linux/Python 3.12 backend image so the hashed
 lock, platform-specific dependencies, and test runtime match Docker:
 
 ```powershell
-docker compose run --rm --no-deps --volume "${PWD}:/workspace" `
-  --workdir /workspace/backend backend `
+docker compose run --rm --no-deps --volume "${PWD}:/workspace:ro" `
+  --workdir /workspace/backend -e OPENASSETWATCH_AI_PROVIDER=demo backend `
   python -m unittest discover -s tests -v
 ```
 
@@ -204,15 +208,16 @@ The unit tests mock the database boundary for endpoint behavior and test local
 normalization/schema helpers without requiring a live PostgreSQL instance.
 Migration integration tests are separately gated because they create and drop
 strictly named disposable PostgreSQL databases; see `docs/DATABASE_MIGRATIONS.md`.
-The transitional local-inventory route is compatibility ingestion and does not
-grant direct evidence authority from a client-declared agent or source type.
-Authenticated observation context is passed separately by the server, and
-sensor type must agree with observation source. Only a bound sensor credential
-can trigger automatic vulnerability evaluation or grant authoritative
-component evidence; the development-shared token remains untrusted
-compatibility ingestion. Component and batch timestamps require timezones and
-bounded skew. Component state updates are timestamp-monotonic and
-source-trust-aware; freshness is derived at read and evaluation time.
+The transitional local-inventory route is deprecated compatibility ingestion
+and does not grant direct evidence authority from a client-declared agent or
+source type. Authenticated endpoint and passive-sensor context is passed
+separately by the server. Development-shared sensor and Python collector input
+can contribute bounded lower-trust evidence but cannot replace authenticated
+asset authority. Only new committed canonical collections queue targeted
+deterministic evaluation; replay and rejected input do not. See
+`docs/CANONICAL_INGESTION_COMPATIBILITY.md` for the persisted trust order,
+idempotency, status endpoint, preview utility, PostgreSQL lifecycle, and current
+retry limitations.
 Static showcase and seed tests use only the standard library:
 
 ```powershell

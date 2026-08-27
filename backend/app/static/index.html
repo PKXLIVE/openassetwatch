@@ -2679,6 +2679,7 @@
             <div class="settings-card"><h3>Release Metadata</h3><p id="settings-release" class="muted">loading</p></div>
             <div class="settings-card"><h3>Demo Mode</h3><p id="settings-demo-mode" class="muted">checking</p></div>
             <div class="settings-card"><h3>Demo Seed Command</h3><p id="settings-demo-seed" class="muted">docker compose --profile demo run --rm demo-seed</p></div>
+            <div class="settings-card"><h3>Ingestion Compatibility</h3><p id="settings-ingestion-compatibility" class="muted">Enter the admin token in AI Advisor to load canonical adapter status.</p></div>
             <div class="settings-card"><h3>Local Safety</h3><p class="muted">Advisory controls require the configured admin token and an explicit operator action. AI cannot use them.</p></div>
             <div class="settings-card"><h3>Data Sources</h3><p class="muted">Health, summary, sites, agents, check-ins, assets, and release metadata endpoints.</p></div>
             <div class="settings-card">
@@ -2788,7 +2789,8 @@
       advisorQuery: "/api/v1/ai/advisor/query",
       advisoryFeeds: "/api/v1/admin/advisory-feeds",
       advisoryRuns: "/api/v1/admin/advisory-feed-runs?limit=20&offset=0",
-      kevSummary: "/api/v1/kev/summary"
+      kevSummary: "/api/v1/kev/summary",
+      ingestionCompatibility: "/api/v1/admin/ingestion/compatibility-status"
     };
     const DEMO_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed";
     const VIEW_IDS = ["dashboard", "assets", "collectors", "sites", "evidence", "findings", "ai-advisor", "policies", "reports", "settings"];
@@ -2802,7 +2804,7 @@
 
     const state = {
       loading: false,
-      data: {health: null, summary: null, sites: [], agents: [], checkins: [], assets: [], components: [], vulnerabilities: [], findings: [], risk: {sites: [], assets: []}, release: null},
+      data: {health: null, summary: null, sites: [], agents: [], checkins: [], assets: [], components: [], vulnerabilities: [], findings: [], risk: {sites: [], assets: []}, release: null, ingestionCompatibility: null},
       assetMode: "catalog",
       findingsError: null,
       vulnerabilityError: null,
@@ -3570,6 +3572,7 @@
     function evidenceFromAsset(asset) {
       return {
         source: metadata(asset).source || "control-tower inventory",
+        asset_key: asset.asset_key,
         asset_id: asset.asset_id,
         site_id: asset.site_id,
         category: category(asset),
@@ -3587,7 +3590,7 @@
 
       const evidence = data.assets.map(evidenceFromAsset).sort((a, b) => (parseDate(b.timestamp)?.getTime() || 0) - (parseDate(a.timestamp)?.getTime() || 0));
       renderCompactRows("recent-evidence", evidence.slice(0, 4), "No evidence yet", "Evidence summaries appear after asset records load.", item => {
-        const asset = data.assets.find(value => value.asset_id === item.asset_id);
+        const asset = data.assets.find(value => value.asset_key === item.asset_key);
         return compactRow(item.asset_id, `${item.source} - ${fmtDate(item.timestamp)} - ${item.notes}`, item.category, "", () => drilldownToAsset(asset));
       });
       byId("evidence-loaded").textContent = `${evidence.length} records`;
@@ -3728,7 +3731,7 @@
 
     function drilldownToAsset(asset) {
       if (!asset) return;
-      state.selectedAssetId = asset.asset_id;
+      state.selectedAssetId = asset.asset_key;
       drilldownAssets(filterForAsset(asset), "inventory");
     }
 
@@ -3882,7 +3885,7 @@
       state.assetDrilldown = group.scope || null;
       state.assetSearch = "";
       byId("asset-search").value = "";
-      state.selectedAssetId = group.assets[0] ? group.assets[0].asset_id : null;
+      state.selectedAssetId = group.assets[0] ? group.assets[0].asset_key : null;
       navigateTo("assets");
       renderAssets(derivedData());
     }
@@ -4045,11 +4048,11 @@
           const row = document.createElement("tr");
           row.className = "interactive";
           row.tabIndex = 0;
-          row.addEventListener("click", () => selectAsset(asset.asset_id));
+          row.addEventListener("click", () => selectAsset(asset.asset_key));
           row.addEventListener("keydown", event => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              selectAsset(asset.asset_id);
+              selectAsset(asset.asset_key);
             }
           });
           appendCell(row, asset.asset_id);
@@ -4071,7 +4074,7 @@
           button.textContent = "Details";
           button.addEventListener("click", event => {
             event.stopPropagation();
-            selectAsset(asset.asset_id);
+            selectAsset(asset.asset_key);
           });
           actionCell.appendChild(button);
           row.appendChild(actionCell);
@@ -4089,13 +4092,13 @@
       root.textContent = "Assets";
       current.textContent = state.assetMode === "catalog" ? "Catalog" : `Detailed Inventory / ${activeScope}`;
       breadcrumb.append(root, current);
-      const selected = filtered.find(asset => asset.asset_id === state.selectedAssetId) || filtered[0] || null;
+      const selected = filtered.find(asset => asset.asset_key === state.selectedAssetId) || filtered[0] || null;
       renderAssetDetail(selected);
     }
 
-    function selectAsset(assetId) {
-      state.selectedAssetId = assetId;
-      renderAssetDetail(state.data.assets.find(asset => asset.asset_id === assetId));
+    function selectAsset(assetKey) {
+      state.selectedAssetId = assetKey;
+      renderAssetDetail(state.data.assets.find(asset => asset.asset_key === assetKey));
     }
 
     function renderAssetDetail(asset) {
@@ -4139,6 +4142,11 @@
         ["Explanation factors", value && Array.isArray(value.reason_codes) ? value.reason_codes.join(", ") : "none"],
         ["Attention", attention(asset) || "observed"],
         ["Evidence count", asset.evidence_count],
+        ["Canonical collection", asset.canonical_collection_id],
+        ["Source authority", asset.source_authority],
+        ["Ingestion adapter", asset.ingestion_adapter_type],
+        ["Compatibility status", asset.compatibility_status],
+        ["Source trust rank", asset.source_trust_rank],
         ["Last seen", fmtDate(asset.last_seen_at)],
         ["Evidence summary", value ? "deterministic classification; AI commentary remains advisory" : `${metadata(asset).source || "inventory evidence"}; classification pending`]
       ];
@@ -4507,8 +4515,9 @@
     }
 
     function advisorAssetName(assetId) {
-      const asset = state.data.assets.find(item => item.asset_id === assetId);
-      if (!asset) return text(assetId);
+      const matches = state.data.assets.filter(item => item.asset_id === assetId);
+      if (matches.length !== 1) return text(assetId);
+      const asset = matches[0];
       const assetMetadata = metadata(asset);
       const explicitName = assetMetadata.display_name || assetMetadata.name;
       if (explicitName) return text(explicitName);
@@ -4736,6 +4745,10 @@
       byId("demo-mode").className = `pill ${demo ? "ok" : "warn"}`;
       byId("settings-demo-mode").textContent = demo ? "Local-only synthetic demo data detected." : "No demo metadata detected in loaded assets.";
       byId("settings-demo-seed").textContent = DEMO_SEED_COMMAND;
+      const compatibility = data.ingestionCompatibility;
+      byId("settings-ingestion-compatibility").textContent = compatibility
+        ? `${compatibility.routes.length} adapters reported; ${compatibility.unmapped_historical_records} historical collector record(s) remain unmapped. Transitional local inventory is deprecated and untrusted.`
+        : "Not loaded. Enter the admin token in AI Advisor to review canonical adapter status.";
       byId("settings-loaded").textContent = "loaded";
     }
 
@@ -4936,6 +4949,7 @@
         let risk = {sites: [], assets: []};
         let components = [];
         let vulnerabilities = [];
+        let ingestionCompatibility = null;
         state.findingsError = null;
         state.vulnerabilityError = null;
         try {
@@ -4955,6 +4969,11 @@
         } catch (error) {
           state.vulnerabilityError = text(error.message, "Component and vulnerability intelligence require admin authentication.");
         }
+        try {
+          ingestionCompatibility = await loadJSON(endpoints.ingestionCompatibility, {headers: advisorHeaders()});
+        } catch (error) {
+          ingestionCompatibility = null;
+        }
 
         state.data = {
           health,
@@ -4967,7 +4986,8 @@
           vulnerabilities,
           findings,
           risk,
-          release
+          release,
+          ingestionCompatibility
         };
         renderAll();
         setStatus("healthy", `${health.service} is ${health.status}`, `Dashboard data loaded from ${apiBase || "same-origin API"}.`);
