@@ -1,11 +1,13 @@
 package collector
 
 import (
+	"context"
 	"time"
 
 	collectorhost "github.com/openassetwatch/openassetwatch/internal/collector/host"
 	collectornetwork "github.com/openassetwatch/openassetwatch/internal/collector/network"
 	collectorplatform "github.com/openassetwatch/openassetwatch/internal/collector/platform"
+	collectorsoftware "github.com/openassetwatch/openassetwatch/internal/collector/software"
 	"github.com/openassetwatch/openassetwatch/pkg/models"
 	"github.com/openassetwatch/openassetwatch/pkg/schema"
 )
@@ -15,6 +17,7 @@ func CollectLocalInventory(siteID string) models.Inventory {
 	host := collectorhost.DetectAt(collectedAt)
 	platform := collectorplatform.DetectAt(collectedAt)
 	interfaces := collectornetwork.CollectInterfacesAt(collectedAt)
+	components, softwareSources := collectorsoftware.CollectAt(context.Background(), collectedAt)
 
 	asset := models.Asset{
 		AssetID:           "local-host",
@@ -31,6 +34,7 @@ func CollectLocalInventory(siteID string) models.Inventory {
 		MACAddresses:      interfaces.MACAddresses,
 		DefaultGateway:    collectornetwork.CollectDefaultGatewayAt(collectedAt),
 		NetworkNeighbors:  collectornetwork.CollectNeighborsAt(collectedAt),
+		Components:        components,
 		Evidence: []models.Evidence{
 			{
 				Source:     "local_platform",
@@ -50,8 +54,9 @@ func CollectLocalInventory(siteID string) models.Inventory {
 		SiteID:        siteID,
 		// TODO: populate deployment_id and agent_id from enrollment/install
 		// identity config. Local collection must not fabricate durable IDs.
-		CollectedAt: collectedAt,
-		Assets:      []models.Asset{asset},
+		CollectedAt:     collectedAt,
+		Assets:          []models.Asset{asset},
+		SoftwareSources: softwareSources,
 		Evidence: []models.Evidence{
 			{
 				Source:     "oaw_agent",
