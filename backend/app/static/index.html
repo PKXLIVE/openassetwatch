@@ -1842,6 +1842,84 @@
       overflow-x: auto;
     }
 
+    .trend-controls {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+      gap: 0.75rem;
+      align-items: end;
+      padding: 0.9rem;
+    }
+
+    .trend-controls label {
+      display: grid;
+      gap: 0.35rem;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 850;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .trend-controls select {
+      min-width: 0;
+      width: 100%;
+      padding: 0.65rem 0.7rem;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      text-transform: none;
+    }
+
+    .trend-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+
+    .trend-summary-card {
+      display: grid;
+      gap: 0.25rem;
+      padding: 0.85rem;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel);
+    }
+
+    .trend-summary-card span {
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 850;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .trend-summary-card strong {
+      font-size: 1.35rem;
+    }
+
+    .trend-chart {
+      min-height: 18rem;
+      padding: 0.8rem;
+    }
+
+    .trend-chart svg {
+      display: block;
+      width: 100%;
+      min-height: 16rem;
+    }
+
+    .trend-guardrail {
+      margin: 0;
+      padding: 0.75rem 0.85rem;
+      border-left: 4px solid var(--blue);
+      border-radius: 6px;
+      background: var(--blue-bg);
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
     .nowrap {
       white-space: nowrap;
     }
@@ -1863,7 +1941,12 @@
       .policy-grid,
       .report-grid,
       .settings-grid,
-      .release-grid {
+      .release-grid,
+      .trend-summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .trend-controls {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
@@ -1962,6 +2045,11 @@
         grid-template-columns: 1fr;
       }
 
+      .trend-controls,
+      .trend-summary-grid {
+        grid-template-columns: 1fr;
+      }
+
       .advisor-progress-line {
         align-items: flex-start;
         flex-direction: column;
@@ -1992,6 +2080,7 @@
 
       <nav class="nav-list">
         <a class="nav-link active" href="#dashboard" data-nav="dashboard">Dashboard <span class="nav-dot"></span></a>
+        <a class="nav-link" href="#environment-trends" data-nav="environment-trends">Environment Trends <span class="nav-dot"></span></a>
         <a class="nav-link" href="#assets" data-nav="assets">Assets <span class="nav-dot"></span></a>
         <a class="nav-link" href="#collectors" data-nav="collectors">Collectors <span class="nav-dot"></span></a>
         <a class="nav-link" href="#sites" data-nav="sites">Sites <span class="nav-dot"></span></a>
@@ -2189,6 +2278,81 @@
               </section>
             </div>
           </div>
+        </section>
+
+        <section id="environment-trends" class="view-section">
+          <div class="section-title">
+            <div>
+              <h2>Environment Trends</h2>
+              <p>Read-only daily UTC history projected from governed OpenAssetWatch metrics.</p>
+            </div>
+            <span class="pill ok">observed history only</span>
+          </div>
+
+          <section class="panel">
+            <div class="trend-controls" aria-label="Temporal trend controls">
+              <label for="trend-site">Site
+                <select id="trend-site">
+                  <option value="">Select a site</option>
+                </select>
+              </label>
+              <label for="trend-metric">Metric
+                <select id="trend-metric">
+                  <option value="">Load governed metric registry</option>
+                </select>
+              </label>
+              <label for="trend-window">History window
+                <select id="trend-window">
+                  <option value="30">Last 30 daily buckets</option>
+                  <option value="90">Last 90 daily buckets</option>
+                </select>
+              </label>
+              <button id="load-temporal-trend" type="button">Load trends</button>
+            </div>
+            <p id="temporal-trend-status" class="form-status" role="status" aria-live="polite">Enter the configured admin token in AI Advisor, then load the governed temporal registry.</p>
+          </section>
+
+          <div class="trend-summary-grid" aria-label="Temporal series summary">
+            <div class="trend-summary-card"><span>Observed buckets</span><strong id="trend-observed-count">0</strong></div>
+            <div class="trend-summary-card"><span>Missing buckets</span><strong id="trend-missing-count">0</strong></div>
+            <div class="trend-summary-card"><span>Incomplete buckets</span><strong id="trend-incomplete-count">0</strong></div>
+            <div class="trend-summary-card"><span>Stale buckets</span><strong id="trend-stale-count">0</strong></div>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h3 id="trend-series-title">Select a governed metric</h3>
+                <p id="trend-series-description" class="muted">Missing history remains missing; it is never converted to zero.</p>
+              </div>
+              <span id="trend-series-unit" class="pill">not loaded</span>
+            </div>
+            <div id="temporal-trend-chart" class="trend-chart">
+              <div class="empty-state"><strong>No temporal series loaded</strong>Select a site and metric to view observed daily history.</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Bucket evidence</h3>
+                <p class="muted">Observed values and data-quality states remain separate.</p>
+              </div>
+              <span id="trend-bucket-count" class="pill">0 buckets</span>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>UTC bucket</th><th>Value</th><th>Quality</th><th>Freshness</th><th>Evidence</th><th>Backfill</th></tr>
+                </thead>
+                <tbody id="temporal-trend-buckets">
+                  <tr><td colspan="6"><div class="empty-state"><strong>No bucket evidence</strong>Load a governed series to inspect provenance state.</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <p class="trend-guardrail">Phase 1 shows observed historical signals only. Expected ranges, anomaly or deviation indicators, machine learning, AI analysis, and automated remediation are not implemented.</p>
         </section>
 
         <section id="assets" class="view-section asset-canvas" data-canvas-contract="full">
@@ -2770,7 +2934,7 @@
   </div>
 
   <script>
-    const DASHBOARD_VERSION = "control-tower-command-center-v6";
+    const DASHBOARD_VERSION = "control-tower-command-center-v7";
     const apiBase = window.location.port === "8080" ? "http://127.0.0.1:8000" : "";
     const endpoints = {
       health: "/health",
@@ -2790,10 +2954,12 @@
       advisoryFeeds: "/api/v1/admin/advisory-feeds",
       advisoryRuns: "/api/v1/admin/advisory-feed-runs?limit=20&offset=0",
       kevSummary: "/api/v1/kev/summary",
-      ingestionCompatibility: "/api/v1/admin/ingestion/compatibility-status"
+      ingestionCompatibility: "/api/v1/admin/ingestion/compatibility-status",
+      temporalRegistry: "/api/v1/temporal/metrics",
+      temporalSignals: "/api/v1/temporal/signals"
     };
     const DEMO_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed";
-    const VIEW_IDS = ["dashboard", "assets", "collectors", "sites", "evidence", "findings", "ai-advisor", "policies", "reports", "settings"];
+    const VIEW_IDS = ["dashboard", "environment-trends", "assets", "collectors", "sites", "evidence", "findings", "ai-advisor", "policies", "reports", "settings"];
     const ADVISOR_WAIT_STAGES = [
       {afterSeconds: 0, label: "Gathering hub evidence"},
       {afterSeconds: 3, label: "Preparing bounded context"},
@@ -2816,6 +2982,8 @@
       advisorStatus: null,
       advisorProgressTimer: null,
       advisorProgressStartedAt: null,
+      temporalRegistry: null,
+      temporalSeries: null,
       advisorySourceId: null,
       advisoryPendingRunId: null,
       advisoryApprovedRunId: null
@@ -4448,6 +4616,226 @@
       return headers;
     }
 
+    function renderTemporalSiteOptions(sites) {
+      const select = byId("trend-site");
+      const selected = select.value;
+      clearNode(select);
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Select a site";
+      select.appendChild(placeholder);
+      sites.forEach(site => {
+        const option = document.createElement("option");
+        option.value = text(site.site_id, "");
+        option.textContent = `${text(site.name, site.site_id)} · ${text(site.site_id)}`;
+        select.appendChild(option);
+      });
+      if (Array.from(select.options).some(option => option.value === selected)) {
+        select.value = selected;
+      } else if (sites.length === 1) {
+        select.value = text(sites[0].site_id, "");
+      }
+    }
+
+    function renderTemporalMetricOptions(metrics) {
+      const select = byId("trend-metric");
+      const selected = select.value;
+      clearNode(select);
+      metrics.forEach(metric => {
+        const option = document.createElement("option");
+        option.value = text(metric.metric_key, "");
+        option.textContent = text(metric.name, metric.metric_key);
+        select.appendChild(option);
+      });
+      if (Array.from(select.options).some(option => option.value === selected)) {
+        select.value = selected;
+      }
+    }
+
+    function temporalUtcWindow(days) {
+      const end = new Date();
+      end.setUTCHours(0, 0, 0, 0);
+      end.setUTCDate(end.getUTCDate() + 1);
+      const start = new Date(end);
+      start.setUTCDate(start.getUTCDate() - days);
+      return {start: start.toISOString(), end: end.toISOString()};
+    }
+
+    function temporalPointPresentation(signal) {
+      if (signal.data_quality === "incomplete" || !signal.complete && signal.value !== null && signal.value !== undefined) {
+        return {label: "Incomplete", kind: "warn", detail: "Observed source coverage is incomplete"};
+      }
+      if (signal.value === null || signal.value === undefined) {
+        return {label: "Missing", kind: "error", detail: "No complete authoritative source period"};
+      }
+      if (signal.freshness === "stale") {
+        return {label: "Stale", kind: "error", detail: "Observed value from stale source evidence"};
+      }
+      return {label: "Observed", kind: "ok", detail: "Observed authoritative value"};
+    }
+
+    function temporalNumericValue(signal) {
+      if (signal.value === null || signal.value === undefined) return null;
+      const value = Number(signal.value);
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function renderTemporalChart(series) {
+      const target = byId("temporal-trend-chart");
+      clearNode(target);
+      const signals = Array.isArray(series.signals) ? series.signals : [];
+      const observed = signals.map(temporalNumericValue).filter(value => value !== null);
+      if (!signals.length || !observed.length) {
+        renderEmpty(target, "No observed values", "Every requested bucket is missing or unavailable; no zero values were synthesized.");
+        return;
+      }
+
+      const width = 920;
+      const height = 270;
+      const padding = {left: 56, right: 24, top: 24, bottom: 42};
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
+      const maximum = Math.max(1, ...observed);
+      const xFor = index => padding.left + (signals.length === 1 ? plotWidth / 2 : (index / (signals.length - 1)) * plotWidth);
+      const yFor = value => padding.top + plotHeight - (value / maximum) * plotHeight;
+      const svg = svgEl("svg", {viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `${series.metric.name} observed daily trend`});
+
+      [0, 0.5, 1].forEach(ratio => {
+        const y = padding.top + plotHeight - ratio * plotHeight;
+        svg.appendChild(svgEl("line", {x1: padding.left, y1: y, x2: width - padding.right, y2: y, stroke: "#d9e2df", "stroke-width": 1}));
+        const label = svgEl("text", {x: padding.left - 10, y: y + 4, "text-anchor": "end", fill: "#65726f", "font-size": 12});
+        label.textContent = String(Math.round(maximum * ratio * 100) / 100);
+        svg.appendChild(label);
+      });
+
+      let previous = null;
+      signals.forEach((signal, index) => {
+        const value = temporalNumericValue(signal);
+        const x = xFor(index);
+        if (value === null) {
+          previous = null;
+          svg.appendChild(svgEl("circle", {cx: x, cy: padding.top + plotHeight, r: 4, fill: "#fff", stroke: "#b94949", "stroke-width": 2}));
+          return;
+        }
+        const y = yFor(value);
+        if (previous !== null) {
+          svg.appendChild(svgEl("line", {x1: previous.x, y1: previous.y, x2: x, y2: y, stroke: "#176c58", "stroke-width": 3, "stroke-linecap": "round"}));
+        }
+        const presentation = temporalPointPresentation(signal);
+        const fill = presentation.kind === "ok" ? "#176c58" : presentation.kind === "warn" ? "#b8791f" : "#b94949";
+        const point = svgEl("circle", {cx: x, cy: y, r: 5, fill, stroke: "#fff", "stroke-width": 2});
+        const title = svgEl("title");
+        title.textContent = `${new Date(signal.bucket_start).toISOString().slice(0, 10)}: ${signal.value} ${signal.unit} · ${presentation.label}`;
+        point.appendChild(title);
+        svg.appendChild(point);
+        previous = {x, y};
+      });
+
+      const firstLabel = svgEl("text", {x: padding.left, y: height - 12, fill: "#65726f", "font-size": 12});
+      firstLabel.textContent = new Date(signals[0].bucket_start).toISOString().slice(0, 10);
+      const lastLabel = svgEl("text", {x: width - padding.right, y: height - 12, "text-anchor": "end", fill: "#65726f", "font-size": 12});
+      lastLabel.textContent = new Date(signals[signals.length - 1].bucket_start).toISOString().slice(0, 10);
+      svg.append(firstLabel, lastLabel);
+      target.appendChild(svg);
+    }
+
+    function renderTemporalSeries(series) {
+      state.temporalSeries = series;
+      const signals = Array.isArray(series.signals) ? series.signals : [];
+      const observedCount = signals.filter(signal => temporalNumericValue(signal) !== null).length;
+      const missingCount = signals.filter(signal => signal.data_quality === "missing").length;
+      const incompleteCount = signals.filter(signal => signal.data_quality === "incomplete").length;
+      const staleCount = signals.filter(signal => signal.freshness === "stale").length;
+      setText("trend-observed-count", observedCount);
+      setText("trend-missing-count", missingCount);
+      setText("trend-incomplete-count", incompleteCount);
+      setText("trend-stale-count", staleCount);
+      setText("trend-series-title", series.metric.name);
+      setText("trend-series-description", series.metric.description);
+      setText("trend-series-unit", series.metric.unit);
+      setText("trend-bucket-count", plural(signals.length, "bucket"));
+      renderTemporalChart(series);
+
+      const body = byId("temporal-trend-buckets");
+      clearNode(body);
+      if (!signals.length) {
+        renderTableEmpty(body, 6, "No bucket evidence", "The bounded temporal API returned no buckets.");
+        return;
+      }
+      signals.forEach(signal => {
+        const row = document.createElement("tr");
+        const presentation = temporalPointPresentation(signal);
+        appendCell(row, new Date(signal.bucket_start).toISOString().slice(0, 10), "nowrap");
+        appendCell(
+          row,
+          signal.value === null || signal.value === undefined
+            ? presentation.label === "Incomplete" ? "Unavailable" : "Missing"
+            : `${signal.value} ${signal.unit}`
+        );
+        const quality = document.createElement("td");
+        quality.appendChild(makeBadge(presentation.label, presentation.kind));
+        row.appendChild(quality);
+        appendCell(row, text(signal.freshness));
+        appendCell(row, String(signal.evidence_count));
+        appendCell(row, text(signal.backfill_state));
+        body.appendChild(row);
+      });
+    }
+
+    async function loadTemporalRegistry() {
+      const registry = await loadJSON(endpoints.temporalRegistry, {headers: advisorHeaders()});
+      const metrics = Array.isArray(registry.metrics) ? registry.metrics : [];
+      if (!metrics.length) throw new Error("The governed temporal metric registry is empty.");
+      state.temporalRegistry = registry;
+      renderTemporalMetricOptions(metrics);
+      return registry;
+    }
+
+    async function loadTemporalTrend() {
+      const status = byId("temporal-trend-status");
+      const button = byId("load-temporal-trend");
+      const siteId = byId("trend-site").value;
+      if (!siteId) {
+        status.textContent = "Select one site before loading temporal history.";
+        status.className = "form-status error";
+        return;
+      }
+      button.disabled = true;
+      status.textContent = "Loading governed metric registry and bounded UTC history...";
+      status.className = "form-status";
+      try {
+        if (!state.temporalRegistry) await loadTemporalRegistry();
+        const metricKey = byId("trend-metric").value;
+        const days = [30, 90].includes(Number(byId("trend-window").value)) ? Number(byId("trend-window").value) : 30;
+        const window = temporalUtcWindow(days);
+        const params = new URLSearchParams({
+          metric_key: metricKey,
+          site_id: siteId,
+          start: window.start,
+          end: window.end,
+          granularity: "daily"
+        });
+        const series = await loadJSON(`${endpoints.temporalSignals}?${params.toString()}`, {headers: advisorHeaders()});
+        renderTemporalSeries(series);
+        status.textContent = `${series.metric.name} loaded for ${siteId}. Missing and incomplete buckets remain explicit.`;
+        status.className = "form-status ok";
+      } catch (error) {
+        state.temporalSeries = null;
+        status.textContent = text(error.message, "Temporal history could not be loaded safely.");
+        status.className = "form-status error";
+        const chart = byId("temporal-trend-chart");
+        clearNode(chart);
+        renderEmpty(chart, "Temporal history unavailable", "Verify the configured admin token and selected site, then retry.");
+        renderTableError(byId("temporal-trend-buckets"), 6, "Temporal bucket evidence is unavailable.");
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function setupTemporalTrends() {
+      byId("load-temporal-trend").addEventListener("click", loadTemporalTrend);
+    }
+
     function renderAdvisorSiteOptions(sites) {
       const select = byId("advisor-site");
       const selected = select.value;
@@ -4877,6 +5265,7 @@
     function renderAll() {
       const data = derivedData();
       renderEnvironmentSummary(data);
+      renderTemporalSiteOptions(data.sites);
       renderAdvisorSiteOptions(data.sites);
       renderMetrics(data);
       renderAttention(data);
@@ -5148,6 +5537,7 @@
     setupAssetControls();
     setupNavigation();
     setupSafeActions();
+    setupTemporalTrends();
     setupAdvisor();
     setupAdvisoryIntelligence();
     refresh();
