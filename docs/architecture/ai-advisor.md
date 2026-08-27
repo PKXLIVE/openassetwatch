@@ -115,6 +115,13 @@ current offline default. Local model runtimes should be supported later for
 privacy-focused deployments. External model services may also be optional
 integrations controlled by deployment and tenant policy.
 
+The first provider-neutral local-runtime metadata and qualification foundation
+is documented in
+`docs/integrations/local-openai-compatible.md`. ROCmFPX is one optional runtime
+behind that existing boundary; its compatibility notes live in
+`docs/integrations/rocmfpx.md`. Neither runtime metadata nor model output changes
+the deterministic authority boundaries described here.
+
 Provider configuration alone should not determine which model handles every
 request. The future AI Model Router should select among deterministic logic,
 local lightweight models, local advanced models, optional external models,
