@@ -26,6 +26,7 @@ from app.temporal_projection import (
 from app.temporal_store import (
     COLLECTORS_ACTIVE_SQL,
     INVENTORY_COLLECTIONS_SQL,
+    METRIC_QUERIES_AS_OF,
     SqlTemporalStore,
 )
 
@@ -444,6 +445,42 @@ class SqlTemporalStoreTests(unittest.TestCase):
         self.assertIn("COUNT(DISTINCT checkins.agent_id)", COLLECTORS_ACTIVE_SQL)
         self.assertIn("COUNT(canonical_collection_id)", INVENTORY_COLLECTIONS_SQL)
         self.assertNotIn("replay_count)", INVENTORY_COLLECTIONS_SQL)
+
+
+    def test_as_of_queries_bind_an_exclusive_evidence_cutoff(self) -> None:
+        self.assertEqual(
+            set(METRIC_QUERIES_AS_OF),
+            {metric.metric_key for metric in TEMPORAL_METRICS},
+        )
+        for metric_key, query in METRIC_QUERIES_AS_OF.items():
+            with self.subTest(metric_key=metric_key):
+                self.assertIn(":knowledge_cutoff", query)
+                self.assertIn("< :knowledge_cutoff", query)
+
+    def test_store_selects_as_of_query_and_binds_cutoff(self) -> None:
+        site_result = Mock()
+        site_result.scalar_one.return_value = True
+        query_result = Mock()
+        query_result.mappings.return_value.all.return_value = []
+        connection = Mock()
+        connection.execute.side_effect = [site_result, query_result]
+        engine = MagicMock()
+        engine.begin.return_value.__enter__.return_value = connection
+        store = SqlTemporalStore()
+        store._schema_ready = True
+
+        with patch.object(store, "_engine", return_value=engine):
+            store.metric_buckets(
+                metric=temporal_metric("site.inventory.collections.count"),
+                site_id="site-a",
+                start=START,
+                end=END,
+                knowledge_cutoff=END,
+            )
+
+        query_call = connection.execute.call_args_list[1]
+        self.assertIn("ingested_at < :knowledge_cutoff", str(query_call.args[0]))
+        self.assertEqual(query_call.args[1]["knowledge_cutoff"], END)
 
 
 if __name__ == "__main__":
