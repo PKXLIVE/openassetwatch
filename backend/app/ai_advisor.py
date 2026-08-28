@@ -17,12 +17,25 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .local_ai import (
+    QUALIFICATION_FIXTURE_VERSION,
+    QUALIFICATION_SUITE_VERSION,
     LocalAIRuntimeMetadata,
+    LocalAIQualificationResult,
     QualificationState,
     RuntimeHealthStatus,
     load_qualification_result,
 )
 from .local_ai_transport import LocalAITransportSecurityError, local_ai_request
+from .model_artifact_provenance import (
+    ArtifactAdvisoryState,
+    ModelArtifactManifest,
+    ProvenanceState,
+    QualificationBindingState,
+    evaluate_artifact_advisories,
+    evaluate_qualification_binding,
+    load_model_artifact_advisories,
+    load_model_artifact_manifest,
+)
 
 
 MAX_TOOL_ITEMS = 50
@@ -44,6 +57,10 @@ AI_MODEL_ENV = "OPENASSETWATCH_AI_MODEL"
 AI_TIMEOUT_ENV = "OPENASSETWATCH_AI_TIMEOUT_SECONDS"
 AI_LOCAL_PROVIDER_HOSTS_ENV = "OPENASSETWATCH_AI_LOCAL_PROVIDER_HOSTS"
 AI_QUALIFICATION_RESULT_ENV = "OPENASSETWATCH_AI_QUALIFICATION_RESULT"
+AI_MODEL_MANIFEST_ENV = "OPENASSETWATCH_AI_MODEL_MANIFEST"
+AI_REQUIRE_MODEL_MANIFEST_ENV = "OPENASSETWATCH_AI_REQUIRE_MODEL_MANIFEST"
+AI_ARTIFACT_ADVISORIES_ENV = "OPENASSETWATCH_AI_ARTIFACT_ADVISORIES"
+LOCAL_QUALIFICATION_SUITE_NAME = "openassetwatch-local-ai"
 LOCAL_PROVIDER_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
 BLOCKED_PROVIDER_HOSTS = frozenset(
     {
@@ -72,17 +89,26 @@ class AdvisorQueryRequest(StrictModel):
 
 
 class ProviderStatusResponse(StrictModel):
-    provider: str
+    provider: str = Field(..., min_length=1, max_length=128)
     mode: ProviderMode
     enabled: bool
     available: bool
     external_data_sharing: bool
-    model: str | None = None
+    model: str | None = Field(default=None, max_length=512)
     runtime: LocalAIRuntimeMetadata | None = None
     health_status: RuntimeHealthStatus = "unknown"
     last_health_check: datetime | None = None
     qualification_state: QualificationState = "not-configured"
-    message: str
+    artifact_manifest_state: Literal[
+        "not-configured", "valid", "invalid", "required-missing"
+    ] = "not-configured"
+    artifact_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    artifact_manifest_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    provenance_state: ProvenanceState = "unknown"
+    artifact_advisory_state: ArtifactAdvisoryState = "not-configured"
+    matched_advisory_count: int = Field(default=0, ge=0, le=128)
+    qualification_binding_state: QualificationBindingState = "not-configured"
+    message: str = Field(..., min_length=1, max_length=1_000)
 
 
 class EvidenceItem(StrictModel):
@@ -154,6 +180,24 @@ class ProviderConfig:
     timeout_seconds: float
     local_provider_hosts: frozenset[str] = frozenset()
     qualification_result_path: str | None = None
+    model_manifest_path: str | None = None
+    require_model_manifest: bool = False
+    artifact_advisories_path: str | None = None
+
+    def __post_init__(self) -> None:
+        if not 1 <= len(self.provider) <= 128:
+            raise ProviderUnavailableError("AI provider name is invalid.")
+        if self.model is not None and len(self.model) > 512:
+            raise ProviderUnavailableError("AI model name is invalid.")
+        for value in (
+            self.qualification_result_path,
+            self.model_manifest_path,
+            self.artifact_advisories_path,
+        ):
+            if value is not None and (
+                len(value) > 4_096 or any(ord(character) < 32 for character in value)
+            ):
+                raise ProviderUnavailableError("AI local metadata path is invalid.")
 
 
 def _enabled(value: str | None) -> bool:
@@ -234,26 +278,219 @@ def load_provider_config() -> ProviderConfig:
         qualification_result_path=(
             (os.getenv(AI_QUALIFICATION_RESULT_ENV) or "").strip() or None
         ),
+        model_manifest_path=(
+            (os.getenv(AI_MODEL_MANIFEST_ENV) or "").strip() or None
+        ),
+        require_model_manifest=_enabled(os.getenv(AI_REQUIRE_MODEL_MANIFEST_ENV)),
+        artifact_advisories_path=(
+            (os.getenv(AI_ARTIFACT_ADVISORIES_ENV) or "").strip() or None
+        ),
     )
 
 
 def _qualification_for_status(
     config: ProviderConfig,
 ) -> tuple[QualificationState, LocalAIRuntimeMetadata | None, str | None]:
+    state, runtime, _, message = _load_qualification(config)
+    return state, runtime, message
+
+
+@dataclass(frozen=True)
+class _LocalModelTrust:
+    qualification_state: QualificationState
+    runtime: LocalAIRuntimeMetadata | None
+    artifact_manifest_state: Literal[
+        "not-configured", "valid", "invalid", "required-missing"
+    ]
+    artifact_digest: str | None
+    artifact_manifest_digest: str | None
+    provenance_state: ProvenanceState
+    artifact_advisory_state: ArtifactAdvisoryState
+    matched_advisory_count: int
+    qualification_binding_state: QualificationBindingState
+    allows_use: bool
+    message: str | None
+
+
+def _load_qualification(
+    config: ProviderConfig,
+) -> tuple[
+    QualificationState,
+    LocalAIRuntimeMetadata | None,
+    LocalAIQualificationResult | None,
+    str | None,
+]:
     if not config.qualification_result_path:
-        return "not-configured", None, None
+        return "not-configured", None, None, None
     try:
         qualification = load_qualification_result(config.qualification_result_path)
     except (OSError, ValueError, ValidationError):
-        return "invalid", None, "Configured qualification result is unreadable or invalid."
+        return "invalid", None, None, "Configured qualification result is unreadable or invalid."
     if (
         not config.base_url
         or qualification.runtime.base_url.rstrip("/") != config.base_url.rstrip("/")
         or qualification.model.model_name != config.model
     ):
-        return "invalid", None, "Qualification result does not match the configured endpoint and model."
+        return (
+            "invalid",
+            None,
+            None,
+            "Qualification result does not match the configured endpoint and model.",
+        )
     state: QualificationState = "approved" if qualification.advisor_approved else "rejected"
-    return state, qualification.runtime, None
+    return state, qualification.runtime, qualification, None
+
+
+def _local_model_trust(config: ProviderConfig) -> _LocalModelTrust:
+    qualification_state, runtime, qualification, qualification_message = _load_qualification(config)
+    legacy_allows_use = qualification_state in {"not-configured", "approved"}
+    if not config.model_manifest_path:
+        if config.require_model_manifest:
+            return _LocalModelTrust(
+                qualification_state=qualification_state,
+                runtime=runtime,
+                artifact_manifest_state="required-missing",
+                artifact_digest=None,
+                artifact_manifest_digest=None,
+                provenance_state="unknown",
+                artifact_advisory_state=(
+                    "invalid" if config.artifact_advisories_path else "not-configured"
+                ),
+                matched_advisory_count=0,
+                qualification_binding_state="required-missing",
+                allows_use=False,
+                message="A complete model artifact manifest is required but was not configured.",
+            )
+        if config.artifact_advisories_path:
+            return _LocalModelTrust(
+                qualification_state=qualification_state,
+                runtime=runtime,
+                artifact_manifest_state="not-configured",
+                artifact_digest=None,
+                artifact_manifest_digest=None,
+                provenance_state="unknown",
+                artifact_advisory_state="invalid",
+                matched_advisory_count=0,
+                qualification_binding_state=(
+                    "legacy-unbound" if qualification_state == "approved" else "not-configured"
+                ),
+                allows_use=False,
+                message="Artifact advisories cannot be evaluated without a configured manifest.",
+            )
+        return _LocalModelTrust(
+            qualification_state=qualification_state,
+            runtime=runtime,
+            artifact_manifest_state="not-configured",
+            artifact_digest=None,
+            artifact_manifest_digest=None,
+            provenance_state="unknown",
+            artifact_advisory_state="not-configured",
+            matched_advisory_count=0,
+            qualification_binding_state=(
+                "legacy-unbound" if qualification_state == "approved" else "not-configured"
+            ),
+            allows_use=legacy_allows_use,
+            message=qualification_message,
+        )
+
+    try:
+        manifest: ModelArtifactManifest = load_model_artifact_manifest(config.model_manifest_path)
+    except (OSError, ValueError, ValidationError):
+        return _LocalModelTrust(
+            qualification_state=qualification_state,
+            runtime=runtime,
+            artifact_manifest_state="invalid",
+            artifact_digest=None,
+            artifact_manifest_digest=None,
+            provenance_state="invalid",
+            artifact_advisory_state="not-configured",
+            matched_advisory_count=0,
+            qualification_binding_state="invalid",
+            allows_use=False,
+            message="Configured model artifact manifest is unreadable or invalid.",
+        )
+
+    artifact_digest = manifest.artifact.artifact_digest
+    manifest_digest = manifest.manifest_digest
+    if manifest.model_identity.model_name != config.model:
+        return _LocalModelTrust(
+            qualification_state=qualification_state,
+            runtime=runtime,
+            artifact_manifest_state="invalid",
+            artifact_digest=artifact_digest,
+            artifact_manifest_digest=manifest_digest,
+            provenance_state="invalid",
+            artifact_advisory_state="not-configured",
+            matched_advisory_count=0,
+            qualification_binding_state="mismatch",
+            allows_use=False,
+            message="Configured model artifact manifest does not match the configured model.",
+        )
+
+    binding = qualification.artifact_binding if qualification is not None else None
+    binding_evaluation = evaluate_qualification_binding(
+        manifest,
+        binding,
+        required_suite_version=QUALIFICATION_SUITE_VERSION,
+        required_fixture_version=QUALIFICATION_FIXTURE_VERSION,
+    )
+    advisory_state: ArtifactAdvisoryState = "not-configured"
+    matched_count = 0
+    provenance_state: ProvenanceState = manifest.provenance_state
+    advisory_allows_use = True
+    if config.artifact_advisories_path:
+        try:
+            registry = load_model_artifact_advisories(config.artifact_advisories_path)
+            invalidation = evaluate_artifact_advisories(
+                manifest,
+                registry.advisories,
+                current_qualification_valid=(
+                    qualification_state == "approved" and binding_evaluation.matched
+                ),
+                qualification_binding=binding,
+                qualification_suite_name=LOCAL_QUALIFICATION_SUITE_NAME,
+            )
+        except (OSError, ValueError, ValidationError):
+            advisory_state = "invalid"
+            advisory_allows_use = False
+        else:
+            matched_count = len(invalidation.matched_advisory_ids)
+            advisory_state = "matched" if matched_count else "clear"
+            provenance_state = invalidation.state
+            advisory_allows_use = invalidation.qualification_valid
+
+    allows_use = (
+        manifest.provenance_state == "complete"
+        and qualification_state == "approved"
+        and binding_evaluation.matched
+        and advisory_allows_use
+    )
+    messages: list[str] = []
+    if qualification_message:
+        messages.append(qualification_message)
+    if manifest.provenance_state != "complete":
+        messages.append("Configured model artifact provenance is not complete.")
+    if qualification_state != "approved":
+        messages.append("A manifest-bound approved qualification result is required.")
+    if not binding_evaluation.matched:
+        messages.append("Qualification binding does not match the configured artifact lineage.")
+    if advisory_state == "invalid":
+        messages.append("Configured artifact advisories are unreadable or invalid.")
+    elif not advisory_allows_use:
+        messages.append("A reviewed artifact advisory requires remediation before local Advisor use.")
+    return _LocalModelTrust(
+        qualification_state=qualification_state,
+        runtime=runtime,
+        artifact_manifest_state="valid",
+        artifact_digest=artifact_digest,
+        artifact_manifest_digest=manifest_digest,
+        provenance_state=provenance_state,
+        artifact_advisory_state=advisory_state,
+        matched_advisory_count=matched_count,
+        qualification_binding_state=binding_evaluation.state,
+        allows_use=allows_use,
+        message=" ".join(messages) or None,
+    )
 
 
 def provider_status(
@@ -266,7 +503,7 @@ def provider_status(
             config = load_provider_config()
         except ProviderUnavailableError as exc:
             return ProviderStatusResponse(
-                provider=(os.getenv(AI_PROVIDER_ENV, "demo").strip().lower() or "demo"),
+                provider="invalid",
                 mode="external",
                 enabled=False,
                 available=False,
@@ -330,32 +567,37 @@ def provider_status(
             if check_availability
             else (True, "OpenAI-compatible local model is configured for bounded advisory requests.")
         )
-        qualification_state, runtime, qualification_message = _qualification_for_status(config)
+        trust = _local_model_trust(config)
+        qualification_state = trust.qualification_state
+        runtime = trust.runtime
         health_status: RuntimeHealthStatus = (
             "available" if available else "unavailable"
         ) if check_availability else "unknown"
         if runtime is not None:
             runtime.health_status = health_status
             runtime.last_health_check = checked_at
-        if qualification_message:
-            message = f"{message} {qualification_message}"
-        qualification_allows_use = qualification_state in {
-            "not-configured",
-            "approved",
-        }
-        if not qualification_allows_use:
-            message = f"{message} Local Advisor use is disabled until qualification is approved."
+        if trust.message:
+            message = f"{message} {trust.message}"
+        if not trust.allows_use:
+            message = f"{message} Local Advisor use is disabled until model trust requirements pass."
         return ProviderStatusResponse(
             provider=config.provider,
             mode="local",
-            enabled=qualification_allows_use,
-            available=available and qualification_allows_use,
+            enabled=trust.allows_use,
+            available=available,
             external_data_sharing=False,
             model=config.model,
             runtime=runtime,
             health_status=health_status,
             last_health_check=checked_at,
             qualification_state=qualification_state,
+            artifact_manifest_state=trust.artifact_manifest_state,
+            artifact_digest=trust.artifact_digest,
+            artifact_manifest_digest=trust.artifact_manifest_digest,
+            provenance_state=trust.provenance_state,
+            artifact_advisory_state=trust.artifact_advisory_state,
+            matched_advisory_count=trust.matched_advisory_count,
+            qualification_binding_state=trust.qualification_binding_state,
             message=message,
         )
     configured = bool(config.external_enabled and config.api_key)
@@ -2812,11 +3054,11 @@ class OpenAICompatibleProvider:
         )
         if self.mode == "external" and (not config.external_enabled or not config.api_key):
             raise ProviderUnavailableError("Hosted providers require explicit external enablement and an API key.")
-        if self.mode == "local" and config.qualification_result_path:
-            qualification_state, _, _ = _qualification_for_status(config)
-            if qualification_state != "approved":
+        if self.mode == "local":
+            trust = _local_model_trust(config)
+            if not trust.allows_use:
                 raise ProviderUnavailableError(
-                    "configured local provider qualification is not approved"
+                    "configured local provider model trust requirements are not satisfied"
                 )
         self.config = config
         self.endpoint = _provider_endpoint(
