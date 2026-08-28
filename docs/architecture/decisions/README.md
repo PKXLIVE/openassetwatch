@@ -13,6 +13,7 @@ multiple OpenAssetWatch subsystems or constrain future implementation.
 | [`0004-native-design-provenance-boundary.md`](0004-native-design-provenance-boundary.md) | Accepted | Keep canonical architecture in OpenAssetWatch-native terminology while preserving normal licensing/provenance obligations for any actual third-party material. |
 | [`0005-defensive-content-and-model-robustness.md`](0005-defensive-content-and-model-robustness.md) | Accepted | Add invariant-versus-heuristic AI safety, monotonic context taint, sensitive-egress protection, current security-intelligence normalization, and bounded parser/model robustness evaluation without changing deterministic authority. |
 | [`0006-adversarial-input-evaluation.md`](0006-adversarial-input-evaluation.md) | Accepted | Add OpenAssetWatch-native multidimensional adversarial-input coverage, multi-turn policy revalidation, tool and structured-output attack tests, propagation resistance, resource-abuse evaluation, and artifact-bound local-model qualification. |
+| [`0007-threat-intelligence-exchange-boundary.md`](0007-threat-intelligence-exchange-boundary.md) | Accepted | Add provider-neutral threat-intelligence exchange endpoints, collections, manifests, synchronization receipts, separate collection authorization, untrusted-content admission controls, and governed outbound sharing without changing canonical evidence authority. |
 
 ## Status meanings
 
