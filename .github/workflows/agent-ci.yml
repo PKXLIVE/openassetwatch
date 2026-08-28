@@ -431,11 +431,11 @@ jobs:
           sudo systemctl status oaw-agent.timer --no-pager || true
           sudo systemctl status oaw-agent.service --no-pager || true
           test "$(sudo stat -c '%U:%G %a' /var/lib/openassetwatch/agent/credential)" = "openassetwatch:openassetwatch 700"
-          sudo -u openassetwatch /bin/sh -c 'umask 077; printf "%s\n" synthetic-package-lifecycle-fixture > /var/lib/openassetwatch/agent/credential/credential.json'
-          test "$(sudo stat -c '%U:%G %a %h' /var/lib/openassetwatch/agent/credential/credential.json)" = "openassetwatch:openassetwatch 600 1"
-          sudo -u openassetwatch test -r /var/lib/openassetwatch/agent/credential/credential.json
-          sudo -u openassetwatch test -w /var/lib/openassetwatch/agent/credential/credential.json
-          CREDENTIAL_HASH="$(sudo sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '{print $1}')"
+          sudo -u openassetwatch /bin/sh -c 'umask 077; printf "%s\n" synthetic-package-lifecycle-fixture > /var/lib/openassetwatch/agent/credential/preservation.fixture'
+          test "$(sudo stat -c '%U:%G %a %h' /var/lib/openassetwatch/agent/credential/preservation.fixture)" = "openassetwatch:openassetwatch 600 1"
+          sudo -u openassetwatch test -r /var/lib/openassetwatch/agent/credential/preservation.fixture
+          sudo -u openassetwatch test -w /var/lib/openassetwatch/agent/credential/preservation.fixture
+          CREDENTIAL_HASH="$(sudo sha256sum /var/lib/openassetwatch/agent/credential/preservation.fixture | awk '{print $1}')"
 
           sudo install -d -m 0750 -o root -g openassetwatch /etc/openassetwatch/agent
           printf '%s\n' '{"server_url":"http://127.0.0.1:18080","site_id":"ci-linux"}' | sudo tee /etc/openassetwatch/agent/config.json >/dev/null
@@ -456,7 +456,7 @@ jobs:
           test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
           test -f /var/lib/openassetwatch/agent/state-survival.txt
           test -f /var/log/openassetwatch/agent/log-survival.txt
-          test "$CREDENTIAL_HASH" = "$(sudo sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '{print $1}')"
+          test "$CREDENTIAL_HASH" = "$(sudo sha256sum /var/lib/openassetwatch/agent/credential/preservation.fixture | awk '{print $1}')"
           sudo systemctl is-enabled --quiet oaw-agent.timer
 
           sudo dpkg -i "$NEW_DEB"
@@ -464,7 +464,7 @@ jobs:
           test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
           test -f /var/lib/openassetwatch/agent/state-survival.txt
           test -f /var/log/openassetwatch/agent/log-survival.txt
-          test "$CREDENTIAL_HASH" = "$(sudo sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '{print $1}')"
+          test "$CREDENTIAL_HASH" = "$(sudo sha256sum /var/lib/openassetwatch/agent/credential/preservation.fixture | awk '{print $1}')"
           sudo systemctl is-enabled --quiet oaw-agent.timer
 
           sudo dpkg -i --force-downgrade "$OLD_DEB"
@@ -472,7 +472,7 @@ jobs:
           test "$IDENTITY_HASH" = "$(sudo sha256sum /etc/openassetwatch/agent/identity.json | awk '{print $1}')"
           test -f /var/lib/openassetwatch/agent/state-survival.txt
           test -f /var/log/openassetwatch/agent/log-survival.txt
-          test "$CREDENTIAL_HASH" = "$(sudo sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '{print $1}')"
+          test "$CREDENTIAL_HASH" = "$(sudo sha256sum /var/lib/openassetwatch/agent/credential/preservation.fixture | awk '{print $1}')"
 
           sudo dpkg -r openassetwatch-agent
           sudo systemctl daemon-reload
@@ -487,7 +487,7 @@ jobs:
           assert_file /etc/openassetwatch/agent/identity.json
           assert_file /var/lib/openassetwatch/agent/state-survival.txt
           assert_file /var/log/openassetwatch/agent/log-survival.txt
-          assert_file /var/lib/openassetwatch/agent/credential/credential.json
+          assert_file /var/lib/openassetwatch/agent/credential/preservation.fixture
 
   linux-rpm-lifecycle:
     needs: agent-change-scope
@@ -639,11 +639,11 @@ jobs:
               test -f /usr/lib/systemd/system/oaw-agent.timer
               systemctl is-enabled --quiet oaw-agent.timer
               test "$(stat -c "%U:%G %a" /var/lib/openassetwatch/agent/credential)" = "openassetwatch:openassetwatch 700"
-              runuser -u openassetwatch -- /bin/sh -c "umask 077; printf %s\n synthetic-package-lifecycle-fixture > /var/lib/openassetwatch/agent/credential/credential.json"
-              test "$(stat -c "%U:%G %a %h" /var/lib/openassetwatch/agent/credential/credential.json)" = "openassetwatch:openassetwatch 600 1"
-              runuser -u openassetwatch -- test -r /var/lib/openassetwatch/agent/credential/credential.json
-              runuser -u openassetwatch -- test -w /var/lib/openassetwatch/agent/credential/credential.json
-              CREDENTIAL_HASH="$(sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '"'"'{print $1}'"'"')"
+              runuser -u openassetwatch -- /bin/sh -c "umask 077; printf %s\n synthetic-package-lifecycle-fixture > /var/lib/openassetwatch/agent/credential/preservation.fixture"
+              test "$(stat -c "%U:%G %a %h" /var/lib/openassetwatch/agent/credential/preservation.fixture)" = "openassetwatch:openassetwatch 600 1"
+              runuser -u openassetwatch -- test -r /var/lib/openassetwatch/agent/credential/preservation.fixture
+              runuser -u openassetwatch -- test -w /var/lib/openassetwatch/agent/credential/preservation.fixture
+              CREDENTIAL_HASH="$(sha256sum /var/lib/openassetwatch/agent/credential/preservation.fixture | awk '"'"'{print $1}'"'"')"
 
               install -d -m 0750 -o root -g openassetwatch /etc/openassetwatch/agent
               printf "%s\n" "{\"server_url\":\"http://127.0.0.1:18080\",\"site_id\":\"ci-linux\"}" > /etc/openassetwatch/agent/config.json
@@ -664,7 +664,7 @@ jobs:
               test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
               test -f /var/lib/openassetwatch/agent/state-survival.txt
               test -f /var/log/openassetwatch/agent/log-survival.txt
-              test "$CREDENTIAL_HASH" = "$(sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '"'"'{print $1}'"'"')"
+              test "$CREDENTIAL_HASH" = "$(sha256sum /var/lib/openassetwatch/agent/credential/preservation.fixture | awk '"'"'{print $1}'"'"')"
               systemctl is-enabled --quiet oaw-agent.timer
 
               rpm -Uvh "$NEW_RPM"
@@ -672,7 +672,7 @@ jobs:
               test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
               test -f /var/lib/openassetwatch/agent/state-survival.txt
               test -f /var/log/openassetwatch/agent/log-survival.txt
-              test "$CREDENTIAL_HASH" = "$(sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '"'"'{print $1}'"'"')"
+              test "$CREDENTIAL_HASH" = "$(sha256sum /var/lib/openassetwatch/agent/credential/preservation.fixture | awk '"'"'{print $1}'"'"')"
               systemctl is-enabled --quiet oaw-agent.timer
 
               rpm -Uvh --oldpackage "$OLD_RPM"
@@ -680,7 +680,7 @@ jobs:
               test "$IDENTITY_HASH" = "$(sha256sum /etc/openassetwatch/agent/identity.json | awk '"'"'{print $1}'"'"')"
               test -f /var/lib/openassetwatch/agent/state-survival.txt
               test -f /var/log/openassetwatch/agent/log-survival.txt
-              test "$CREDENTIAL_HASH" = "$(sha256sum /var/lib/openassetwatch/agent/credential/credential.json | awk '"'"'{print $1}'"'"')"
+              test "$CREDENTIAL_HASH" = "$(sha256sum /var/lib/openassetwatch/agent/credential/preservation.fixture | awk '"'"'{print $1}'"'"')"
 
               rpm -e openassetwatch-agent
               test ! -e /opt/openassetwatch/agent/bin/oaw-agent
@@ -693,7 +693,7 @@ jobs:
               test -f /etc/openassetwatch/agent/identity.json
               test -f /var/lib/openassetwatch/agent/state-survival.txt
               test -f /var/log/openassetwatch/agent/log-survival.txt
-              test -f /var/lib/openassetwatch/agent/credential/credential.json
+              test -f /var/lib/openassetwatch/agent/credential/preservation.fixture
             '
 
   windows-agent:
@@ -856,7 +856,7 @@ jobs:
           $configPath = "C:\ProgramData\OpenAssetWatch\Agent\config\config.json"
           $identityPath = "C:\ProgramData\OpenAssetWatch\Agent\identity\identity.json"
           $credentialDir = "C:\ProgramData\OpenAssetWatch\Agent\state\credential"
-          $credentialPath = Join-Path $credentialDir "credential.json"
+          $credentialPath = Join-Path $credentialDir "preservation.fixture"
           $serviceSid = "S-1-5-80-630466807-4251148593-2853048944-3410275790-4186592652"
           function Assert-CredentialDirectoryAcl {
             $acl = Get-Acl -LiteralPath $credentialDir
@@ -999,7 +999,7 @@ jobs:
           IDENTITY="$APP_ROOT/identity/identity.json"
           STATE="$APP_ROOT/state"
           CREDENTIAL_DIR="$STATE/credential"
-          CREDENTIAL_FILE="$CREDENTIAL_DIR/credential.json"
+          CREDENTIAL_FILE="$CREDENTIAL_DIR/preservation.fixture"
           LOG_DIR="/Library/Logs/OpenAssetWatch/Agent"
           PLIST="/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           MOCK="$RUNNER_TEMP/oaw_mock_backend.py"
@@ -1073,7 +1073,7 @@ jobs:
           cat > "$MOCK" <<'PY'
           import json
           import os
-          from http.server import BaseHTTPRequestHandler, HTTPServer
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
           log = os.environ["OAW_MOCK_LOG"]
           class Handler(BaseHTTPRequestHandler):
               def do_GET(self):
@@ -1087,7 +1087,7 @@ jobs:
                   self.end_headers()
               def log_message(self, fmt, *args):
                   return
-          HTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
+          ThreadingHTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
           PY
           OAW_MOCK_LOG="$MOCK_LOG" python3 "$MOCK" &
           BACKEND_PID=$!

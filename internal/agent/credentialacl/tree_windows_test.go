@@ -259,6 +259,7 @@ func createManagedCredentialTree(t *testing.T) (string, string) {
 	}
 	userSID := currentUserSID(t)
 	for _, path := range []string{
+		programData,
 		filepath.Join(programData, "OpenAssetWatch"),
 		filepath.Join(programData, "OpenAssetWatch", "Agent"),
 		filepath.Join(programData, "OpenAssetWatch", "Agent", "state"),

@@ -359,6 +359,26 @@ class ReleasePublicationTests(unittest.TestCase):
             self.assertEqual(warnings, [])
             self.assertEqual(artifacts[0].release_key, "linux-deb")
 
+    def test_release_publication_allows_only_declared_credential_directory(self) -> None:
+        manifest = Path("synthetic.manifest.json")
+        directory = "/var/lib/openassetwatch/agent/credential"
+
+        releasepub.validate_no_secret_json_markers(
+            {"directories": [directory]},
+            manifest,
+        )
+
+        for unsafe in (
+            {"directories": [f"{directory}/credential.json"]},
+            {"directories": ["/tmp/credential"]},
+            {"credential_dir": directory},
+        ):
+            with self.subTest(unsafe=unsafe), self.assertRaisesRegex(
+                ValueError,
+                "forbidden sensitive",
+            ):
+                releasepub.validate_no_secret_json_markers(unsafe, manifest)
+
     def test_release_publication_rejects_sensitive_manifest_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

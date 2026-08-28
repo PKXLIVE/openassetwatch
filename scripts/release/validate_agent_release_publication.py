@@ -26,7 +26,10 @@ SECRET_RE = re.compile(
     re.IGNORECASE,
 )
 RELEASE_BINARY_DIR_RE = re.compile(r"^(linux|windows|darwin)-[A-Za-z0-9]+$")
-SAFE_SENSITIVE_MARKER_VALUES = {"passwd"}
+SAFE_SENSITIVE_MARKER_VALUES = {
+    "passwd",
+    "/var/lib/openassetwatch/agent/credential",
+}
 REQUIRED_RELEASE_ARTIFACT_FIELDS = (
     "artifact_filename",
     "package_type",
