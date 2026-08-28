@@ -70,11 +70,32 @@ They extend the implemented architecture but are not implementation claims:
 - `docs/architecture/temporal-intelligence-roadmap.md` - historical signal
   projections, transparent expected ranges, deterministic deviation handling,
   and optional future forecasting providers.
+- `docs/ai-security/README.md` - prompt-injection and agent-hijacking security
+  package covering trust zones, provenance labels, untrusted-content handling,
+  deterministic tool authorization, Skill Pack candidates, policies, rules,
+  threat modeling, adaptive evaluation, and phased implementation.
 - `docs/architecture/decisions/0003-native-agent-investigation-and-temporal-intelligence.md`
   - accepted cross-subsystem authority and sequencing decisions.
 
 These designs preserve deterministic product authority, passive-first behavior,
 local-first operation, and human review.
+
+## Prompt Injection Security Package
+
+The prompt-injection security package is documentation-only until individual
+controls are implemented and tested. It treats prompt injection as a containment
+and authorization problem rather than relying on model obedience or detection
+alone.
+
+Start at:
+
+- `docs/ai-security/README.md`
+
+The package preserves the current Skill Pack contract and AI governance model.
+External, retrieved, tool-generated, and model-generated content remains data,
+not authorization. New tool, memory, RAG, MCP, multi-agent, and adaptive-dashboard
+capabilities must pass the documented deterministic gates and release blockers
+before they become runtime features.
 
 ## Independent Research and Accepted Direction
 
