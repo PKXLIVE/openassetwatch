@@ -158,6 +158,15 @@ Every policy MUST define:
 - The model MUST NOT simulate or infer approval.
 - High-consequence and safety-impacting actions MUST require explicit human approval.
 
+**Agent-system expansion:**
+
+- Approval requests MUST present material structured facts independently of model-written summaries.
+- Approval request frequency MUST be bounded to reduce fatigue/notification flooding.
+- Denied materially identical requests MUST NOT be automatically re-prompted without new evidence or explicit user initiation.
+- Manufactured urgency from model/untrusted content MUST NOT alter approval tier, waiting period, or second-approver requirement.
+- High-consequence policy MAY require separation of duties or dual approval.
+- Replay/consumption state MUST be enforced outside the model.
+
 ### 11. `AI_MULTI_AGENT_HANDOFF_POLICY.md`
 
 **Purpose:** Prevent trust escalation through agent delegation.
@@ -194,6 +203,14 @@ Every policy MUST define:
 - Every confirmed incident SHOULD produce a regression case before closure.
 - Forensic evidence MUST minimize unnecessary sensitive content.
 
+**Agent-system expansion:**
+
+- A materially suspect agent principal/session MUST be suspendable independently of the model.
+- Pending tool calls, memory writes, descendant tasks, and candidate output artifacts MUST be cancellable/quarantinable.
+- Process restart MUST NOT silently clear required compromise state.
+- Restoration MUST use clean context and current approved component/policy versions.
+- Confirmed agent compromise MUST produce applicable recovery/revalidation evidence before closure.
+
 ### 14. `AI_SECURITY_LOGGING_POLICY.md`
 
 **Purpose:** Record enough security evidence without creating a new sensitive-data store.
@@ -209,6 +226,10 @@ Suggested events include:
 
 `pi.input.scanned`, `pi.input.suspicious`, `pi.indirect.detected`, `pi.context.quarantined`, `pi.tool.blocked`, `pi.tool.approval_requested`, `pi.output.blocked`, `pi.exfiltration.blocked`, `pi.memory_write_blocked`, `pi.rag_ingestion_quarantined`, `pi.dashboard_plan_blocked`, `pi.agent_handoff_blocked`, `pi.policy_violation`, `pi.test.failure`.
 
+**Agent-system expansion:**
+
+Logging SHOULD also include bounded events for agent identity issuance/revocation, delegation graph changes/blocks, capability attenuation, tool/component drift, approval rate/replay blocks, memory-state transitions, systemic circuit breakers, compromise/recovery transitions, canary trips, and resource-budget violations.
+
 ### 15. `AI_SECURITY_EVALUATION_POLICY.md`
 
 **Purpose:** Require adversarial evaluation before release and after incidents/changes.
@@ -221,6 +242,102 @@ Suggested events include:
 - False-positive impact and benign task utility MUST be measured.
 - Every confirmed incident MUST add regression coverage.
 - Dataset/tool licensing MUST be approved before bundling into the repository or release process.
+
+**Agent-system expansion:**
+
+Evaluation MUST also cover authenticated agent identity, delegation attenuation, systemic graph limits, correlated verifier/consensus failure, cognitive-state persistence across sessions/restarts, human-approval manipulation/fatigue, resource exhaustion, component drift/supply-chain invalidation, and compromise recovery where those surfaces exist.
+
+## Agent-system policy delta
+
+The following additional normative policy areas are required before broader agent capability is enabled.
+
+### 16. `AI_AGENT_IDENTITY_POLICY.md`
+
+**Purpose:** Require every agent/runtime task to operate as an authenticated, scoped, expiring, revocable principal.
+
+**Mandatory requirements:**
+
+- Every privileged agent/task MUST have a server-issued principal ID and approved role.
+- Principal MUST bind investigation/task, tenant/site/entity scope, Skill Pack/version, capability set, and policy version.
+- Unknown, expired, revoked, or quarantined principals MUST NOT request tools, delegation, memory writes, or publication.
+- Agent display names/model names MUST NOT substitute for identity.
+- A model MUST NOT issue, renew, activate, or revoke its own principal.
+- Principal revocation MUST be enforced by coordinator/tool gateway outside the model.
+
+### 17. `AI_AGENT_DELEGATION_POLICY.md`
+
+**Purpose:** Define future parent/child delegation and capability attenuation.
+
+**Mandatory requirements:**
+
+- Recursive delegation MUST remain disabled until a versioned delegation contract exists and passes release gates.
+- A child capability/scope/credential set MUST be a subset of the parent grant.
+- Parent broad credentials, approval records, publication rights, and memory rights MUST NOT auto-transfer.
+- Coordinator MUST enforce depth, fan-out, cycle, task, scope, budget, expiry, and cancellation limits.
+- Delegation MUST be attributable to parent/child principals and a coordinator-issued grant.
+- Model text MUST NOT create a delegation grant.
+
+### 18. `AI_AGENT_SYSTEMIC_RISK_POLICY.md`
+
+**Purpose:** Prevent multi-agent congestion, cascade, correlated consensus, shared-state amplification, and topology abuse.
+
+**Mandatory requirements:**
+
+- Coordinator MUST own the active task/delegation graph.
+- Hard graph/resource limits MUST be enforced before dispatch/action.
+- Same-model agreement MUST NOT count as independent verification.
+- Correlated/shared-source evidence MUST be surfaced in verification metadata.
+- Circuit breakers/kill switch MUST be available for agent runtime without disabling core deterministic/passive product functions by default.
+- Upstream revocation/quarantine MUST support descendant invalidation/revalidation.
+
+### 19. `AI_TOOL_INTEGRITY_POLICY.md`
+
+**Purpose:** Protect tool/server publisher identity, implementation/schema integrity, capability profile, destination, and credential scope across lifecycle changes.
+
+**Mandatory requirements:**
+
+- Tool identity MUST include canonical tool ID, publisher, version, implementation digest, schema digest, declared capabilities, side-effect class, destinations, and credential scope.
+- Security-relevant change MUST trigger re-review before continued privileged use.
+- Unknown/revoked/quarantined tool components MUST NOT execute.
+- Tool metadata/description MUST NOT self-assert approval or broaden permissions.
+- Tool response content remains untrusted data.
+
+### 20. `AI_AGENT_SUPPLY_CHAIN_POLICY.md`
+
+**Purpose:** Protect models, Skill Packs, roles, prompts, policies, workflows, tools, retrieval/evaluation bundles, and other agent control artifacts.
+
+**Mandatory requirements:**
+
+- Security-sensitive components MUST have stable identity/version/digest and owner/source metadata.
+- Protected artifacts MUST support review, drift detection, quarantine/revocation, rollback, and runtime verification according to component type.
+- Skill Pack instruction/schema change MUST require re-evaluation even when display ID is unchanged.
+- Model artifacts MUST follow the canonical provenance/qualification contract where policy requires it.
+- Evaluation bundles MUST be integrity/version bound to release evidence.
+- Automatic remote updates MUST NOT silently alter deterministic policy, approved Skill Packs, tool capabilities, or protected control artifacts.
+
+### 21. `AI_AGENT_RESOURCE_LIMIT_POLICY.md`
+
+**Purpose:** Prevent agent/system resource exhaustion and ensure security validation retains capacity.
+
+**Mandatory requirements:**
+
+- Agent/investigation workloads MUST have finite task, concurrency, step, tool-call, context/evidence, runtime, and provider-resource budgets.
+- Future recursive delegation MUST have explicit depth/fan-out/descendant limits.
+- Approval requests MUST be rate-limited/deduplicated according to consequence.
+- Security validation/cancellation SHOULD retain reserved capacity independent of primary analysis where action/publication exists.
+- Hard limit exhaustion MUST end in explicit blocked/inconclusive state; it MUST NOT fabricate completion or widen budgets through model request.
+
+## Canaries and tripwires
+
+Canaries remain a detective-control research area rather than a separate mandatory policy file at this stage.
+
+If introduced, canaries MUST:
+
+- contain no real secret/PII;
+- be deterministically identified and excluded from ordinary finding logic;
+- use bounded telemetry;
+- avoid becoming an authorization signal; and
+- be evaluated for false positives before production enablement.
 
 ## Exceptions
 
@@ -235,7 +352,7 @@ Exceptions to a MUST requirement require:
 - test/evaluation evidence;
 - audit trail.
 
-No exception may authorize cross-tenant leakage, direct AI authoritative writes, or bypass of required human approval for high-consequence action.
+No exception may authorize cross-tenant leakage, direct AI authoritative writes, unknown/revoked agent execution, child capability expansion, or bypass of required human approval for high-consequence action.
 
 ## Review cadence
 
@@ -244,7 +361,9 @@ Policies should be reviewed when:
 - model/agent/tool architecture changes;
 - a new external processing mode is added;
 - a new MCP/tool/RAG/memory capability is enabled;
-- a material injection incident occurs;
+- recursive delegation/multi-agent routing changes;
+- a protected component/publisher/tool capability changes;
+- a material injection/agent-system incident occurs;
 - a relevant standard/taxonomy or attack class materially changes;
 - at a regular security-governance cadence even without a triggering change.
 

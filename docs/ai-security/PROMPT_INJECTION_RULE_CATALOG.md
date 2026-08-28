@@ -113,6 +113,96 @@ Rules should be grouped into deterministic enforcement stages:
 6. **Multi-agent:** `PI-HANDOFF-*`
 7. **Dashboard plan:** `PI-DASH-*`
 
+## Agent-system rule delta
+
+Agent-system security adds a second rule family, `oaw.ai-security.agent`. Existing prompt-injection rules are reused where they already express the required control rather than duplicated under new IDs.
+
+### Reconciliation of agent-system rule families
+
+| Agent-system requirement | Existing coverage | New rule if required |
+| --- | --- | --- |
+| agent identity required | none | `AS-IDENTITY-001` |
+| revoked/expired agent blocked | none | `AS-IDENTITY-002` |
+| delegation depth limit | none | `AS-DELEGATION-001` |
+| delegation cycle prevention | none | `AS-DELEGATION-002` |
+| delegation fan-out limit | none | `AS-DELEGATION-003` |
+| child capability attenuation | partial handoff/tool scope | `AS-DELEGATION-004` |
+| tool implementation/schema drift | `PI-TOOL-002`, `PI-MCP-001` | reuse |
+| tool publisher identity drift | not explicit | `AS-TOOL-001` |
+| credential scope exceeded | `PI-TOOL-006` | reuse |
+| task/parameter scope exceeded | `PI-TOOL-003`, `PI-TOOL-004`, `PI-SCOPE-*` | reuse |
+| cross-agent trust elevation | `PI-HANDOFF-002` | reuse |
+| invalid/non-independent quorum | none | `AS-CONSENSUS-001` |
+| approval request-rate limit | none | `AS-APPROVAL-001` |
+| incomplete approval context | partial `PI-APPROVAL-001` | `AS-APPROVAL-002` |
+| approval replay/consumed reuse | partial `PI-APPROVAL-002` | `AS-APPROVAL-003` |
+| resource budget exceeded | investigation budgets designed elsewhere | `AS-BUDGET-001` |
+| compromised session/principal state | none | `AS-RECOVERY-001` |
+| memory quarantine after compromise | partial `PI-MEM-*` | `AS-MEM-001` |
+| revoked AI component blocked | none | `AS-COMPONENT-001` |
+| supply-chain provenance invalid | model-specific provenance exists | `AS-SUPPLY-001` |
+
+### Agent-system rules
+
+| Rule ID | Purpose | Condition | Decision | Reason code | Severity |
+| --- | --- | --- | --- | --- | --- |
+| `AS-IDENTITY-001` | Require authenticated agent principal | privileged task/tool/delegation has no valid principal | deny | `AGENT_IDENTITY_MISSING` | critical |
+| `AS-IDENTITY-002` | Enforce principal lifecycle | principal is expired, revoked, suspended, or quarantined | deny/cancel | `AGENT_IDENTITY_NOT_ACTIVE` | critical |
+| `AS-DELEGATION-001` | Limit delegation depth | proposed child would exceed policy depth | deny | `DELEGATION_DEPTH_EXCEEDED` | high |
+| `AS-DELEGATION-002` | Prevent delegation cycle | proposed edge creates ancestor cycle | deny | `DELEGATION_CYCLE_DETECTED` | high |
+| `AS-DELEGATION-003` | Limit fan-out/descendants | child count/concurrency/descendant total exceeds policy | deny/degrade | `DELEGATION_FANOUT_EXCEEDED` | high |
+| `AS-DELEGATION-004` | Enforce capability attenuation | child scope/tool/capability/credential set not subset of grant | deny | `CHILD_CAPABILITY_EXPANSION` | critical |
+| `AS-TOOL-001` | Detect publisher/source drift | approved canonical tool publisher/source changes | disable/review | `TOOL_PUBLISHER_CHANGED` | high |
+| `AS-CONSENSUS-001` | Prevent false independent verification | workflow treats correlated/same-model agents as required independent quorum | reject verification state | `AGENT_QUORUM_NOT_INDEPENDENT` | high |
+| `AS-APPROVAL-001` | Prevent approval fatigue/flood | approval request rate/dedup/cooldown policy exceeded | block/defer/escalate | `APPROVAL_RATE_LIMIT_EXCEEDED` | high |
+| `AS-APPROVAL-002` | Require complete material approval context | required target/destination/data/permission/risk/uncertainty fields absent | deny approval use | `APPROVAL_CONTEXT_INCOMPLETE` | high |
+| `AS-APPROVAL-003` | Prevent approval replay | consumed/denied/expired approval reused or task/action binding mismatched | deny | `APPROVAL_REPLAY_BLOCKED` | critical |
+| `AS-BUDGET-001` | Enforce systemic budgets | hard task/tool/context/runtime/provider/approval limit exceeded | stop/degrade | `AGENT_RESOURCE_BUDGET_EXCEEDED` | high |
+| `AS-RECOVERY-001` | Stop compromised execution | principal/session security state requires suspension/quarantine | deny/cancel/quarantine | `AGENT_SECURITY_STATE_BLOCKED` | critical |
+| `AS-MEM-001` | Quarantine memory from compromised source | memory candidate/active item derives from compromised principal/session/component | quarantine/revalidate | `MEMORY_SOURCE_COMPROMISED` | high |
+| `AS-COMPONENT-001` | Block revoked component | required model/tool/Skill Pack/role/workflow component is revoked/quarantined/expired | deny activation/use | `AI_COMPONENT_NOT_ACTIVE` | critical |
+| `AS-SUPPLY-001` | Require valid provenance/integrity | protected component fails required digest/provenance/signature/review policy | deny/quarantine | `AI_SUPPLY_CHAIN_PROVENANCE_INVALID` | critical |
+
+## Agent-system detailed examples
+
+### `AS-DELEGATION-004` — capability attenuation
+
+- **Trigger:** Future coordinator considers child-agent dispatch.
+- **Required evidence:** parent principal, coordinator-issued delegation grant, child role/capability request, task scope, credential/tool requirements.
+- **Condition:** any child effective capability, evidence class, tool, credential, destination, tenant/site/entity scope, memory/publication right, or delegation right exceeds the grant.
+- **Decision:** `deny`.
+- **Reason code:** `CHILD_CAPABILITY_EXPANSION`.
+- **Audit event:** `agent.delegation.denied`.
+- **Positive test:** parent read-only investigator attempts to spawn child with external publisher capability -> deny.
+- **Negative test:** parent delegates narrower read-only evidence subset to verifier within depth/budget -> permit if all other gates pass.
+- **Failure mode:** fail closed on missing grant metadata.
+
+### `AS-APPROVAL-003` — approval replay
+
+- **Trigger:** Side-effecting action presents approval record.
+- **Condition:** approval is consumed, expired, denied/revoked, or exact action/task/tool/parameter/artifact/destination binding differs.
+- **Decision:** `deny` and require new approval when policy allows.
+- **Reason code:** `APPROVAL_REPLAY_BLOCKED`.
+- **Audit event:** `ai.approval.replay_blocked`.
+- **Failure mode:** fail closed.
+
+### `AS-SUPPLY-001` — protected component provenance
+
+- **Trigger:** Protected model/Skill Pack/tool/policy/workflow/evaluation component is selected or activated.
+- **Condition:** required provenance/integrity/review state is missing, mismatched, revoked, expired, or requires re-evaluation.
+- **Decision:** deny activation/use or quarantine according to component policy.
+- **Reason code:** `AI_SUPPLY_CHAIN_PROVENANCE_INVALID`.
+- **Audit event:** `ai.supply_chain.activation_blocked`.
+- **Negative test:** exact approved component/version/digest with valid current review state proceeds.
+
+## Rule layering with agent-system controls
+
+8. **Identity and principal state:** `AS-IDENTITY-*`, `AS-COMPONENT-*`
+9. **Delegation/topology:** `AS-DELEGATION-*`, `AS-CONSENSUS-*`
+10. **Human/systemic resource controls:** `AS-APPROVAL-*`, `AS-BUDGET-*`
+11. **Recovery/persistence:** `AS-RECOVERY-*`, `AS-MEM-*`
+12. **Supply-chain integrity:** `AS-TOOL-*`, `AS-SUPPLY-*`
+
 ## Overrides
 
 Overrides MUST be policy-owned, time-bounded, scoped, attributable, and audited. No override may permit:
@@ -122,7 +212,10 @@ Overrides MUST be policy-owned, time-bounded, scoped, attributable, and audited.
 - silent bypass of required human approval;
 - unrestricted generated code/query execution;
 - self-modifying rules or policy;
-- unauthorized credential access.
+- unauthorized credential access;
+- unknown/revoked agent execution;
+- child capability expansion; or
+- invalid protected-component provenance on a path where provenance is mandatory.
 
 ## Evaluation requirements
 
@@ -137,4 +230,6 @@ Every rule needs:
 - audit-event assertion;
 - fail-open/fail-closed assertion.
 
-Rules affecting high-consequence actions, tenant isolation, credentials, memory, external egress, or code/query execution are release blockers.
+Agent-system rules additionally require multi-agent/topology/restart/replay cases where applicable.
+
+Rules affecting high-consequence actions, tenant isolation, credentials, memory, external egress, agent identity/delegation, component provenance, or code/query execution are release blockers.
