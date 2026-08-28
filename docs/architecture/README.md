@@ -23,6 +23,17 @@ source code and the subsystem documents linked from `docs/architecture/overview.
 - `decisions/0003-native-agent-investigation-and-temporal-intelligence.md` — accepted
   cross-subsystem decision and non-negotiable invariants.
 
+## Asset Intelligence Stack Gap Expansion
+
+- `asset-intelligence-stack-gap-additions.md` — accepted missing architecture
+  for asset presence sessions, canonical field authority and change history,
+  relationship evidence and edge history, dependency-aware alert compression,
+  quota-aware connector credentials, transformation provenance, adaptive host
+  pressure controls, governed passive fingerprint rules, worker compatibility,
+  partitioned platform work, and safe fielded asset/relationship queries. The
+  document also records implementation sequencing, release blockers, and the
+  active/offensive or duplicative features that must not be added.
+
 ## Native Design Review Boundary
 
 - `NO_EXTERNAL_REFERENCE_POLICY.md` — requires canonical architecture to use
