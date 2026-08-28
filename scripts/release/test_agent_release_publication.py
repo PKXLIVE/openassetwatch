@@ -208,7 +208,14 @@ class ReleasePublicationTests(unittest.TestCase):
                 'ExeCommand="repair-private-state-acl"',
                 'ExeCommand="repair-private-state-acl [AgentCredentialDir]"',
             ),
-            "late-schedule": ('After="InstallFiles"', 'After="StartServices"'),
+            "early-schedule": (
+                'After="Wix4SchedSecureObjects_X64"',
+                'After="InstallFiles"',
+            ),
+            "late-schedule": (
+                'After="Wix4SchedSecureObjects_X64"',
+                'After="StartServices"',
+            ),
             "runs-on-uninstall": (
                 'Condition="NOT (REMOVE~=&quot;ALL&quot;)"',
                 'Condition="1"',

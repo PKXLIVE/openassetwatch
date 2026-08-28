@@ -70,7 +70,15 @@ try {
     $stage = "repair_sequence_value"
     $repairSequence = [int]$repairSequenceRecord.Values[1]
 
-	$stage = "service_sequence"
+    $stage = "secure_objects_sequence"
+    $secureObjectsSequenceRecord = Get-RecordValues -Database $database -Query (
+        'SELECT `Sequence` FROM `InstallExecuteSequence` ' +
+        'WHERE `Action`=''Wix4SchedSecureObjects_X64'''
+    ) -FieldTypes @("integer")
+    $stage = "secure_objects_sequence_value"
+    $secureObjectsSequence = [int]$secureObjectsSequenceRecord.Values[0]
+
+    $stage = "service_sequence"
     $startSequenceRecord = Get-RecordValues -Database $database -Query (
         'SELECT `Sequence` FROM `InstallExecuteSequence` WHERE `Action`=''StartServices'''
     ) -FieldTypes @("integer")
@@ -117,6 +125,7 @@ try {
         no_impersonation = ($actionType -band 0x800) -ne 0
         failure_checked = ($actionType -band 0xC0) -eq 0
         repair_condition = $repairCondition -eq 'NOT (REMOVE~="ALL")'
+        repair_after_protected_acl = $repairSequence -gt $secureObjectsSequence
         repair_before_service_start = $repairSequence -lt $startSequence
         credential_directory = $credentialDirectory -eq "AgentCredentialDir"
         credential_acl_object = $aclObject -eq "AgentCredentialDir"

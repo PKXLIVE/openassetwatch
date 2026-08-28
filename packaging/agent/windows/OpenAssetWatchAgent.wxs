@@ -24,7 +24,7 @@
     <InstallExecuteSequence>
       <Custom
           Action="RepairPrivateStateAcl"
-          After="InstallFiles"
+          After="Wix4SchedSecureObjects_X64"
           Condition="NOT (REMOVE~=&quot;ALL&quot;)" />
     </InstallExecuteSequence>
 

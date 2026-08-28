@@ -222,7 +222,7 @@ def validate_wix_source(repo_root: Path) -> None:
     )
     expected_sequence = {
         "Action": "RepairPrivateStateAcl",
-        "After": "InstallFiles",
+        "After": "Wix4SchedSecureObjects_X64",
         "Condition": 'NOT (REMOVE~="ALL")',
     }
     if (
@@ -232,7 +232,7 @@ def validate_wix_source(repo_root: Path) -> None:
         or sequence.attrib != expected_sequence
     ):
         raise ValueError(
-            "WiX credential ACL repair must run deferred as SYSTEM after files install."
+            "WiX credential ACL repair must run deferred as SYSTEM after the protected ACL is scheduled."
         )
     sanitized = text
     for allowed in (
