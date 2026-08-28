@@ -67,6 +67,11 @@ They extend the implemented architecture but are not implementation claims:
 - `docs/architecture/agent-evaluation-and-release-gates.md` - versioned
   evaluation fixtures, forbidden-behavior checks, repeated runs, and hard
   release blockers.
+- `docs/architecture/ai-adversarial-input-and-injection-evaluation.md` -
+  multidimensional adversarial-input coverage, multi-turn policy
+  revalidation, tool-metadata and argument-provenance tests, structured-output
+  semantic validation, propagation resistance, resource-abuse evaluation,
+  local-model integrity qualification, and explicit unknown coverage states.
 - `docs/architecture/temporal-intelligence-roadmap.md` - historical signal
   projections, transparent expected ranges, deterministic deviation handling,
   and optional future forecasting providers.
@@ -80,6 +85,9 @@ They extend the implemented architecture but are not implementation claims:
 - `docs/architecture/decisions/0005-defensive-content-and-model-robustness.md`
   - accepted defensive content, intelligence, parser, and model robustness
   boundaries and implementation sequence.
+- `docs/architecture/decisions/0006-adversarial-input-evaluation.md` - accepted
+  adversarial coverage, propagation, tool/output, resource-abuse, and local
+  model-integrity evaluation requirements.
 
 These designs preserve deterministic product authority, passive-first behavior,
 local-first operation, and human review.
@@ -107,6 +115,7 @@ are recorded under:
 - `docs/architecture/decisions/0001-research-aligned-expansion.md`
 - `docs/architecture/decisions/0002-additive-external-intelligence-enrichment.md`
 - `docs/architecture/decisions/0005-defensive-content-and-model-robustness.md`
+- `docs/architecture/decisions/0006-adversarial-input-evaluation.md`
 
 Third-party advisory, fingerprint, and external-intelligence source decisions
 are governed by:
