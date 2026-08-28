@@ -12,9 +12,11 @@ read-only projection over OpenAssetWatch-owned historical records. It provides:
 - explicit missing, incomplete, stale, and late-arriving states; and
 - the read-only **Environment Trends** dashboard view.
 
-Phase 2 expected ranges, Phase 3 deviation detection, advanced machine learning,
-User Behavior analytics, Adaptive Workspaces, AI dashboard planning, forecasting,
-and automated remediation are **not implemented**.
+Phase 2 deterministic expected ranges are implemented over this foundation; see
+`docs/TEMPORAL_EXPECTED_RANGES.md`. Phase 3 deviation detection, advanced
+machine learning, User Behavior analytics, Adaptive Workspaces, AI dashboard
+planning, advanced forecasting, and automated remediation are **not
+implemented**.
 
 Temporal signals are derived analytical evidence. They do not change or replace
 asset identity, classification, vulnerability truth, finding lifecycle,
@@ -192,6 +194,11 @@ unaligned windows, reversed windows, and windows over 366 buckets are rejected.
 There is no raw SQL, caller-selected grouping, unbounded pagination, or global
 cross-site aggregation.
 
+Phase 2 adds `GET /api/v1/temporal/expectations` behind the same configured
+admin-token boundary. Its internal as-of projection uses only source evidence
+received before the target cutoff and only closed UTC baseline buckets. The
+normal Phase 1 signal route remains a current authoritative snapshot.
+
 OpenAssetWatch currently persists no tenant identity in this self-hosted schema,
 so Phase 1 returns `tenant_id: null`. The site boundary is mandatory. A future
 hosted/multi-tenant schema must add tenant authority to source records and every
@@ -201,13 +208,16 @@ projection predicate before tenant-scoped temporal access is enabled.
 
 The static Control Tower dashboard includes a read-only **Environment Trends**
 view. Its metric selector is populated from the server registry. It requests one
-site and either 30 or 90 daily buckets, draws only non-null observed values, and
-breaks chart lines across missing buckets.
+site and either 30 or 90 daily buckets, draws only non-null observed values,
+breaks chart lines across missing buckets, and overlays the Phase 2 expected
+band for the current UTC target when sufficient closed history exists.
 
 The bucket table labels `Observed`, `Missing`, `Incomplete`, and `Stale`
 separately. Untrusted metric descriptions and values are assigned through DOM
 `textContent`; they are not treated as markup or query fragments. The existing
 page-only admin token field is reused and remains unstored.
+Expected range, method/version, confidence, and range data quality remain
+separate from the observed bucket-quality labels.
 
 ## Security and privacy boundaries
 

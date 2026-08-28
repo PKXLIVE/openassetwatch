@@ -40,6 +40,8 @@ service backed by PostgreSQL through SQLAlchemy.
   projection
 - read-only Environment Trends dashboard with explicit missingness and
   incomplete/stale source states
+- deterministic cutoff-safe temporal expected ranges with visible method,
+  confidence, data quality, and analytical-only authority
 - release/artifact metadata placeholder
 - static dashboard mount at `/ui`
 - legacy Python collector ingestion and policy endpoints
@@ -339,6 +341,9 @@ same complete signed bundles through a separately signed discovery index.
 See `docs/TEMPORAL_SIGNAL_FOUNDATION.md` for the Phase 1 signal contract,
 governed registry, supported and deferred metrics, UTC bucketing, read-only API,
 missingness/backfill behavior, security boundaries, and Environment Trends UI.
+See `docs/TEMPORAL_EXPECTED_RANGES.md` for the Phase 2 expectation contract,
+closed-history cutoff rules, governed rolling/seasonal methods, confidence and
+data-quality gates, expected-band UI, and analytical-only authority boundary.
 
 ## Safety Boundaries
 

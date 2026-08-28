@@ -1,6 +1,6 @@
 # Temporal Intelligence Roadmap
 
-- **Status:** Accepted design; Phase 1 signal projection implemented
+- **Status:** Accepted design; Phase 1 signals and Phase 2 deterministic expected ranges implemented
 - **Decision:** `docs/architecture/decisions/0003-native-agent-investigation-and-temporal-intelligence.md`
 
 ## Purpose
@@ -456,6 +456,11 @@ backfill behavior, conservative metric deferrals, and Environment Trends UI.
 
 ### Phase 2 — Deterministic expected ranges
 
+**Implemented.** See `docs/TEMPORAL_EXPECTED_RANGES.md` for the typed
+expectation contract, governed rolling/seasonal policies, closed-bucket and
+exclusive knowledge-cutoff rules, confidence/data-quality gates, read-only API,
+and Environment Trends expected-band overlay.
+
 - implement robust rolling/seasonal methods;
 - produce typed expectation artifacts;
 - display expected bands;
@@ -491,8 +496,9 @@ Temporal Intelligence does not approve:
 
 ## Implementation status
 
-Phase 1 signal projection is implemented. The accepted Phase 2 expected-range
-engine, Phase 3 deviation candidates, Phase 4 advanced forecasting research,
-and related AI Advisor temporal explanations remain unimplemented. The Phase 1
-UI displays observed signals and data-quality states only; it does not display
-expected bands, forecasts, or anomaly indicators.
+Phase 1 signal projection and the Phase 2 deterministic expected-range engine
+are implemented. Phase 3 deviation candidates, Phase 4 advanced forecasting
+research, and related AI Advisor temporal explanations remain unimplemented.
+The Environment Trends UI displays observed signals, source data-quality states,
+and the current target's deterministic expected band; it does not display
+deviation or anomaly indicators.
