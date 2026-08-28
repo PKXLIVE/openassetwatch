@@ -33,6 +33,11 @@ source code and the subsystem documents linked from `docs/architecture/overview.
   partitioned platform work, and safe fielded asset/relationship queries. The
   document also records implementation sequencing, release blockers, and the
   active/offensive or duplicative features that must not be added.
+- `decision-integrity-and-evidence-snapshot-gaps.md` — accepted cross-cutting
+  requirements for exact-state-bound approval receipts, incomplete-analysis
+  gates, suppression/accepted-risk governance, candidate entity promotion and
+  bounded reconsideration, consistent evidence snapshots, and explicit
+  separation between operational activity and evidentiary lineage.
 
 ## Native Design Review Boundary
 
