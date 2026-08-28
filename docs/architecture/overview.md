@@ -70,32 +70,61 @@ They extend the implemented architecture but are not implementation claims:
 - `docs/architecture/temporal-intelligence-roadmap.md` - historical signal
   projections, transparent expected ranges, deterministic deviation handling,
   and optional future forecasting providers.
-- `docs/ai-security/README.md` - prompt-injection and agent-hijacking security
-  package covering trust zones, provenance labels, untrusted-content handling,
-  deterministic tool authorization, Skill Pack candidates, policies, rules,
-  threat modeling, adaptive evaluation, and phased implementation.
+- `docs/ai-security/README.md` - AI security architecture package covering
+  prompt injection, trust zones/labels, deterministic tool authorization,
+  agent identity/delegation, systemic controls, secure human approval,
+  memory/RAG protection, supply-chain integrity, compromise recovery, Skill
+  Pack candidates, policies, rules, threat modeling, adaptive evaluation, and
+  phased implementation.
 - `docs/architecture/decisions/0003-native-agent-investigation-and-temporal-intelligence.md`
   - accepted cross-subsystem authority and sequencing decisions.
 
 These designs preserve deterministic product authority, passive-first behavior,
 local-first operation, and human review.
 
-## Prompt Injection Security Package
+## AI Security Package
 
-The prompt-injection security package is documentation-only until individual
-controls are implemented and tested. It treats prompt injection as a containment
-and authorization problem rather than relying on model obedience or detection
-alone.
+The AI security package is documentation-only until individual controls are
+implemented and tested. It treats prompt injection and broader agent-system
+failure as containment, identity, authorization, persistence, supply-chain,
+recovery, and human-oversight problems rather than relying on model obedience or
+detection alone.
 
 Start at:
 
 - `docs/ai-security/README.md`
 
+Core prompt-injection architecture:
+
+- `docs/ai-security/PROMPT_INJECTION_SECURITY_ARCHITECTURE.md`
+- `docs/ai-security/AI_TRUST_ZONE_MODEL.md`
+- `docs/ai-security/AI_TRUST_LABELS.md`
+- `docs/ai-security/AI_TOOL_AUTHORIZATION_MODEL.md`
+- `docs/ai-security/PROMPT_INJECTION_SKILL_CATALOG.md`
+- `docs/ai-security/PROMPT_INJECTION_POLICY_INDEX.md`
+- `docs/ai-security/PROMPT_INJECTION_RULE_CATALOG.md`
+- `docs/ai-security/PROMPT_INJECTION_EVALUATION_STANDARD.md`
+- `docs/ai-security/PROMPT_INJECTION_IMPLEMENTATION_ROADMAP.md`
+
+Agent-system security delta:
+
+- `docs/ai-security/AI_AGENT_TRAPS_SECURITY_DELTA.md`
+- `docs/ai-security/AI_AGENT_IDENTITY_AND_DELEGATION_MODEL.md`
+- `docs/ai-security/SYSTEMIC_AGENT_SECURITY_ARCHITECTURE.md`
+- `docs/ai-security/AI_HUMAN_APPROVAL_SECURITY_MODEL.md`
+- `docs/ai-security/AI_MEMORY_TRUST_STATE_MODEL.md`
+- `docs/ai-security/AI_AGENT_SUPPLY_CHAIN_SECURITY.md`
+- `docs/ai-security/AI_AGENT_COMPROMISE_RECOVERY_MODEL.md`
+
 The package preserves the current Skill Pack contract and AI governance model.
-External, retrieved, tool-generated, and model-generated content remains data,
-not authorization. New tool, memory, RAG, MCP, multi-agent, and adaptive-dashboard
-capabilities must pass the documented deterministic gates and release blockers
-before they become runtime features.
+External, retrieved, tool-generated, model-generated, and agent-generated
+content remains data, not authorization. Agent identities, delegation grants,
+tool/component trust, memory state, approvals, and recovery state are owned by
+deterministic product controls rather than model text.
+
+New tool, memory, RAG, MCP, multi-agent, recursive-delegation, adaptive-dashboard,
+or action capabilities must pass the documented deterministic gates and release
+blockers before they become runtime features.
 
 ## Independent Research and Accepted Direction
 

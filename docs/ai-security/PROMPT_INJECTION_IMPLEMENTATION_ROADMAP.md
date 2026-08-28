@@ -287,17 +287,275 @@ Before implementation, architecture/security owners should approve:
 9. evaluation datasets/tools and licensing;
 10. zero-tolerance release blockers and exception policy.
 
+## Agent-system security roadmap delta
+
+The following phases extend the baseline roadmap using the architecture in:
+
+- `AI_AGENT_TRAPS_SECURITY_DELTA.md`
+- `AI_AGENT_IDENTITY_AND_DELEGATION_MODEL.md`
+- `SYSTEMIC_AGENT_SECURITY_ARCHITECTURE.md`
+- `AI_HUMAN_APPROVAL_SECURITY_MODEL.md`
+- `AI_MEMORY_TRUST_STATE_MODEL.md`
+- `AI_AGENT_SUPPLY_CHAIN_SECURITY.md`
+- `AI_AGENT_COMPROMISE_RECOVERY_MODEL.md`
+
+They do not authorize recursive agents or side effects by themselves.
+
+### Delta Phase A — Agent identity and topology
+
+#### Objective
+Give every agent/runtime task an authenticated, scoped, expiring, revocable principal and make task relationships reconstructable.
+
+#### Prerequisites
+- current investigation/task contract;
+- AI Component Registry direction;
+- tenant/site scope contracts;
+- Skill Pack versioning.
+
+#### Implementation candidates
+- `oaw.agent-principal.v1` schema;
+- role registry linkage;
+- principal issuance/expiry/revocation;
+- principal binding to task/investigation/Skill Pack/model route;
+- topology/relationship projection;
+- unknown/revoked identity deterministic rules;
+- audit events.
+
+#### Tests
+- missing/expired/revoked identity;
+- task/tenant/site mismatch;
+- tool request without valid principal;
+- restart preserves revocation;
+- identity cannot be self-issued by model.
+
+#### Definition of done
+Every agent/tool request can be attributed to a valid principal and unknown/revoked principals fail closed.
+
+### Delta Phase B — Tool and transport integrity
+
+#### Objective
+Complete canonical tool/component lifecycle integrity beyond basic tool authorization.
+
+#### Prerequisites
+- baseline Phase 2 tool authorizer;
+- principal identity from Phase A;
+- component registry.
+
+#### Implementation candidates
+- canonical publisher/tool identity;
+- implementation/schema/capability/destination/credential-profile digests;
+- drift detection and re-review state;
+- revoked/quarantined tool state;
+- transport/egress restrictions;
+- tool-integrity Skill Pack and rules.
+
+#### Tests
+- implementation/schema/publisher drift;
+- destination expansion;
+- credential-scope change;
+- revoked tool still configured;
+- model/tool metadata self-asserts approval.
+
+#### Definition of done
+Security-relevant tool change cannot continue privileged execution without required re-review.
+
+### Delta Phase C — Delegation and systemic controls
+
+#### Objective
+Define future safe delegation and prevent graph/cascade/resource failures.
+
+#### Prerequisites
+- Phase A identity;
+- Phase B tool integrity for any tool-capable child;
+- coordinator state/ledger;
+- budgets and cancellation.
+
+#### Implementation candidates
+- `oaw.agent-delegation.v1`;
+- capability attenuation;
+- max depth/fan-out/descendants;
+- cycle detection;
+- correlation/diversity metadata;
+- systemic circuit breakers;
+- global agent-runtime kill switch;
+- descendant invalidation.
+
+#### Tests
+- child > parent grant;
+- cycle/depth/fan-out+1;
+- one hostile input -> N tasks;
+- same-model false consensus;
+- approval flood;
+- cross-tenant cascade;
+- cancellation propagation.
+
+#### Definition of done
+If recursive delegation is ever enabled, child authority is always attenuated and topology/resource limits fail closed. Until then recursive delegation remains disabled.
+
+### Delta Phase D — Cognitive-state integrity
+
+#### Objective
+Implement full memory trust lifecycle and persistence containment.
+
+#### Prerequisites
+- baseline Phase 3 memory/RAG gates;
+- trust labels;
+- principal identity;
+- dependency/provenance references.
+
+#### Implementation candidates
+- memory states `candidate` through `quarantined`;
+- state-transition ledger;
+- deterministic write/retrieval gates;
+- stale/superseded/retracted handling;
+- descendant invalidation;
+- compromised-source quarantine;
+- vector-index state enforcement.
+
+#### Tests
+- model self-promotion;
+- poison laundering through summaries;
+- cross-session/restart persistence;
+- stale/retracted retrieval;
+- compromised principal memory writes;
+- cache/vector stale copies.
+
+#### Definition of done
+Only approved active memory is retrievable for its bounded purpose, and memory can never become authoritative product truth directly.
+
+### Delta Phase E — Secure human approvals
+
+#### Objective
+Protect the reviewer from fatigue/manipulation and bind approval to material action facts.
+
+#### Prerequisites
+- tool authorization;
+- candidate artifact/output gate;
+- principal/task identity;
+- consequence classes.
+
+#### Implementation candidates
+- structured approval preview;
+- exact action digest binding;
+- consumption/replay protection;
+- rate limit/cooldown/dedup;
+- denial re-prompt controls;
+- separation of duties;
+- optional dual approval for highest consequence;
+- summary/structured-metadata mismatch blocking.
+
+#### Tests
+- forged "already approved" text;
+- action/destination/artifact changes;
+- replay/consumed approval;
+- repeated request after denial;
+- approval flood;
+- manufactured urgency;
+- hidden external egress;
+- missing second approver.
+
+#### Definition of done
+Consequential actions cannot execute from stale, replayed, incomplete, or manipulated approval state.
+
+### Delta Phase F — Agent/control supply chain
+
+#### Objective
+Extend provenance and protected-artifact controls across the agent stack.
+
+#### Prerequisites
+- AI Component Registry;
+- existing model-artifact provenance;
+- Skill Pack version/digest contract;
+- tool-integrity state.
+
+#### Implementation candidates
+- protected component identity/status;
+- Skill Pack instruction/schema digests;
+- role/prompt/policy/workflow integrity;
+- quarantine/revocation/rollback;
+- evaluation bundle identity;
+- signatures/attestations where current release architecture supports them;
+- runtime integrity checks.
+
+#### Tests
+- silent Skill Pack instruction change;
+- policy/workflow digest mismatch;
+- revoked component activation;
+- evaluation bundle weakening;
+- model provenance mismatch;
+- rollback history integrity.
+
+#### Definition of done
+Protected AI components cannot activate on privileged paths without the required current provenance, integrity, review, and evaluation state.
+
+### Delta Phase G — Systemic adaptive evaluation and recovery
+
+#### Objective
+Validate Phases A-F under repeated, persistent, multi-agent, approval, resource, supply-chain, and recovery attacks.
+
+#### Prerequisites
+- applicable Phases A-F implementation;
+- versioned eval bundles;
+- compromise security-state model.
+
+#### Implementation candidates
+- expanded agent-system eval families;
+- multi-agent scale/fan-out campaigns;
+- persistence across session/restart/memory;
+- approval-fatigue simulations;
+- tool/component drift campaigns;
+- compromise/recovery simulation;
+- descendant invalidation checks;
+- release report.
+
+#### Release gates
+All baseline and agent-system zero-tolerance blockers in `PROMPT_INJECTION_EVALUATION_STANDARD.md`.
+
+#### Definition of done
+Repeated/adaptive attacks cannot cross deterministic identity, scope, authorization, persistence, approval, supply-chain, recovery, or tenant boundaries, and security controls retain acceptable benign utility.
+
+## Delta implementation readiness
+
+| Capability | Current design status | Earliest action | Dependency | Priority |
+| --- | --- | --- | --- | --- |
+| agent principal + role binding | new focused design | detailed schema/implementation design | investigation/task identity | A |
+| topology/risk graph projection | partial existing design | extend existing AI activity graph | principal IDs | A |
+| tool publisher/drift lifecycle | partial existing design | expand tool registry/authorization | tool gateway | B |
+| capability-attenuated delegation | new focused design | keep disabled; implement only before recursive delegation | A + coordinator | C |
+| cycle/fan-out/systemic circuit breakers | partial budgets, new systemic design | implement limits before recursive/multi-agent expansion | A | C |
+| memory trust-state lifecycle | new focused design over existing write-gate direction | schema/state design | trust labels + RAG/memory | D |
+| approval anti-fatigue/replay model | new focused design over existing binding | UI/schema/policy design | tool auth + principals | E |
+| protected Skill Pack/control provenance | partial existing protected-artifact design | bind loader/runtime activation when implemented | component registry | F |
+| compromised-agent recovery | new focused design | implement security state before broad action/recursive capability | A-D | A/G |
+| canaries/tripwires | research-stage | prototype/evaluate only | telemetry | later |
+
+## Additional owner decisions before implementation
+
+11. agent-principal schema, identity substrate, and credential broker approach;
+12. whether/when recursive delegation is allowed at all;
+13. maximum topology depth/fan-out/concurrency and default systemic budgets;
+14. approval consequence tiers and which require dual control;
+15. memory types allowed for durable AI persistence;
+16. protected component types that require signatures versus hashes/review only;
+17. recovery/quarantine retention and operator workflow;
+18. whether canaries/tripwires are worth product complexity;
+19. external evaluation tools/datasets permitted for CI after licensing review.
+
 ## Explicitly prohibited sequencing
 
 Do not:
 
 - add broad tool authority before Phase 2 controls;
-- enable durable AI memory before Phase 3 gates;
+- enable durable AI memory before Phase 3 and Delta D gates;
 - allow MCP dynamic discovery to imply approval;
 - allow child agents to inherit unrestricted parent capabilities;
+- enable recursive delegation before Delta A/C identity+attenuation+graph controls;
 - add free-form model-generated SQL/query/code as a shortcut to Phase 5;
+- treat human approval as safe without exact action binding and replay protection;
+- load protected Skill Packs/tools/policies with invalid required provenance;
+- resume compromised agent state after restart without revalidation;
 - relax containment because a newer model or detector scores better on one-shot tests.
 
 ## Final architecture readiness condition
 
-A workstream is ready for implementation only when its trust labels, deterministic rules, scope/authorization behavior, audit events, failure behavior, tests, release blockers, and rollback path are documented and approved.
+A workstream is ready for implementation only when its trust labels, deterministic rules, scope/authorization behavior, identity/delegation behavior where applicable, audit events, failure/recovery behavior, tests, release blockers, and rollback path are documented and approved.

@@ -42,6 +42,12 @@ Prompt-injection policy and authorization must remain in product code/policy, no
 | `multimodal-injection-review` | Review image/OCR/audio/transcript-derived context for hidden instructions and trust propagation | Multimodal content enters AI context | read-only media/OCR metadata | advisory | no | 3-4 |
 | `prompt-injection-incident-response` | Guide containment, context invalidation, evidence review, and regression capture | `likely-injection` or `confirmed-injection`, or material policy violation | read-only IR/audit evidence; containment requests through separate workflow | advisory | containment/action policy | 2+ |
 | `prompt-injection-evaluation` | Run/interpret approved adversarial suites and produce release-gate evidence | Pre-release, scheduled security evaluation, regression | evaluation harness only | advisory/gate evidence | no | 1+ |
+| `agent-identity-review` | Review agent principal, role, task, credential, scope, and revocation state | Agent identity anomaly, unknown/revoked principal, privileged task review | read-only principal/role/task/audit metadata | advisory | no | Agent delta A |
+| `delegation-security-review` | Review parent/child delegation, capability attenuation, scope, depth, fan-out, and cycle evidence | Future delegated task request or delegation policy alert | read-only topology/task/principal metadata | advisory | no | Agent delta C |
+| `systemic-agent-risk-review` | Review multi-agent topology, cascades, correlated outputs, resource pressure, and circuit-breaker events | Systemic-risk alert, fan-out/cascade, repeated verification or approval storm | read-only graph/ledger/budget metadata | advisory | no | Agent delta C |
+| `human-approval-security-review` | Review approval binding, material action context, replay/fatigue risk, and dual-control requirements | Consequential approval request or approval-security alert | read-only approval/action/evidence metadata | advisory | reviewer remains the approver | Agent delta E |
+| `tool-integrity-review` | Review publisher/tool identity, implementation/schema digests, capability/destination drift, and re-review state | Tool registration/change/drift/security alert | read-only tool/component/provenance metadata | advisory | new/changed privileged tool approval | Agent delta B |
+| `agent-supply-chain-review` | Review Skill Pack/model/tool/policy/workflow provenance, integrity, approval, quarantine, and re-evaluation state | Component onboarding, drift, provenance failure, security review | read-only component/SBOM/provenance metadata | advisory | component approval according to policy | Agent delta F |
 
 ## 1. `prompt-injection-assess`
 
@@ -102,6 +108,8 @@ Reviews the assembled context contract, not only the text. It checks:
 - model-generated content reused as fact;
 - agent handoff type mismatches.
 
+The agent-system expansion also requires this Skill Pack to surface semantic manipulation risks such as manufactured urgency, misleading framing, selective evidence ordering, or model-generated authority claims. Detection remains advisory; authorization and evidence rules must remain safe even if semantic manipulation is missed.
+
 ## 5. `tool-intent-authorization-review`
 
 This Skill Pack produces evidence for the deterministic Tool Gateway. It never makes the final authorization decision.
@@ -132,11 +140,15 @@ Covers both corpus writes and retrieval use. It evaluates provenance, scope, inj
 
 A memory proposal remains Zone 6/model-generated content. This Skill Pack assesses whether the proposal is supported, scoped, non-sensitive, non-instructional, time-bounded, and eligible for deterministic/human validation. It cannot set `memory_write_eligible=true`.
 
+The agent-system expansion adds review of the full memory lifecycle in `AI_MEMORY_TRUST_STATE_MODEL.md`, including cross-session persistence, poison laundering through model summaries, stale/retracted state, descendant invalidation, compromised-source quarantine, and vector-index consistency.
+
 ## 8. `mcp-injection-review`
 
 Reviews immutable identity, publisher, version, implementation digest, schema digest, capabilities, transport, description changes, tool responses, and destination/data access. It treats descriptions and responses as untrusted content.
 
 A description/schema change after approval must be surfaced as a new review condition.
+
+The agent-system expansion also checks canonical publisher identity, capability/destination/credential-scope drift, re-review status, and whether a changed tool/server is quarantined or revoked.
 
 ## 9. `output-exfiltration-review`
 
@@ -164,6 +176,8 @@ detected -> contained -> context isolated -> tool activity reviewed -> memory/RA
 
 The Skill Pack may recommend containment but does not itself revoke credentials or change controls unless a separate future action workflow authorizes that capability.
 
+The agent-system expansion adds compromised-principal/session review, descendant invalidation, candidate-output quarantine, memory quarantine, clean-context rebuild, component revalidation, restart safety, and restoration gates from `AI_AGENT_COMPROMISE_RECOVERY_MODEL.md`.
+
 ## 12. `prompt-injection-evaluation`
 
 Interprets approved evaluation cases and release-blocker evidence. It should report:
@@ -181,6 +195,32 @@ Interprets approved evaluation cases and release-blocker evidence. It should rep
 - release-blocker events.
 
 A model's narrative does not override the deterministic gate result.
+
+## Agent-system Skill Pack requirements
+
+### `agent-identity-review`
+
+Inputs include principal ID, role/version, task/investigation binding, tenant/site scope, component trust state, credential metadata, expiry/revocation, and relevant ledger events. Output is a review report only. It cannot issue, revoke, or activate a principal.
+
+### `delegation-security-review`
+
+Reviews a deterministic delegation packet/graph for scope, capability attenuation, depth, fan-out, cycles, parent/child identity, credentials, and cancellation behavior. The coordinator remains the only authority that can dispatch a child.
+
+### `systemic-agent-risk-review`
+
+Reviews topology and operational signals for cascade, shared-source concentration, correlated verifier sets, budget pressure, approval flood, and circuit-breaker state. It cannot change topology or budgets.
+
+### `human-approval-security-review`
+
+Compares the structured approval preview to authoritative task/tool/action metadata and highlights missing material context, replay risk, action drift, fatigue, manufactured urgency, and dual-control requirements. It never approves the action itself.
+
+### `tool-integrity-review`
+
+Reviews immutable tool/server identity, publisher, digests, schema, declared capabilities, network destinations, credential scope, review state, and security drift. It cannot reapprove or activate a changed tool.
+
+### `agent-supply-chain-review`
+
+Reviews component registry/provenance for Skill Packs, roles, prompts, policies, workflows, tools, models, retrieval/evaluation bundles, and publisher profiles. It recommends approve/review/quarantine/re-evaluate but cannot change component trust state.
 
 ## `instructions.md` common structure
 
@@ -230,6 +270,8 @@ The existing OpenAssetWatch `skill.yaml` design should carry strict, machine-enf
 
 Prompt-injection Skill Packs should also eventually require reviewed trust-label/input-surface compatibility, but exact manifest fields must be added through the canonical Skill Pack schema rather than ad-hoc Markdown frontmatter.
 
+Agent-system defensive Skill Packs additionally require compatible agent-principal/role state, component trust state, and topology/task scope where applicable. A Skill Pack cannot create these states itself.
+
 ## Approval/evaluation requirements
 
 A defensive Skill Pack may not be promoted to `approved` until fixtures cover:
@@ -247,10 +289,16 @@ A defensive Skill Pack may not be promoted to `approved` until fixtures cover:
 - false-positive scenarios;
 - provider/model variation when non-deterministic.
 
+Agent-system Skill Packs also require applicable fixtures for unknown/revoked principals, capability attenuation, cycle/fan-out limits, tool/component drift, approval replay/fatigue, compromised-session quarantine, and supply-chain provenance failure.
+
 ## Security invariants
 
 - Skill Packs cannot grant permissions.
 - Skill Packs cannot change trust labels.
+- Skill Packs cannot issue agent identities or delegation grants.
+- Skill Packs cannot activate/reapprove components.
+- Skill Packs cannot approve human-gated actions.
+- Skill Packs cannot change memory trust state directly.
 - Skill Packs cannot promote model output to authoritative state.
 - Skill Packs cannot self-select protected tools.
 - Skill Packs cannot disable auditing or approval requirements.
