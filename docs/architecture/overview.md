@@ -32,6 +32,10 @@ The additive external-intelligence design expansion is documented separately at:
   Certificate Transparency, passive-DNS, external-observation, relationship,
   redaction, and provider-adapter direction that extends existing evidence
   workflows without replacing current collectors or architecture
+- `docs/architecture/threat-intelligence-exchange-boundary.md` - provider-neutral
+  structured intelligence exchange with scoped collections, object manifests,
+  incremental synchronization, explicit receipts, separate authorization,
+  hostile-content admission controls, and governed outbound sharing
 - `docs/EXTERNAL_INTELLIGENCE_SOURCE_REVIEW.md` - preliminary source-specific
   constraints and review-gated dispositions for Exploratores, crt.sh,
   urlscan.io, LeakIX, ThreatCrowd, ONYPHE, and Netlas
@@ -64,14 +68,38 @@ They extend the implemented architecture but are not implementation claims:
 - `docs/architecture/capability-provider-contract.md` - stable
   OpenAssetWatch-owned capability contracts with replaceable provider
   implementations.
-- `docs/architecture/agent-evaluation-and-release-gates.md` - versioned
-  evaluation fixtures, forbidden-behavior checks, repeated runs, and hard
-  release blockers.
+- `docs/architecture/agent-evaluation-and-release-gates.md` - the broad agent
+  evaluation and release standard for evidence, scope, authority, tools,
+  verification, privacy, cancellation, Skill Packs, and hard release blockers.
+- `docs/architecture/ai-adversarial-input-and-injection-evaluation.md` - a
+  specialized extension of the agent evaluation standard covering
+  multidimensional adversarial-input coverage, multi-turn policy revalidation,
+  tool-metadata and argument-provenance tests, structured-output semantic
+  validation, propagation resistance, resource-abuse evaluation, local-model
+  integrity qualification, and explicit unknown coverage states.
 - `docs/architecture/temporal-intelligence-roadmap.md` - historical signal
   projections, transparent expected ranges, deterministic deviation handling,
   and optional future forecasting providers.
+- `docs/architecture/defensive-content-and-model-robustness.md` - structural
+  versus heuristic AI safety controls, monotonic context taint, transformed
+  secret egress protection, sensitive-content inspection, current security
+  intelligence, parser robustness, adversarial model evaluation, and ML score
+  provenance.
+- `docs/architecture/threat-intelligence-exchange-boundary.md` - structured CTI
+  interoperability through existing connector and projection boundaries while
+  keeping transport authentication, content trust, collection authorization,
+  verification, and publication authority separate.
 - `docs/architecture/decisions/0003-native-agent-investigation-and-temporal-intelligence.md`
   - accepted cross-subsystem authority and sequencing decisions.
+- `docs/architecture/decisions/0005-defensive-content-and-model-robustness.md`
+  - accepted defensive content, intelligence, parser, and model robustness
+  boundaries and implementation sequence.
+- `docs/architecture/decisions/0006-adversarial-input-evaluation.md` - accepted
+  OpenAssetWatch-native adversarial coverage, propagation, tool/output,
+  resource-abuse, and local model-integrity evaluation requirements.
+- `docs/architecture/decisions/0007-threat-intelligence-exchange-boundary.md` -
+  accepted structured-intelligence collection, manifest, synchronization,
+  content-admission, and outbound-publication boundaries.
 
 These designs preserve deterministic product authority, passive-first behavior,
 local-first operation, and human review.
@@ -98,6 +126,9 @@ are recorded under:
 - `docs/architecture/decisions/README.md`
 - `docs/architecture/decisions/0001-research-aligned-expansion.md`
 - `docs/architecture/decisions/0002-additive-external-intelligence-enrichment.md`
+- `docs/architecture/decisions/0005-defensive-content-and-model-robustness.md`
+- `docs/architecture/decisions/0006-adversarial-input-evaluation.md`
+- `docs/architecture/decisions/0007-threat-intelligence-exchange-boundary.md`
 
 Third-party advisory, fingerprint, and external-intelligence source decisions
 are governed by:
