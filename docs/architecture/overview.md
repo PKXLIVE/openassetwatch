@@ -64,14 +64,15 @@ They extend the implemented architecture but are not implementation claims:
 - `docs/architecture/capability-provider-contract.md` - stable
   OpenAssetWatch-owned capability contracts with replaceable provider
   implementations.
-- `docs/architecture/agent-evaluation-and-release-gates.md` - versioned
-  evaluation fixtures, forbidden-behavior checks, repeated runs, and hard
-  release blockers.
-- `docs/architecture/ai-adversarial-input-and-injection-evaluation.md` -
-  multidimensional adversarial-input coverage, multi-turn policy
-  revalidation, tool-metadata and argument-provenance tests, structured-output
-  semantic validation, propagation resistance, resource-abuse evaluation,
-  local-model integrity qualification, and explicit unknown coverage states.
+- `docs/architecture/agent-evaluation-and-release-gates.md` - the broad agent
+  evaluation and release standard for evidence, scope, authority, tools,
+  verification, privacy, cancellation, Skill Packs, and hard release blockers.
+- `docs/architecture/ai-adversarial-input-and-injection-evaluation.md` - a
+  specialized extension of the agent evaluation standard covering
+  multidimensional adversarial-input coverage, multi-turn policy revalidation,
+  tool-metadata and argument-provenance tests, structured-output semantic
+  validation, propagation resistance, resource-abuse evaluation, local-model
+  integrity qualification, and explicit unknown coverage states.
 - `docs/architecture/temporal-intelligence-roadmap.md` - historical signal
   projections, transparent expected ranges, deterministic deviation handling,
   and optional future forecasting providers.
@@ -86,8 +87,8 @@ They extend the implemented architecture but are not implementation claims:
   - accepted defensive content, intelligence, parser, and model robustness
   boundaries and implementation sequence.
 - `docs/architecture/decisions/0006-adversarial-input-evaluation.md` - accepted
-  adversarial coverage, propagation, tool/output, resource-abuse, and local
-  model-integrity evaluation requirements.
+  OpenAssetWatch-native adversarial coverage, propagation, tool/output,
+  resource-abuse, and local model-integrity evaluation requirements.
 
 These designs preserve deterministic product authority, passive-first behavior,
 local-first operation, and human review.
