@@ -906,7 +906,14 @@ jobs:
           $cleanupErrors = @()
           try {
             $proc = Start-Process msiexec.exe -ArgumentList @("/i", $msi, "/qn", "/norestart", "/l*v", $log) -Wait -PassThru
-            if ($proc.ExitCode -ne 0) { throw "MSI install failed with $($proc.ExitCode)." }
+            if ($proc.ExitCode -ne 0) {
+              if (Test-Path -LiteralPath $log -PathType Leaf) {
+                Get-Content -LiteralPath $log |
+                  Select-String -Pattern "Return value 3|RepairPrivateStateAcl|Error [0-9]+|private state ACL repair failed" -Context 4,8 |
+                  Out-Host
+              }
+              throw "MSI install failed with $($proc.ExitCode)."
+            }
             if (-not (Get-Service -Name OpenAssetWatchAgent -ErrorAction SilentlyContinue)) { throw "MSI did not create service." }
             if (-not (Test-Path -LiteralPath $credentialDir -PathType Container)) { throw "MSI did not create the credential directory." }
             Assert-CredentialDirectoryAcl
