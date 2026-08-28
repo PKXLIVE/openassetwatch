@@ -70,6 +70,14 @@ They extend the implemented architecture but are not implementation claims:
 - `docs/architecture/temporal-intelligence-roadmap.md` - historical signal
   projections, transparent expected ranges, deterministic deviation handling,
   and optional future forecasting providers.
+- `docs/architecture/asset-intelligence-stack-gap-additions.md` - accepted
+  implementation direction for presence sessions, canonical field authority and
+  asset-change history, relationship evidence/edge history, dependency-aware
+  alert compression, quota-aware connector credentials, transformation
+  provenance, adaptive host-pressure controls, governed passive fingerprint
+  rules, worker compatibility, task partitions, and safe fielded queries. It
+  also records explicit non-goals so active/offensive or duplicative behavior
+  does not enter the product through these additions.
 - `docs/ai-security/README.md` - prompt-injection and agent-hijacking security
   package covering trust zones, provenance labels, untrusted-content handling,
   deterministic tool authorization, Skill Pack candidates, policies, rules,
