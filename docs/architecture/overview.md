@@ -65,6 +65,11 @@ They extend the implemented architecture but are not implementation claims:
   human review, recovery, and Agent Run Ledger behavior.
 - `docs/architecture/skill-pack-contract.md` - versioned first-party Skill Pack
   instructions/schemas that cannot grant tools, scope, or authority.
+- `docs/architecture/dashboard-composition-skill-pack.md` - a first-party
+  Dashboard Composition Skill Pack direction that selects and arranges approved
+  panel/dashboard templates over semantic metrics, typed filters, governed
+  refresh modes, deterministic plan validation, and ephemeral-by-default
+  rendering.
 - `docs/architecture/capability-provider-contract.md` - stable
   OpenAssetWatch-owned capability contracts with replaceable provider
   implementations.
@@ -100,6 +105,10 @@ They extend the implemented architecture but are not implementation claims:
 - `docs/architecture/decisions/0007-threat-intelligence-exchange-boundary.md` -
   accepted structured-intelligence collection, manifest, synchronization,
   content-admission, and outbound-publication boundaries.
+- `docs/architecture/decisions/0008-dynamic-dashboard-composition.md` - accepted
+  dynamic dashboard composition from governed templates, semantic metrics,
+  typed variables, refresh policy, deterministic validation, and explicit save
+  controls.
 
 These designs preserve deterministic product authority, passive-first behavior,
 local-first operation, and human review.
@@ -129,6 +138,7 @@ are recorded under:
 - `docs/architecture/decisions/0005-defensive-content-and-model-robustness.md`
 - `docs/architecture/decisions/0006-adversarial-input-evaluation.md`
 - `docs/architecture/decisions/0007-threat-intelligence-exchange-boundary.md`
+- `docs/architecture/decisions/0008-dynamic-dashboard-composition.md`
 
 Third-party advisory, fingerprint, and external-intelligence source decisions
 are governed by:
