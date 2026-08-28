@@ -78,6 +78,11 @@ They extend the implemented architecture but are not implementation claims:
   rules, worker compatibility, task partitions, and safe fielded queries. It
   also records explicit non-goals so active/offensive or duplicative behavior
   does not enter the product through these additions.
+- `docs/architecture/decision-integrity-and-evidence-snapshot-gaps.md` - accepted
+  requirements for exact-state-bound approvals, incomplete-analysis gating,
+  suppression/accepted-risk governance, candidate entity promotion and bounded
+  reconsideration, consistent evidence snapshots, and explicit separation of
+  runtime activity from evidentiary lineage.
 - `docs/ai-security/README.md` - prompt-injection and agent-hijacking security
   package covering trust zones, provenance labels, untrusted-content handling,
   deterministic tool authorization, Skill Pack candidates, policies, rules,
