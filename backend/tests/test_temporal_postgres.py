@@ -356,6 +356,29 @@ class TemporalPostgresTests(unittest.TestCase):
         self.assertEqual(first.signals[0].evidence_count, 1)
         self.assertEqual(first.signals[0].signal_id, second.signals[0].signal_id)
 
+    def test_as_of_projection_excludes_evidence_received_at_or_after_cutoff(self) -> None:
+        site_a = self._service().series(
+            metric_key="site.inventory.collections.count",
+            site_id="site-temporal-a",
+            start=START,
+            end=END,
+            generated_at=END,
+            knowledge_cutoff=END,
+        )
+        site_b = self._service().series(
+            metric_key="site.inventory.collections.count",
+            site_id="site-temporal-b",
+            start=START,
+            end=END,
+            generated_at=END,
+            knowledge_cutoff=END,
+        )
+
+        self.assertIsNone(site_a.signals[0].value)
+        self.assertEqual(site_a.signals[0].data_quality, "missing")
+        self.assertEqual(site_b.signals[0].value, 1)
+        self.assertEqual(site_b.signals[0].data_quality, "observed")
+
 
 if __name__ == "__main__":
     unittest.main()
