@@ -902,6 +902,8 @@ jobs:
             ))
             Set-Acl -LiteralPath $credentialPath -AclObject $fileAcl
           }
+          $primaryError = $null
+          $cleanupErrors = @()
           try {
             New-Item -ItemType Directory -Force -Path "C:\ProgramData\OpenAssetWatch\Agent\config","C:\ProgramData\OpenAssetWatch\Agent\identity" | Out-Null
             '{"server_url":"http://127.0.0.1:18080","site_id":"ci-msi-site"}' | Set-Content -Encoding utf8 $configPath
@@ -932,9 +934,22 @@ jobs:
             Assert-CredentialFileAcl -RequireProtected $true
             if ((Get-FileHash -Algorithm SHA256 -LiteralPath $credentialPath).Hash -ne $credentialHash) { throw "MSI major upgrade did not preserve credential state." }
           }
+          catch {
+            $primaryError = $_
+          }
           finally {
-            $uninstall = Start-Process msiexec.exe -ArgumentList @("/x", $msiUpgrade, "/qn", "/norestart") -Wait -PassThru
-            if ($uninstall.ExitCode -ne 0) { throw "MSI uninstall failed with $($uninstall.ExitCode)." }
+            foreach ($candidate in @($msiUpgrade, $msi)) {
+              $uninstall = Start-Process msiexec.exe -ArgumentList @("/x", $candidate, "/qn", "/norestart") -Wait -PassThru
+              if ($uninstall.ExitCode -notin @(0, 1605, 3010)) {
+                $cleanupErrors += "MSI cleanup failed for $candidate with $($uninstall.ExitCode)."
+              }
+            }
+          }
+          if ($null -ne $primaryError) {
+            throw $primaryError
+          }
+          if ($cleanupErrors.Count -gt 0) {
+            throw ($cleanupErrors -join " ")
           }
           if (Get-Service -Name OpenAssetWatchAgent -ErrorAction SilentlyContinue) {
             throw "MSI uninstall left an orphan service."

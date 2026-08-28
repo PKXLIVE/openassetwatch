@@ -363,10 +363,11 @@ class ReleasePublicationTests(unittest.TestCase):
         manifest = Path("synthetic.manifest.json")
         directory = "/var/lib/openassetwatch/agent/credential"
 
-        releasepub.validate_no_secret_json_markers(
-            {"directories": [directory]},
-            manifest,
-        )
+        for safe in (directory, f".{directory}"):
+            releasepub.validate_no_secret_json_markers(
+                {"directories": [safe]},
+                manifest,
+            )
 
         for unsafe in (
             {"directories": [f"{directory}/credential.json"]},
