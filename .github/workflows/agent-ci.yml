@@ -1181,7 +1181,7 @@ jobs:
           sudo launchctl bootout system "/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           sudo launchctl bootstrap system "/Library/LaunchDaemons/com.openassetwatch.agent.plist"
           sudo launchctl print "system/$LABEL" >/dev/null
-          sudo bash scripts/release/uninstall_agent_macos.sh --remove-state --remove-logs --forget-receipt
+          sudo bash scripts/release/uninstall_agent_macos.sh --remove-logs --forget-receipt
           if sudo launchctl print "system/$LABEL" >/dev/null 2>&1; then
             echo "LaunchDaemon label still loaded"
             exit 1
