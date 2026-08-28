@@ -18,7 +18,7 @@ class TemporalUiTests(unittest.TestCase):
             'href="#environment-trends"',
             'id="environment-trends" class="view-section"',
             "Environment Trends",
-            "observed history only",
+            "observed + expected context",
             'id="trend-site"',
             'id="trend-metric"',
             'id="trend-window"',
@@ -27,6 +27,7 @@ class TemporalUiTests(unittest.TestCase):
             'id="temporal-trend-buckets"',
             "/api/v1/temporal/metrics",
             "/api/v1/temporal/signals",
+            "/api/v1/temporal/expectations",
         )
         for value in expected:
             with self.subTest(value=value):
@@ -60,7 +61,7 @@ class TemporalUiTests(unittest.TestCase):
         self.assertNotIn("signal.value || 0", self.dashboard)
 
     def test_missing_buckets_break_chart_segments_instead_of_becoming_zero(self) -> None:
-        chart = self.dashboard.split("function renderTemporalChart(series)", 1)[1].split(
+        chart = self.dashboard.split("function renderTemporalChart(series, expectation)", 1)[1].split(
             "function renderTemporalSeries",
             1,
         )[0]
@@ -75,6 +76,8 @@ class TemporalUiTests(unittest.TestCase):
         )[0]
         self.assertIn("site_id: siteId", loader)
         self.assertIn('granularity: "daily"', loader)
+        self.assertIn("target_start: window.targetStart", loader)
+        self.assertIn("Promise.all", loader)
         self.assertIn("[30, 90].includes", loader)
         self.assertIn("advisorHeaders()", loader)
         self.assertNotIn("tenant_id", loader)
@@ -86,15 +89,27 @@ class TemporalUiTests(unittest.TestCase):
         self.assertIn("title.textContent", self.dashboard)
         self.assertIn("option.textContent", self.dashboard)
 
-    def test_phase_two_and_three_visuals_are_explicitly_absent(self) -> None:
+    def test_expected_range_is_visible_without_phase_three_authority(self) -> None:
         section = self.dashboard.split(
             '<section id="environment-trends"',
             1,
         )[1].split('<section id="assets"', 1)[0]
         self.assertIn("Expected ranges", section)
-        self.assertIn("not implemented", section)
-        self.assertNotIn("expected-band", section)
+        self.assertIn('id="trend-expected-range"', section)
+        self.assertIn('id="trend-expectation-method"', section)
+        self.assertIn('id="trend-expectation-confidence"', section)
+        self.assertIn('id="trend-expectation-quality"', section)
+        self.assertIn("analytical context only", section)
+        self.assertIn("current open UTC bucket never enters baseline history", section)
+        chart = self.dashboard.split(
+            "function renderTemporalChart(series, expectation)",
+            1,
+        )[1].split("function renderTemporalSeries", 1)[0]
+        self.assertIn('class: "expected-band"', chart)
+        self.assertIn("expectation.lower", chart)
+        self.assertIn("expectation.upper", chart)
         self.assertNotIn("anomaly-indicator", section)
+        self.assertNotIn("deviation-indicator", section)
 
 
 if __name__ == "__main__":

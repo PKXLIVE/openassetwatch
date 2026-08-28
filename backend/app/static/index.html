@@ -2286,7 +2286,7 @@
               <h2>Environment Trends</h2>
               <p>Read-only daily UTC history projected from governed OpenAssetWatch metrics.</p>
             </div>
-            <span class="pill ok">observed history only</span>
+            <span class="pill ok">observed + expected context</span>
           </div>
 
           <section class="panel">
@@ -2317,6 +2317,10 @@
             <div class="trend-summary-card"><span>Missing buckets</span><strong id="trend-missing-count">0</strong></div>
             <div class="trend-summary-card"><span>Incomplete buckets</span><strong id="trend-incomplete-count">0</strong></div>
             <div class="trend-summary-card"><span>Stale buckets</span><strong id="trend-stale-count">0</strong></div>
+            <div class="trend-summary-card"><span>Expected range</span><strong id="trend-expected-range">not available</strong></div>
+            <div class="trend-summary-card"><span>Method</span><strong id="trend-expectation-method">not loaded</strong></div>
+            <div class="trend-summary-card"><span>Confidence</span><strong id="trend-expectation-confidence">none</strong></div>
+            <div class="trend-summary-card"><span>Range quality</span><strong id="trend-expectation-quality">not loaded</strong></div>
           </div>
 
           <section class="panel">
@@ -2352,7 +2356,7 @@
             </div>
           </section>
 
-          <p class="trend-guardrail">Phase 1 shows observed historical signals only. Expected ranges, anomaly or deviation indicators, machine learning, AI analysis, and automated remediation are not implemented.</p>
+          <p class="trend-guardrail">Phase 2 expected ranges are deterministic analytical context only. The current open UTC bucket never enters baseline history, and missing, incomplete, or stale buckets are never treated as normal values or zero. Expected ranges do not create deviation indicators, findings, alerts, severity, risk, compromise status, or remediation actions.</p>
         </section>
 
         <section id="assets" class="view-section asset-canvas" data-canvas-contract="full">
@@ -2956,7 +2960,8 @@
       kevSummary: "/api/v1/kev/summary",
       ingestionCompatibility: "/api/v1/admin/ingestion/compatibility-status",
       temporalRegistry: "/api/v1/temporal/metrics",
-      temporalSignals: "/api/v1/temporal/signals"
+      temporalSignals: "/api/v1/temporal/signals",
+      temporalExpectation: "/api/v1/temporal/expectations"
     };
     const DEMO_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed";
     const VIEW_IDS = ["dashboard", "environment-trends", "assets", "collectors", "sites", "evidence", "findings", "ai-advisor", "policies", "reports", "settings"];
@@ -2984,6 +2989,7 @@
       advisorProgressStartedAt: null,
       temporalRegistry: null,
       temporalSeries: null,
+      temporalExpectation: null,
       advisorySourceId: null,
       advisoryPendingRunId: null,
       advisoryApprovedRunId: null
@@ -4656,9 +4662,11 @@
       const end = new Date();
       end.setUTCHours(0, 0, 0, 0);
       end.setUTCDate(end.getUTCDate() + 1);
+      const targetStart = new Date(end);
+      targetStart.setUTCDate(targetStart.getUTCDate() - 1);
       const start = new Date(end);
       start.setUTCDate(start.getUTCDate() - days);
-      return {start: start.toISOString(), end: end.toISOString()};
+      return {start: start.toISOString(), end: end.toISOString(), targetStart: targetStart.toISOString()};
     }
 
     function temporalPointPresentation(signal) {
@@ -4680,7 +4688,7 @@
       return Number.isFinite(value) ? value : null;
     }
 
-    function renderTemporalChart(series) {
+    function renderTemporalChart(series, expectation) {
       const target = byId("temporal-trend-chart");
       clearNode(target);
       const signals = Array.isArray(series.signals) ? series.signals : [];
@@ -4695,10 +4703,13 @@
       const padding = {left: 56, right: 24, top: 24, bottom: 42};
       const plotWidth = width - padding.left - padding.right;
       const plotHeight = height - padding.top - padding.bottom;
-      const maximum = Math.max(1, ...observed);
+      const expectedValues = expectation && expectation.expected !== null && expectation.expected !== undefined
+        ? [Number(expectation.lower), Number(expectation.expected), Number(expectation.upper)].filter(Number.isFinite)
+        : [];
+      const maximum = Math.max(1, ...observed, ...expectedValues);
       const xFor = index => padding.left + (signals.length === 1 ? plotWidth / 2 : (index / (signals.length - 1)) * plotWidth);
       const yFor = value => padding.top + plotHeight - (value / maximum) * plotHeight;
-      const svg = svgEl("svg", {viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `${series.metric.name} observed daily trend`});
+      const svg = svgEl("svg", {viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `${series.metric.name} observed daily trend with deterministic expected context`});
 
       [0, 0.5, 1].forEach(ratio => {
         const y = padding.top + plotHeight - ratio * plotHeight;
@@ -4707,6 +4718,42 @@
         label.textContent = String(Math.round(maximum * ratio * 100) / 100);
         svg.appendChild(label);
       });
+
+      if (expectedValues.length === 3) {
+        const targetTime = new Date(expectation.target_bucket_start).getTime();
+        const targetIndex = signals.findIndex(signal => new Date(signal.bucket_start).getTime() === targetTime);
+        if (targetIndex >= 0) {
+          const x = xFor(targetIndex);
+          const spacing = signals.length > 1 ? plotWidth / (signals.length - 1) : 24;
+          const bandWidth = Math.max(10, Math.min(36, spacing * 0.72));
+          const upperY = yFor(Number(expectation.upper));
+          const lowerY = yFor(Number(expectation.lower));
+          const band = svgEl("rect", {
+            class: "expected-band",
+            x: Math.max(padding.left, x - bandWidth / 2),
+            y: upperY,
+            width: bandWidth,
+            height: Math.max(2, lowerY - upperY),
+            rx: 3,
+            fill: "#256e8d",
+            opacity: 0.2,
+            stroke: "#256e8d",
+            "stroke-width": 1
+          });
+          const bandTitle = svgEl("title");
+          bandTitle.textContent = `Expected analytical range: ${expectation.lower}–${expectation.upper} ${expectation.unit}; ${expectation.confidence} confidence`;
+          band.appendChild(bandTitle);
+          svg.appendChild(band);
+          svg.appendChild(svgEl("line", {
+            x1: Math.max(padding.left, x - bandWidth / 2),
+            y1: yFor(Number(expectation.expected)),
+            x2: Math.min(width - padding.right, x + bandWidth / 2),
+            y2: yFor(Number(expectation.expected)),
+            stroke: "#256e8d",
+            "stroke-width": 2
+          }));
+        }
+      }
 
       let previous = null;
       signals.forEach((signal, index) => {
@@ -4739,8 +4786,9 @@
       target.appendChild(svg);
     }
 
-    function renderTemporalSeries(series) {
+    function renderTemporalSeries(series, expectation) {
       state.temporalSeries = series;
+      state.temporalExpectation = expectation;
       const signals = Array.isArray(series.signals) ? series.signals : [];
       const observedCount = signals.filter(signal => temporalNumericValue(signal) !== null).length;
       const missingCount = signals.filter(signal => signal.data_quality === "missing").length;
@@ -4754,7 +4802,18 @@
       setText("trend-series-description", series.metric.description);
       setText("trend-series-unit", series.metric.unit);
       setText("trend-bucket-count", plural(signals.length, "bucket"));
-      renderTemporalChart(series);
+      const hasExpectedRange = expectation && expectation.expected !== null && expectation.expected !== undefined;
+      setText(
+        "trend-expected-range",
+        hasExpectedRange ? `${expectation.lower}–${expectation.upper} ${expectation.unit}` : "not available"
+      );
+      setText(
+        "trend-expectation-method",
+        expectation ? `${text(expectation.method).replaceAll("_", " ")} v${text(expectation.method_version)}` : "not loaded"
+      );
+      setText("trend-expectation-confidence", expectation ? text(expectation.confidence) : "none");
+      setText("trend-expectation-quality", expectation ? text(expectation.data_quality) : "not loaded");
+      renderTemporalChart(series, expectation);
 
       const body = byId("temporal-trend-buckets");
       clearNode(body);
@@ -4815,12 +4874,25 @@
           end: window.end,
           granularity: "daily"
         });
-        const series = await loadJSON(`${endpoints.temporalSignals}?${params.toString()}`, {headers: advisorHeaders()});
-        renderTemporalSeries(series);
-        status.textContent = `${series.metric.name} loaded for ${siteId}. Missing and incomplete buckets remain explicit.`;
+        const expectationParams = new URLSearchParams({
+          metric_key: metricKey,
+          site_id: siteId,
+          target_start: window.targetStart,
+          granularity: "daily"
+        });
+        const [series, expectation] = await Promise.all([
+          loadJSON(`${endpoints.temporalSignals}?${params.toString()}`, {headers: advisorHeaders()}),
+          loadJSON(`${endpoints.temporalExpectation}?${expectationParams.toString()}`, {headers: advisorHeaders()})
+        ]);
+        renderTemporalSeries(series, expectation);
+        const expectationState = expectation.expected === null || expectation.expected === undefined
+          ? "Expected range blocked because usable closed history is insufficient."
+          : `Expected range uses ${expectation.method.replaceAll("_", " ")} with ${expectation.confidence} confidence.`;
+        status.textContent = `${series.metric.name} loaded for ${siteId}. ${expectationState} Missing and incomplete buckets remain explicit.`;
         status.className = "form-status ok";
       } catch (error) {
         state.temporalSeries = null;
+        state.temporalExpectation = null;
         status.textContent = text(error.message, "Temporal history could not be loaded safely.");
         status.className = "form-status error";
         const chart = byId("temporal-trend-chart");

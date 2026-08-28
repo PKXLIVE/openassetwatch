@@ -227,6 +227,70 @@ if set(METRIC_QUERIES) != {metric.metric_key for metric in TEMPORAL_METRICS}:
     raise RuntimeError("temporal metric registry and query map differ")
 
 
+def _with_knowledge_cutoff(
+    query: str,
+    replacements: tuple[tuple[str, str], ...],
+) -> str:
+    """Build a fixed as-of query variant without accepting caller-owned SQL."""
+
+    result = query
+    for anchor, predicate in replacements:
+        if result.count(anchor) != 1:
+            raise RuntimeError("temporal cutoff query anchor is not unique")
+        result = result.replace(anchor, f"{anchor}\n      AND {predicate}")
+    return result
+
+
+METRIC_QUERIES_AS_OF = {
+    "site.assets.new.count": _with_knowledge_cutoff(
+        ASSETS_NEW_SQL,
+        (
+            ("AND first_seen_at < :end", "created_at < :knowledge_cutoff"),
+            ("AND observed_at < :end", "ingested_at < :knowledge_cutoff"),
+        ),
+    ),
+    "site.collectors.active.count": _with_knowledge_cutoff(
+        COLLECTORS_ACTIVE_SQL,
+        (
+            (
+                "AND COALESCE(checkins.checked_in_at, checkins.received_at) < :end",
+                "checkins.received_at < :knowledge_cutoff",
+            ),
+        ),
+    ),
+    "site.findings.new.count": _with_knowledge_cutoff(
+        FINDINGS_NEW_SQL,
+        (
+            ("AND first_seen_at < :end", "created_at < :knowledge_cutoff"),
+            (
+                "AND COALESCE(completed_at, started_at) < :end",
+                "COALESCE(completed_at, started_at) < :knowledge_cutoff",
+            ),
+        ),
+    ),
+    "site.vulnerabilities.new.count": _with_knowledge_cutoff(
+        VULNERABILITIES_NEW_SQL,
+        (
+            ("AND first_matched_at < :end", "created_at < :knowledge_cutoff"),
+            (
+                "AND COALESCE(completed_at, started_at) < :end",
+                "COALESCE(completed_at, started_at) < :knowledge_cutoff",
+            ),
+        ),
+    ),
+    "site.inventory.collections.count": _with_knowledge_cutoff(
+        INVENTORY_COLLECTIONS_SQL,
+        (("AND observed_at < :end", "ingested_at < :knowledge_cutoff"),),
+    ),
+    "site.inventory.asset_observations.count": _with_knowledge_cutoff(
+        INVENTORY_ASSET_OBSERVATIONS_SQL,
+        (("AND observed_at < :end", "ingested_at < :knowledge_cutoff"),),
+    ),
+}
+if set(METRIC_QUERIES_AS_OF) != set(METRIC_QUERIES):
+    raise RuntimeError("temporal as-of query map and metric registry differ")
+
+
 def _utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -261,12 +325,23 @@ class SqlTemporalStore:
         site_id: str,
         start: datetime,
         end: datetime,
+        knowledge_cutoff: datetime | None = None,
     ) -> dict[datetime, ProjectionAggregate]:
-        query = METRIC_QUERIES.get(metric.metric_key)
+        query_map = (
+            METRIC_QUERIES_AS_OF
+            if knowledge_cutoff is not None
+            else METRIC_QUERIES
+        )
+        query = query_map.get(metric.metric_key)
         if query is None:
             raise ValueError("unsupported temporal metric query")
         self.ensure_schema()
         params = {"site_id": site_id, "start": start, "end": end}
+        if knowledge_cutoff is not None:
+            normalized_cutoff = _utc(knowledge_cutoff)
+            if normalized_cutoff is None:
+                raise ValueError("knowledge cutoff is required")
+            params["knowledge_cutoff"] = normalized_cutoff
         with self._engine().begin() as connection:
             if not connection.execute(
                 text(SITE_EXISTS_SQL),
