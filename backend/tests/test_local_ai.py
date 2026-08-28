@@ -178,11 +178,11 @@ class LocalAIContractTests(unittest.TestCase):
 
         self.assertEqual(malformed.qualification_state, "invalid")
         self.assertFalse(malformed.enabled)
-        self.assertFalse(malformed.available)
+        self.assertTrue(malformed.available)
         self.assertIsNone(malformed.runtime)
         self.assertEqual(mismatched.qualification_state, "invalid")
         self.assertFalse(mismatched.enabled)
-        self.assertFalse(mismatched.available)
+        self.assertTrue(mismatched.available)
         self.assertIsNone(mismatched.runtime)
 
     def test_configured_rejected_qualification_blocks_provider_construction(self) -> None:
@@ -212,7 +212,7 @@ class LocalAIContractTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 ProviderUnavailableError,
-                "qualification is not approved",
+                "model trust requirements are not satisfied",
             ):
                 OpenAICompatibleProvider(config)
 

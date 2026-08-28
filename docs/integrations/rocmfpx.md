@@ -62,6 +62,13 @@ OPENASSETWATCH_AI_MODEL=operator-supplied-alias
 OPENASSETWATCH_AI_LOCAL_PROVIDER_HOSTS=rocmfpx
 ```
 
+When the model artifact provenance policy is enabled, record the exact source
+checkpoint revision/digest, converter commit, quantizer commit, resulting
+artifact digest, and runtime commit in the provider-neutral manifest, then bind
+qualification to those immutable values. Compatibility metadata or a successful
+load does not authorize the runtime or artifact. See
+[`MODEL_ARTIFACT_PROVENANCE.md`](../MODEL_ARTIFACT_PROVENANCE.md).
+
 Do not expose the inference listener to the LAN. Do not give it database,
 collector, agent, or admin credentials, and do not mount OpenAssetWatch storage
 into it. OpenAssetWatch sends only bounded Advisor context and never calls
@@ -119,7 +126,8 @@ python scripts/qualify_local_ai.py `
   --hardware-vendor AMD `
   --hardware-device-name "AMD Radeon AI PRO R9700" `
   --hardware-architecture gfx1201 `
-  --model-digest <sha256-digest> `
+  --manifest <operator-owned-manifest.json> `
+  --artifact-digest <sha256-digest> `
   --quantization <quantization> `
   --quant-profile <profile> `
   --model-source <operator-recorded-source> `
@@ -135,8 +143,8 @@ capabilities are provenance, not measured benchmark results.
 6. Stop the test server cleanly and confirm the listener and GPU allocation are
    gone. Do not retain an extra model without explicit operator approval.
 
-The model digest, filename/alias, size, quantization/profile, source, and model
-license must be recorded separately from the ROCmFPX MIT runtime license.
+The source, converter, quantizer, artifact, and runtime identities must be
+recorded and bound separately from the ROCmFPX MIT runtime license.
 
 ## Validation status for this integration
 
