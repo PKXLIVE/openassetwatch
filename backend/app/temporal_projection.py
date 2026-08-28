@@ -60,6 +60,7 @@ class TemporalProjectionStore(Protocol):
         site_id: str,
         start: datetime,
         end: datetime,
+        knowledge_cutoff: datetime | None = None,
     ) -> dict[datetime, ProjectionAggregate]: ...
 
 
@@ -186,6 +187,7 @@ class TemporalProjectionService:
         granularity: str = "daily",
         asset_id: str | None = None,
         generated_at: datetime | None = None,
+        knowledge_cutoff: datetime | None = None,
     ) -> TemporalSignalSeriesResponse:
         try:
             metric = temporal_metric(metric_key)
@@ -210,6 +212,19 @@ class TemporalProjectionService:
             generated_at or datetime.now(timezone.utc),
             field="generated_at",
         )
+        normalized_knowledge_cutoff = (
+            _as_utc(knowledge_cutoff, field="knowledge_cutoff")
+            if knowledge_cutoff is not None
+            else None
+        )
+        if (
+            normalized_knowledge_cutoff is not None
+            and normalized_end > normalized_knowledge_cutoff
+        ):
+            raise TemporalProjectionError(
+                "history-after-cutoff",
+                "temporal history cannot extend beyond its evidence cutoff",
+            )
         _, maximum_end = utc_daily_bucket(projection_time)
         if normalized_end > maximum_end:
             raise TemporalProjectionError(
@@ -221,6 +236,7 @@ class TemporalProjectionService:
             site_id=site_id,
             start=normalized_start,
             end=normalized_end,
+            knowledge_cutoff=normalized_knowledge_cutoff,
         )
         normalized_sources: dict[datetime, ProjectionAggregate] = {}
         for bucket, aggregate in source_buckets.items():

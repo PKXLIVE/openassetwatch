@@ -13,17 +13,28 @@ from .hub_contracts import SITE_ID_PATTERN
 TEMPORAL_SIGNAL_SCHEMA_VERSION = "oaw.temporal-signal.v1"
 TEMPORAL_REGISTRY_SCHEMA_VERSION = "oaw.temporal-metric-registry.v1"
 TEMPORAL_SERIES_SCHEMA_VERSION = "oaw.temporal-series.v1"
+TEMPORAL_EXPECTATION_SCHEMA_VERSION = "oaw.temporal-expectation.v1"
 TEMPORAL_PROJECTION_VERSION = "1"
+TEMPORAL_EXPECTATION_METHOD_VERSION = "1"
 MAX_TEMPORAL_HISTORY_DAYS = 366
 MAX_TEMPORAL_BUCKETS = 366
+TEMPORAL_EXPECTATION_HISTORY_BUCKETS = 56
 METRIC_KEY_PATTERN = r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$"
 SIGNAL_ID_PATTERN = r"^sig_[0-9a-f]{32}$"
+EXPECTATION_ID_PATTERN = r"^exp_[0-9a-f]{32}$"
 
 BucketGranularity = Literal["daily"]
 EntityScope = Literal["site"]
 SignalFreshness = Literal["current", "stale", "unknown"]
 SignalDataQuality = Literal["observed", "missing", "incomplete", "stale"]
 SignalBackfillState = Literal["live", "backfilled", "late-arriving"]
+ExpectationMethod = Literal[
+    "rolling_robust_baseline",
+    "seasonal_robust_baseline",
+]
+ExpectationConfidence = Literal["none", "low", "medium", "high"]
+ExpectationDataQuality = Literal["insufficient", "limited", "sufficient"]
+ExpectationBlockedReason = Literal["insufficient-usable-history"]
 
 
 class StrictTemporalContract(BaseModel):
@@ -308,6 +319,114 @@ class TemporalSignalSeriesResponse(StrictTemporalContract):
             expected_start = signal.bucket_end
         if expected_start != self.end:
             raise ValueError("series buckets must cover the requested window")
+        return self
+
+
+class TemporalExpectation(StrictTemporalContract):
+    """One deterministic expected range for one governed daily target bucket."""
+
+    schema_version: Literal["oaw.temporal-expectation.v1"]
+    expectation_id: str = Field(..., pattern=EXPECTATION_ID_PATTERN)
+    metric_key: str = Field(..., pattern=METRIC_KEY_PATTERN, max_length=120)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=128)
+    site_id: str = Field(..., min_length=1, max_length=128, pattern=SITE_ID_PATTERN)
+    asset_id: str | None = Field(default=None, min_length=1, max_length=160)
+    target_bucket_start: datetime
+    target_bucket_end: datetime
+    bucket_granularity: BucketGranularity
+    knowledge_cutoff: datetime
+    generated_at: datetime
+    history_start: datetime
+    history_end: datetime
+    history_bucket_count: Literal[56]
+    usable_bucket_count: int = Field(..., ge=0, le=TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+    missing_bucket_count: int = Field(..., ge=0, le=TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+    incomplete_bucket_count: int = Field(..., ge=0, le=TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+    stale_bucket_count: int = Field(..., ge=0, le=TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+    late_arriving_bucket_count: int = Field(
+        ...,
+        ge=0,
+        le=TEMPORAL_EXPECTATION_HISTORY_BUCKETS,
+    )
+    method: ExpectationMethod
+    method_version: Literal["1"]
+    method_sample_count: int = Field(..., ge=0, le=TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+    horizon_buckets: Literal[1]
+    expected: float | None = Field(default=None, ge=0)
+    lower: float | None = Field(default=None, ge=0)
+    upper: float | None = Field(default=None, ge=0)
+    unit: str = Field(..., min_length=1, max_length=40)
+    confidence: ExpectationConfidence
+    data_quality: ExpectationDataQuality
+    blocked_reason: ExpectationBlockedReason | None = None
+    projection_version: str = Field(..., min_length=1, max_length=32)
+    authority: Literal["analytical-context-only"]
+
+    @field_validator(
+        "target_bucket_start",
+        "target_bucket_end",
+        "knowledge_cutoff",
+        "generated_at",
+        "history_start",
+        "history_end",
+    )
+    @classmethod
+    def require_expectation_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("temporal expectation timestamps must include a timezone")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def validate_expectation_consistency(self) -> "TemporalExpectation":
+        if self.target_bucket_end - self.target_bucket_start != timedelta(days=1):
+            raise ValueError("expectation targets must span exactly one UTC day")
+        for value in (
+            self.target_bucket_start,
+            self.target_bucket_end,
+            self.knowledge_cutoff,
+            self.history_start,
+            self.history_end,
+        ):
+            if any((value.hour, value.minute, value.second, value.microsecond)):
+                raise ValueError("expectation boundaries must align to UTC midnight")
+        if self.knowledge_cutoff != self.target_bucket_start:
+            raise ValueError("knowledge_cutoff must equal the target bucket start")
+        if self.history_end != self.target_bucket_start:
+            raise ValueError("expectation history must end at the target bucket start")
+        if self.history_end - self.history_start != timedelta(
+            days=TEMPORAL_EXPECTATION_HISTORY_BUCKETS
+        ):
+            raise ValueError("expectation history must cover the fixed bounded window")
+        classified_count = sum(
+            (
+                self.usable_bucket_count,
+                self.missing_bucket_count,
+                self.incomplete_bucket_count,
+                self.stale_bucket_count,
+            )
+        )
+        if classified_count != self.history_bucket_count:
+            raise ValueError("expectation history quality counts are inconsistent")
+        if self.method_sample_count > self.usable_bucket_count:
+            raise ValueError("expectation method sample cannot exceed usable history")
+        values = (self.expected, self.lower, self.upper)
+        if any(value is None for value in values):
+            if any(value is not None for value in values):
+                raise ValueError("expected range values must be all present or all absent")
+            if self.data_quality != "insufficient":
+                raise ValueError("a blocked expected range must report insufficient quality")
+            if self.confidence != "none" or self.blocked_reason is None:
+                raise ValueError("a blocked expected range requires no confidence and a reason")
+        else:
+            assert self.expected is not None
+            assert self.lower is not None
+            assert self.upper is not None
+            if not self.lower <= self.expected <= self.upper:
+                raise ValueError("expected range bounds must contain the expected value")
+            if self.data_quality == "insufficient":
+                raise ValueError("a populated expected range cannot be insufficient")
+            if self.confidence == "none" or self.blocked_reason is not None:
+                raise ValueError("a populated expected range requires confidence and no block")
         return self
 
 

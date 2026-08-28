@@ -202,10 +202,12 @@ from .schema_migrations import (
 )
 from .temporal_contracts import (
     METRIC_KEY_PATTERN,
+    TemporalExpectation,
     TemporalMetricRegistryResponse,
     TemporalSignalSeriesResponse,
     temporal_registry_public,
 )
+from .temporal_expectations import TemporalExpectationService
 from .temporal_projection import (
     TemporalProjectionError,
     TemporalProjectionService,
@@ -1633,6 +1635,10 @@ def _temporal_service() -> TemporalProjectionService:
     return TemporalProjectionService(store=_temporal_store())
 
 
+def _temporal_expectation_service() -> TemporalExpectationService:
+    return TemporalExpectationService.from_projection_store(store=_temporal_store())
+
+
 @app.get(
     "/api/v1/temporal/metrics",
     response_model=TemporalMetricRegistryResponse,
@@ -1681,6 +1687,41 @@ def api_temporal_signals(
         raise HTTPException(
             status_code=500,
             detail="failed to project temporal signals",
+        ) from exc
+
+
+@app.get(
+    "/api/v1/temporal/expectations",
+    response_model=TemporalExpectation,
+)
+def api_temporal_expectation(
+    metric_key: str = Query(..., pattern=METRIC_KEY_PATTERN, max_length=120),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    target_start: datetime = Query(...),
+    granularity: str = Query(default="daily", min_length=1, max_length=16),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="temporal expectation access",
+    )
+    try:
+        return _temporal_expectation_service().expectation(
+            metric_key=metric_key,
+            site_id=site_id,
+            target_start=target_start,
+            granularity=granularity,
+            asset_id=asset_id,
+        )
+    except TemporalSiteNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TemporalProjectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="failed to calculate temporal expectation",
         ) from exc
 
 
