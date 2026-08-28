@@ -81,7 +81,9 @@ upper    = expected + width
 
 Outputs are rounded deterministically to six decimal places. A zero-width band
 is valid when the robust spread is zero. No minimum noise, random seed, model,
-interpolation, forward fill, or zero fill is introduced.
+interpolation, forward fill, or zero fill is introduced. Numeric inputs and
+outputs must be finite; positive infinity, negative infinity, and NaN are
+rejected rather than clamped or replaced.
 
 ## Missingness and data quality
 
@@ -118,6 +120,7 @@ likelihood of compromise, or a finding confidence score.
 `oaw.temporal-expectation.v1` schema. The artifact includes:
 
 - deterministic `expectation_id`;
+- canonical `history_digest` provenance identity;
 - governed metric, site, unit, and projection version;
 - target bucket and one-bucket horizon;
 - exclusive knowledge cutoff;
@@ -127,14 +130,32 @@ likelihood of compromise, or a finding confidence score.
 - data quality, confidence, and an explicit blocked reason; and
 - the literal `authority: analytical-context-only` boundary.
 
-The identifier binds schema, metric, site, target, history window, selected
-method/version, and projection version. `generated_at` is deliberately excluded
-so a repeated calculation over the same as-of source state has stable identity.
+`history_digest` is the lowercase SHA-256 of canonical compact UTF-8 JSON for
+the complete ordered 56-bucket as-of signal history. It covers every projected
+bucket, including signals later excluded from the rolling or seasonal numeric
+sample. Signals are ordered by bucket start, bucket end, and signal ID; object
+keys are recursively sorted; timestamps are normalized to UTC; and non-finite
+numbers are forbidden. The digest includes signal identity and schema, metric
+and authority scope, bucket boundaries, value and unit, evidence count, source,
+observed and received watermarks, freshness, completeness, data quality,
+backfill state, and projection version. The transient signal `generated_at`
+value is deliberately excluded.
+
+Changing a historical value, missingness or quality state, source watermark,
+late-arrival state, evidence count, source authority, or projection version
+therefore changes the history digest. The digest is provenance identity, not a
+digital signature and not proof that the underlying evidence is trustworthy.
+
+The expectation identifier binds schema, metric, site, target, history window,
+selected method/version, projection version, and `history_digest`.
+Expectation-level `generated_at` is deliberately excluded, so a repeated
+calculation over the identical as-of source history has stable identity while
+two different histories cannot share the same expectation identity.
 
 Contract validation rejects partial ranges, inconsistent counts, non-UTC or
 non-daily boundaries, history that does not end at the target, method samples
-larger than usable history, populated insufficient ranges, and any other
-authority value.
+larger than usable history, malformed history digests, non-finite numeric
+values, populated insufficient ranges, and any other authority value.
 
 ## Read-only API
 

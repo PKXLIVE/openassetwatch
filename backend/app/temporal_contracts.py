@@ -22,6 +22,7 @@ TEMPORAL_EXPECTATION_HISTORY_BUCKETS = 56
 METRIC_KEY_PATTERN = r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$"
 SIGNAL_ID_PATTERN = r"^sig_[0-9a-f]{32}$"
 EXPECTATION_ID_PATTERN = r"^exp_[0-9a-f]{32}$"
+HISTORY_DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 
 BucketGranularity = Literal["daily"]
 EntityScope = Literal["site"]
@@ -38,7 +39,11 @@ ExpectationBlockedReason = Literal["insufficient-usable-history"]
 
 
 class StrictTemporalContract(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+        allow_inf_nan=False,
+    )
 
 
 class TemporalMetricDefinition(StrictTemporalContract):
@@ -327,6 +332,7 @@ class TemporalExpectation(StrictTemporalContract):
 
     schema_version: Literal["oaw.temporal-expectation.v1"]
     expectation_id: str = Field(..., pattern=EXPECTATION_ID_PATTERN)
+    history_digest: str = Field(..., pattern=HISTORY_DIGEST_PATTERN)
     metric_key: str = Field(..., pattern=METRIC_KEY_PATTERN, max_length=120)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=128)
     site_id: str = Field(..., min_length=1, max_length=128, pattern=SITE_ID_PATTERN)

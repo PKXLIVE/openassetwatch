@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import math
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Literal, Protocol
+from typing import Literal, Protocol, Sequence
 
 from .temporal_contracts import (
+    HISTORY_DIGEST_PATTERN,
     TEMPORAL_EXPECTATION_HISTORY_BUCKETS,
     TEMPORAL_EXPECTATION_METHOD_VERSION,
     TEMPORAL_EXPECTATION_SCHEMA_VERSION,
     TEMPORAL_METRICS,
     TemporalExpectation,
+    TemporalSignal,
     TemporalSignalSeriesResponse,
     temporal_metric,
 )
@@ -66,6 +71,63 @@ class ExpectationProjection(Protocol):
     def series(self, **kwargs) -> TemporalSignalSeriesResponse: ...
 
 
+def _canonical_timestamp(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def temporal_history_digest(signals: Sequence[TemporalSignal]) -> str:
+    """Return the canonical identity of one complete bounded as-of history."""
+
+    if len(signals) != TEMPORAL_EXPECTATION_HISTORY_BUCKETS:
+        raise ValueError(
+            "temporal history digest requires exactly "
+            f"{TEMPORAL_EXPECTATION_HISTORY_BUCKETS} signals"
+        )
+    ordered = sorted(
+        signals,
+        key=lambda signal: (
+            signal.bucket_start,
+            signal.bucket_end,
+            signal.signal_id,
+        ),
+    )
+    canonical_signals = [
+        {
+            "schema_version": signal.schema_version,
+            "signal_id": signal.signal_id,
+            "metric_key": signal.metric_key,
+            "tenant_id": signal.tenant_id,
+            "site_id": signal.site_id,
+            "asset_id": signal.asset_id,
+            "bucket_start": _canonical_timestamp(signal.bucket_start),
+            "bucket_end": _canonical_timestamp(signal.bucket_end),
+            "bucket_granularity": signal.bucket_granularity,
+            "value": signal.value,
+            "unit": signal.unit,
+            "evidence_count": signal.evidence_count,
+            "source": signal.source,
+            "source_observed_at": _canonical_timestamp(signal.source_observed_at),
+            "source_received_at": _canonical_timestamp(signal.source_received_at),
+            "freshness": signal.freshness,
+            "complete": signal.complete,
+            "data_quality": signal.data_quality,
+            "backfill_state": signal.backfill_state,
+            "projection_version": signal.projection_version,
+        }
+        for signal in ordered
+    ]
+    canonical_json = json.dumps(
+        canonical_signals,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+
 def temporal_expectation_id(
     *,
     metric_key: str,
@@ -76,7 +138,10 @@ def temporal_expectation_id(
     history_end: datetime,
     method: str,
     projection_version: str,
+    history_digest: str,
 ) -> str:
+    if re.fullmatch(HISTORY_DIGEST_PATTERN, history_digest) is None:
+        raise ValueError("history_digest must be a lowercase SHA-256 digest")
     identity = "\x1f".join(
         (
             TEMPORAL_EXPECTATION_SCHEMA_VERSION,
@@ -89,6 +154,7 @@ def temporal_expectation_id(
             method,
             TEMPORAL_EXPECTATION_METHOD_VERSION,
             projection_version,
+            history_digest,
         )
     )
     return "exp_" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
@@ -103,13 +169,18 @@ def _median(values: list[Decimal]) -> Decimal:
 
 
 def _rounded(value: Decimal) -> float:
-    return float(value.quantize(OUTPUT_QUANTUM, rounding=ROUND_HALF_UP))
+    rounded = float(value.quantize(OUTPUT_QUANTUM, rounding=ROUND_HALF_UP))
+    if not math.isfinite(rounded):
+        raise ValueError("robust expected range must produce finite values")
+    return rounded
 
 
 def robust_expected_range(values: list[int | float]) -> tuple[float, float, float]:
     if not values:
         raise ValueError("robust expected range requires at least one value")
     decimal_values = [Decimal(str(value)) for value in values]
+    if any(not value.is_finite() for value in decimal_values):
+        raise ValueError("robust expected range requires finite values")
     center = _median(decimal_values)
     median_absolute_deviation = _median(
         [abs(value - center) for value in decimal_values]
@@ -229,6 +300,7 @@ class TemporalExpectationService:
                 "open-history-bucket",
                 "expected-range history must contain closed UTC buckets only",
             )
+        history_digest = temporal_history_digest(history.signals)
 
         quality_counts = {
             quality: sum(signal.data_quality == quality for signal in history.signals)
@@ -279,7 +351,9 @@ class TemporalExpectationService:
                 history_end=history_end,
                 method=method,
                 projection_version=metric.projection_version,
+                history_digest=history_digest,
             ),
+            history_digest=history_digest,
             metric_key=metric_key,
             tenant_id=None,
             site_id=site_id,

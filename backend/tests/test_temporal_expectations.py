@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from pydantic import ValidationError
 
-from app.temporal_contracts import TEMPORAL_EXPECTATION_HISTORY_BUCKETS
+from app.temporal_contracts import (
+    TEMPORAL_EXPECTATION_HISTORY_BUCKETS,
+    TemporalSignal,
+)
 from app.temporal_expectations import (
     TemporalExpectationService,
     robust_expected_range,
     temporal_expectation_id,
+    temporal_history_digest,
 )
 from app.temporal_projection import (
     ProjectionAggregate,
@@ -53,10 +58,46 @@ def history_with_values(values: list[int]) -> dict[datetime, ProjectionAggregate
     }
 
 
+def projected_history(
+    buckets: dict[datetime, ProjectionAggregate],
+    *,
+    generated_at: datetime = TARGET,
+) -> list[TemporalSignal]:
+    return TemporalProjectionService(store=FakeTemporalStore(buckets)).series(
+        metric_key="site.assets.new.count",
+        site_id="site-a",
+        start=HISTORY_START,
+        end=TARGET,
+        generated_at=generated_at,
+        knowledge_cutoff=TARGET,
+    ).signals
+
+
+def expected_artifact(
+    buckets: dict[datetime, ProjectionAggregate],
+    *,
+    generated_at: datetime = TARGET + timedelta(hours=12),
+):
+    return TemporalExpectationService.from_projection_store(
+        store=FakeTemporalStore(buckets)
+    ).expectation(
+        metric_key="site.assets.new.count",
+        site_id="site-a",
+        target_start=TARGET,
+        generated_at=generated_at,
+    )
+
+
 class TemporalExpectedRangeTests(unittest.TestCase):
     def test_robust_range_uses_median_and_resists_one_large_spike(self) -> None:
         expected, lower, upper = robust_expected_range([10] * 27 + [1000])
         self.assertEqual((expected, lower, upper), (10.0, 10.0, 10.0))
+
+    def test_robust_range_rejects_non_finite_inputs(self) -> None:
+        for value in (float("inf"), float("-inf"), float("nan")):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "finite"):
+                    robust_expected_range([1, value, 2])
 
     def test_rolling_expectation_is_deterministic_and_cutoff_safe(self) -> None:
         store = FakeTemporalStore(history_with_values([10] * 55 + [1000]))
@@ -81,6 +122,9 @@ class TemporalExpectedRangeTests(unittest.TestCase):
         self.assertEqual(first.confidence, "high")
         self.assertEqual(first.data_quality, "sufficient")
         self.assertEqual(first.expectation_id, second.expectation_id)
+        self.assertEqual(first.history_digest, second.history_digest)
+        self.assertRegex(first.history_digest, r"^[0-9a-f]{64}$")
+        self.assertIn("history_digest", first.model_dump(mode="json"))
         self.assertEqual(first.expected, second.expected)
         self.assertNotEqual(first.generated_at, second.generated_at)
         for call in store.calls:
@@ -231,10 +275,129 @@ class TemporalExpectedRangeTests(unittest.TestCase):
             "history_end": TARGET,
             "method": "rolling_robust_baseline",
             "projection_version": "1",
+            "history_digest": "a" * 64,
         }
         first = temporal_expectation_id(site_id="site-a", **common)
         self.assertEqual(first, temporal_expectation_id(site_id="site-a", **common))
         self.assertNotEqual(first, temporal_expectation_id(site_id="site-b", **common))
+        self.assertNotEqual(
+            first,
+            temporal_expectation_id(
+                site_id="site-a",
+                **{**common, "history_digest": "b" * 64},
+            ),
+        )
+
+    def test_history_digest_is_canonical_and_excludes_generated_at(self) -> None:
+        buckets = history_with_values([10] * TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+        signals = projected_history(buckets)
+        regenerated = [
+            TemporalSignal.model_validate(
+                {
+                    **signal.model_dump(),
+                    "generated_at": signal.generated_at + timedelta(hours=1),
+                }
+            )
+            for signal in signals
+        ]
+
+        digest = temporal_history_digest(signals)
+        self.assertEqual(digest, temporal_history_digest(list(reversed(signals))))
+        self.assertEqual(digest, temporal_history_digest(regenerated))
+        with self.assertRaisesRegex(ValueError, "exactly 56"):
+            temporal_history_digest(signals[:-1])
+
+    def test_history_value_and_watermark_changes_bind_expectation_identity(self) -> None:
+        buckets = history_with_values([10] * TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+        baseline = expected_artifact(buckets)
+        oldest = HISTORY_START
+        original = buckets[oldest]
+        variants = {
+            "usable value": replace(original, value=11),
+            "received watermark": replace(
+                original,
+                source_received_at=original.source_received_at + timedelta(minutes=1),
+            ),
+            "observed watermark": replace(
+                original,
+                source_observed_at=original.source_observed_at - timedelta(minutes=1),
+            ),
+            "evidence count": replace(
+                original,
+                evidence_count=original.evidence_count + 1,
+            ),
+        }
+        for label, aggregate in variants.items():
+            with self.subTest(label=label):
+                changed = expected_artifact({**buckets, oldest: aggregate})
+                self.assertNotEqual(baseline.history_digest, changed.history_digest)
+                self.assertNotEqual(baseline.expectation_id, changed.expectation_id)
+
+    def test_history_quality_changes_bind_expectation_identity(self) -> None:
+        buckets = history_with_values([10] * TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+        baseline = expected_artifact(buckets)
+        oldest = HISTORY_START
+        original = buckets[oldest]
+        variants = {
+            "missing": {key: value for key, value in buckets.items() if key != oldest},
+            "incomplete": {
+                **buckets,
+                oldest: replace(
+                    original,
+                    value=0,
+                    evidence_count=0,
+                    complete=False,
+                ),
+            },
+            "stale": {
+                **buckets,
+                oldest: replace(
+                    original,
+                    source_observed_at=oldest - timedelta(days=3),
+                ),
+            },
+        }
+        for quality, changed_buckets in variants.items():
+            with self.subTest(quality=quality):
+                changed = expected_artifact(changed_buckets)
+                self.assertNotEqual(baseline.history_digest, changed.history_digest)
+                self.assertNotEqual(baseline.expectation_id, changed.expectation_id)
+
+    def test_late_arrival_state_binds_expectation_identity(self) -> None:
+        buckets = history_with_values([10] * TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+        baseline = expected_artifact(buckets)
+        oldest = HISTORY_START
+        late = replace(
+            buckets[oldest],
+            source_received_at=oldest + timedelta(days=1, hours=1),
+        )
+        changed = expected_artifact({**buckets, oldest: late})
+
+        self.assertNotEqual(baseline.history_digest, changed.history_digest)
+        self.assertNotEqual(baseline.expectation_id, changed.expectation_id)
+        self.assertEqual(changed.late_arriving_bucket_count, 1)
+
+    def test_contract_rejects_malformed_history_digests(self) -> None:
+        result = expected_artifact(
+            history_with_values([10] * TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+        )
+        for digest in ("a" * 63, "A" * 64, "g" * 64):
+            with self.subTest(digest=digest):
+                payload = result.model_dump()
+                payload["history_digest"] = digest
+                with self.assertRaises(ValidationError):
+                    result.__class__.model_validate(payload)
+
+    def test_expectation_contract_rejects_non_finite_outputs(self) -> None:
+        result = expected_artifact(
+            history_with_values([10] * TEMPORAL_EXPECTATION_HISTORY_BUCKETS)
+        )
+        for value in (float("inf"), float("-inf"), float("nan")):
+            with self.subTest(value=value):
+                payload = result.model_dump()
+                payload["expected"] = value
+                with self.assertRaises(ValidationError):
+                    result.__class__.model_validate(payload)
 
     def test_contract_rejects_mixed_or_authoritative_range_state(self) -> None:
         result = TemporalExpectationService.from_projection_store(

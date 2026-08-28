@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.main import (
+    app,
     api_temporal_expectation,
     api_temporal_metrics,
     api_temporal_signals,
@@ -138,6 +139,15 @@ class TemporalApiTests(unittest.TestCase):
         )
         self.assertEqual(service.expectation.call_args.kwargs["target_start"], END)
         self.assertIsNone(service.expectation.call_args.kwargs["asset_id"])
+
+    def test_expectation_api_schema_exposes_required_history_digest(self) -> None:
+        schema = app.openapi()["components"]["schemas"]["TemporalExpectation"]
+
+        self.assertIn("history_digest", schema["required"])
+        self.assertEqual(
+            schema["properties"]["history_digest"]["pattern"],
+            "^[0-9a-f]{64}$",
+        )
 
     def test_expectation_errors_are_bounded_and_database_details_are_hidden(self) -> None:
         cases = (

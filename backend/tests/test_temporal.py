@@ -90,6 +90,32 @@ class TemporalContractTests(unittest.TestCase):
                 generated_at=GENERATED,
             )
 
+    def test_signal_contract_rejects_non_finite_values(self) -> None:
+        for value in (float("inf"), float("-inf"), float("nan")):
+            with self.subTest(value=value):
+                with self.assertRaises(ValidationError):
+                    TemporalSignal(
+                        schema_version=TEMPORAL_SIGNAL_SCHEMA_VERSION,
+                        signal_id="sig_" + "a" * 32,
+                        metric_key="site.assets.new.count",
+                        site_id="site-a",
+                        bucket_start=START,
+                        bucket_end=START + timedelta(days=1),
+                        bucket_granularity="daily",
+                        value=value,
+                        unit="count",
+                        evidence_count=1,
+                        source="test",
+                        source_observed_at=START + timedelta(hours=1),
+                        source_received_at=START + timedelta(hours=1),
+                        freshness="current",
+                        complete=True,
+                        data_quality="observed",
+                        backfill_state="backfilled",
+                        projection_version="1",
+                        generated_at=GENERATED,
+                    )
+
     def test_signal_identity_is_stable_and_scope_bound(self) -> None:
         common = {
             "metric_key": "site.assets.new.count",
