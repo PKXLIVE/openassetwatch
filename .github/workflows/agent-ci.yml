@@ -905,14 +905,15 @@ jobs:
           $primaryError = $null
           $cleanupErrors = @()
           try {
-            New-Item -ItemType Directory -Force -Path "C:\ProgramData\OpenAssetWatch\Agent\config","C:\ProgramData\OpenAssetWatch\Agent\identity" | Out-Null
-            '{"server_url":"http://127.0.0.1:18080","site_id":"ci-msi-site"}' | Set-Content -Encoding utf8 $configPath
-            '{"site_id":"ci-msi-site","agent_id":"33333333-3333-4333-8333-333333333333","deployment_id":"44444444-4444-4444-8444-444444444444","tenant_id":"ci","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}' | Set-Content -Encoding utf8 $identityPath
             $proc = Start-Process msiexec.exe -ArgumentList @("/i", $msi, "/qn", "/norestart", "/l*v", $log) -Wait -PassThru
             if ($proc.ExitCode -ne 0) { throw "MSI install failed with $($proc.ExitCode)." }
             if (-not (Get-Service -Name OpenAssetWatchAgent -ErrorAction SilentlyContinue)) { throw "MSI did not create service." }
             if (-not (Test-Path -LiteralPath $credentialDir -PathType Container)) { throw "MSI did not create the credential directory." }
             Assert-CredentialDirectoryAcl
+            # Let the MSI establish trusted ProgramData ownership before adding customer-state fixtures.
+            New-Item -ItemType Directory -Force -Path "C:\ProgramData\OpenAssetWatch\Agent\config","C:\ProgramData\OpenAssetWatch\Agent\identity" | Out-Null
+            '{"server_url":"http://127.0.0.1:18080","site_id":"ci-msi-site"}' | Set-Content -Encoding utf8 $configPath
+            '{"site_id":"ci-msi-site","agent_id":"33333333-3333-4333-8333-333333333333","deployment_id":"44444444-4444-4444-8444-444444444444","tenant_id":"ci","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}' | Set-Content -Encoding utf8 $identityPath
             "synthetic-package-lifecycle-fixture" | Set-Content -Encoding ascii -LiteralPath $credentialPath
             Assert-CredentialFileAcl
             $credentialHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $credentialPath).Hash
