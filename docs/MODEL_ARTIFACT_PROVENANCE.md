@@ -46,8 +46,9 @@ contains these sections:
 - `quantization`: quantizer name, version, exact commit, reviewed source,
   structured profile and type, optional importance-matrix digest, input/output
   digests, and bounded timestamps
-- `artifact`: name, format, SHA-256 digest of the exact qualified bytes, size,
-  split identity when applicable, optional parent digest, and creation time
+- `artifact`: name, format, SHA-256 identity of the exact qualified artifact,
+  size, split identity when applicable, optional parent digest, and creation
+  time
 - `runtime_compatibility`: provider protocol and optional runtime, backend,
   hardware, context, and memory compatibility observations
 - `resource_observations`: optional measured, estimated, synthetic, or unknown
@@ -90,15 +91,23 @@ The `manifest_digest` is lowercase SHA-256 over UTF-8 canonical JSON with:
 - set-like capability and compatibility lists sorted and deduplicated
 - artifact splits sorted by contiguous ordinal
 
-Split artifacts also carry a separate SHA-256 digest over the ordered split
-entries (`ordinal`, `name`, `digest`, and `size_bytes`). Identical semantic
-content therefore has the same digest. Changing the source revision or digest,
-converter commit, quantizer commit, artifact digest, runtime commit, or any other
-manifest content changes the manifest digest.
+For a non-split artifact, `split_count` is zero, `splits` is empty,
+`split_manifest_digest` is null, and `artifact_digest` is the SHA-256 of the
+individual artifact file.
 
-The manifest digest is metadata identity, not a signature and not an artifact
-hash. The artifact's own digest must identify the exact bytes tested by the
-operator.
+For a split artifact, every split records its own SHA-256 digest and byte size.
+`split_manifest_digest` is SHA-256 over the canonical ordered split entries
+(`ordinal`, `name`, `digest`, and `size_bytes`). The top-level `artifact_digest`
+must equal `split_manifest_digest`, and `artifact_size_bytes` must equal the sum
+of every split's `size_bytes`. The top-level artifact identity bound by
+qualification therefore represents the exact complete ordered split set, not an
+ambiguous individual split file. Reversing input order does not change that
+identity because splits canonicalize by contiguous ordinal.
+
+Changing the source revision or digest, converter commit, quantizer commit,
+artifact digest, runtime commit, or any other manifest content changes the
+manifest digest. The manifest digest is metadata identity, not a signature or
+an artifact hash.
 
 ## Qualification binding
 

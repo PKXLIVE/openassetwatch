@@ -28,7 +28,6 @@ from app.local_ai import (
 )
 from app.model_artifact_provenance import (
     MAX_MODEL_ARTIFACT_MANIFEST_BYTES,
-    ArtifactSplit,
     ModelArtifactAdvisory,
     ModelArtifactAdvisoryRegistry,
     ModelArtifactManifest,
@@ -49,6 +48,7 @@ from tests.model_artifact_fixtures import (
     RUNTIME_COMMIT,
     SOURCE_DIGEST,
     complete_manifest,
+    complete_split_manifest,
     partial_manifest,
     unknown_manifest,
 )
@@ -220,26 +220,78 @@ class ModelArtifactManifestTests(unittest.TestCase):
         for variant in variants:
             self.assertNotEqual(baseline.manifest_digest, variant.manifest_digest)
 
-    def test_split_manifest_order_is_deterministic(self) -> None:
-        splits = [
-            ArtifactSplit(ordinal=1, name="part-0001", digest="1" * 64, size_bytes=100),
-            ArtifactSplit(ordinal=2, name="part-0002", digest="2" * 64, size_bytes=200),
-        ]
-        expected = split_manifest_digest(splits)
-        manifests = []
-        for ordered in (splits, list(reversed(splits))):
-            payload = complete_manifest().model_dump(mode="json")
-            payload["manifest_digest"] = None
-            payload["artifact"].update(
-                {
-                    "split_count": 2,
-                    "splits": [item.model_dump(mode="json") for item in ordered],
-                    "split_manifest_digest": expected,
-                }
-            )
-            manifests.append(ModelArtifactManifest.model_validate(payload))
-        self.assertEqual(manifests[0].manifest_digest, manifests[1].manifest_digest)
-        self.assertEqual([item.ordinal for item in manifests[1].artifact.splits], [1, 2])
+    def test_valid_split_artifact_binds_complete_ordered_set(self) -> None:
+        manifest = complete_split_manifest()
+        expected = split_manifest_digest(manifest.artifact.splits)
+
+        self.assertEqual(manifest.artifact.split_count, 2)
+        self.assertEqual([item.ordinal for item in manifest.artifact.splits], [1, 2])
+        self.assertEqual(len({item.name for item in manifest.artifact.splits}), 2)
+        self.assertEqual(manifest.artifact.artifact_size_bytes, 300)
+        self.assertEqual(manifest.artifact.split_manifest_digest, expected)
+        self.assertEqual(manifest.artifact.artifact_digest, expected)
+
+    def test_invalid_split_artifact_consistency_fails_closed(self) -> None:
+        mutations = (
+            (
+                "split size sum",
+                "artifact size must equal the sum of its split sizes",
+                lambda payload: payload["artifact"].update({"artifact_size_bytes": 301}),
+            ),
+            (
+                "logical artifact digest",
+                "artifact digest must equal the split manifest digest",
+                lambda payload: payload["artifact"].update({"artifact_digest": "3" * 64}),
+            ),
+            (
+                "split manifest digest",
+                "artifact split manifest digest does not match its ordered entries",
+                lambda payload: payload["artifact"].update({"split_manifest_digest": "4" * 64}),
+            ),
+            (
+                "split count",
+                "artifact split_count must match the split manifest",
+                lambda payload: payload["artifact"].update({"split_count": 1}),
+            ),
+            (
+                "contiguous ordinals",
+                "artifact split ordinals must be contiguous from one",
+                lambda payload: payload["artifact"]["splits"][1].update({"ordinal": 3}),
+            ),
+            (
+                "unique names",
+                "artifact split names must be unique",
+                lambda payload: payload["artifact"]["splits"][1].update({"name": "part-0001"}),
+            ),
+        )
+        for name, message, mutate in mutations:
+            with self.subTest(name=name):
+                payload = complete_split_manifest().model_dump(mode="json")
+                payload["manifest_digest"] = None
+                mutate(payload)
+                with self.assertRaisesRegex(ValidationError, message):
+                    ModelArtifactManifest.model_validate(payload)
+
+    def test_reversed_split_input_has_same_split_and_manifest_identity(self) -> None:
+        baseline = complete_split_manifest()
+        reversed_input = complete_split_manifest(reversed_splits=True)
+
+        self.assertEqual(
+            baseline.artifact.split_manifest_digest,
+            reversed_input.artifact.split_manifest_digest,
+        )
+        self.assertEqual(baseline.artifact.artifact_digest, reversed_input.artifact.artifact_digest)
+        self.assertEqual(baseline.manifest_digest, reversed_input.manifest_digest)
+        self.assertEqual([item.ordinal for item in reversed_input.artifact.splits], [1, 2])
+
+    def test_non_split_artifact_retains_individual_file_identity(self) -> None:
+        manifest = complete_manifest()
+
+        self.assertEqual(manifest.artifact.split_count, 0)
+        self.assertEqual(manifest.artifact.splits, [])
+        self.assertIsNone(manifest.artifact.split_manifest_digest)
+        self.assertEqual(manifest.artifact.artifact_digest, ARTIFACT_DIGEST)
+        self.assertEqual(manifest.artifact.artifact_size_bytes, 2_048)
 
     def test_lineage_relationship_mismatches_fail(self) -> None:
         mutations = (

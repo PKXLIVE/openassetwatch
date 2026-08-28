@@ -308,6 +308,10 @@ class ModelArtifactIdentity(StrictProvenanceModel):
             expected = split_manifest_digest(self.splits)
             if self.split_manifest_digest != expected:
                 raise ValueError("artifact split manifest digest does not match its ordered entries")
+            if self.artifact_size_bytes != sum(item.size_bytes for item in self.splits):
+                raise ValueError("artifact size must equal the sum of its split sizes")
+            if self.artifact_digest != expected:
+                raise ValueError("artifact digest must equal the split manifest digest")
         elif self.split_manifest_digest is not None:
             raise ValueError("a non-split artifact cannot have a split manifest digest")
         return self

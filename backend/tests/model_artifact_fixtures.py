@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.model_artifact_provenance import ModelArtifactManifest
+from app.model_artifact_provenance import (
+    ArtifactSplit,
+    ModelArtifactManifest,
+    split_manifest_digest,
+)
 
 
 FIXED_TIME = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
@@ -97,6 +101,30 @@ def complete_manifest() -> ModelArtifactManifest:
         provenance_state="complete",
         created_at=FIXED_TIME,
     )
+
+
+def complete_split_manifest(*, reversed_splits: bool = False) -> ModelArtifactManifest:
+    splits = [
+        ArtifactSplit(ordinal=1, name="part-0001", digest="1" * 64, size_bytes=100),
+        ArtifactSplit(ordinal=2, name="part-0002", digest="2" * 64, size_bytes=200),
+    ]
+    logical_digest = split_manifest_digest(splits)
+    if reversed_splits:
+        splits.reverse()
+
+    payload = complete_manifest().model_dump(mode="json")
+    payload["manifest_digest"] = None
+    payload["quantization"]["output_artifact_digest"] = logical_digest
+    payload["artifact"].update(
+        {
+            "artifact_digest": logical_digest,
+            "artifact_size_bytes": sum(item.size_bytes for item in splits),
+            "split_count": len(splits),
+            "splits": [item.model_dump(mode="json") for item in splits],
+            "split_manifest_digest": logical_digest,
+        }
+    )
+    return ModelArtifactManifest.model_validate(payload)
 
 
 def partial_manifest() -> ModelArtifactManifest:
