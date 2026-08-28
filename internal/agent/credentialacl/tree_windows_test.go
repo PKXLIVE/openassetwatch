@@ -283,7 +283,7 @@ func testManagedTreePlan(userSID string) managedTreePlan {
 		directoryDescriptor: "O:" + userSID + "G:" + userSID + "D:P(A;OICI;FA;;;" + userSID + ")",
 		fileDescriptor:      "O:" + userSID + "G:" + userSID + "D:P(A;;FA;;;" + userSID + ")",
 		trustedDirOwners:    managedSIDSet(userSID),
-		trustedFileOwners:   managedSIDSet(userSID),
+		trustedFileOwners:   managedSIDSet(userSID, managedAdministratorsSID),
 		trustedWriters:      managedSIDSet(userSID),
 	}
 }
