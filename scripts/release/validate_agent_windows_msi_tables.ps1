@@ -8,6 +8,7 @@ Set-StrictMode -Version Latest
 
 $ExpectedServiceSid = "S-1-5-80-630466807-4251148593-2853048944-3410275790-4186592652"
 $ExpectedSddl = "O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;$ExpectedServiceSid)"
+$ExpectedManagedAncestorSddl = "O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)"
 
 function Get-RecordValues {
     param(
@@ -91,6 +92,22 @@ try {
     ) -FieldTypes @("string")
     $credentialDirectory = $directoryRecord.Values[0]
 
+    $stage = "managed_root_acl"
+    $managedRootAclRecord = Get-RecordValues -Database $database -Query (
+        'SELECT `Table`,`SDDLText` FROM `MsiLockPermissionsEx` ' +
+        'WHERE `LockObject`=''OpenAssetWatchProgramData'''
+    ) -FieldTypes @("string", "string")
+    $managedRootAclTable = $managedRootAclRecord.Values[0]
+    $managedRootSddl = $managedRootAclRecord.Values[1]
+
+    $stage = "agent_root_acl"
+    $agentRootAclRecord = Get-RecordValues -Database $database -Query (
+        'SELECT `Table`,`SDDLText` FROM `MsiLockPermissionsEx` ' +
+        'WHERE `LockObject`=''AgentProgramData'''
+    ) -FieldTypes @("string", "string")
+    $agentRootAclTable = $agentRootAclRecord.Values[0]
+    $agentRootSddl = $agentRootAclRecord.Values[1]
+
     $stage = "credential_acl"
     $aclRecord = Get-RecordValues -Database $database -Query (
         'SELECT `LockObject`,`Table`,`SDDLText` FROM `MsiLockPermissionsEx` ' +
@@ -127,6 +144,14 @@ try {
         repair_condition = $repairCondition -eq 'NOT (REMOVE~="ALL")'
         repair_after_protected_acl = $repairSequence -gt $secureObjectsSequence
         repair_before_service_start = $repairSequence -lt $startSequence
+        protected_managed_root_acl = (
+            $managedRootAclTable -eq "CreateFolder" -and
+            $managedRootSddl -eq $ExpectedManagedAncestorSddl
+        )
+        protected_agent_root_acl = (
+            $agentRootAclTable -eq "CreateFolder" -and
+            $agentRootSddl -eq $ExpectedManagedAncestorSddl
+        )
         credential_directory = $credentialDirectory -eq "AgentCredentialDir"
         credential_acl_object = $aclObject -eq "AgentCredentialDir"
         protected_exact_acl = $aclSddl -eq $ExpectedSddl

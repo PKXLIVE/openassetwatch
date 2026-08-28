@@ -153,6 +153,24 @@ def run_release_validator(repo: Path, dist_root: Path) -> dict[str, object]:
 
 
 class ReleasePublicationTests(unittest.TestCase):
+    def test_windows_managed_ancestors_use_exact_protected_dacl(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        source = (repo / windowsmsi.WXS_RELATIVE).read_text(encoding="utf-8")
+        exact = f'<PermissionEx Sddl="{windowsmsi.MANAGED_ANCESTOR_SDDL}" />'
+        self.assertEqual(source.count(exact), 2)
+        mutations = {
+            "unprotected": exact.replace("G:SYD:P", "G:SYD:"),
+            "broad-write": exact.replace("GRGX;;;BU", "GW;;;BU"),
+        }
+        for label, replacement in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                fixture = Path(tmp)
+                wxs = fixture / windowsmsi.WXS_RELATIVE
+                wxs.parent.mkdir(parents=True)
+                wxs.write_text(source.replace(exact, replacement, 1), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "managed ProgramData ancestors"):
+                    windowsmsi.validate_wix_source(fixture)
+
     def test_windows_credential_directory_uses_exact_protected_dacl(self) -> None:
         repo = Path(__file__).resolve().parents[2]
         windowsmsi.validate_wix_source(repo)

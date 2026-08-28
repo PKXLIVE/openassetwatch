@@ -55,6 +55,8 @@
 
     <ComponentGroup Id="AgentComponents">
       <ComponentRef Id="AgentProgramFilesComponent" />
+      <ComponentRef Id="OpenAssetWatchProgramDataAclComponent" />
+      <ComponentRef Id="AgentProgramDataAclComponent" />
       <ComponentRef Id="AgentConfigExampleComponent" />
       <ComponentRef Id="AgentIdentityExampleComponent" />
       <ComponentRef Id="AgentStateDirectoryComponent" />
@@ -97,6 +99,22 @@
             EventMessageFile="[SystemFolder]EventCreate.exe" />
         <CreateFolder>
           <util:PermissionEx Domain="NT SERVICE" User="OpenAssetWatchAgent" GenericRead="yes" GenericExecute="yes" />
+        </CreateFolder>
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="OpenAssetWatchProgramData">
+      <Component Id="OpenAssetWatchProgramDataAclComponent" Guid="{EB4AAFC5-470E-4684-AE4E-6D9119FFE21C}" Bitness="always64">
+        <CreateFolder>
+          <PermissionEx Sddl="O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)" />
+        </CreateFolder>
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="AgentProgramData">
+      <Component Id="AgentProgramDataAclComponent" Guid="{FF1058E8-9D0F-4518-A1D2-D83AE11B4A2A}" Bitness="always64">
+        <CreateFolder>
+          <PermissionEx Sddl="O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)" />
         </CreateFolder>
       </Component>
     </DirectoryRef>

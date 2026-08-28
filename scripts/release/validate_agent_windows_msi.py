@@ -29,6 +29,9 @@ CREDENTIAL_DIRECTORY_SDDL = (
     "O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
     f"(A;OICI;0x1301bf;;;{AGENT_SERVICE_SID})"
 )
+MANAGED_ANCESTOR_SDDL = (
+    "O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)"
+)
 CREDENTIAL_ACL_REPAIR_COMMAND = "repair-private-state-acl"
 FORBIDDEN_RE = re.compile(
     r"(credential|password|token|api[_-]?key|private[_-]?key|secret|Task Scheduler|run-once --config)",
@@ -182,6 +185,34 @@ def validate_wix_source(repo_root: Path) -> None:
         raise ValueError("WiX source is not valid XML.") from exc
     wix = f"{{{WIX_NAMESPACE}}}"
     util = f"{{{UTIL_NAMESPACE}}}"
+    for directory_id, component_id in (
+        ("OpenAssetWatchProgramData", "OpenAssetWatchProgramDataAclComponent"),
+        ("AgentProgramData", "AgentProgramDataAclComponent"),
+    ):
+        directory_ref = root.find(f".//{wix}DirectoryRef[@Id='{directory_id}']")
+        ancestor_component = (
+            directory_ref.find(f"{wix}Component[@Id='{component_id}']")
+            if directory_ref is not None
+            else None
+        )
+        matching_ancestors = root.findall(f".//{wix}Component[@Id='{component_id}']")
+        create_folder = (
+            ancestor_component.find(f"{wix}CreateFolder")
+            if ancestor_component is not None
+            else None
+        )
+        permissions = list(create_folder) if create_folder is not None else []
+        if (
+            ancestor_component is None
+            or len(matching_ancestors) != 1
+            or ancestor_component is not matching_ancestors[0]
+            or len(permissions) != 1
+            or permissions[0].tag != f"{wix}PermissionEx"
+            or permissions[0].attrib != {"Sddl": MANAGED_ANCESTOR_SDDL}
+        ):
+            raise ValueError(
+                "WiX managed ProgramData ancestors must use the exact protected read-only broad DACL."
+            )
     credential_ref = root.find(f".//{wix}DirectoryRef[@Id='AgentCredentialDir']")
     component = (
         credential_ref.find(f"{wix}Component[@Id='AgentCredentialDirectoryComponent']")
