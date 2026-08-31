@@ -202,11 +202,13 @@ from .schema_migrations import (
 )
 from .temporal_contracts import (
     METRIC_KEY_PATTERN,
+    TemporalDeviationAssessment,
     TemporalExpectation,
     TemporalMetricRegistryResponse,
     TemporalSignalSeriesResponse,
     temporal_registry_public,
 )
+from .temporal_deviations import TemporalDeviationService
 from .temporal_expectations import TemporalExpectationService
 from .temporal_projection import (
     TemporalProjectionError,
@@ -1640,6 +1642,10 @@ def _temporal_expectation_service() -> TemporalExpectationService:
     return TemporalExpectationService.from_projection_store(store=_temporal_store())
 
 
+def _temporal_deviation_service() -> TemporalDeviationService:
+    return TemporalDeviationService.from_projection_store(store=_temporal_store())
+
+
 @app.get(
     "/api/v1/temporal/metrics",
     response_model=TemporalMetricRegistryResponse,
@@ -1723,6 +1729,41 @@ def api_temporal_expectation(
         raise HTTPException(
             status_code=500,
             detail="failed to calculate temporal expectation",
+        ) from exc
+
+
+@app.get(
+    "/api/v1/temporal/deviation-assessments",
+    response_model=TemporalDeviationAssessment,
+)
+def api_temporal_deviation_assessment(
+    metric_key: str = Query(..., pattern=METRIC_KEY_PATTERN, max_length=120),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    target_start: datetime = Query(...),
+    granularity: str = Query(default="daily", min_length=1, max_length=16),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="temporal deviation assessment access",
+    )
+    try:
+        return _temporal_deviation_service().assessment(
+            metric_key=metric_key,
+            site_id=site_id,
+            target_start=target_start,
+            granularity=granularity,
+            asset_id=asset_id,
+        )
+    except TemporalSiteNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TemporalProjectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="failed to calculate temporal deviation assessment",
         ) from exc
 
 
