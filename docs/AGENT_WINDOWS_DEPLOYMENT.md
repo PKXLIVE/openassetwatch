@@ -125,7 +125,18 @@ msiexec.exe /fa .\OpenAssetWatchAgent-0.1.0-windows-amd64.msi /qn /norestart
 
 Major upgrades use the stable MSI `UpgradeCode` and a new product version. The
 MSI prevents unintended downgrade. Config, identity, state, and logs are
-preserved across repair and upgrade.
+preserved across repair and upgrade. Repair and upgrade also run the fixed,
+argument-free private-state ACL repair before service start. It rejects
+reparse points, nested directories, unsafe owners, broad managed-ancestor write
+access (including delete-child grants to any unreviewed principal), replacement
+races, live credential-state handles, and hard-linked credential files. The action uses
+the Windows known-folder ProgramData root, pins each managed path component,
+and applies SYSTEM ownership plus protected replacement DACLs only to the
+credential directory and its bounded direct files. Installation fails before
+service start if legacy credential state cannot be secured; content is not
+rewritten by the repair. The service is stopped before this action; any other
+open credential-state handle makes repair fail closed rather than preserving a
+previously granted read or write capability across the ACL replacement.
 
 ## Rollback
 

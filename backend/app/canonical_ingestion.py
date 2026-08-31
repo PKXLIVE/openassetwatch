@@ -100,6 +100,17 @@ class CanonicalAsset(StrictModel):
         return bounded
 
 
+class CanonicalSoftwareSource(StrictModel):
+    source_id: str = Field(..., pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    platform: Literal["windows", "linux", "darwin"]
+    status: Literal["complete", "partial", "unsupported", "failed"]
+    observed_at: datetime
+    record_count: int = Field(..., ge=0, le=2_000)
+    truncated: bool = False
+    error_code: str | None = Field(default=None, max_length=80)
+    limitations: tuple[str, ...] = Field(default=(), max_length=8)
+
+
 class CanonicalInventoryEnvelope(StrictModel):
     schema_version: Literal["oaw.canonical-inventory.v1"]
     route_name: str = Field(..., min_length=1, max_length=96)
@@ -125,6 +136,9 @@ class CanonicalInventoryEnvelope(StrictModel):
     payload_sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     original_identifier: str | None = Field(default=None, max_length=160)
     assets: tuple[CanonicalAsset, ...] = Field(default=(), max_length=MAX_CANONICAL_ASSETS)
+    software_sources: tuple[CanonicalSoftwareSource, ...] = Field(
+        default=(), max_length=8
+    )
     collection_limitations: tuple[str, ...] = Field(default=(), max_length=MAX_LIMITATIONS)
     provenance: dict[str, str] = Field(default_factory=dict)
     credential_id: str | None = Field(default=None, max_length=80)
@@ -243,7 +257,12 @@ class CanonicalInventoryEnvelope(StrictModel):
             }[self.adapter_type],
             "observation_batch_id": self.original_identifier,
             "inventory_mode": self.inventory_mode,
-            "component_inventory_complete": self.inventory_mode == "complete",
+            "component_inventory_complete": (
+                self.inventory_mode == "complete" and not self.software_sources
+            ),
+            "software_sources": [
+                source.model_dump(mode="json") for source in self.software_sources
+            ],
             "observed_at": self.observed_at.isoformat(),
             "collected_at": self.observed_at.isoformat(),
             "ingested_at": self.ingested_at.isoformat(),
@@ -371,6 +390,10 @@ def _component(entry: Mapping[str, Any], *, default_type: str = "application") -
         "install_scope": _text(entry.get("install_scope"), limit=40) or "system",
         "firmware_evidence_type": _text(entry.get("firmware_evidence_type"), limit=32) or "unknown",
         "confidence": entry.get("confidence") if isinstance(entry.get("confidence"), (int, float)) else 0.7,
+        "collection_source_id": _text(entry.get("collection_source_id"), limit=64),
+        "source_record_id": _text(entry.get("source_record_id"), limit=240),
+        "evidence_method": _text(entry.get("evidence_method"), limit=64),
+        "metadata": entry.get("metadata") if isinstance(entry.get("metadata"), Mapping) else {},
     }
     return ComponentObservation.model_validate(candidate)
 
@@ -456,6 +479,7 @@ def _envelope(
     payload_digest: str,
     original_identifier: str | None,
     assets: Sequence[CanonicalAsset],
+    software_sources: Sequence[CanonicalSoftwareSource] = (),
     limitations: Sequence[str] = (),
     provenance: Mapping[str, str] | None = None,
     credential_id: str | None = None,
@@ -492,6 +516,7 @@ def _envelope(
         payload_sha256=payload_digest,
         original_identifier=original_identifier,
         assets=tuple(assets),
+        software_sources=tuple(software_sources),
         collection_limitations=tuple(limitations),
         provenance=dict(provenance or {}),
         credential_id=credential_id,
@@ -512,7 +537,9 @@ def endpoint_envelope(*, payload: Any, context: Any, received_at: datetime) -> C
             for interface in interfaces
             if interface.get("mac_address")
         ]
-        raw["component_inventory_complete"] = payload.inventory_mode == "complete"
+        raw["component_inventory_complete"] = (
+            payload.inventory_mode == "complete" and not payload.software_sources
+        )
         assets.append(_asset_from_mapping(raw, index=index))
     return _envelope(
         route_name="/api/v1/agents/inventory",
@@ -531,6 +558,10 @@ def endpoint_envelope(*, payload: Any, context: Any, received_at: datetime) -> C
         payload_digest=_digest(payload.model_dump(mode="json", exclude_none=True)),
         original_identifier=payload.inventory_batch_id,
         assets=assets,
+        software_sources=[
+            CanonicalSoftwareSource.model_validate(source.model_dump(mode="json"))
+            for source in payload.software_sources
+        ],
         limitations=payload.collection_limitations,
         provenance={
             key: value

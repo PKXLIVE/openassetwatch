@@ -41,6 +41,7 @@ BINARY_PATH = "/Library/Application Support/OpenAssetWatch/Agent/bin/oaw-agent"
 CONFIG_PATH = "/Library/Application Support/OpenAssetWatch/Agent/config/config.json"
 IDENTITY_PATH = "/Library/Application Support/OpenAssetWatch/Agent/identity/identity.json"
 STATE_DIR = "/Library/Application Support/OpenAssetWatch/Agent/state"
+CREDENTIAL_DIR = "/Library/Application Support/OpenAssetWatch/Agent/state/credential"
 STATUS_PATH = "/Library/Application Support/OpenAssetWatch/Agent/state/status.json"
 INVENTORY_PATH = "/Library/Application Support/OpenAssetWatch/Agent/state/last-inventory.json"
 LOG_DIR = "/Library/Logs/OpenAssetWatch/Agent"
@@ -160,6 +161,7 @@ def stage_paths(root: Path) -> dict[str, Path]:
         "config_example": payload_path(root, "/Library/Application Support/OpenAssetWatch/Agent/config/config.example.json"),
         "identity_example": payload_path(root, "/Library/Application Support/OpenAssetWatch/Agent/identity/identity.example.json"),
         "state_dir": payload_path(root, STATE_DIR),
+        "credential_dir": payload_path(root, CREDENTIAL_DIR),
         "logs_dir": payload_path(root, LOG_DIR),
         "plist": payload_path(root, PLIST_PATH),
         "install_manifest": payload_path(root, INSTALL_MANIFEST_PATH),
@@ -302,6 +304,7 @@ def production_paths() -> dict[str, str]:
         "config": CONFIG_PATH,
         "identity": IDENTITY_PATH,
         "state_dir": STATE_DIR,
+        "credential_dir": CREDENTIAL_DIR,
         "status": STATUS_PATH,
         "inventory": INVENTORY_PATH,
         "log_dir": LOG_DIR,
@@ -317,6 +320,7 @@ def ownership_intent() -> list[dict[str, str]]:
         {"path": CONFIG_PATH, "owner": "root", "group": SERVICE_GROUP, "mode": "0640", "writable_by_service": "false"},
         {"path": IDENTITY_PATH, "owner": "root", "group": SERVICE_GROUP, "mode": "0640", "writable_by_service": "false"},
         {"path": STATE_DIR, "owner": SERVICE_USER, "group": SERVICE_GROUP, "mode": "0750", "writable_by_service": "true"},
+        {"path": CREDENTIAL_DIR, "owner": SERVICE_USER, "group": SERVICE_GROUP, "mode": "0700", "writable_by_service": "true"},
         {"path": LOG_DIR, "owner": SERVICE_USER, "group": SERVICE_GROUP, "mode": "0750", "writable_by_service": "true"},
     ]
 
@@ -330,7 +334,9 @@ def ensure_no_forbidden_content(root: Path) -> None:
         lowered = path.name.lower()
         if lowered in {"config.json", "identity.json", "status.json", "last-inventory.json"}:
             raise ValueError(f"staging must not include runtime data file: {path}")
-        if any(term in lowered for term in FORBIDDEN_STAGE_TERMS):
+        if path != payload_path(root, CREDENTIAL_DIR) and any(
+            term in lowered for term in FORBIDDEN_STAGE_TERMS
+        ):
             raise ValueError(f"staging filename contains forbidden marker: {path}")
         if path.is_file() and path.name.endswith(".example.json") and path.stat().st_size < 256 * 1024:
             text = path.read_text(encoding="utf-8", errors="ignore")
@@ -361,6 +367,7 @@ def write_staging(
     write_json(paths["config_example"], config_example())
     write_json(paths["identity_example"], identity_example())
     paths["state_dir"].mkdir(parents=True, exist_ok=True)
+    paths["credential_dir"].mkdir(parents=True, exist_ok=True)
     paths["logs_dir"].mkdir(parents=True, exist_ok=True)
     write_plist(paths["plist"], launchd_plist())
     write_package_scripts(repo_root, root, package_version)

@@ -139,13 +139,17 @@ the same directory, rejects symlinks and non-regular files, and rejects
 multiple links where the operating system exposes a reliable link count.
 Failed validation leaves the current credential unchanged.
 
-Windows standalone Go code does not claim portable DACL-owner validation. A
-packaged installation must retain the installer-created state-directory ACL so
-only administrators, SYSTEM, and the service identity can access the record.
-Linux and macOS operators must ensure the final record is owned by the service
-identity and remains private. Installation-specific ACL/ownership automation
-is an immediate follow-up; enrollment should not be treated as production-ready
-until that packaging path is validated on each operating system.
+Windows standalone Go code does not claim portable DACL-owner validation. The
+MSI creates a SYSTEM-owned protected credential-directory DACL for
+Administrators, SYSTEM, and the service SID. Its deferred SYSTEM action checks
+the known-folder path component by component, fails closed on unsafe ownership,
+broad or otherwise unreviewed write-capable access, delete-child grants,
+reparse points, replacement attempts, or open credential-state handles, and repairs
+existing bounded direct credential files through pinned handles during
+install, repair, and upgrade. Linux DEB/RPM and macOS packages create the
+credential directory for the service identity with mode `0700`. Unpackaged
+installations must establish equivalent ownership and access controls before
+enrollment.
 
 ## Legacy compatibility
 
@@ -160,11 +164,10 @@ but it is also lower trust and cannot call the canonical authenticated
 inventory route. The passive-sensor enrollment and observation behavior is
 unchanged.
 
-The current Go inventory collector reports host, platform, and interface
-evidence. Its canonical contract explicitly records that installed-component
-collection is not yet supported by that collector. Synthetic contract and hub
-tests exercise component normalization; native cross-platform package
-collection is the immediate functional follow-up.
+The current Go inventory collector reports host, platform, interface, and
+bounded machine-level native software evidence. Native source completeness is
+carried through the authenticated canonical-ingestion contract so only a
+server-validated complete source snapshot can withdraw prior source presence.
 
 ## Synthetic demonstration and development measurement
 
@@ -218,7 +221,8 @@ UI fields, AI prompts, or repository files.
   keys, or hardware attestation.
 - User/RBAC, SSO, tenancy expansion, asset merge/split, and distributed task
   execution remain future work.
-- Native Go package/software collection and packaged per-platform credential
-  ownership setup require follow-up validation.
+- Package definitions create platform-private credential directories. Installed
+  ownership/DACL and upgrade-preservation evidence is platform-specific CI;
+  source validation alone is not runtime installation proof.
 - AI Advisor is advisory-only. It cannot enroll, rotate, revoke, classify,
   create matches, change findings, or change risk.

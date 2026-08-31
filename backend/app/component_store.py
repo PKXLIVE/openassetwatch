@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime
 from typing import Any, Sequence
@@ -10,13 +11,13 @@ from sqlalchemy import bindparam, text
 
 from .component_intelligence import (
     MAX_COMPONENTS_PER_ASSET,
+    ComponentSourceSnapshot,
     NormalizedComponent,
 )
 
 
 MAX_COMPONENT_PAGE = 200
 MAX_COMPONENT_OFFSET = 10_000
-MAX_COMPONENT_HISTORY_ROWS = 256
 MAX_COMPONENT_EVIDENCE_ROWS = 256
 _COMPONENT_FRESHNESS_SQL = """
 CASE
@@ -224,21 +225,288 @@ def _prune_component_rows(connection: Any, *, component_id: str) -> None:
         ),
         {"component_id": component_id, "keep": MAX_COMPONENT_EVIDENCE_ROWS},
     )
+
+
+def _persist_source_snapshot(
+    connection: Any,
+    snapshot: ComponentSourceSnapshot,
+) -> None:
     connection.execute(
         text(
             """
-            DELETE FROM asset_component_history
-            WHERE history_id IN (
-                SELECT history_id
-                FROM asset_component_history
-                WHERE component_id = :component_id
-                ORDER BY observed_at DESC, history_id DESC
-                OFFSET :keep
-              )
+            INSERT INTO component_source_snapshots (
+                source_snapshot_id, canonical_collection_id, site_id, asset_id,
+                agent_source_id, collection_source_id, platform,
+                collection_status, observed_at, record_count, truncated,
+                error_code, limitations_json
+            ) VALUES (
+                :source_snapshot_id, :canonical_collection_id, :site_id,
+                :asset_id, :agent_source_id, :collection_source_id, :platform,
+                :collection_status, :observed_at, :record_count, :truncated,
+                :error_code, CAST(:limitations_json AS JSONB)
+            )
+            ON CONFLICT (source_snapshot_id) DO NOTHING
             """
         ),
-        {"component_id": component_id, "keep": MAX_COMPONENT_HISTORY_ROWS},
+        {
+            **snapshot.__dict__,
+            "limitations_json": _json(list(snapshot.limitations)),
+        },
     )
+
+
+def _upsert_source_presence(
+    connection: Any,
+    *,
+    component: NormalizedComponent,
+    snapshot: ComponentSourceSnapshot,
+) -> None:
+    connection.execute(
+        text(
+            """
+            INSERT INTO component_source_presence (
+                component_id, site_id, asset_id, agent_source_id,
+                collection_source_id, source_record_id, evidence_method,
+                active, first_observed_at, last_observed_at,
+                last_source_snapshot_id
+            ) VALUES (
+                :component_id, :site_id, :asset_id, :agent_source_id,
+                :collection_source_id, :source_record_id, :evidence_method,
+                TRUE, :observed_at, :observed_at, :source_snapshot_id
+            )
+            ON CONFLICT (component_id, agent_source_id, collection_source_id)
+            DO UPDATE SET
+                source_record_id = EXCLUDED.source_record_id,
+                evidence_method = EXCLUDED.evidence_method,
+                active = TRUE,
+                last_observed_at = GREATEST(
+                    component_source_presence.last_observed_at,
+                    EXCLUDED.last_observed_at
+                ),
+                not_observed_at = NULL,
+                last_source_snapshot_id = EXCLUDED.last_source_snapshot_id,
+                updated_at = NOW()
+            WHERE EXCLUDED.last_observed_at >= GREATEST(
+                component_source_presence.last_observed_at,
+                COALESCE(
+                    component_source_presence.not_observed_at,
+                    component_source_presence.last_observed_at
+                )
+            )
+            """
+        ),
+        {
+            "component_id": component.component_id,
+            "site_id": component.site_id,
+            "asset_id": component.asset_id,
+            "agent_source_id": component.source_id,
+            "collection_source_id": component.collection_source_id,
+            "source_record_id": component.source_record_id,
+            "evidence_method": component.evidence_method,
+            "observed_at": component.observed_at,
+            "source_snapshot_id": snapshot.source_snapshot_id,
+        },
+    )
+
+
+def _record_source_state(
+    connection: Any,
+    snapshot: ComponentSourceSnapshot,
+) -> None:
+    complete = snapshot.collection_status == "complete"
+    connection.execute(
+        text(
+            """
+            INSERT INTO component_collection_sources (
+                site_id, asset_id, agent_source_id, collection_source_id,
+                platform, collection_status, last_attempt_at,
+                last_successful_complete_at, last_source_snapshot_id,
+                last_successful_snapshot_id, canonical_collection_id,
+                record_count, truncated, error_code, limitations_json
+            ) VALUES (
+                :site_id, :asset_id, :agent_source_id, :collection_source_id,
+                :platform, :collection_status, :observed_at,
+                :successful_at, :source_snapshot_id, :successful_snapshot_id,
+                :canonical_collection_id, :record_count, :truncated,
+                :error_code, CAST(:limitations_json AS JSONB)
+            )
+            ON CONFLICT (
+                site_id, asset_id, agent_source_id, collection_source_id
+            ) DO UPDATE SET
+                platform = EXCLUDED.platform,
+                collection_status = EXCLUDED.collection_status,
+                last_attempt_at = EXCLUDED.last_attempt_at,
+                last_successful_complete_at = CASE
+                    WHEN EXCLUDED.collection_status = 'complete'
+                    THEN EXCLUDED.last_attempt_at
+                    ELSE component_collection_sources.last_successful_complete_at
+                END,
+                last_source_snapshot_id = EXCLUDED.last_source_snapshot_id,
+                last_successful_snapshot_id = CASE
+                    WHEN EXCLUDED.collection_status = 'complete'
+                    THEN EXCLUDED.last_source_snapshot_id
+                    ELSE component_collection_sources.last_successful_snapshot_id
+                END,
+                canonical_collection_id = EXCLUDED.canonical_collection_id,
+                record_count = EXCLUDED.record_count,
+                truncated = EXCLUDED.truncated,
+                error_code = EXCLUDED.error_code,
+                limitations_json = EXCLUDED.limitations_json,
+                updated_at = NOW()
+            WHERE EXCLUDED.last_attempt_at >= component_collection_sources.last_attempt_at
+            """
+        ),
+        {
+            **snapshot.__dict__,
+            "successful_at": snapshot.observed_at if complete else None,
+            "successful_snapshot_id": (
+                snapshot.source_snapshot_id if complete else None
+            ),
+            "limitations_json": _json(list(snapshot.limitations)),
+        },
+    )
+
+
+def _apply_complete_source_snapshot(
+    connection: Any,
+    *,
+    snapshot: ComponentSourceSnapshot,
+    observed_ids: set[str],
+) -> int:
+    """Retire only presence omitted by this exact complete source scope.
+
+    Partial, failed, unsupported, stale, or differently scoped snapshots never
+    reach the mutation below. History and snapshots are append-only here.
+    """
+
+    if snapshot.collection_status != "complete":
+        return 0
+    statement = text(
+        """
+        SELECT component_id, source_record_id
+        FROM component_source_presence
+        WHERE site_id = :site_id
+          AND asset_id = :asset_id
+          AND agent_source_id = :agent_source_id
+          AND collection_source_id = :collection_source_id
+          AND active = TRUE
+          AND last_observed_at <= :observed_at
+        """
+        + (
+            "\n          AND component_id NOT IN :observed_ids"
+            if observed_ids
+            else ""
+        )
+        + "\n        FOR UPDATE"
+    )
+    if observed_ids:
+        statement = statement.bindparams(bindparam("observed_ids", expanding=True))
+    params: dict[str, Any] = {
+        "site_id": snapshot.site_id,
+        "asset_id": snapshot.asset_id,
+        "agent_source_id": snapshot.agent_source_id,
+        "collection_source_id": snapshot.collection_source_id,
+        "observed_at": snapshot.observed_at,
+    }
+    if observed_ids:
+        params["observed_ids"] = sorted(observed_ids)
+    rows = connection.execute(statement, params).mappings().all()
+    removed = 0
+    for row in rows[:MAX_COMPONENTS_PER_ASSET]:
+        component_id = str(row["component_id"])
+        changed = connection.execute(
+            text(
+                """
+                UPDATE component_source_presence
+                SET active = FALSE,
+                    not_observed_at = :observed_at,
+                    last_source_snapshot_id = :source_snapshot_id,
+                    updated_at = NOW()
+                WHERE component_id = :component_id
+                  AND site_id = :site_id
+                  AND asset_id = :asset_id
+                  AND agent_source_id = :agent_source_id
+                  AND collection_source_id = :collection_source_id
+                  AND active = TRUE
+                  AND last_observed_at <= :observed_at
+                RETURNING component_id
+                """
+            ),
+            {
+                "component_id": component_id,
+                "site_id": snapshot.site_id,
+                "asset_id": snapshot.asset_id,
+                "agent_source_id": snapshot.agent_source_id,
+                "collection_source_id": snapshot.collection_source_id,
+                "observed_at": snapshot.observed_at,
+                "source_snapshot_id": snapshot.source_snapshot_id,
+            },
+        ).scalar_one_or_none()
+        if changed is None:
+            continue
+        any_active = bool(
+            connection.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM component_source_presence
+                    WHERE component_id = :component_id AND active = TRUE
+                    LIMIT 1
+                    """
+                ),
+                {"component_id": component_id},
+            ).scalar_one_or_none()
+        )
+        if not any_active:
+            connection.execute(
+                text(
+                    """
+                    UPDATE asset_components
+                    SET active = FALSE,
+                        not_observed_at = :observed_at,
+                        updated_at = NOW()
+                    WHERE component_id = :component_id
+                      AND observed_at <= :observed_at
+                    """
+                ),
+                {
+                    "component_id": component_id,
+                    "observed_at": snapshot.observed_at,
+                },
+            )
+        connection.execute(
+            text(
+                """
+                INSERT INTO asset_component_history (
+                    component_id, site_id, asset_id, event_type,
+                    previous_version, current_version, snapshot_json,
+                    observed_at
+                )
+                SELECT component_id, site_id, asset_id, 'not-observed',
+                       version, CASE WHEN :any_active THEN version ELSE NULL END,
+                       CAST(:snapshot_json AS JSONB), :observed_at
+                FROM asset_components
+                WHERE component_id = :component_id
+                """
+            ),
+            {
+                "component_id": component_id,
+                "any_active": any_active,
+                "snapshot_json": _json(
+                    {
+                        "component_id": component_id,
+                        "active": any_active,
+                        "reason": "complete-source-omission",
+                        "collection_source_id": snapshot.collection_source_id,
+                        "source_snapshot_id": snapshot.source_snapshot_id,
+                        "source_record_id": row["source_record_id"],
+                    }
+                ),
+                "observed_at": snapshot.observed_at,
+            },
+        )
+        removed += 1
+    return removed
 
 
 def persist_components(
@@ -546,6 +814,193 @@ def persist_components(
     return {"inserted": inserted, "updated": updated, "not_observed": removed}
 
 
+def persist_authenticated_endpoint_source_presence(
+    connection: Any,
+    *,
+    components: Sequence[NormalizedComponent],
+    source_snapshots: Sequence[ComponentSourceSnapshot],
+) -> dict[str, int]:
+    """Persist native source state after revalidating server-owned authority."""
+
+    if not source_snapshots:
+        return {"snapshots": 0, "not_observed": 0}
+    reviewed_sources = {
+        "windows": {"windows-uninstall-32", "windows-uninstall-64"},
+        "linux": {"linux-dpkg", "linux-rpm"},
+        "darwin": {"macos-pkgutil"},
+    }
+    lock_authenticated_endpoint_source_site(
+        connection,
+        source_snapshots=source_snapshots,
+    )
+
+    snapshots_by_scope: dict[tuple[str, str, str, str], ComponentSourceSnapshot] = {}
+    for snapshot in source_snapshots:
+        authority = connection.execute(
+            text(
+                """
+                SELECT c.site_id, c.source_id, c.adapter_type,
+                       c.ingestion_status, c.evaluation_state,
+                       s.source_authority, s.authentication_class
+                FROM canonical_inventory_collections c
+                JOIN canonical_ingestion_sources s
+                  ON s.source_id = c.source_id
+                WHERE c.canonical_collection_id = :canonical_collection_id
+                FOR UPDATE OF c, s
+                """
+            ),
+            {"canonical_collection_id": snapshot.canonical_collection_id},
+        ).mappings().one_or_none()
+        if authority is None or (
+            str(authority["site_id"]),
+            str(authority["source_id"]),
+            str(authority["adapter_type"]),
+            str(authority["ingestion_status"]),
+            str(authority["evaluation_state"]),
+            str(authority["source_authority"]),
+            str(authority["authentication_class"]),
+        ) != (
+            snapshot.site_id,
+            snapshot.agent_source_id,
+            "endpoint-agent",
+            "accepted",
+            "running",
+            "authenticated-endpoint",
+            "bound-credential",
+        ):
+            raise ValueError("native source snapshot lacks bound endpoint authority")
+        if snapshot.collection_source_id not in reviewed_sources.get(
+            snapshot.platform, set()
+        ):
+            raise ValueError("native source snapshot scope is not reviewed")
+        expected_digest = hashlib.sha256(
+            "\x00".join(
+                (
+                    snapshot.canonical_collection_id,
+                    snapshot.site_id,
+                    snapshot.asset_id,
+                    snapshot.agent_source_id,
+                    snapshot.collection_source_id,
+                )
+            ).encode("utf-8")
+        ).hexdigest()[:32]
+        if snapshot.source_snapshot_id != f"css_{expected_digest}":
+            raise ValueError("native source snapshot identity is not server-derived")
+        if snapshot.collection_status == "complete" and (
+            snapshot.truncated or snapshot.error_code
+        ):
+            raise ValueError("incomplete native source cannot withdraw presence")
+        scope = (
+            snapshot.site_id,
+            snapshot.asset_id,
+            snapshot.agent_source_id,
+            snapshot.collection_source_id,
+        )
+        if scope in snapshots_by_scope:
+            raise ValueError("duplicate native source snapshot scope")
+        previous = connection.execute(
+            text(
+                """
+                SELECT last_attempt_at, canonical_collection_id
+                FROM component_collection_sources
+                WHERE site_id = :site_id
+                  AND asset_id = :asset_id
+                  AND agent_source_id = :agent_source_id
+                  AND collection_source_id = :collection_source_id
+                FOR UPDATE
+                """
+            ),
+            {
+                "site_id": snapshot.site_id,
+                "asset_id": snapshot.asset_id,
+                "agent_source_id": snapshot.agent_source_id,
+                "collection_source_id": snapshot.collection_source_id,
+            },
+        ).mappings().one_or_none()
+        if previous is not None and (
+            snapshot.observed_at < previous["last_attempt_at"]
+            or (
+                snapshot.observed_at == previous["last_attempt_at"]
+                and snapshot.canonical_collection_id
+                != str(previous["canonical_collection_id"])
+            )
+        ):
+            raise ValueError("native source snapshot is stale or out of order")
+        snapshots_by_scope[scope] = snapshot
+
+    observed_by_source: dict[tuple[str, str, str, str], set[str]] = {}
+    for component in components:
+        if not component.collection_source_id:
+            continue
+        scope = (
+            component.site_id,
+            component.asset_id,
+            component.source_id,
+            component.collection_source_id,
+        )
+        snapshot = snapshots_by_scope.get(scope)
+        if snapshot is None:
+            raise ValueError("native component lacks a validated source snapshot")
+        observed_by_source.setdefault(scope, set()).add(component.component_id)
+    for scope, snapshot in snapshots_by_scope.items():
+        observed_count = len(observed_by_source.get(scope, set()))
+        if observed_count != snapshot.record_count:
+            raise ValueError("native source snapshot record count mismatch")
+        if snapshot.collection_status in {"failed", "unsupported"} and observed_count:
+            raise ValueError("failed native source cannot report component presence")
+
+    for snapshot in source_snapshots:
+        _persist_source_snapshot(connection, snapshot)
+    for component in components:
+        if not component.collection_source_id:
+            continue
+        scope = (
+            component.site_id,
+            component.asset_id,
+            component.source_id,
+            component.collection_source_id,
+        )
+        _upsert_source_presence(
+            connection,
+            component=component,
+            snapshot=snapshots_by_scope[scope],
+        )
+    removed = 0
+    for scope, snapshot in snapshots_by_scope.items():
+        _record_source_state(connection, snapshot)
+        removed += _apply_complete_source_snapshot(
+            connection,
+            snapshot=snapshot,
+            observed_ids=observed_by_source.get(scope, set()),
+        )
+    return {"snapshots": len(source_snapshots), "not_observed": removed}
+
+
+def lock_authenticated_endpoint_source_site(
+    connection: Any,
+    *,
+    source_snapshots: Sequence[ComponentSourceSnapshot],
+) -> str:
+    """Lock the native projection site before any component-row mutation.
+
+    Every native projection transaction must acquire this lock before it
+    touches component rows. Keeping one lock order prevents a concurrent older
+    complete snapshot from deadlocking with, and then overtaking, a newer
+    snapshot that observes the same component.
+    """
+
+    site_ids = {snapshot.site_id for snapshot in source_snapshots}
+    if len(site_ids) != 1:
+        raise ValueError("native source snapshots must share one site")
+    site_id = next(iter(site_ids))
+    if connection.execute(
+        text("SELECT site_id FROM sites WHERE site_id = :site_id FOR UPDATE"),
+        {"site_id": site_id},
+    ).scalar_one_or_none() is None:
+        raise ValueError("native source snapshot site is not configured")
+    return site_id
+
+
 class SqlComponentStore:
     def __init__(self) -> None:
         self._schema_ready = False
@@ -643,6 +1098,52 @@ class SqlComponentStore:
                             ),
                             '[]'::jsonb
                         ) AS evidence_ids_json
+                        ,COALESCE(
+                            (
+                                SELECT jsonb_agg(
+                                    bounded.source_state
+                                    ORDER BY bounded.collection_source_id,
+                                             bounded.agent_source_id
+                                )
+                                FROM (
+                                    SELECT
+                                        csp.collection_source_id,
+                                        csp.agent_source_id,
+                                        jsonb_build_object(
+                                            'source_snapshot_id', csp.last_source_snapshot_id,
+                                            'canonical_collection_id', css.canonical_collection_id,
+                                            'agent_source_id', csp.agent_source_id,
+                                            'collection_source_id', csp.collection_source_id,
+                                            'platform', css.platform,
+                                            'collection_status', css.collection_status,
+                                            'source_record_id', csp.source_record_id,
+                                            'evidence_method', csp.evidence_method,
+                                            'presence_active', csp.active,
+                                            'last_attempt_at', css.observed_at,
+                                            'last_successful_complete_at', ccs.last_successful_complete_at,
+                                            'last_observed_at', csp.last_observed_at,
+                                            'not_observed_at', csp.not_observed_at
+                                        ) AS source_state
+                                    FROM component_source_presence csp
+                                    JOIN component_collection_sources ccs
+                                      ON ccs.site_id = csp.site_id
+                                     AND ccs.asset_id = csp.asset_id
+                                     AND ccs.agent_source_id = csp.agent_source_id
+                                     AND ccs.collection_source_id = csp.collection_source_id
+                                    JOIN component_source_snapshots css
+                                      ON css.source_snapshot_id = csp.last_source_snapshot_id
+                                     AND css.site_id = csp.site_id
+                                     AND css.asset_id = csp.asset_id
+                                     AND css.agent_source_id = csp.agent_source_id
+                                     AND css.collection_source_id = csp.collection_source_id
+                                    WHERE csp.component_id = ac.component_id
+                                    ORDER BY csp.collection_source_id,
+                                             csp.agent_source_id
+                                    LIMIT 8
+                                ) bounded
+                            ),
+                            '[]'::jsonb
+                        ) AS collection_sources_json
                     """
                     + base
                     + """
@@ -670,6 +1171,10 @@ class SqlComponentStore:
                 item.pop("evidence_ids_json"),
                 [],
             )[:16]
+            item["collection_sources"] = _json_value(
+                item.pop("collection_sources_json"),
+                [],
+            )[:8]
             items.append(item)
         return {
             "items": items,

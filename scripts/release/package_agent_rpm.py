@@ -117,6 +117,7 @@ RPM_EXPECTED_DIRS = (
     "./var/lib",
     "./var/lib/openassetwatch",
     "./var/lib/openassetwatch/agent",
+    "./var/lib/openassetwatch/agent/credential",
     "./var/log",
     "./var/log/openassetwatch",
     "./var/log/openassetwatch/agent",
@@ -601,7 +602,7 @@ def validate_staging(
             continue
         if FORBIDDEN_CONTENT_RE.search(PurePosixPath(package_path).name):
             raise ValueError(f"RPM staging contains forbidden path: {package_path}")
-        if data and FORBIDDEN_CONTENT_RE.search(data.decode("utf-8", errors="ignore")):
+        if data and linuxsrc.contains_forbidden_package_content(package_path, data):
             raise ValueError(f"RPM staging contains forbidden content: {package_path}")
 
     sudoers_text = payload_path(buildroot, SUDOERS_PACKAGE_PATH).read_text(encoding="utf-8")

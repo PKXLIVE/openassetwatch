@@ -15,6 +15,7 @@ import (
 	"time"
 
 	agentconfig "github.com/openassetwatch/openassetwatch/internal/agent/config"
+	agentcredential "github.com/openassetwatch/openassetwatch/internal/agent/credential"
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
 	agentinstallplan "github.com/openassetwatch/openassetwatch/internal/agent/installplan"
 	agentpaths "github.com/openassetwatch/openassetwatch/internal/agent/paths"
@@ -23,6 +24,76 @@ import (
 	"github.com/openassetwatch/openassetwatch/pkg/models"
 	"github.com/openassetwatch/openassetwatch/pkg/schema"
 )
+
+func TestBuildEndpointInventoryPayloadPreservesNativeSourceContract(t *testing.T) {
+	observedAt := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	payload := buildEndpointInventoryPayload(models.Inventory{
+		CollectedAt: observedAt,
+		Assets: []models.Asset{{
+			AssetID: "asset-fictional",
+			Components: []models.SoftwareComponent{{
+				ComponentType: "operating-system-package", Ecosystem: "deb",
+				Name: "fictional-package", Version: "1.2.3", InstallScope: "system",
+				CollectionSource: "linux-dpkg", SourceRecordID: "fictional-package:amd64",
+				EvidenceMethod: "dpkg-native-query", ObservedAt: observedAt, Confidence: 0.95,
+			}},
+		}},
+		SoftwareSources: []models.SoftwareSourceResult{{
+			SourceID: "linux-dpkg", Platform: "linux", Status: "partial",
+			ObservedAt: observedAt, RecordCount: 1, Limitations: []string{"malformed-records-skipped"},
+		}},
+	}, agentcredential.Record{SiteID: "site-fictional", AgentID: "agent_" + strings.Repeat("1", 32)})
+
+	if payload["inventory_mode"] != "complete" {
+		t.Fatalf("inventory_mode = %v", payload["inventory_mode"])
+	}
+	sources := payload["software_sources"].([]models.SoftwareSourceResult)
+	if len(sources) != 1 || sources[0].Status != "partial" {
+		t.Fatalf("software_sources = %+v", sources)
+	}
+	limitations := payload["collection_limitations"].([]string)
+	if len(limitations) != 1 || limitations[0] != "software-source-linux-dpkg-partial" {
+		t.Fatalf("collection_limitations = %+v", limitations)
+	}
+	assets := payload["assets"].([]map[string]any)
+	components := assets[0]["components"].([]models.SoftwareComponent)
+	if len(components) != 1 || components[0].CollectionSource != "linux-dpkg" {
+		t.Fatalf("components = %+v", components)
+	}
+}
+
+func TestRepairPrivateStateACLUsesOnlyDefaultTarget(t *testing.T) {
+	original := repairDefaultCredentialACL
+	t.Cleanup(func() { repairDefaultCredentialACL = original })
+	called := 0
+	repairDefaultCredentialACL = func() error {
+		called++
+		return nil
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := run([]string{"repair-private-state-acl"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run returned %d: %s", code, stderr.String())
+	}
+	if called != 1 || stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("called=%d stdout=%q stderr=%q", called, stdout.String(), stderr.String())
+	}
+	if code := run([]string{"repair-private-state-acl", "unexpected"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("argument-bearing repair returned %d, want 2", code)
+	}
+	stderr.Reset()
+	repairDefaultCredentialACL = func() error {
+		return errors.New(`synthetic credential token at C:\private\credential.json`)
+	}
+	if code := run([]string{"repair-private-state-acl"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("failed repair returned %d, want 1", code)
+	}
+	for _, forbidden := range []string{"synthetic", "token", `C:\private`, "credential.json"} {
+		if strings.Contains(stderr.String(), forbidden) {
+			t.Fatalf("repair stderr leaked %q: %q", forbidden, stderr.String())
+		}
+	}
+}
 
 func TestRunCollectOnceWritesJSONToStdout(t *testing.T) {
 	restore := stubCollector(t)

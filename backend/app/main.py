@@ -545,6 +545,7 @@ def _run_canonical_inventory_evaluation(
             payload=work["payload"],
             received_at=work["received_at"],
             source_authenticated=bool(work["source_authenticated"]),
+            canonical_collection_id=canonical_collection_id,
         ):
             raise RuntimeError("canonical evidence projection failed")
         if asset_ids:
