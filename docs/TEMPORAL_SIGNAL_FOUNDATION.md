@@ -12,11 +12,13 @@ read-only projection over OpenAssetWatch-owned historical records. It provides:
 - explicit missing, incomplete, stale, and late-arriving states; and
 - the read-only **Environment Trends** dashboard view.
 
-Phase 2 deterministic expected ranges are implemented over this foundation; see
-`docs/TEMPORAL_EXPECTED_RANGES.md`. Phase 3 deviation detection, advanced
-machine learning, User Behavior analytics, Adaptive Workspaces, AI dashboard
-planning, advanced forecasting, and automated remediation are **not
-implemented**.
+Phase 2 deterministic expected ranges and Phase 3 deterministic deviation
+assessments are implemented over this foundation; see
+`docs/TEMPORAL_EXPECTED_RANGES.md` and
+`docs/TEMPORAL_DEVIATION_ASSESSMENTS.md`. Advanced machine learning, User
+Behavior analytics, Adaptive Workspaces, AI dashboard planning, advanced
+forecasting, persistent candidate review, automatic investigation, and
+automated remediation are **not implemented**.
 
 Temporal signals are derived analytical evidence. They do not change or replace
 asset identity, classification, vulnerability truth, finding lifecycle,
