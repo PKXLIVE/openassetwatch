@@ -82,14 +82,20 @@ class TemporalUiTests(unittest.TestCase):
         self.assertIn("site_id: siteId", loader)
         self.assertIn('granularity: "daily"', loader)
         self.assertIn("target_start: window.targetStart", loader)
-        self.assertIn("Promise.all", loader)
+        self.assertNotIn("Promise.all", loader)
         self.assertIn("[30, 90].includes", loader)
         self.assertIn("advisorHeaders()", loader)
         self.assertNotIn("tenant_id", loader)
         self.assertNotIn("group_by", loader)
         self.assertIn("assessmentTargetStart", loader)
         self.assertIn("endpoints.temporalDeviation", loader)
-        self.assertIn("Promise.allSettled", loader)
+        series_index = loader.index("endpoints.temporalSignals")
+        expectation_index = loader.index("endpoints.temporalExpectation")
+        deviation_index = loader.index("endpoints.temporalDeviation")
+        self.assertLess(series_index, expectation_index)
+        self.assertLess(expectation_index, deviation_index)
+        self.assertIn("let deviationAvailable = false", loader)
+        self.assertIn("Assessment unavailable; observed history and expected context remain visible.", loader)
         for forbidden in (
             "direction:",
             "persistence:",

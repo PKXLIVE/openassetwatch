@@ -5016,26 +5016,36 @@
           target_start: window.assessmentTargetStart,
           granularity: "daily"
         });
-        const [seriesResult, expectationResult, deviationResult] = await Promise.allSettled([
-          loadJSON(`${endpoints.temporalSignals}?${params.toString()}`, {headers: advisorHeaders()}),
-          loadJSON(`${endpoints.temporalExpectation}?${expectationParams.toString()}`, {headers: advisorHeaders()}),
-          loadJSON(`${endpoints.temporalDeviation}?${deviationParams.toString()}`, {headers: advisorHeaders()})
-        ]);
-        if (seriesResult.status !== "fulfilled") throw seriesResult.reason;
-        if (expectationResult.status !== "fulfilled") throw expectationResult.reason;
-        const series = seriesResult.value;
-        const expectation = expectationResult.value;
+        const series = await loadJSON(
+          `${endpoints.temporalSignals}?${params.toString()}`,
+          {headers: advisorHeaders()}
+        );
+        const expectation = await loadJSON(
+          `${endpoints.temporalExpectation}?${expectationParams.toString()}`,
+          {headers: advisorHeaders()}
+        );
+        let deviation = null;
+        let deviationAvailable = false;
+        try {
+          deviation = await loadJSON(
+            `${endpoints.temporalDeviation}?${deviationParams.toString()}`,
+            {headers: advisorHeaders()}
+          );
+          deviationAvailable = true;
+        } catch (_) {
+          deviation = null;
+        }
         renderTemporalSeries(series, expectation);
-        if (deviationResult.status === "fulfilled") {
-          renderTemporalDeviationAssessment(deviationResult.value);
+        if (deviationAvailable) {
+          renderTemporalDeviationAssessment(deviation);
         } else {
           renderTemporalDeviationAssessment(null, "Assessment unavailable; observed history and expected context remain visible.");
         }
         const expectationState = expectation.expected === null || expectation.expected === undefined
           ? "Expected range blocked because usable closed history is insufficient."
           : `Expected range uses ${expectation.method.replaceAll("_", " ")} with ${expectation.confidence} confidence.`;
-        const assessmentState = deviationResult.status === "fulfilled"
-          ? temporalDeviationStateText(deviationResult.value.assessment_state)
+        const assessmentState = deviationAvailable
+          ? temporalDeviationStateText(deviation.assessment_state)
           : "Assessment unavailable";
         status.textContent = `${series.metric.name} loaded for ${siteId}. ${expectationState} ${assessmentState}. Missing and incomplete buckets remain explicit.`;
         status.className = "form-status ok";
