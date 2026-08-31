@@ -1,0 +1,7 @@
+# Project-scoped Codex defaults for OpenAssetWatch.
+# Keep sandbox boundaries intact while allowing eligible approval requests
+# to be evaluated by Codex Auto-review instead of requiring routine prompts.
+
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
+default_permissions = ":workspace"
