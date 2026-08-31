@@ -1,0 +1,18 @@
+{
+  "description": "OpenAssetWatch autonomous execution completion guard.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/stop_guard.py\"",
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$root = (git rev-parse --show-toplevel); & (Join-Path $root '.codex/hooks/stop_guard.ps1')\"",
+            "timeout": 10,
+            "statusMessage": "Checking OpenAssetWatch definition of done"
+          }
+        ]
+      }
+    ]
+  }
+}
