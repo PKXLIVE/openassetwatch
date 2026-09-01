@@ -12,8 +12,15 @@ import (
 	"testing"
 	"time"
 
+	sensorconfig "github.com/openassetwatch/openassetwatch/internal/sensor/config"
 	"github.com/openassetwatch/openassetwatch/internal/sensor/contract"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
 
 func testBatch() contract.Batch {
 	return contract.Batch{
@@ -244,12 +251,74 @@ func TestEnrollUsesBoundedOneTimeExchangeAndValidatesIdentity(t *testing.T) {
 	}
 }
 
+func TestEnrollBlocksOneTimeCredentialOverNonLoopbackHTTPBeforeRequest(t *testing.T) {
+	enrollmentToken := "oaw_enroll_v1." + strings.Repeat("a", 32) + "." + strings.Repeat("B", 43)
+	client, err := New("http://host.docker.internal:8000", "", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestCount := 0
+	client.credentialHTTP.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		requestCount++
+		return nil, errors.New("unexpected outbound request")
+	})
+
+	_, err = client.Enroll(context.Background(), EnrollmentRequest{
+		EnrollmentToken: enrollmentToken,
+		SensorID:        "sensor-test",
+		SensorName:      "Sensor Test",
+		SensorType:      "passive-network-sensor",
+	})
+	var delivery *DeliveryError
+	if !errors.As(err, &delivery) || delivery.Class != "validation" || delivery.Retryable {
+		t.Fatalf("Enroll() error = %T %v", err, err)
+	}
+	if err.Error() != sensorconfig.ErrCollectorTokenTransport.Error() {
+		t.Fatalf("Enroll() error = %v", err)
+	}
+	if strings.Contains(err.Error(), enrollmentToken) {
+		t.Fatal("Enroll() error leaked the enrollment token")
+	}
+	if requestCount != 0 {
+		t.Fatalf("Enroll() attempted %d outbound request(s)", requestCount)
+	}
+}
+
 func TestClientRejectsInvalidTokensWithoutEchoingThem(t *testing.T) {
 	for _, token := range []string{" leading", "trailing ", "line\nbreak", strings.Repeat("x", 4097)} {
 		if _, err := New("http://127.0.0.1:8000", token, time.Second); err == nil {
 			t.Errorf("New() accepted invalid token of length %d", len(token))
 		} else if strings.Contains(err.Error(), token) {
 			t.Errorf("error echoed invalid token")
+		}
+	}
+}
+
+func TestClientEnforcesCollectorTokenTransportPolicyWithoutEchoingToken(t *testing.T) {
+	const token = "collector-token-value-that-must-not-appear"
+	for _, hubURL := range []string{
+		"https://hub.example.test",
+		"http://localhost:8000",
+		"http://127.0.0.1:8000",
+		"http://127.0.0.2:8000",
+		"http://[::1]:8000",
+	} {
+		if _, err := New(hubURL, token, time.Second); err != nil {
+			t.Errorf("New(%q) unexpected error: %v", hubURL, err)
+		}
+	}
+	for _, hubURL := range []string{
+		"http://192.0.2.10:8000",
+		"http://hub.example.test:8000",
+		"http://host.docker.internal:8000",
+		"not-a-url",
+	} {
+		_, err := New(hubURL, token, time.Second)
+		if !errors.Is(err, sensorconfig.ErrCollectorTokenTransport) {
+			t.Errorf("New(%q) error = %v", hubURL, err)
+		}
+		if err != nil && strings.Contains(err.Error(), token) {
+			t.Errorf("New(%q) error leaked token", hubURL)
 		}
 	}
 }

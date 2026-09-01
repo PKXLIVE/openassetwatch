@@ -29,10 +29,11 @@ const (
 )
 
 type Client struct {
-	baseURL  string
-	endpoint string
-	token    string
-	http     *http.Client
+	baseURL        string
+	endpoint       string
+	token          string
+	http           *http.Client
+	credentialHTTP *http.Client
 }
 
 type Acknowledgement struct {
@@ -76,10 +77,15 @@ type DeliveryError struct {
 func (e *DeliveryError) Error() string { return e.message }
 
 func New(hubURL, token string, timeout time.Duration) (*Client, error) {
-	if err := sensorconfig.ValidateHubURL(hubURL); err != nil {
+	if err := validateToken(token); err != nil {
 		return nil, err
 	}
-	if err := validateToken(token); err != nil {
+	if token != "" {
+		if err := sensorconfig.ValidateCollectorTokenTransport(hubURL); err != nil {
+			return nil, err
+		}
+	}
+	if err := sensorconfig.ValidateHubURL(hubURL); err != nil {
 		return nil, err
 	}
 	if timeout <= 0 || timeout > 2*time.Minute {
@@ -88,30 +94,50 @@ func New(hubURL, token string, timeout time.Duration) (*Client, error) {
 	parsed, _ := url.Parse(strings.TrimSpace(hubURL))
 	baseURL := parsed.String()
 	parsed.Path = ObservationPath
-	connectTimeout := min(timeout, 5*time.Second)
+	client, err := newHTTPClient(timeout, token != "" && parsed.Scheme == "http")
+	if err != nil {
+		return nil, err
+	}
+	credentialClient := client
+	if token == "" && parsed.Scheme == "http" {
+		credentialClient, err = newHTTPClient(timeout, true)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &Client{
+		baseURL:        baseURL,
+		endpoint:       parsed.String(),
+		token:          token,
+		http:           client,
+		credentialHTTP: credentialClient,
+	}, nil
+}
+
+func newHTTPClient(timeout time.Duration, requireLoopback bool) (*http.Client, error) {
 	baseTransport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return nil, errors.New("default HTTP transport is unavailable")
 	}
+	connectTimeout := min(timeout, 5*time.Second)
 	transport := baseTransport.Clone()
 	transport.Proxy = nil
 	transport.DialContext = secureDialContext(&net.Dialer{
 		Timeout:   connectTimeout,
 		KeepAlive: 30 * time.Second,
-	})
+	}, requireLoopback)
 	transport.TLSHandshakeTimeout = connectTimeout
 	transport.ResponseHeaderTimeout = timeout
-	client := &http.Client{
+	return &http.Client{
 		Timeout:   timeout,
 		Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-	}
-	return &Client{baseURL: baseURL, endpoint: parsed.String(), token: token, http: client}, nil
+	}, nil
 }
 
-func secureDialContext(dialer *net.Dialer) func(context.Context, string, string) (net.Conn, error) {
+func secureDialContext(dialer *net.Dialer, requireLoopback bool) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
@@ -124,6 +150,9 @@ func secureDialContext(dialer *net.Dialer) func(context.Context, string, string)
 		for _, candidate := range resolved {
 			if sensorconfig.ForbiddenHubIP(candidate.IP) {
 				return nil, errors.New("hub address resolved to a forbidden network")
+			}
+			if requireLoopback && !candidate.IP.IsLoopback() {
+				return nil, sensorconfig.ErrCollectorTokenTransport
 			}
 		}
 		var lastErr error
@@ -166,6 +195,12 @@ func (c *Client) Send(ctx context.Context, batch contract.Batch) (Acknowledgemen
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
+		if errors.Is(err, sensorconfig.ErrCollectorTokenTransport) {
+			return Acknowledgement{}, &DeliveryError{
+				Class:   "validation",
+				message: sensorconfig.ErrCollectorTokenTransport.Error(),
+			}
+		}
 		class := "network"
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			class = "timeout"
@@ -203,6 +238,12 @@ func (c *Client) Enroll(ctx context.Context, enrollment EnrollmentRequest) (Enro
 	if !credential.ValidEnrollmentToken(enrollment.EnrollmentToken) {
 		return EnrollmentResponse{}, &DeliveryError{Class: "validation", message: "sensor enrollment input is invalid"}
 	}
+	if err := sensorconfig.ValidateCollectorTokenTransport(c.baseURL); err != nil {
+		return EnrollmentResponse{}, &DeliveryError{
+			Class:   "validation",
+			message: sensorconfig.ErrCollectorTokenTransport.Error(),
+		}
+	}
 	if err := contract.ValidateSensorID(enrollment.SensorID); err != nil {
 		return EnrollmentResponse{}, &DeliveryError{Class: "validation", message: "sensor enrollment input is invalid"}
 	}
@@ -223,8 +264,14 @@ func (c *Client) Enroll(ctx context.Context, enrollment EnrollmentRequest) (Enro
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
-	response, err := c.http.Do(request)
+	response, err := c.credentialHTTP.Do(request)
 	if err != nil {
+		if errors.Is(err, sensorconfig.ErrCollectorTokenTransport) {
+			return EnrollmentResponse{}, &DeliveryError{
+				Class:   "validation",
+				message: sensorconfig.ErrCollectorTokenTransport.Error(),
+			}
+		}
 		class := "network"
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			class = "timeout"

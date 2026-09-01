@@ -110,6 +110,14 @@ collector must send:
 X-OpenAssetWatch-Collector-Token: <token>
 ```
 
+The collector sends this token only over HTTPS or plain HTTP to a verified
+local loopback destination. Non-loopback HTTP, ambiguous `localhost`
+resolution, malformed destinations, and token-bearing redirects fail closed
+before the credential is transmitted. Loopback names are re-resolved at
+connection time and the connection uses the verified address. Local
+`http://localhost` development remains supported when every resolved address
+is loopback; remote collector deployments must use HTTPS.
+
 This protects:
 
 - `POST /api/v1/collectors/checkin`
