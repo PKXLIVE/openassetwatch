@@ -2356,7 +2356,30 @@
             </div>
           </section>
 
-          <p class="trend-guardrail">Phase 2 expected ranges are deterministic analytical context only. The current open UTC bucket never enters baseline history, and missing, incomplete, or stale buckets are never treated as normal values or zero. Expected ranges do not create deviation indicators, findings, alerts, severity, risk, compromise status, or remediation actions.</p>
+          <section id="temporal-deviation-assessment" class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Deviation Assessment</h3>
+                <p class="muted">Deterministic investigation context for the latest closed UTC bucket.</p>
+              </div>
+              <span id="trend-deviation-state" class="pill">not loaded</span>
+            </div>
+            <div class="trend-summary-grid" aria-label="Temporal deviation assessment summary">
+              <div class="trend-summary-card"><span>Target bucket</span><strong id="trend-deviation-target">not loaded</strong></div>
+              <div class="trend-summary-card"><span>Observed value</span><strong id="trend-deviation-observed">not available</strong></div>
+              <div class="trend-summary-card"><span>Expected range</span><strong id="trend-deviation-range">not available</strong></div>
+              <div class="trend-summary-card"><span>Direction</span><strong id="trend-deviation-direction">unknown</strong></div>
+              <div class="trend-summary-card"><span>Distance beyond range</span><strong id="trend-deviation-distance">not available</strong></div>
+              <div class="trend-summary-card"><span>Relative change</span><strong id="trend-deviation-relative">not available</strong></div>
+              <div class="trend-summary-card"><span>Expectation support</span><strong id="trend-deviation-expectation-support">not loaded</strong></div>
+              <div class="trend-summary-card"><span>Persistence</span><strong id="trend-deviation-persistence">not loaded</strong></div>
+              <div class="trend-summary-card"><span>Policy</span><strong id="trend-deviation-policy">not loaded</strong></div>
+            </div>
+            <p id="trend-deviation-reason" class="form-status" role="status" aria-live="polite">Load trends to assess the latest closed bucket.</p>
+            <p id="trend-deviation-provenance" class="muted">Observation and expectation provenance will appear here.</p>
+          </section>
+
+          <p class="trend-guardrail">Expected ranges remain deterministic analytical context only. The current open UTC bucket never enters baseline history, and missing, incomplete, or stale buckets are never treated as normal values or zero. Phase 3 assessments are deterministic investigation context only and never create authoritative security records, scores, cases, or actions.</p>
         </section>
 
         <section id="assets" class="view-section asset-canvas" data-canvas-contract="full">
@@ -2962,7 +2985,8 @@
       ingestionCompatibility: "/api/v1/admin/ingestion/compatibility-status",
       temporalRegistry: "/api/v1/temporal/metrics",
       temporalSignals: "/api/v1/temporal/signals",
-      temporalExpectation: "/api/v1/temporal/expectations"
+      temporalExpectation: "/api/v1/temporal/expectations",
+      temporalDeviation: "/api/v1/temporal/deviation-assessments"
     };
     const DEMO_SEED_COMMAND = "docker compose --profile demo run --rm demo-seed";
     const VIEW_IDS = ["dashboard", "environment-trends", "assets", "collectors", "sites", "evidence", "findings", "ai-advisor", "policies", "reports", "settings"];
@@ -2991,6 +3015,7 @@
       temporalRegistry: null,
       temporalSeries: null,
       temporalExpectation: null,
+      temporalDeviationAssessment: null,
       advisorySourceId: null,
       advisoryPendingRunId: null,
       advisoryApprovedRunId: null
@@ -4690,9 +4715,16 @@
       end.setUTCDate(end.getUTCDate() + 1);
       const targetStart = new Date(end);
       targetStart.setUTCDate(targetStart.getUTCDate() - 1);
+      const assessmentTargetStart = new Date(targetStart);
+      assessmentTargetStart.setUTCDate(assessmentTargetStart.getUTCDate() - 1);
       const start = new Date(end);
       start.setUTCDate(start.getUTCDate() - days);
-      return {start: start.toISOString(), end: end.toISOString(), targetStart: targetStart.toISOString()};
+      return {
+        start: start.toISOString(),
+        end: end.toISOString(),
+        targetStart: targetStart.toISOString(),
+        assessmentTargetStart: assessmentTargetStart.toISOString()
+      };
     }
 
     function temporalPointPresentation(signal) {
@@ -4867,6 +4899,104 @@
       });
     }
 
+    function temporalDeviationStateText(stateValue) {
+      const labels = {
+        "blocked": "Assessment unavailable",
+        "within-range": "Within expected historical range",
+        "outside-policy-direction": "Outside expected range",
+        "pending-persistence": "Persistence requirement not yet met",
+        "candidate": "Review candidate"
+      };
+      return labels[stateValue] || "Assessment unavailable";
+    }
+
+    function temporalDeviationReasonText(reasonCodes) {
+      const labels = {
+        "target-observation-unavailable": "The target observation is unavailable.",
+        "target-observation-incomplete": "The target observation is incomplete.",
+        "target-observation-stale": "The target observation is stale.",
+        "target-observation-untrusted-quality": "The target observation does not meet the required quality gate.",
+        "expectation-range-unavailable": "The expected historical range is unavailable.",
+        "expectation-confidence-below-policy": "Expectation confidence is below the governed policy requirement.",
+        "expectation-quality-below-policy": "Expectation quality is below the governed policy requirement.",
+        "expectation-provenance-invalid": "Expectation provenance could not be validated.",
+        "within-expected-range": "The observed value is within the inclusive expected historical range.",
+        "direction-not-admitted": "The value is outside the expected range in a direction not admitted by policy.",
+        "persistence-requirement-not-met": "The admitted direction has not persisted for the required consecutive buckets.",
+        "deviation-candidate": "The admitted direction and bounded persistence requirements are satisfied. Review the supporting context."
+      };
+      const bounded = Array.isArray(reasonCodes) ? reasonCodes.slice(0, 8) : [];
+      return bounded.map(code => labels[code]).filter(Boolean).join(" ") || "Assessment context is unavailable.";
+    }
+
+    function renderTemporalDeviationAssessment(assessment, unavailableReason = "") {
+      state.temporalDeviationAssessment = assessment || null;
+      if (!assessment) {
+        setText("trend-deviation-state", "Assessment unavailable");
+        setText("trend-deviation-target", "not loaded");
+        setText("trend-deviation-observed", "not available");
+        setText("trend-deviation-range", "not available");
+        setText("trend-deviation-direction", "unknown");
+        setText("trend-deviation-distance", "not available");
+        setText("trend-deviation-relative", "not available");
+        setText("trend-deviation-expectation-support", "not loaded");
+        setText("trend-deviation-persistence", "not loaded");
+        setText("trend-deviation-policy", "not loaded");
+        setText("trend-deviation-reason", unavailableReason || "Assessment context is unavailable.");
+        setText("trend-deviation-provenance", "Observation and expectation provenance are unavailable.");
+        return;
+      }
+
+      const observed = Number(assessment.observed_value);
+      const hasObserved = assessment.observed_value !== null
+        && assessment.observed_value !== undefined
+        && Number.isFinite(observed);
+      const expectedValues = [assessment.lower, assessment.expected, assessment.upper].map(Number);
+      const hasRange = assessment.lower !== null
+        && assessment.lower !== undefined
+        && assessment.expected !== null
+        && assessment.expected !== undefined
+        && assessment.upper !== null
+        && assessment.upper !== undefined
+        && expectedValues.every(Number.isFinite);
+      const distance = Number(assessment.distance_beyond_bound);
+      const hasDistance = assessment.distance_beyond_bound !== null
+        && assessment.distance_beyond_bound !== undefined
+        && Number.isFinite(distance);
+      const relative = Number(assessment.relative_change);
+      const hasRelative = assessment.relative_change !== null
+        && assessment.relative_change !== undefined
+        && Number.isFinite(relative);
+      const directionLabels = {
+        inside: "Inside expected range",
+        above: "Above expected range",
+        below: "Below expected range",
+        unknown: "Unknown"
+      };
+
+      setText("trend-deviation-state", temporalDeviationStateText(assessment.assessment_state));
+      setText("trend-deviation-target", new Date(assessment.target_bucket_start).toISOString().slice(0, 10));
+      setText("trend-deviation-observed", hasObserved ? `${assessment.observed_value} ${assessment.observation_unit}` : "not available");
+      setText("trend-deviation-range", hasRange ? `${assessment.lower}–${assessment.upper} ${assessment.observation_unit}` : "not available");
+      setText("trend-deviation-direction", directionLabels[assessment.direction] || "Unknown");
+      setText("trend-deviation-distance", hasDistance ? `${assessment.distance_beyond_bound} ${assessment.observation_unit}` : "not available");
+      setText("trend-deviation-relative", hasRelative ? `${(relative * 100).toFixed(2)}%` : "not available");
+      setText(
+        "trend-deviation-expectation-support",
+        `${text(assessment.expectation_confidence)} confidence · ${text(assessment.expectation_data_quality)} quality`
+      );
+      setText(
+        "trend-deviation-persistence",
+        `${text(assessment.persistence_observed_buckets, "0")} of ${text(assessment.required_persistence_buckets)} closed buckets`
+      );
+      setText("trend-deviation-policy", `${text(assessment.policy_id)} v${text(assessment.policy_version)}`);
+      setText("trend-deviation-reason", temporalDeviationReasonText(assessment.reason_codes));
+      setText(
+        "trend-deviation-provenance",
+        `Observation ${text(assessment.signal_id)} · digest ${text(assessment.observation_digest)} · expectation ${text(assessment.expectation_id)} · history ${text(assessment.history_digest)}`
+      );
+    }
+
     async function loadTemporalRegistry() {
       const registry = await loadJSON(endpoints.temporalRegistry, {headers: advisorHeaders()});
       const metrics = Array.isArray(registry.metrics) ? registry.metrics : [];
@@ -4906,25 +5036,56 @@
           target_start: window.targetStart,
           granularity: "daily"
         });
-        const [series, expectation] = await Promise.all([
-          loadJSON(`${endpoints.temporalSignals}?${params.toString()}`, {headers: advisorHeaders()}),
-          loadJSON(`${endpoints.temporalExpectation}?${expectationParams.toString()}`, {headers: advisorHeaders()})
-        ]);
+        const deviationParams = new URLSearchParams({
+          metric_key: metricKey,
+          site_id: siteId,
+          target_start: window.assessmentTargetStart,
+          granularity: "daily"
+        });
+        const series = await loadJSON(
+          `${endpoints.temporalSignals}?${params.toString()}`,
+          {headers: advisorHeaders()}
+        );
+        const expectation = await loadJSON(
+          `${endpoints.temporalExpectation}?${expectationParams.toString()}`,
+          {headers: advisorHeaders()}
+        );
+        let deviation = null;
+        let deviationAvailable = false;
+        try {
+          deviation = await loadJSON(
+            `${endpoints.temporalDeviation}?${deviationParams.toString()}`,
+            {headers: advisorHeaders()}
+          );
+          deviationAvailable = true;
+        } catch (_) {
+          deviation = null;
+        }
         renderTemporalSeries(series, expectation);
+        if (deviationAvailable) {
+          renderTemporalDeviationAssessment(deviation);
+        } else {
+          renderTemporalDeviationAssessment(null, "Assessment unavailable; observed history and expected context remain visible.");
+        }
         const expectationState = expectation.expected === null || expectation.expected === undefined
           ? "Expected range blocked because usable closed history is insufficient."
           : `Expected range uses ${expectation.method.replaceAll("_", " ")} with ${expectation.confidence} confidence.`;
-        status.textContent = `${series.metric.name} loaded for ${siteId}. ${expectationState} Missing and incomplete buckets remain explicit.`;
+        const assessmentState = deviationAvailable
+          ? temporalDeviationStateText(deviation.assessment_state)
+          : "Assessment unavailable";
+        status.textContent = `${series.metric.name} loaded for ${siteId}. ${expectationState} ${assessmentState}. Missing and incomplete buckets remain explicit.`;
         status.className = "form-status ok";
       } catch (error) {
         state.temporalSeries = null;
         state.temporalExpectation = null;
+        state.temporalDeviationAssessment = null;
         status.textContent = text(error.message, "Temporal history could not be loaded safely.");
         status.className = "form-status error";
         const chart = byId("temporal-trend-chart");
         clearNode(chart);
         renderEmpty(chart, "Temporal history unavailable", "Verify the configured admin token and selected site, then retry.");
         renderTableError(byId("temporal-trend-buckets"), 6, "Temporal bucket evidence is unavailable.");
+        renderTemporalDeviationAssessment(null, "Assessment unavailable because temporal history could not be loaded safely.");
       } finally {
         button.disabled = false;
       }
