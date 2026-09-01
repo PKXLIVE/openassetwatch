@@ -12,11 +12,13 @@ import ipaddress
 import json
 import os
 import re
+import socket
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from http.client import HTTPConnection
 from uuid import uuid4
 
 
@@ -43,6 +45,7 @@ SAFE_FAILURE_MESSAGES = {
     "evidence-not-visible": "historical evidence was not visible to assets and deterministic AI",
     "invalid-hub-json": "hub returned invalid JSON",
     "invalid-hub-response": "hub returned an invalid response",
+    "invalid-credential": "a configured credential is invalid",
     "invalid-server-url": "server URL is invalid",
     "missing-admin-token": "the configured admin-token environment variable is empty",
     "missing-enrollment-token": "hub did not issue an enrollment token",
@@ -66,23 +69,122 @@ class DemoFailure(RuntimeError):
         return SAFE_FAILURE_MESSAGES.get(self.code, "demonstration operation failed")
 
 
+def _verified_loopback_host(hostname: str, port: int | None) -> bool:
+    if "%" in hostname:
+        return False
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        pass
+
+    if hostname.rstrip(".").lower() != "localhost":
+        return False
+    try:
+        resolved = socket.getaddrinfo(hostname, port or 80, type=socket.SOCK_STREAM)
+    except OSError:
+        return False
+    if not resolved:
+        return False
+    for family, _, _, _, address in resolved:
+        if family not in {socket.AF_INET, socket.AF_INET6} or not address:
+            return False
+        try:
+            candidate = ipaddress.ip_address(address[0].split("%", 1)[0])
+        except ValueError:
+            return False
+        if not candidate.is_loopback:
+            return False
+    return True
+
+
+def _resolved_loopback_addresses(hostname: str, port: int):
+    try:
+        resolved = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise DemoFailure("cleartext-remote-url") from exc
+    if not resolved:
+        raise DemoFailure("cleartext-remote-url")
+    for family, _, _, _, address in resolved:
+        if family not in {socket.AF_INET, socket.AF_INET6} or not address:
+            raise DemoFailure("cleartext-remote-url")
+        try:
+            candidate = ipaddress.ip_address(address[0].split("%", 1)[0])
+        except ValueError as exc:
+            raise DemoFailure("cleartext-remote-url") from exc
+        if not candidate.is_loopback:
+            raise DemoFailure("cleartext-remote-url")
+    return resolved
+
+
 def safe_base_url(value: str) -> str:
-    parsed = urllib.parse.urlparse(value)
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 2048
+        or value != value.strip()
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+    ):
+        raise DemoFailure("invalid-server-url")
+    try:
+        parsed = urllib.parse.urlparse(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise DemoFailure("invalid-server-url") from exc
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise DemoFailure("invalid-server-url")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise DemoFailure("unsafe-server-url")
     if parsed.path not in {"", "/"}:
         raise DemoFailure("unsafe-server-url")
-    if parsed.scheme == "http":
-        host = parsed.hostname.rstrip(".").lower()
-        try:
-            loopback = ipaddress.ip_address(host).is_loopback
-        except ValueError:
-            loopback = host == "localhost"
-        if not loopback:
-            raise DemoFailure("cleartext-remote-url")
+    if parsed.scheme == "http" and not _verified_loopback_host(parsed.hostname, port):
+        raise DemoFailure("cleartext-remote-url")
     return value.rstrip("/")
+
+
+class _NoCredentialRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        del request, response, code, message, headers, new_url
+        return None
+
+
+class _VerifiedLoopbackHTTPConnection(HTTPConnection):
+    def connect(self) -> None:
+        resolved = _resolved_loopback_addresses(self.host, self.port)
+        last_error: OSError | None = None
+        for family, socket_type, protocol, _, address in resolved:
+            connection = socket.socket(family, socket_type, protocol)
+            try:
+                if self.timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                    connection.settimeout(self.timeout)
+                if self.source_address:
+                    connection.bind(self.source_address)
+                connection.connect(address)
+                self.sock = connection
+                if self._tunnel_host:
+                    self._tunnel()
+                return
+            except OSError as exc:
+                last_error = exc
+                connection.close()
+        if last_error is not None:
+            raise last_error
+        raise DemoFailure("cleartext-remote-url")
+
+
+class _VerifiedLoopbackHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, request):
+        return self.do_open(_VerifiedLoopbackHTTPConnection, request)
+
+
+def validate_header_credential(value: str) -> None:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 4096
+        or value != value.strip()
+        or any(ord(character) < 0x21 or ord(character) > 0x7E for character in value)
+    ):
+        raise DemoFailure("invalid-credential")
 
 
 def assert_secret_free_response(value: object) -> None:
@@ -140,7 +242,15 @@ def public_summary(result: dict[str, object]) -> dict[str, object]:
 class Client:
     def __init__(self, base_url: str, admin_token: str) -> None:
         self.base_url = safe_base_url(base_url)
+        validate_header_credential(admin_token)
         self.admin_token = admin_token
+        handlers: list[object] = [_NoCredentialRedirectHandler()]
+        if urllib.parse.urlparse(self.base_url).scheme == "http":
+            handlers[0:0] = [
+                urllib.request.ProxyHandler({}),
+                _VerifiedLoopbackHTTPHandler(),
+            ]
+        self.opener = urllib.request.build_opener(*handlers)
 
     def request(
         self,
@@ -162,9 +272,10 @@ class Client:
         if admin:
             request.add_header(ADMIN_HEADER, self.admin_token)
         if sensor_credential is not None:
+            validate_header_credential(sensor_credential)
             request.add_header(SENSOR_HEADER, sensor_credential)
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
+            with self.opener.open(request, timeout=15) as response:
                 status = response.status
                 response_body = response.read(MAX_RESPONSE_BYTES + 1)
         except urllib.error.HTTPError as exc:

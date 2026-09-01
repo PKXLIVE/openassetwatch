@@ -126,7 +126,7 @@ class PolicyTests(unittest.TestCase):
             captured["timeout"] = timeout
             return FakeResponse()
 
-        with patch("openassetwatch_collector.main.urlopen", side_effect=fake_urlopen):
+        with patch("openassetwatch_collector.main.open_backend_request", side_effect=fake_urlopen):
             policy = send_policy_request("http://localhost:8000/", "change-me-dev-token")
 
         self.assertEqual(captured["url"], "http://localhost:8000/api/v1/collectors/policy")
@@ -160,7 +160,7 @@ class PolicyTests(unittest.TestCase):
                 policy_platform="darwin",
             )
         )
-        with patch("openassetwatch_collector.main.urlopen", side_effect=fake_urlopen):
+        with patch("openassetwatch_collector.main.open_backend_request", side_effect=fake_urlopen):
             send_policy_request("http://localhost:8000", None, query_params)
 
         self.assertIn("collector_guid=11111111-1111-4111-8111-111111111111", captured["url"])

@@ -238,8 +238,16 @@ Labels are flexible categorization metadata and are included in check-in and
 inventory upload payloads.
 
 When `backend.token` or `--backend-token` is set, the collector sends it in the
-`X-OpenAssetWatch-Collector-Token` header for check-in and inventory upload.
-The token is not printed in normal collector output.
+`X-OpenAssetWatch-Collector-Token` header for check-in, inventory upload, and
+policy requests. The token is not printed in normal collector output.
+
+Token-bearing requests require HTTPS, except for local development over a
+verified IPv4 or IPv6 loopback destination such as `127.0.0.1`, `::1`, or a
+`localhost` name that resolves only to loopback addresses. Plain HTTP to a LAN,
+remote, ambiguous, or malformed destination fails before the request is sent.
+Loopback resolution is repeated at connection time and the connection is made
+to the verified address. Token-bearing redirects are refused, including HTTPS
+redirects, so a credential cannot silently move to a different recipient.
 
 Run with config:
 
