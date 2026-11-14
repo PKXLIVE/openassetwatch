@@ -1,0 +1,1252 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Dashboard - OpenAssetWatch{% endblock %}
+
+{% block extra_css %}
+<style>
+    body {
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%) !important;
+        min-height: 100vh;
+    }
+
+    .app-shell {
+        display: flex;
+        min-height: 100vh;
+    }
+
+    /* ── Mobile overlay ── */
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 40;
+    }
+    .sidebar-overlay.show { display: block; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+        width: 256px;
+        min-width: 256px;
+        background: white;
+        box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
+        position: fixed;
+        top: 0; left: 0; bottom: 0;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        transition: transform 0.3s ease;
+    }
+
+    /* Qiviotalk from-gray-900 to-gray-800 brand header */
+    .sidebar-brand {
+        background: linear-gradient(to right, #111827, #1f2937);
+        padding: 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .sidebar-brand-inner {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        text-decoration: none;
+    }
+
+    .brand-icon {
+        width: 2.5rem;
+        height: 2.5rem;
+        background: rgba(255,255,255,0.1);
+        border-radius: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        font-weight: 800;
+        color: white;
+        letter-spacing: -0.05em;
+    }
+
+    .brand-name {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: white;
+        line-height: 1.2;
+    }
+
+    .brand-sub {
+        font-size: 0.7rem;
+        color: rgba(255,255,255,0.5);
+        font-weight: 400;
+        letter-spacing: 0.04em;
+    }
+
+    .sidebar-close-btn {
+        display: none;
+        background: none;
+        border: none;
+        color: white;
+        cursor: pointer;
+        padding: 0.25rem;
+    }
+
+    /* Nav */
+    .sidebar-nav {
+        flex: 1;
+        padding: 1rem;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+    }
+
+    .nav-link {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.6rem 0.75rem;
+        border-radius: 0.5rem;
+        text-decoration: none;
+        color: #374151;
+        font-size: 0.875rem;
+        font-weight: 500;
+        transition: all 0.15s;
+        cursor: pointer;
+    }
+
+    .nav-link:hover { background: #f3f4f6; color: #111827; }
+    .nav-link.active { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+    .nav-link svg { width: 1.1rem; height: 1.1rem; flex-shrink: 0; opacity: 0.7; }
+    .nav-link.active svg { opacity: 1; }
+
+    .nav-badge {
+        margin-left: auto;
+        background: #ef4444;
+        color: white;
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 0.1rem 0.4rem;
+        border-radius: 9999px;
+        min-width: 1.2rem;
+        text-align: center;
+    }
+    .nav-badge.amber { background: #f59e0b; }
+
+    /* Collapsible section */
+    .nav-section { margin-top: 0.4rem; }
+
+    .nav-section-toggle {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.45rem 0.75rem;
+        background: none;
+        border: none;
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        cursor: pointer;
+        transition: color 0.15s;
+        border-radius: 0.375rem;
+    }
+
+    .nav-section-toggle:hover { color: #374151; }
+
+    .nav-section-toggle svg {
+        width: 0.9rem;
+        height: 0.9rem;
+        transition: transform 0.2s;
+    }
+
+    .nav-section-toggle.collapsed svg { transform: rotate(-90deg); }
+
+    .nav-section-items {
+        overflow: hidden;
+        max-height: 500px;
+        transition: max-height 0.25s ease;
+    }
+
+    .nav-section-items.collapsed { max-height: 0; }
+
+    /* Sidebar footer */
+    .sidebar-footer {
+        padding: 0.75rem 1rem;
+        border-top: 1px solid #f3f4f6;
+        position: relative;
+    }
+
+    .user-row {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        padding: 0.6rem 0.75rem;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+
+    .user-row:hover { background: #f3f4f6; }
+
+    .user-avatar {
+        width: 2.25rem;
+        height: 2.25rem;
+        background: linear-gradient(135deg, #1f2937, #374151);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: white;
+        flex-shrink: 0;
+    }
+
+    .user-info { flex: 1; min-width: 0; }
+    .user-name { font-size: 0.85rem; font-weight: 600; color: #111827; }
+    .user-role { font-size: 0.72rem; color: #6b7280; }
+
+    .user-dropdown {
+        display: none;
+        position: absolute;
+        bottom: calc(100% + 0.5rem);
+        left: 0.75rem; right: 0.75rem;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.75rem;
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        overflow: hidden;
+        z-index: 10;
+    }
+
+    .user-dropdown.open { display: block; }
+
+    .dropdown-info {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #f3f4f6;
+    }
+
+    .dropdown-info .dname { font-size: 0.875rem; font-weight: 600; color: #111827; }
+    .dropdown-info .drole { font-size: 0.75rem; color: #6b7280; margin-top: 0.1rem; }
+
+    .dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        padding: 0.6rem 1rem;
+        font-size: 0.875rem;
+        color: #374151;
+        text-decoration: none;
+        cursor: pointer;
+        transition: background 0.1s;
+        border: none;
+        background: none;
+        width: 100%;
+        text-align: left;
+    }
+
+    .dropdown-item:hover { background: #f9fafb; }
+    .dropdown-item.danger { color: #ef4444; }
+    .dropdown-item.danger:hover { background: #fef2f2; }
+    .dropdown-item svg { width: 1rem; height: 1rem; opacity: 0.6; flex-shrink: 0; }
+    .dropdown-item.danger svg { opacity: 1; }
+
+    /* ── Main content ── */
+    .main-content {
+        margin-left: 256px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+    }
+
+    /* ── Topbar ── */
+    .topbar {
+        background: white;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 0 1.5rem;
+        height: 4rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+    }
+
+    .topbar-left { display: flex; align-items: center; gap: 0.75rem; }
+
+    .hamburger-btn {
+        display: none;
+        width: 2.25rem;
+        height: 2.25rem;
+        border: none;
+        background: #f9fafb;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        align-items: center;
+        justify-content: center;
+        color: #374151;
+        transition: background 0.15s;
+    }
+
+    .hamburger-btn:hover { background: #f3f4f6; }
+
+    .topbar-title {
+        font-size: 1.25rem;
+        font-weight: 800;
+        color: #111827;
+        letter-spacing: -0.02em;
+    }
+
+    .topbar-right { display: flex; align-items: center; gap: 0.5rem; }
+
+    .topbar-icon-btn {
+        width: 2.25rem;
+        height: 2.25rem;
+        border: none;
+        background: none;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #6b7280;
+        transition: all 0.15s;
+        position: relative;
+        text-decoration: none;
+    }
+
+    .topbar-icon-btn:hover { background: #f3f4f6; color: #111827; }
+
+    .notif-dot {
+        position: absolute;
+        top: 0.35rem;
+        right: 0.35rem;
+        width: 0.45rem;
+        height: 0.45rem;
+        background: #ef4444;
+        border-radius: 50%;
+    }
+
+    .topbar-user {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 0.75rem;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        transition: background 0.15s;
+        border: none;
+        background: none;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #374151;
+    }
+
+    .topbar-user:hover { background: #f3f4f6; }
+
+    .topbar-avatar {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #1f2937, #374151);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: white;
+        flex-shrink: 0;
+    }
+
+    /* ── Page body ── */
+    .page-body { padding: 1.5rem; flex: 1; }
+
+    .page-header { margin-bottom: 1.5rem; }
+
+    .page-header h1 {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: #111827;
+        letter-spacing: -0.025em;
+    }
+
+    .page-header p { font-size: 0.875rem; color: #6b7280; margin-top: 0.2rem; }
+
+    /* ── Section card (Qiviotalk rounded-2xl style) ── */
+    .section-card {
+        background: white;
+        border-radius: 1rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+        overflow: hidden;
+        margin-bottom: 1.25rem;
+        transition: box-shadow 0.3s;
+    }
+
+    .section-card:hover { box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); }
+
+    .section-card-header {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #f3f4f6;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .section-card-title {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .section-card-title h3 { font-size: 1rem; font-weight: 700; color: #111827; }
+    .section-card-title p { font-size: 0.8rem; color: #6b7280; }
+
+    .card-icon-wrap {
+        padding: 0.625rem;
+        border-radius: 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.15);
+    }
+
+    .card-icon-wrap svg { width: 1.5rem; height: 1.5rem; color: white; }
+
+    .section-card-action {
+        font-size: 0.8rem;
+        color: #2563eb;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition: color 0.15s;
+        white-space: nowrap;
+    }
+
+    .section-card-action:hover { color: #1d4ed8; }
+
+    .section-card-body { padding: 1.25rem 1.5rem; background: #f9fafb; }
+
+    /* ── Stat grid ── */
+    .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.875rem;
+    }
+
+    .stat-tile {
+        background: white;
+        border-radius: 0.625rem;
+        padding: 1rem;
+        border: 1px solid #e5e7eb;
+    }
+
+    .stat-label { font-size: 0.75rem; color: #6b7280; margin-bottom: 0.35rem; }
+
+    .stat-value {
+        font-size: 1.75rem;
+        font-weight: 800;
+        color: #111827;
+        line-height: 1;
+        letter-spacing: -0.03em;
+    }
+
+    .stat-value.blue   { color: #2563eb; }
+    .stat-value.green  { color: #16a34a; }
+    .stat-value.red    { color: #dc2626; }
+    .stat-value.amber  { color: #d97706; }
+    .stat-value.purple { color: #7c3aed; }
+    .stat-value.indigo { color: #4f46e5; }
+    .stat-value.teal   { color: #0d9488; }
+
+    .stat-delta { font-size: 0.75rem; font-weight: 600; margin-top: 0.3rem; }
+    .stat-delta.up     { color: #ef4444; }
+    .stat-delta.down   { color: #16a34a; }
+    .stat-delta.muted  { color: #9ca3af; }
+
+    /* ── Finding rows ── */
+    .finding-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+    .finding-row {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        cursor: pointer;
+        transition: box-shadow 0.2s;
+    }
+
+    .finding-row:hover { box-shadow: 0 4px 6px -1px rgba(0,0,0,0.07); }
+
+    .sev-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; margin-top: 0.4rem; flex-shrink: 0; }
+    .sev-dot.critical { background: #7c3aed; }
+    .sev-dot.high     { background: #ef4444; }
+    .sev-dot.medium   { background: #f59e0b; }
+    .sev-dot.low      { background: #22c55e; }
+    .sev-dot.info     { background: #3b82f6; }
+
+    .finding-info { flex: 1; min-width: 0; }
+    .finding-title { font-size: 0.875rem; font-weight: 600; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .finding-meta { font-size: 0.775rem; color: #9ca3af; margin-top: 0.1rem; }
+
+    .sev-pill {
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 0.2rem 0.5rem;
+        border-radius: 9999px;
+        flex-shrink: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .sev-pill.critical { background: #f3e8ff; color: #7c3aed; }
+    .sev-pill.high     { background: #fee2e2; color: #b91c1c; }
+    .sev-pill.medium   { background: #fffbeb; color: #b45309; }
+    .sev-pill.low      { background: #f0fdf4; color: #15803d; }
+    .sev-pill.info     { background: #eff6ff; color: #1d4ed8; }
+
+    /* ── List rows ── */
+    .list-row {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .coll-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; flex-shrink: 0; }
+    .coll-dot.online  { background: #22c55e; }
+    .coll-dot.stale   { background: #f59e0b; }
+    .coll-dot.offline { background: #d1d5db; }
+
+    .list-name { flex: 1; font-size: 0.875rem; font-weight: 600; color: #111827; }
+    .list-time { font-size: 0.775rem; color: #9ca3af; }
+
+    /* ── KEV alert ── */
+    .kev-alert {
+        background: white;
+        border: 1px solid #fecaca;
+        border-left: 4px solid #ef4444;
+        border-radius: 1rem;
+        padding: 1rem 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.875rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .kev-icon {
+        width: 2.5rem;
+        height: 2.5rem;
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+        border-radius: 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        box-shadow: 0 4px 6px -1px rgba(239,68,68,0.3);
+    }
+
+    .kev-icon svg { width: 1.25rem; height: 1.25rem; color: white; }
+    .kev-text { flex: 1; }
+    .kev-title { font-size: 0.9rem; font-weight: 700; color: #991b1b; }
+    .kev-sub   { font-size: 0.8rem; color: #b91c1c; margin-top: 0.1rem; }
+
+    .kev-btn {
+        background: #ef4444;
+        color: white;
+        border: none;
+        border-radius: 0.5rem;
+        padding: 0.5rem 1rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 0.15s;
+        flex-shrink: 0;
+    }
+
+    .kev-btn:hover { background: #dc2626; }
+
+    /* ── Two col ── */
+    .two-col {
+        display: grid;
+        grid-template-columns: 1fr 360px;
+        gap: 1.25rem;
+        margin-bottom: 1.25rem;
+    }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 2rem 1rem; color: #9ca3af; }
+    .empty-state svg { margin: 0 auto 0.75rem; opacity: 0.3; display: block; }
+    .empty-state p { font-size: 0.875rem; }
+
+    /* ── Footer ── */
+    .page-footer {
+        background: white;
+        border-top: 1px solid #e5e7eb;
+        padding: 1rem 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: auto;
+    }
+
+    .page-footer p { font-size: 0.8rem; color: #6b7280; }
+
+    /* ── Responsive ── */
+    @media (max-width: 1024px) {
+        .stat-grid { grid-template-columns: repeat(2, 1fr); }
+        .two-col { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 768px) {
+        .sidebar { transform: translateX(-100%); }
+        .sidebar.open { transform: translateX(0); }
+        .main-content { margin-left: 0; }
+        .hamburger-btn { display: flex; }
+        .sidebar-close-btn { display: block !important; }
+        .page-body { padding: 1rem; }
+        .topbar { padding: 0 1rem; }
+    }
+
+    @media (max-width: 480px) {
+        .stat-grid { grid-template-columns: 1fr 1fr; }
+        .kev-btn { display: none; }
+    }
+
+    /* ── Topbar dropdown (matches Qiviotalk shadow-xl, w-56) ── */
+    .topbar-dd {
+        display: none;
+        position: absolute;
+        top: calc(100% + 0.5rem);
+        right: 0;
+        width: 224px;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+        box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
+        z-index: 100;
+        overflow: hidden;
+        transform-origin: top right;
+        animation: dd-in 0.15s ease;
+    }
+
+    .topbar-dd.open { display: block; }
+
+    @keyframes dd-in {
+        from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+        to   { opacity: 1; transform: translateY(0)   scale(1); }
+    }
+
+    /* dropdown items */
+    .dd-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.625rem 1rem;
+        font-size: 0.875rem;
+        color: #374151;
+        text-decoration: none;
+        cursor: pointer;
+        transition: background 0.1s;
+        border: none;
+        background: none;
+        width: 100%;
+        text-align: left;
+    }
+
+    .dd-item:hover { background: #f9fafb; }
+
+    .dd-item svg { color: #6b7280; flex-shrink: 0; }
+
+    /* blue highlight — first item, like Qiviotalk "My workspace" */
+    .dd-item-blue { color: #1d4ed8; font-weight: 600; }
+    .dd-item-blue:hover { background: #eff6ff; }
+    .dd-item-blue svg { color: #3b82f6; }
+
+    /* red logout */
+    .dd-item-red { color: #dc2626; }
+    .dd-item-red:hover { background: #fef2f2; }
+    .dd-item-red svg { color: #ef4444; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<div class="app-shell">
+    <!-- ── Sidebar ── -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <a href="/dashboard" class="sidebar-brand-inner">
+                <div class="brand-icon">OA</div>
+                <div>
+                    <div class="brand-name">OpenAssetWatch</div>
+                    <div class="brand-sub">Control Tower</div>
+                </div>
+            </a>
+            <button class="sidebar-close-btn" onclick="closeSidebar()">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="/dashboard" class="nav-link active">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                Dashboard
+            </a>
+
+            <div class="nav-section">
+                <button class="nav-section-toggle" onclick="toggleSection(this)">
+                    <span>Inventory</span>
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div class="nav-section-items">
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
+                        Assets
+                    </a>
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                        Components
+                    </a>
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        Sites
+                    </a>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <button class="nav-section-toggle" onclick="toggleSection(this)">
+                    <span>Exposure</span>
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div class="nav-section-items">
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                        Findings
+                        <span class="nav-badge" id="nav-findings-count">—</span>
+                    </a>
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                        Vulnerabilities
+                    </a>
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                        KEV Catalog
+                        <span class="nav-badge amber" id="nav-kev-count">—</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <button class="nav-section-toggle" onclick="toggleSection(this)">
+                    <span>Collectors</span>
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div class="nav-section-items">
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                        Agents
+                    </a>
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                        Sensors
+                    </a>
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582 4 8 4s8 1.79 8 4"/></svg>
+                        Advisory Feeds
+                    </a>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <button class="nav-section-toggle" onclick="toggleSection(this)">
+                    <span>System</span>
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div class="nav-section-items">
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
+                        AI Advisor
+                    </a>
+                    <a href="#" class="nav-link">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        Settings
+                    </a>
+                </div>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="user-dropdown" id="user-dropdown">
+                <div class="dropdown-info">
+                    <div class="dname">Administrator</div>
+                    <div class="drole">Token-authenticated session</div>
+                </div>
+                <a href="#" class="dropdown-item">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/></svg>
+                    Settings
+                </a>
+                <div style="border-top: 1px solid #f3f4f6;">
+                    <button class="dropdown-item danger" onclick="signOut()">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                        Sign Out
+                    </button>
+                </div>
+            </div>
+            <div class="user-row" onclick="toggleUserDropdown()">
+                <div class="user-avatar">A</div>
+                <div class="user-info">
+                    <div class="user-name">Administrator</div>
+                    <div class="user-role">Control Tower Admin</div>
+                </div>
+                <svg width="14" height="14" fill="none" stroke="#9ca3af" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ── Main ── -->
+    <div class="main-content">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="hamburger-btn" onclick="openSidebar()">
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
+                <span class="topbar-title">Dashboard</span>
+            </div>
+            <div class="topbar-right">
+                <a href="#" class="topbar-icon-btn" title="Notifications">
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                    <span class="notif-dot" id="notif-dot" style="display:none"></span>
+                </a>
+                <button class="topbar-icon-btn" title="Refresh" onclick="loadDashboard()">
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                </button>
+                <div style="position:relative">
+                    <button id="topbar-user-btn" onclick="toggleTopbarDropdown()" style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.5rem;border-radius:0.5rem;cursor:pointer;border:none;background:none;transition:background 0.15s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                        <img src="https://ui-avatars.com/api/?name=Admin&background=1F2937&color=fff&size=80" alt="Admin" style="width:2.25rem;height:2.25rem;border-radius:50%;ring:2px solid #e5e7eb;box-shadow:0 0 0 2px #e5e7eb;">
+                        <span style="font-size:0.875rem;font-weight:500;color:#374151;display:none;" class="sm-show">Admin</span>
+                        <svg id="topbar-chevron" width="14" height="14" fill="none" stroke="#6b7280" viewBox="0 0 24 24" style="transition:transform 0.2s"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                    <div id="topbar-dropdown" class="topbar-dd">
+                        <div style="padding:0.75rem 1rem;border-bottom:1px solid #f3f4f6;">
+                            <p style="font-size:0.875rem;font-weight:600;color:#111827;">Administrator</p>
+                            <p style="font-size:0.75rem;color:#6b7280;margin-top:0.2rem;">Control Tower Admin</p>
+                        </div>
+                        <div style="padding:0.25rem 0;">
+                            <a href="/dashboard" class="dd-item dd-item-blue">
+                                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                                Dashboard
+                            </a>
+                            <a href="#" class="dd-item">
+                                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                                Profile Settings
+                            </a>
+                            <a href="#" class="dd-item">
+                                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                                Account Settings
+                            </a>
+                        </div>
+                        <div style="border-top:1px solid #f3f4f6;padding:0.25rem 0;">
+                            <button onclick="signOut()" class="dd-item dd-item-red">
+                                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                                Sign Out
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="page-body">
+            <div class="page-header">
+                <h1>Welcome back, Admin</h1>
+                <p>Here's what's happening across your monitored infrastructure</p>
+            </div>
+
+            <!-- KEV Alert -->
+            <div class="kev-alert" id="kev-alert" style="display:none">
+                <div class="kev-icon">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div class="kev-text">
+                    <div class="kev-title">CISA KEV Matches Detected</div>
+                    <div class="kev-sub" id="kev-alert-sub">Assets with known exploited vulnerabilities</div>
+                </div>
+                <button class="kev-btn">Review Now</button>
+            </div>
+
+            <!-- Asset Overview -->
+            <div class="section-card">
+                <div class="section-card-header">
+                    <div class="section-card-title">
+                        <div class="card-icon-wrap" style="background:linear-gradient(135deg,#2563eb,#1d4ed8)">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                        </div>
+                        <div>
+                            <h3>Asset Overview</h3>
+                            <p>Inventory and exposure statistics</p>
+                        </div>
+                    </div>
+                    <a href="#" class="section-card-action">View all →</a>
+                </div>
+                <div class="section-card-body">
+                    <div class="stat-grid">
+                        <div class="stat-tile">
+                            <div class="stat-label">Total Assets</div>
+                            <div class="stat-value blue" id="stat-assets">—</div>
+                            <div class="stat-delta muted" id="stat-assets-sub">Loading...</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Active Findings</div>
+                            <div class="stat-value red" id="stat-findings">—</div>
+                            <div class="stat-delta muted" id="stat-findings-sub">Loading...</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">KEV Matches</div>
+                            <div class="stat-value amber" id="stat-kev">—</div>
+                            <div class="stat-delta muted" id="stat-kev-sub">Loading...</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Total Sites</div>
+                            <div class="stat-value indigo" id="stat-sites">—</div>
+                            <div class="stat-delta muted" id="stat-sites-sub">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Two col -->
+            <div class="two-col">
+                <!-- Findings -->
+                <div class="section-card" style="margin-bottom:0">
+                    <div class="section-card-header">
+                        <div class="section-card-title">
+                            <div class="card-icon-wrap" style="background:linear-gradient(135deg,#ef4444,#dc2626)">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                            </div>
+                            <div>
+                                <h3>Active Findings</h3>
+                                <p>Open findings requiring attention</p>
+                            </div>
+                        </div>
+                        <a href="#" class="section-card-action">View all →</a>
+                    </div>
+                    <div class="section-card-body">
+                        <div class="finding-list" id="findings-list">
+                            <div class="empty-state">
+                                <svg width="40" height="40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                <p>Loading findings...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right column -->
+                <div style="display:flex;flex-direction:column;gap:1.25rem;">
+                    <div class="section-card" style="margin-bottom:0">
+                        <div class="section-card-header">
+                            <div class="section-card-title">
+                                <div class="card-icon-wrap" style="background:linear-gradient(135deg,#059669,#047857)">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                </div>
+                                <div>
+                                    <h3>Collectors</h3>
+                                    <p>Agent check-in status</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="section-card-body">
+                            <div id="collectors-list">
+                                <div class="empty-state"><p>Loading...</p></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section-card" style="margin-bottom:0">
+                        <div class="section-card-header">
+                            <div class="section-card-title">
+                                <div class="card-icon-wrap" style="background:linear-gradient(135deg,#7c3aed,#6d28d9)">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                                </div>
+                                <div>
+                                    <h3>Sites</h3>
+                                    <p>Registered monitoring sites</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="section-card-body">
+                            <div id="sites-list">
+                                <div class="empty-state"><p>Loading...</p></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Collector activity -->
+            <div class="section-card">
+                <div class="section-card-header">
+                    <div class="section-card-title">
+                        <div class="card-icon-wrap" style="background:linear-gradient(135deg,#4f46e5,#4338ca)">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
+                        </div>
+                        <div>
+                            <h3>Collector Activity</h3>
+                            <p>Platform collection statistics</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="section-card-body">
+                    <div class="stat-grid">
+                        <div class="stat-tile">
+                            <div class="stat-label">Total Collectors</div>
+                            <div class="stat-value green" id="stat-collectors">—</div>
+                            <div class="stat-delta muted" id="stat-collectors-sub">Loading...</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Total Sensors</div>
+                            <div class="stat-value teal" id="stat-sensors">—</div>
+                            <div class="stat-delta muted" id="stat-sensors-sub">Loading...</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Vulnerabilities</div>
+                            <div class="stat-value purple" id="stat-vulns">—</div>
+                            <div class="stat-delta muted">In advisory catalog</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Components</div>
+                            <div class="stat-value indigo" id="stat-components">—</div>
+                            <div class="stat-delta muted">Tracked software</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="page-footer">
+            <p>Designed with ♥ by <strong><a href="https://codedhost.vip" target="_blank" style="color:#2563eb;text-decoration:none;">CodedHost Engineers</a></strong></p>
+            <p>&copy; 2026 OpenAssetWatch. All rights reserved.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+function getToken() {
+    return localStorage.getItem('oaw_admin_token') || sessionStorage.getItem('oaw_admin_token') || '';
+}
+
+(function() {
+    if (!getToken()) window.location.href = '/login';
+})();
+
+async function apiFetch(path) {
+    try {
+        const token = getToken();
+        const headers = token ? { 'X-OpenAssetWatch-Admin-Token': token } : {};
+        const r = await fetch(path, { headers });
+        if (r.status === 401) { signOut(); return null; }
+        if (!r.ok) return null;
+        return await r.json();
+    } catch { return null; }
+}
+
+function sevClass(s) {
+    const v = (s || '').toLowerCase();
+    if (v.includes('critical')) return 'critical';
+    if (v.includes('high'))     return 'high';
+    if (v.includes('medium'))   return 'medium';
+    if (v.includes('low'))      return 'low';
+    return 'info';
+}
+
+function timeAgo(ts) {
+    if (!ts) return 'Unknown';
+    const d = Math.floor((Date.now() - new Date(ts)) / 1000);
+    if (d < 60) return `${d}s ago`;
+    if (d < 3600) return `${Math.floor(d/60)}m ago`;
+    if (d < 86400) return `${Math.floor(d/3600)}h ago`;
+    return `${Math.floor(d/86400)}d ago`;
+}
+
+async function loadDashboard() {
+    const [assets, findings, kev, collectors, sites, sensors, vulns, components] = await Promise.all([
+        apiFetch('/api/v1/assets?limit=10'),
+        apiFetch('/api/v1/findings?limit=8&state=active'),
+        apiFetch('/api/v1/kev/summary'),
+        apiFetch('/api/v1/collectors'),
+        apiFetch('/api/v1/sites'),
+        apiFetch('/api/v1/hub/sensors'),
+        apiFetch('/api/v1/vulnerabilities?limit=1'),
+        apiFetch('/api/v1/components?limit=1'),
+    ]);
+
+    // Assets
+    const assetCount = assets?.total ?? (Array.isArray(assets) ? assets.length : '—');
+    document.getElementById('stat-assets').textContent = assetCount;
+    document.getElementById('stat-assets-sub').textContent = assetCount !== '—' ? `${assetCount} discovered` : 'No data';
+
+    // Findings
+    const findingsArr = findings?.items ?? (Array.isArray(findings) ? findings : []);
+    const findingsTotal = findings?.total ?? findingsArr.length;
+    document.getElementById('stat-findings').textContent = findingsTotal ?? '0';
+    document.getElementById('nav-findings-count').textContent = findingsTotal ?? '0';
+    const fSub = document.getElementById('stat-findings-sub');
+    if (findingsTotal > 0) { fSub.textContent = `${findingsTotal} need attention`; fSub.className = 'stat-delta up'; }
+    else { fSub.textContent = 'No active findings'; fSub.className = 'stat-delta down'; }
+
+    // KEV
+    const kevCount = kev?.total_matches ?? kev?.kev_match_count ?? 0;
+    document.getElementById('stat-kev').textContent = kevCount;
+    document.getElementById('nav-kev-count').textContent = kevCount;
+    const kevSub = document.getElementById('stat-kev-sub');
+    if (kevCount > 0) {
+        kevSub.textContent = `${kevCount} CISA KEV CVEs matched`;
+        kevSub.className = 'stat-delta up';
+        document.getElementById('kev-alert').style.display = 'flex';
+        document.getElementById('kev-alert-sub').textContent = `${kevCount} known exploited CVE${kevCount>1?'s':''} matched across your assets`;
+        document.getElementById('notif-dot').style.display = 'block';
+    } else {
+        kevSub.textContent = 'No KEV matches';
+        kevSub.className = 'stat-delta muted';
+    }
+
+    // Sites
+    const sitesArr = Array.isArray(sites) ? sites : (sites?.sites ?? sites?.items ?? []);
+    document.getElementById('stat-sites').textContent = sitesArr.length;
+    document.getElementById('stat-sites-sub').textContent = `${sitesArr.length} registered`;
+
+    // Collectors
+    const collArr = Array.isArray(collectors) ? collectors : (collectors?.items ?? []);
+    document.getElementById('stat-collectors').textContent = collArr.length;
+    document.getElementById('stat-collectors-sub').textContent = `${collArr.length} registered`;
+
+    // Sensors
+    const sensArr = Array.isArray(sensors) ? sensors : (sensors?.sensors ?? sensors?.items ?? []);
+    document.getElementById('stat-sensors').textContent = sensArr.length;
+    document.getElementById('stat-sensors-sub').textContent = `${sensArr.length} enrolled`;
+
+    // Vulns / Components
+    document.getElementById('stat-vulns').textContent = vulns?.total ?? '—';
+    document.getElementById('stat-components').textContent = components?.total ?? '—';
+
+    // Render findings
+    const fl = document.getElementById('findings-list');
+    if (findingsArr.length > 0) {
+        fl.innerHTML = findingsArr.map(f => {
+            const s = sevClass(f.severity || f.rule_severity);
+            const title = f.title || f.rule_title || f.finding_id || 'Finding';
+            const asset = f.asset_display_name || f.asset_id || '';
+            const time = timeAgo(f.created_at || f.evaluated_at);
+            return `<div class="finding-row">
+                <div class="sev-dot ${s}"></div>
+                <div class="finding-info">
+                    <div class="finding-title">${title}</div>
+                    <div class="finding-meta">${asset}${asset?' · ':''}${time}</div>
+                </div>
+                <span class="sev-pill ${s}">${s}</span>
+            </div>`;
+        }).join('');
+    } else {
+        fl.innerHTML = `<div class="empty-state">
+            <svg width="40" height="40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <p>No active findings — all clear</p>
+        </div>`;
+    }
+
+    // Render collectors
+    const cl = document.getElementById('collectors-list');
+    if (collArr.length > 0) {
+        cl.innerHTML = collArr.slice(0,6).map(c => {
+            const last = c.last_submission_at || c.last_checkin_at;
+            const isStale = last && (Date.now() - new Date(last)) > 2*3600*1000;
+            const st = !last ? 'offline' : isStale ? 'stale' : 'online';
+            return `<div class="list-row">
+                <div class="coll-dot ${st}"></div>
+                <div class="list-name">${c.collector_name || c.collector_id || 'Collector'}</div>
+                <div class="list-time">${timeAgo(last)}</div>
+            </div>`;
+        }).join('');
+    } else {
+        cl.innerHTML = `<div class="empty-state"><p>No collectors registered</p></div>`;
+    }
+
+    // Render sites
+    const sl = document.getElementById('sites-list');
+    if (sitesArr.length > 0) {
+        sl.innerHTML = sitesArr.slice(0,5).map(s => `
+            <div class="list-row">
+                <div class="coll-dot online"></div>
+                <div class="list-name">${s.site_name || s.name || s.site_id || 'Site'}</div>
+                <div class="list-time">${s.site_id || ''}</div>
+            </div>`).join('');
+    } else {
+        sl.innerHTML = `<div class="empty-state"><p>No sites registered</p></div>`;
+    }
+}
+
+function toggleSection(btn) {
+    btn.classList.toggle('collapsed');
+    btn.nextElementSibling.classList.toggle('collapsed');
+}
+
+function openSidebar() {
+    document.getElementById('sidebar').classList.add('open');
+    document.getElementById('sidebar-overlay').classList.add('show');
+}
+
+function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebar-overlay').classList.remove('show');
+}
+
+function toggleUserDropdown() {
+    document.getElementById('user-dropdown').classList.toggle('open');
+    document.getElementById('topbar-dropdown').style.display = 'none';
+}
+
+function toggleTopbarDropdown() {
+    const dd = document.getElementById('topbar-dropdown');
+    dd.classList.toggle('open');
+    document.getElementById('topbar-chevron').style.transform = dd.classList.contains('open') ? 'rotate(180deg)' : '';
+    document.getElementById('user-dropdown').classList.remove('open');
+}
+
+function signOut() {
+    localStorage.removeItem('oaw_admin_token');
+    sessionStorage.removeItem('oaw_admin_token');
+    window.location.href = '/login';
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.user-row') && !e.target.closest('.user-dropdown')) {
+        document.getElementById('user-dropdown').classList.remove('open');
+    }
+    if (!e.target.closest('#topbar-user-btn') && !e.target.closest('#topbar-dropdown')) {
+        const dd = document.getElementById('topbar-dropdown');
+        if (dd.classList.contains('open')) {
+            dd.classList.remove('open');
+            document.getElementById('topbar-chevron').style.transform = '';
+        }
+    }
+});
+
+loadDashboard();
+</script>
+{% endblock %}
