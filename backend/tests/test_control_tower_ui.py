@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
-from app.main import ADMIN_TOKEN_ENV, app
+from app.main import ADMIN_TOKEN_ENV, require_configured_admin_token
 
 LOGIN = Path(__file__).resolve().parents[1] / "app" / "templates" / "login.html"
 DASHBOARD = Path(__file__).resolve().parents[1] / "app" / "templates" / "dashboard.html"
@@ -106,43 +106,36 @@ class DashboardTemplateTests(unittest.TestCase):
 
 
 class RiskSummaryTokenVerificationTests(unittest.TestCase):
-    """Behavioural tests for the login verification endpoint token gate."""
+    """Behavioural tests for the login verification endpoint token gate.
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.client = TestClient(app, raise_server_exceptions=False)
+    Tests call require_configured_admin_token directly — the same function
+    /api/v1/risk/summary invokes — avoiding an httpx/TestClient dependency.
+    """
 
     def test_configured_valid_token_passes_auth_gate(self) -> None:
-        # Auth passes (no 401/503); a 500 is acceptable when no DB is wired.
         with patch.dict(os.environ, {ADMIN_TOKEN_ENV: "correct-token"}):
-            r = self.client.get(
-                "/api/v1/risk/summary",
-                headers={"X-OpenAssetWatch-Admin-Token": "correct-token"},
-            )
-        self.assertNotIn(r.status_code, (401, 503))
+            # Must not raise
+            require_configured_admin_token("correct-token", capability="risk summary")
 
-    def test_configured_invalid_token_returns_401(self) -> None:
+    def test_configured_invalid_token_raises_401(self) -> None:
         with patch.dict(os.environ, {ADMIN_TOKEN_ENV: "correct-token"}):
-            r = self.client.get(
-                "/api/v1/risk/summary",
-                headers={"X-OpenAssetWatch-Admin-Token": "wrong-token"},
-            )
-        self.assertEqual(r.status_code, 401)
+            with self.assertRaises(HTTPException) as ctx:
+                require_configured_admin_token("wrong-token", capability="risk summary")
+        self.assertEqual(ctx.exception.status_code, 401)
 
-    def test_unconfigured_server_token_returns_503(self) -> None:
+    def test_unconfigured_server_raises_503(self) -> None:
         env = {k: v for k, v in os.environ.items() if k != ADMIN_TOKEN_ENV}
         with patch.dict(os.environ, env, clear=True):
-            r = self.client.get(
-                "/api/v1/risk/summary",
-                headers={"X-OpenAssetWatch-Admin-Token": "any-token"},
-            )
-        self.assertEqual(r.status_code, 503)
+            with self.assertRaises(HTTPException) as ctx:
+                require_configured_admin_token("any-token", capability="risk summary")
+        self.assertEqual(ctx.exception.status_code, 503)
 
-    def test_unconfigured_server_no_token_header_returns_503(self) -> None:
+    def test_unconfigured_server_no_token_raises_503(self) -> None:
         env = {k: v for k, v in os.environ.items() if k != ADMIN_TOKEN_ENV}
         with patch.dict(os.environ, env, clear=True):
-            r = self.client.get("/api/v1/risk/summary")
-        self.assertEqual(r.status_code, 503)
+            with self.assertRaises(HTTPException) as ctx:
+                require_configured_admin_token(None, capability="risk summary")
+        self.assertEqual(ctx.exception.status_code, 503)
 
 
 if __name__ == "__main__":
