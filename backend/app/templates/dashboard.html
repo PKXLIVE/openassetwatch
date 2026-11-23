@@ -1098,25 +1098,29 @@ async function loadDashboard() {
     ]);
 
     // Assets
-    const assetCount = assets?.total ?? (Array.isArray(assets) ? assets.length : '—');
-    document.getElementById('stat-assets').textContent = assetCount;
-    document.getElementById('stat-assets-sub').textContent = assetCount !== '—' ? `${assetCount} discovered` : 'No data';
+    const assetCount = assets === null ? null : (assets?.total ?? (Array.isArray(assets) ? assets.length : null));
+    document.getElementById('stat-assets').textContent = assetCount === null ? 'Unavailable' : assetCount;
+    document.getElementById('stat-assets-sub').textContent = assetCount === null ? 'Unavailable' : `${assetCount} discovered`;
 
     // Findings
-    const findingsArr = findings?.items ?? (Array.isArray(findings) ? findings : []);
-    const findingsTotal = findings?.total ?? findingsArr.length;
-    document.getElementById('stat-findings').textContent = findingsTotal ?? '0';
-    document.getElementById('nav-findings-count').textContent = findingsTotal ?? '0';
+    const findingsArr = findings === null ? null : (findings?.items ?? (Array.isArray(findings) ? findings : []));
+    const findingsTotal = findings === null ? null : (findings?.total ?? (findingsArr ? findingsArr.length : null));
+    document.getElementById('stat-findings').textContent = findingsTotal === null ? 'Unavailable' : findingsTotal;
+    document.getElementById('nav-findings-count').textContent = findingsTotal === null ? '—' : findingsTotal;
     const fSub = document.getElementById('stat-findings-sub');
-    if (findingsTotal > 0) { fSub.textContent = `${findingsTotal} need attention`; fSub.className = 'stat-delta up'; }
+    if (findingsTotal === null) { fSub.textContent = 'Unavailable'; fSub.className = 'stat-delta muted'; }
+    else if (findingsTotal > 0) { fSub.textContent = `${findingsTotal} need attention`; fSub.className = 'stat-delta up'; }
     else { fSub.textContent = 'No active findings'; fSub.className = 'stat-delta down'; }
 
     // KEV
-    const kevCount = kev?.total_matches ?? kev?.kev_match_count ?? 0;
-    document.getElementById('stat-kev').textContent = kevCount;
-    document.getElementById('nav-kev-count').textContent = kevCount;
+    const kevCount = kev === null ? null : (kev?.total_matches ?? kev?.kev_match_count ?? 0);
+    document.getElementById('stat-kev').textContent = kevCount === null ? 'Unavailable' : kevCount;
+    document.getElementById('nav-kev-count').textContent = kevCount === null ? '—' : kevCount;
     const kevSub = document.getElementById('stat-kev-sub');
-    if (kevCount > 0) {
+    if (kevCount === null) {
+        kevSub.textContent = 'Unavailable';
+        kevSub.className = 'stat-delta muted';
+    } else if (kevCount > 0) {
         kevSub.textContent = `${kevCount} CISA KEV CVEs matched`;
         kevSub.className = 'stat-delta up';
         document.getElementById('kev-alert').style.display = 'flex';
@@ -1128,76 +1132,115 @@ async function loadDashboard() {
     }
 
     // Sites
-    const sitesArr = Array.isArray(sites) ? sites : (sites?.sites ?? sites?.items ?? []);
-    document.getElementById('stat-sites').textContent = sitesArr.length;
-    document.getElementById('stat-sites-sub').textContent = `${sitesArr.length} registered`;
+    const sitesArr = sites === null ? null : (Array.isArray(sites) ? sites : (sites?.sites ?? sites?.items ?? []));
+    document.getElementById('stat-sites').textContent = sitesArr === null ? 'Unavailable' : sitesArr.length;
+    document.getElementById('stat-sites-sub').textContent = sitesArr === null ? 'Unavailable' : `${sitesArr.length} registered`;
 
     // Collectors
-    const collArr = Array.isArray(collectors) ? collectors : (collectors?.items ?? []);
-    document.getElementById('stat-collectors').textContent = collArr.length;
-    document.getElementById('stat-collectors-sub').textContent = `${collArr.length} registered`;
+    const collArr = collectors === null ? null : (Array.isArray(collectors) ? collectors : (collectors?.items ?? []));
+    document.getElementById('stat-collectors').textContent = collArr === null ? 'Unavailable' : collArr.length;
+    document.getElementById('stat-collectors-sub').textContent = collArr === null ? 'Unavailable' : `${collArr.length} registered`;
 
     // Sensors
-    const sensArr = Array.isArray(sensors) ? sensors : (sensors?.sensors ?? sensors?.items ?? []);
-    document.getElementById('stat-sensors').textContent = sensArr.length;
-    document.getElementById('stat-sensors-sub').textContent = `${sensArr.length} enrolled`;
+    const sensArr = sensors === null ? null : (Array.isArray(sensors) ? sensors : (sensors?.sensors ?? sensors?.items ?? []));
+    document.getElementById('stat-sensors').textContent = sensArr === null ? 'Unavailable' : sensArr.length;
+    document.getElementById('stat-sensors-sub').textContent = sensArr === null ? 'Unavailable' : `${sensArr.length} enrolled`;
 
     // Vulns / Components
-    document.getElementById('stat-vulns').textContent = vulns?.total ?? '—';
-    document.getElementById('stat-components').textContent = components?.total ?? '—';
+    document.getElementById('stat-vulns').textContent = vulns === null ? 'Unavailable' : (vulns?.total ?? '—');
+    document.getElementById('stat-components').textContent = components === null ? 'Unavailable' : (components?.total ?? '—');
+
+    // Safe DOM helpers — never use innerHTML for data-derived content
+    function makeEl(tag, cls) {
+        const el = document.createElement(tag);
+        if (cls) el.className = cls;
+        return el;
+    }
 
     // Render findings
     const fl = document.getElementById('findings-list');
-    if (findingsArr.length > 0) {
-        fl.innerHTML = findingsArr.map(f => {
+    fl.textContent = '';
+    if (findingsArr && findingsArr.length > 0) {
+        findingsArr.forEach(f => {
             const s = sevClass(f.severity || f.rule_severity);
             const title = f.title || f.rule_title || f.finding_id || 'Finding';
             const asset = f.asset_display_name || f.asset_id || '';
             const time = timeAgo(f.created_at || f.evaluated_at);
-            return `<div class="finding-row">
-                <div class="sev-dot ${s}"></div>
-                <div class="finding-info">
-                    <div class="finding-title">${title}</div>
-                    <div class="finding-meta">${asset}${asset?' · ':''}${time}</div>
-                </div>
-                <span class="sev-pill ${s}">${s}</span>
-            </div>`;
-        }).join('');
+
+            const row = makeEl('div', 'finding-row');
+            const dot = makeEl('div', `sev-dot ${s}`);
+            const info = makeEl('div', 'finding-info');
+            const titleEl = makeEl('div', 'finding-title');
+            titleEl.textContent = title;
+            const metaEl = makeEl('div', 'finding-meta');
+            metaEl.textContent = asset ? `${asset} · ${time}` : time;
+            info.appendChild(titleEl);
+            info.appendChild(metaEl);
+            const pill = makeEl('span', `sev-pill ${s}`);
+            pill.textContent = s;
+            row.appendChild(dot);
+            row.appendChild(info);
+            row.appendChild(pill);
+            fl.appendChild(row);
+        });
     } else {
-        fl.innerHTML = `<div class="empty-state">
-            <svg width="40" height="40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <p>No active findings — all clear</p>
-        </div>`;
+        const es = makeEl('div', 'empty-state');
+        const p = makeEl('p');
+        p.textContent = findingsArr === null ? 'Unavailable' : 'No active findings — all clear';
+        es.appendChild(p);
+        fl.appendChild(es);
     }
 
     // Render collectors
     const cl = document.getElementById('collectors-list');
-    if (collArr.length > 0) {
-        cl.innerHTML = collArr.slice(0,6).map(c => {
+    cl.textContent = '';
+    if (collArr && collArr.length > 0) {
+        collArr.slice(0,6).forEach(c => {
             const last = c.last_submission_at || c.last_checkin_at;
             const isStale = last && (Date.now() - new Date(last)) > 2*3600*1000;
             const st = !last ? 'offline' : isStale ? 'stale' : 'online';
-            return `<div class="list-row">
-                <div class="coll-dot ${st}"></div>
-                <div class="list-name">${c.collector_name || c.collector_id || 'Collector'}</div>
-                <div class="list-time">${timeAgo(last)}</div>
-            </div>`;
-        }).join('');
+
+            const row = makeEl('div', 'list-row');
+            const dot = makeEl('div', `coll-dot ${st}`);
+            const name = makeEl('div', 'list-name');
+            name.textContent = c.collector_name || c.collector_id || 'Collector';
+            const time = makeEl('div', 'list-time');
+            time.textContent = timeAgo(last);
+            row.appendChild(dot);
+            row.appendChild(name);
+            row.appendChild(time);
+            cl.appendChild(row);
+        });
     } else {
-        cl.innerHTML = `<div class="empty-state"><p>No collectors registered</p></div>`;
+        const es = makeEl('div', 'empty-state');
+        const p = makeEl('p');
+        p.textContent = collArr === null ? 'Unavailable' : 'No collectors registered';
+        es.appendChild(p);
+        cl.appendChild(es);
     }
 
     // Render sites
     const sl = document.getElementById('sites-list');
-    if (sitesArr.length > 0) {
-        sl.innerHTML = sitesArr.slice(0,5).map(s => `
-            <div class="list-row">
-                <div class="coll-dot online"></div>
-                <div class="list-name">${s.site_name || s.name || s.site_id || 'Site'}</div>
-                <div class="list-time">${s.site_id || ''}</div>
-            </div>`).join('');
+    sl.textContent = '';
+    if (sitesArr && sitesArr.length > 0) {
+        sitesArr.slice(0,5).forEach(s => {
+            const row = makeEl('div', 'list-row');
+            const dot = makeEl('div', 'coll-dot online');
+            const name = makeEl('div', 'list-name');
+            name.textContent = s.site_name || s.name || s.site_id || 'Site';
+            const id = makeEl('div', 'list-time');
+            id.textContent = s.site_id || '';
+            row.appendChild(dot);
+            row.appendChild(name);
+            row.appendChild(id);
+            sl.appendChild(row);
+        });
     } else {
-        sl.innerHTML = `<div class="empty-state"><p>No sites registered</p></div>`;
+        const es = makeEl('div', 'empty-state');
+        const p = makeEl('p');
+        p.textContent = sitesArr === null ? 'Unavailable' : 'No sites registered';
+        es.appendChild(p);
+        sl.appendChild(es);
     }
 }
 

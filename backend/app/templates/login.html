@@ -547,7 +547,7 @@
                 headers: { 'X-OpenAssetWatch-Admin-Token': token }
             });
 
-            if (res.ok || res.status === 404) {
+            if (res.ok) {
                 if (remember) {
                     localStorage.setItem('oaw_admin_token', token);
                 } else {
