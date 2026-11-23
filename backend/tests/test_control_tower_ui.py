@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import os
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+
+from app.main import ADMIN_TOKEN_ENV, app
 
 LOGIN = Path(__file__).resolve().parents[1] / "app" / "templates" / "login.html"
 DASHBOARD = Path(__file__).resolve().parents[1] / "app" / "templates" / "dashboard.html"
@@ -97,6 +103,46 @@ class DashboardTemplateTests(unittest.TestCase):
 
     def test_zero_collectors_from_successful_response_shows_zero(self) -> None:
         self.assertIn("collArr === null ? 'Unavailable' : collArr.length", self.page)
+
+
+class RiskSummaryTokenVerificationTests(unittest.TestCase):
+    """Behavioural tests for the login verification endpoint token gate."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.client = TestClient(app, raise_server_exceptions=False)
+
+    def test_configured_valid_token_passes_auth_gate(self) -> None:
+        # Auth passes (no 401/503); a 500 is acceptable when no DB is wired.
+        with patch.dict(os.environ, {ADMIN_TOKEN_ENV: "correct-token"}):
+            r = self.client.get(
+                "/api/v1/risk/summary",
+                headers={"X-OpenAssetWatch-Admin-Token": "correct-token"},
+            )
+        self.assertNotIn(r.status_code, (401, 503))
+
+    def test_configured_invalid_token_returns_401(self) -> None:
+        with patch.dict(os.environ, {ADMIN_TOKEN_ENV: "correct-token"}):
+            r = self.client.get(
+                "/api/v1/risk/summary",
+                headers={"X-OpenAssetWatch-Admin-Token": "wrong-token"},
+            )
+        self.assertEqual(r.status_code, 401)
+
+    def test_unconfigured_server_token_returns_503(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k != ADMIN_TOKEN_ENV}
+        with patch.dict(os.environ, env, clear=True):
+            r = self.client.get(
+                "/api/v1/risk/summary",
+                headers={"X-OpenAssetWatch-Admin-Token": "any-token"},
+            )
+        self.assertEqual(r.status_code, 503)
+
+    def test_unconfigured_server_no_token_header_returns_503(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k != ADMIN_TOKEN_ENV}
+        with patch.dict(os.environ, env, clear=True):
+            r = self.client.get("/api/v1/risk/summary")
+        self.assertEqual(r.status_code, 503)
 
 
 if __name__ == "__main__":

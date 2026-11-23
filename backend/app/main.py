@@ -2746,7 +2746,7 @@ def api_risk_summary(
     limit: int = Query(default=100, ge=1, le=200),
     admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
 ):
-    require_admin_token(admin_token)
+    require_configured_admin_token(admin_token, capability="risk summary")
     try:
         return _finding_store().risk_summary(site_id=site_id, limit=limit)
     except SQLAlchemyError as exc:
