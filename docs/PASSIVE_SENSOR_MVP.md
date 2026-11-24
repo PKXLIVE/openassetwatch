@@ -162,9 +162,12 @@ operator inspection or removal.
 
 The hub URL must use HTTPS except for explicit local development hosts
 (`localhost`, `127.0.0.1`, `::1`, and `host.docker.internal` where local Compose
-requires it). Redirects, URL userinfo, query strings, fragments, link-local
-addresses, and cloud metadata endpoints are rejected. The client uses explicit
-connect, TLS handshake, response-header, and overall request timeouts.
+requires it). Enrollment tokens, collector tokens, and bound sensor credentials
+may use plain HTTP only with a verified IPv4 or IPv6 loopback destination;
+`host.docker.internal` therefore requires HTTPS for credentialed use. Redirects,
+URL userinfo, query strings, fragments, link-local addresses, and cloud metadata
+endpoints are rejected. The client uses explicit connect, TLS handshake,
+response-header, and overall request timeouts.
 The per-sensor credential is bound and independently revocable but remains a
 bearer value; it does not attest a sensor's machine identity.
 Certificate-bound production enrollment and stronger impersonation resistance

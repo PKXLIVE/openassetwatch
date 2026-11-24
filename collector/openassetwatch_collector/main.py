@@ -17,11 +17,19 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
+from http.client import HTTPConnection
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlsplit
+from urllib.request import (
+    HTTPHandler,
+    HTTPRedirectHandler,
+    ProxyHandler,
+    Request,
+    build_opener,
+    urlopen,
+)
 
 from . import __version__
 from .capabilities import collect_platform_capabilities, command_available
@@ -34,6 +42,12 @@ DEFAULT_MODE = "device"
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 3600
 DEFAULT_INVENTORY_INTERVAL_SECONDS = 86400
 COLLECTOR_TOKEN_HEADER = "X-OpenAssetWatch-Collector-Token"
+COLLECTOR_TOKEN_TRANSPORT_ERROR = (
+    "collector credentials cannot be sent over non-loopback plaintext HTTP; "
+    "use HTTPS or a verified loopback destination"
+)
+COLLECTOR_TOKEN_INVALID_ERROR = "collector token is invalid"
+COLLECTOR_TOKEN_REDIRECT_ERROR = "collector credential redirects are not allowed"
 DEFAULT_POLICY_CHECK_INTERVAL_SECONDS = 3600
 CAPABILITY_DEVICE_INVENTORY = "device_inventory"
 CAPABILITY_NETWORK_NEIGHBORS = "network_neighbors"
@@ -589,11 +603,229 @@ def build_checkin_payload(
     return checkin_payload
 
 
+class CollectorTokenError(RuntimeError):
+    """Base class for bounded collector-token failures."""
+
+
+class CollectorTokenTransportError(CollectorTokenError):
+    """Raised before a collector credential can cross an unsafe transport."""
+
+
+class CollectorTokenRedirectError(CollectorTokenError):
+    """Raised before a redirect can change a credential recipient."""
+
+
+def validate_collector_token(backend_token: str | None) -> None:
+    if backend_token is None or backend_token == "":
+        return
+    if (
+        not isinstance(backend_token, str)
+        or len(backend_token) > 4096
+        or backend_token != backend_token.strip()
+        or any(ord(character) < 0x21 or ord(character) > 0x7E for character in backend_token)
+    ):
+        raise CollectorTokenError(COLLECTOR_TOKEN_INVALID_ERROR)
+
+
 def backend_headers(backend_token: str | None = None) -> dict[str, str]:
+    validate_collector_token(backend_token)
     headers = {"Content-Type": "application/json"}
     if backend_token:
         headers[COLLECTOR_TOKEN_HEADER] = backend_token
     return headers
+
+
+def _request_collector_token(request: Request) -> str | None:
+    for name, value in request.header_items():
+        if name.casefold() == COLLECTOR_TOKEN_HEADER.casefold() and value:
+            return value
+    return None
+
+
+def _verified_loopback_host(hostname: str, port: int | None) -> bool:
+    if "%" in hostname:
+        return False
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        pass
+
+    normalized = hostname.rstrip(".").casefold()
+    if normalized != "localhost":
+        return False
+    try:
+        resolved = socket.getaddrinfo(
+            hostname,
+            port or 80,
+            type=socket.SOCK_STREAM,
+        )
+    except OSError:
+        return False
+    if not resolved:
+        return False
+    for family, _, _, _, address in resolved:
+        if family not in {socket.AF_INET, socket.AF_INET6} or not address:
+            return False
+        try:
+            candidate = ipaddress.ip_address(address[0].split("%", 1)[0])
+        except ValueError:
+            return False
+        if not candidate.is_loopback:
+            return False
+    return True
+
+
+def _resolved_loopback_addresses(
+    hostname: str,
+    port: int,
+) -> list[tuple[int, int, int, str, tuple[Any, ...]]]:
+    try:
+        resolved = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise CollectorTokenTransportError(COLLECTOR_TOKEN_TRANSPORT_ERROR) from exc
+    if not resolved:
+        raise CollectorTokenTransportError(COLLECTOR_TOKEN_TRANSPORT_ERROR)
+    for family, _, _, _, address in resolved:
+        if family not in {socket.AF_INET, socket.AF_INET6} or not address:
+            raise CollectorTokenTransportError(COLLECTOR_TOKEN_TRANSPORT_ERROR)
+        try:
+            candidate = ipaddress.ip_address(address[0].split("%", 1)[0])
+        except ValueError as exc:
+            raise CollectorTokenTransportError(COLLECTOR_TOKEN_TRANSPORT_ERROR) from exc
+        if not candidate.is_loopback:
+            raise CollectorTokenTransportError(COLLECTOR_TOKEN_TRANSPORT_ERROR)
+    return resolved
+
+
+def validate_collector_token_transport(url: str, backend_token: str | None) -> None:
+    if not backend_token:
+        return
+    validate_collector_token(backend_token)
+    try:
+        if (
+            not isinstance(url, str)
+            or not url
+            or len(url) > 2048
+            or url != url.strip()
+            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in url)
+        ):
+            raise ValueError
+        parsed = urlsplit(url)
+        scheme = parsed.scheme.casefold()
+        hostname = parsed.hostname
+        port = parsed.port
+        if (
+            scheme not in {"http", "https"}
+            or not parsed.netloc
+            or not hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.fragment
+        ):
+            raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise CollectorTokenTransportError(COLLECTOR_TOKEN_TRANSPORT_ERROR) from exc
+
+    if scheme == "https":
+        return
+    if _verified_loopback_host(hostname, port):
+        return
+    raise CollectorTokenTransportError(COLLECTOR_TOKEN_TRANSPORT_ERROR)
+
+
+def build_backend_request(
+    url: str,
+    *,
+    method: str,
+    backend_token: str | None,
+    data: bytes | None = None,
+) -> Request:
+    validate_collector_token_transport(url, backend_token)
+    return Request(
+        url,
+        data=data,
+        headers=backend_headers(backend_token),
+        method=method,
+    )
+
+
+class _CollectorTokenRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        request: Request,
+        response: Any,
+        code: int,
+        message: str,
+        headers: Any,
+        new_url: str,
+    ) -> Request | None:
+        backend_token = _request_collector_token(request)
+        if backend_token:
+            raise CollectorTokenRedirectError(COLLECTOR_TOKEN_REDIRECT_ERROR)
+        return super().redirect_request(request, response, code, message, headers, new_url)
+
+
+class _VerifiedLoopbackHTTPConnection(HTTPConnection):
+    def connect(self) -> None:
+        resolved = _resolved_loopback_addresses(self.host, self.port)
+        last_error: OSError | None = None
+        for family, socket_type, protocol, _, address in resolved:
+            connection = socket.socket(family, socket_type, protocol)
+            try:
+                if self.timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                    connection.settimeout(self.timeout)
+                if self.source_address:
+                    connection.bind(self.source_address)
+                connection.connect(address)
+                self.sock = connection
+                if self._tunnel_host:
+                    self._tunnel()
+                return
+            except OSError as exc:
+                last_error = exc
+                connection.close()
+        if last_error is not None:
+            raise last_error
+        raise CollectorTokenTransportError(COLLECTOR_TOKEN_TRANSPORT_ERROR)
+
+
+class _VerifiedLoopbackHTTPHandler(HTTPHandler):
+    def http_open(self, request: Request) -> Any:
+        return self.do_open(_VerifiedLoopbackHTTPConnection, request)
+
+
+def open_backend_request(request: Request, timeout: int = 15) -> Any:
+    backend_token = _request_collector_token(request)
+    validate_collector_token_transport(request.full_url, backend_token)
+    if not backend_token:
+        return urlopen(request, timeout=timeout)
+
+    handlers: list[Any] = [_CollectorTokenRedirectHandler()]
+    if urlsplit(request.full_url).scheme.casefold() == "http":
+        handlers[0:0] = [ProxyHandler({}), _VerifiedLoopbackHTTPHandler()]
+    return build_opener(*handlers).open(request, timeout=timeout)
+
+
+def safe_response_json(value: object, backend_token: str | None) -> str:
+    serialized = json.dumps(value, sort_keys=True)
+    if not backend_token:
+        return serialized
+    validate_collector_token(backend_token)
+    escaped_token = json.dumps(backend_token)[1:-1]
+    serialized = serialized.replace(backend_token, "[redacted]")
+    if escaped_token != backend_token:
+        serialized = serialized.replace(escaped_token, "[redacted]")
+    return serialized
+
+
+def safe_outbound_error(error: BaseException) -> str:
+    if isinstance(error, HTTPError):
+        return f"HTTP {error.code}"
+    if isinstance(error, CollectorTokenError):
+        return str(error)
+    if isinstance(error, (json.JSONDecodeError, ConfigError)):
+        return "request or response validation failed"
+    return "request failed"
 
 
 def send_checkin(
@@ -603,13 +835,13 @@ def send_checkin(
 ) -> dict[str, Any]:
     url = f"{backend_url.rstrip('/')}/api/v1/collectors/checkin"
     body = json.dumps(checkin_payload).encode("utf-8")
-    request = Request(
+    request = build_backend_request(
         url,
         data=body,
-        headers=backend_headers(backend_token),
         method="POST",
+        backend_token=backend_token,
     )
-    with urlopen(request, timeout=15) as response:
+    with open_backend_request(request, timeout=15) as response:
         response_body = response.read().decode("utf-8")
     return json.loads(response_body) if response_body else {}
 
@@ -634,13 +866,13 @@ def send_inventory(
 ) -> dict[str, Any]:
     url = f"{backend_url.rstrip('/')}/api/v1/collectors/inventory"
     body = json.dumps(inventory_payload).encode("utf-8")
-    request = Request(
+    request = build_backend_request(
         url,
         data=body,
-        headers=backend_headers(backend_token),
         method="POST",
+        backend_token=backend_token,
     )
-    with urlopen(request, timeout=15) as response:
+    with open_backend_request(request, timeout=15) as response:
         response_body = response.read().decode("utf-8")
     return json.loads(response_body) if response_body else {}
 
@@ -712,12 +944,12 @@ def send_policy_request(
     url = f"{backend_url.rstrip('/')}/api/v1/collectors/policy"
     if query_params:
         url = f"{url}?{urlencode(query_params)}"
-    request = Request(
+    request = build_backend_request(
         url,
-        headers=backend_headers(backend_token),
         method="GET",
+        backend_token=backend_token,
     )
-    with urlopen(request, timeout=15) as response:
+    with open_backend_request(request, timeout=15) as response:
         response_body = response.read().decode("utf-8")
     return json.loads(response_body) if response_body else {}
 
@@ -747,13 +979,13 @@ def send_policy_status(
 ) -> dict[str, Any]:
     url = f"{backend_url.rstrip('/')}/api/v1/collectors/policy-status"
     body = json.dumps(status_payload).encode("utf-8")
-    request = Request(
+    request = build_backend_request(
         url,
         data=body,
-        headers=backend_headers(backend_token),
         method="POST",
+        backend_token=backend_token,
     )
-    with urlopen(request, timeout=15) as response:
+    with open_backend_request(request, timeout=15) as response:
         response_body = response.read().decode("utf-8")
     return json.loads(response_body) if response_body else {}
 
@@ -865,10 +1097,10 @@ def report_policy_status(
             build_policy_status_payload(args, policy_payload, status, error),
             args.backend_token,
         )
-    except (HTTPError, URLError, TimeoutError, OSError) as exc:
-        print(f"collector policy status report failed: {exc}", file=sys.stderr)
+    except (HTTPError, URLError, TimeoutError, OSError, CollectorTokenError) as exc:
+        print(f"collector policy status report failed: {safe_outbound_error(exc)}", file=sys.stderr)
         return
-    print(json.dumps({"policy_status": response}, sort_keys=True), file=sys.stderr)
+    print(safe_response_json({"policy_status": response}, args.backend_token), file=sys.stderr)
 
 
 def retrieve_and_apply_policy(args: argparse.Namespace) -> bool:
@@ -896,8 +1128,16 @@ def retrieve_and_apply_policy(args: argparse.Namespace) -> bool:
         run_inventory_now = apply_policy_to_args(args, policy_payload)
         report_policy_status(args, policy_payload, "applied")
         return run_inventory_now
-    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ConfigError) as exc:
-        print(f"collector policy retrieval failed: {exc}", file=sys.stderr)
+    except (
+        HTTPError,
+        URLError,
+        TimeoutError,
+        OSError,
+        json.JSONDecodeError,
+        ConfigError,
+        CollectorTokenError,
+    ) as exc:
+        print(f"collector policy retrieval failed: {safe_outbound_error(exc)}", file=sys.stderr)
         try:
             cached_policy = load_cached_policy(args.policy_cache_path)
             if cached_policy is None:
@@ -925,14 +1165,11 @@ def perform_checkin(
     )
     try:
         checkin_response = send_checkin(backend_url, checkin_payload, backend_token)
-    except HTTPError as exc:
-        print(f"collector check-in failed: HTTP {exc.code}", file=sys.stderr)
-        return False
-    except (URLError, TimeoutError, OSError) as exc:
-        print(f"collector check-in failed: {exc}", file=sys.stderr)
+    except (HTTPError, URLError, TimeoutError, OSError, CollectorTokenError) as exc:
+        print(f"collector check-in failed: {safe_outbound_error(exc)}", file=sys.stderr)
         return False
 
-    print(json.dumps({"checkin": checkin_response}, sort_keys=True), file=sys.stderr)
+    print(safe_response_json({"checkin": checkin_response}, backend_token), file=sys.stderr)
     return True
 
 
@@ -951,14 +1188,11 @@ def perform_inventory_upload(
     )
     try:
         inventory_response = send_inventory(backend_url, inventory_payload, backend_token)
-    except HTTPError as exc:
-        print(f"collector inventory upload failed: HTTP {exc.code}", file=sys.stderr)
-        return False
-    except (URLError, TimeoutError, OSError) as exc:
-        print(f"collector inventory upload failed: {exc}", file=sys.stderr)
+    except (HTTPError, URLError, TimeoutError, OSError, CollectorTokenError) as exc:
+        print(f"collector inventory upload failed: {safe_outbound_error(exc)}", file=sys.stderr)
         return False
 
-    print(json.dumps({"inventory": inventory_response}, sort_keys=True), file=sys.stderr)
+    print(safe_response_json({"inventory": inventory_response}, backend_token), file=sys.stderr)
     return True
 
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ func TestValidateHubURLAppliesOutboundSecurityPolicy(t *testing.T) {
 	for _, value := range []string{
 		"http://localhost:8000",
 		"http://127.0.0.1:8000",
+		"http://127.0.0.2:8000",
 		"http://[::1]:8000",
 		"http://host.docker.internal:8000",
 		"https://hub.example.test",
@@ -31,7 +33,6 @@ func TestValidateHubURLAppliesOutboundSecurityPolicy(t *testing.T) {
 	}
 	for _, value := range []string{
 		"http://192.0.2.10:8000",
-		"http://127.0.0.2:8000",
 		"http://169.254.169.254/latest",
 		"https://169.254.169.254",
 		"https://100.100.100.200",
@@ -45,6 +46,32 @@ func TestValidateHubURLAppliesOutboundSecurityPolicy(t *testing.T) {
 	} {
 		if err := ValidateHubURL(value); err == nil {
 			t.Errorf("ValidateHubURL(%q) unexpectedly succeeded", value)
+		}
+	}
+}
+
+func TestValidateCollectorTokenTransport(t *testing.T) {
+	for _, value := range []string{
+		"https://hub.example.test",
+		"http://localhost:8000",
+		"http://127.0.0.1:8000",
+		"http://127.0.0.2:8000",
+		"http://[::1]:8000",
+	} {
+		if err := ValidateCollectorTokenTransport(value); err != nil {
+			t.Errorf("ValidateCollectorTokenTransport(%q) unexpected error: %v", value, err)
+		}
+	}
+	for _, value := range []string{
+		"http://192.0.2.10:8000",
+		"http://hub.example.test:8000",
+		"http://host.docker.internal:8000",
+		"file:///tmp/hub",
+		"not-a-url",
+		" http://127.0.0.1:8000",
+	} {
+		if err := ValidateCollectorTokenTransport(value); !errors.Is(err, ErrCollectorTokenTransport) {
+			t.Errorf("ValidateCollectorTokenTransport(%q) error = %v", value, err)
 		}
 	}
 }

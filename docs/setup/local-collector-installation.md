@@ -67,13 +67,14 @@ are not written to `install.env` and should not appear in installer logs.
 ## Backend URL
 
 When installing a collector on a different machine from the backend, do not use
-`localhost` for the backend URL. Use the backend machine's LAN IP address or a
-DNS name reachable from the collector host.
+`localhost` for the backend URL. Use an HTTPS DNS name reachable from the
+collector host and covered by the backend's TLS certificate. A configured
+collector token is refused over non-loopback plain HTTP.
 
 Example:
 
 ```text
-http://192.168.1.10:8000
+https://oaw-hub.example.test
 ```
 
 ## Windows Install
@@ -83,7 +84,7 @@ Run from an elevated Command Prompt or terminal.
 ```cmd
 cd collector
 install\install-windows.cmd ^
-  --backend-url http://192.168.1.10:8000 ^
+  --backend-url https://oaw-hub.example.test ^
   --backend-token change-me-dev-token ^
   --collector-id windows-lab-01 ^
   --collector-name "Windows Lab 01" ^
@@ -191,7 +192,7 @@ venv. If venv support is missing, it prints distro-appropriate package
 commands and exits before modifying the service.
 
 ```sh
-sudo BACKEND_URL=http://192.168.1.10:8000 \
+sudo BACKEND_URL=https://oaw-hub.example.test \
   BACKEND_TOKEN=change-me-dev-token \
   COLLECTOR_ID=linux-lab-01 \
   COLLECTOR_NAME="Linux Lab 01" \
@@ -238,7 +239,7 @@ sudo journalctl -u openassetwatch-collector -f
 Optional sudoers allowlist:
 
 ```sh
-sudo BACKEND_URL=http://192.168.1.10:8000 \
+sudo BACKEND_URL=https://oaw-hub.example.test \
   INSTALL_SUDOERS=true \
   collector/install/install-linux.sh
 ```
@@ -252,7 +253,7 @@ password.
 Optional log-read access:
 
 ```sh
-sudo BACKEND_URL=http://192.168.1.10:8000 \
+sudo BACKEND_URL=https://oaw-hub.example.test \
   ENABLE_LOG_READ=true \
   collector/install/install-linux.sh
 ```
@@ -297,7 +298,7 @@ Dry run:
 
 ```sh
 python collector/install/install.py \
-  --backend-url http://192.168.1.10:8000 \
+  --backend-url https://oaw-hub.example.test \
   --collector-id lab-collector-01 \
   --dry-run
 ```
@@ -306,7 +307,7 @@ Linux install:
 
 ```sh
 sudo python collector/install/install.py \
-  --backend-url http://192.168.1.10:8000 \
+  --backend-url https://oaw-hub.example.test \
   --collector-id linux-lab-01 \
   --collector-name "Linux Lab 01"
 ```
@@ -315,7 +316,7 @@ Windows install from an elevated terminal:
 
 ```cmd
 python collector\install\install.py ^
-  --backend-url http://192.168.1.10:8000 ^
+  --backend-url https://oaw-hub.example.test ^
   --collector-id windows-lab-01 ^
   --collector-name "Windows Lab 01"
 ```
@@ -339,7 +340,7 @@ Example Python paths:
 ```
 
 ```sh
-sudo BACKEND_URL=http://192.168.1.10:8000 \
+sudo BACKEND_URL=https://oaw-hub.example.test \
   BACKEND_TOKEN=change-me-dev-token \
   COLLECTOR_ID=mac-lab-01 \
   COLLECTOR_NAME="Mac Lab 01" \
@@ -354,7 +355,7 @@ Real-world validation pattern:
 ```sh
 sudo env \
   PYTHON_BIN=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 \
-  BACKEND_URL=http://100.86.144.109:8000 \
+  BACKEND_URL=https://oaw-hub.example.test \
   BACKEND_TOKEN=change-me-dev-token \
   COLLECTOR_ID=mac-lab-01 \
   COLLECTOR_NAME="Mac Lab 01" \

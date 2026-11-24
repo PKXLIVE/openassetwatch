@@ -23,8 +23,11 @@ const (
 )
 
 var (
-	siteIdentifierPattern   = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-	sensorIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
+	siteIdentifierPattern      = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	sensorIdentifierPattern    = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
+	ErrCollectorTokenTransport = errors.New(
+		"collector credentials cannot be sent over non-loopback plaintext HTTP; use HTTPS or a verified loopback destination",
+	)
 )
 
 type Config struct {
@@ -179,6 +182,27 @@ func ValidateHubURL(value string) error {
 	return nil
 }
 
+// ValidateCollectorTokenTransport enforces the outbound transport boundary
+// before a collector or sensor credential is attached to a request.
+func ValidateCollectorTokenTransport(value string) error {
+	if value == "" || value != strings.TrimSpace(value) || len(value) > 2048 || !safeText(value) {
+		return ErrCollectorTokenTransport
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" {
+		return ErrCollectorTokenTransport
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme == "https" {
+		return nil
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if scheme == "http" && host != "" && isLoopbackHost(host) {
+		return nil
+	}
+	return ErrCollectorTokenTransport
+}
+
 func (cfg Config) BatchInterval() time.Duration {
 	return time.Duration(cfg.BatchIntervalSeconds) * time.Second
 }
@@ -209,7 +233,7 @@ func isLoopbackHost(host string) bool {
 		return true
 	}
 	ip := net.ParseIP(host)
-	return ip != nil && (ip.Equal(net.IPv4(127, 0, 0, 1)) || ip.Equal(net.IPv6loopback))
+	return ip != nil && ip.IsLoopback()
 }
 
 func isLocalDevelopmentHost(host string) bool {
