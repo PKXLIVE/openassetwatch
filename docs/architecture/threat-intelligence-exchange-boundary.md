@@ -666,7 +666,7 @@ This design does not approve:
 - AI-direct publication;
 - unrestricted redistribution of third-party intelligence;
 - deletion of local evidence because an external object was withdrawn;
-- active scanning or exploitation; or
+- active scanning or exploitation (explicitly prohibited); or
 - mandatory external CTI dependencies.
 
 ## Documentation-Only Status
