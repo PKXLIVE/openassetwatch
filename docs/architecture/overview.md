@@ -85,6 +85,19 @@ They extend the implemented architecture but are not implementation claims:
 - `docs/architecture/temporal-intelligence-roadmap.md` - historical signal
   projections, transparent expected ranges, deterministic deviation handling,
   and optional future forecasting providers.
+- `docs/architecture/asset-intelligence-stack-gap-additions.md` - accepted
+  implementation direction for presence sessions, canonical field authority and
+  asset-change history, relationship evidence/edge history, dependency-aware
+  alert compression, quota-aware connector credentials, transformation
+  provenance, adaptive host-pressure controls, governed passive fingerprint
+  rules, worker compatibility, task partitions, and safe fielded queries. It
+  also records explicit non-goals so active/offensive or duplicative behavior
+  does not enter the product through these additions.
+- `docs/architecture/decision-integrity-and-evidence-snapshot-gaps.md` - accepted
+  requirements for exact-state-bound approvals, incomplete-analysis gating,
+  suppression/accepted-risk governance, candidate entity promotion and bounded
+  reconsideration, consistent evidence snapshots, and explicit separation of
+  runtime activity from evidentiary lineage.
 - `docs/architecture/defensive-content-and-model-robustness.md` - structural
   versus heuristic AI safety controls, monotonic context taint, transformed
   secret egress protection, sensitive-content inspection, current security
