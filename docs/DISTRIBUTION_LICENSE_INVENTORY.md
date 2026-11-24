@@ -81,7 +81,7 @@ material carries its own terms.
 The sampled Linux `psycopg2-binary` wheel is
 `psycopg2_binary-2.9.13-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl`.
 The backend loads the driver in-process. The wheel includes a Python extension
-and 14 shared libraries in `psycopg2_binary.libs`. The OpenSSL exception
+and 15 shared libraries in `psycopg2_binary.libs`. The OpenSSL exception
 addresses a specific linking case. The review still needs the licenses and
 obligation evidence of every included library.
 [Psycopg license and exception](https://www.psycopg.org/docs/license.html)
