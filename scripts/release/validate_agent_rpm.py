@@ -518,6 +518,18 @@ def validate_rpm_requires(package_path: Path) -> None:
         raise ValueError(f"RPM package is missing required dependencies: {', '.join(missing)}.")
 
 
+def validate_rpm_provides(package_path: Path) -> None:
+    provides = {
+        line.split()[0]
+        for line in run_rpm(["-qp", "--provides", str(package_path)]).splitlines()
+        if line.strip()
+    }
+    expected = {f"user({SERVICE_USER})", f"group({SERVICE_GROUP})"}
+    missing = expected - provides
+    if missing:
+        raise ValueError(f"RPM package is missing service principal provides: {', '.join(sorted(missing))}.")
+
+
 def validate_rpm_scriptlets(package_path: Path) -> None:
     scripts = run_rpm(["-qp", "--scripts", str(package_path)])
     missing = [item for item in SPEC_REQUIRED_TEXT if item.startswith(("groupadd", "useradd", "systemctl")) and item not in scripts]
@@ -605,6 +617,7 @@ def validate_real_rpm_package(repo_root: Path, version: str, package_path: Path,
     validate_rpm_query_metadata(package_path, version)
     validate_rpm_payload_listing(package_path)
     validate_rpm_requires(package_path)
+    validate_rpm_provides(package_path)
     validate_rpm_scriptlets(package_path)
     validate_rpm_dump(package_path)
 
