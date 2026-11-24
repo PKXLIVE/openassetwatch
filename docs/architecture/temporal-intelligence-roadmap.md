@@ -1,6 +1,6 @@
 # Temporal Intelligence Roadmap
 
-- **Status:** Accepted design; Phase 1 signals and Phase 2 deterministic expected ranges implemented
+- **Status:** Accepted design; Phases 1-3 deterministic foundation implemented
 - **Decision:** `docs/architecture/decisions/0003-native-agent-investigation-and-temporal-intelligence.md`
 
 ## Purpose
@@ -444,9 +444,10 @@ Controls should include:
 
 ### Phase 1 — Signal projection
 
-**Implemented.** See `docs/TEMPORAL_SIGNAL_FOUNDATION.md` for the governed
-registry, UTC bucketing, bounded read-only projection/API, missingness and
-backfill behavior, conservative metric deferrals, and Environment Trends UI.
+**Implemented and operationally qualified.** See
+`docs/TEMPORAL_SIGNAL_FOUNDATION.md` for the governed registry, UTC bucketing,
+bounded read-only projection/API, missingness and backfill behavior,
+conservative metric deferrals, and Environment Trends UI.
 
 - define temporal signal registry;
 - create deterministic bucket rules;
@@ -456,10 +457,11 @@ backfill behavior, conservative metric deferrals, and Environment Trends UI.
 
 ### Phase 2 — Deterministic expected ranges
 
-**Implemented.** See `docs/TEMPORAL_EXPECTED_RANGES.md` for the typed
-expectation contract, governed rolling/seasonal policies, closed-bucket and
-exclusive knowledge-cutoff rules, confidence/data-quality gates, read-only API,
-and Environment Trends expected-band overlay.
+**Implemented and operationally qualified.** See
+`docs/TEMPORAL_EXPECTED_RANGES.md` for the typed expectation contract, governed
+rolling/seasonal policies, closed-bucket and exclusive knowledge-cutoff rules,
+confidence/data-quality gates, read-only API, and Environment Trends
+expected-band overlay.
 
 - implement robust rolling/seasonal methods;
 - produce typed expectation artifacts;
@@ -468,10 +470,16 @@ and Environment Trends expected-band overlay.
 
 ### Phase 3 — Deviation candidates
 
+**Implemented.** See `docs/TEMPORAL_DEVIATION_ASSESSMENTS.md` for the strict
+assessment contract, cutoff-safe observation and expectation composition,
+versioned direction/persistence policies, authenticated read-only API, neutral
+Environment Trends context, and non-authoritative boundary. Persistent review
+and automatic investigation remain deferred.
+
 - deterministic deviation rules;
 - persistence and freshness handling;
-- candidate review UI;
-- optional investigation trigger.
+- neutral candidate context UI;
+- optional investigation trigger (deferred).
 
 ### Phase 4 — Advanced forecasting research
 
@@ -496,9 +504,10 @@ Temporal Intelligence does not approve:
 
 ## Implementation status
 
-Phase 1 signal projection and the Phase 2 deterministic expected-range engine
-are implemented. Phase 3 deviation candidates, Phase 4 advanced forecasting
-research, and related AI Advisor temporal explanations remain unimplemented.
-The Environment Trends UI displays observed signals, source data-quality states,
-and the current target's deterministic expected band; it does not display
-deviation or anomaly indicators.
+Phase 1 signal projection, Phase 2 deterministic expected ranges, and Phase 3
+deterministic deviation assessments are implemented and remain read-only.
+Phase 4 advanced forecasting research, persistent candidate review, automatic
+investigation, finding/alert/risk integration, and related AI Advisor temporal
+explanations remain unimplemented. Environment Trends displays observed
+signals, source data-quality states, the current target's deterministic expected
+band, and neutral assessment context for the latest closed UTC bucket.

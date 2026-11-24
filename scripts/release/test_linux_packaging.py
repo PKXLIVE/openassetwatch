@@ -141,6 +141,22 @@ class LinuxPackagingSourceTests(unittest.TestCase):
         self.assertNotIn("systemctl enable oaw-agent.service", spec)
         self.assertNotIn("systemctl restart oaw-agent.service", spec)
 
+    def test_rpm_declares_the_service_principal_it_creates(self) -> None:
+        spec = linuxsrc.rpm_spec_file("0.1.0-test").decode("utf-8")
+        self.assertIn("Provides: user(openassetwatch)", spec)
+        self.assertIn("Provides: group(openassetwatch)", spec)
+
+    def test_rpm_validator_rejects_missing_service_principal_provides(self) -> None:
+        capabilities = ("user(openassetwatch)", "group(openassetwatch)")
+        for missing in capabilities:
+            with self.subTest(missing=missing):
+                output = "\n".join(item for item in capabilities if item != missing)
+                with patch.object(rpmvalidator, "run_rpm", return_value=output):
+                    with self.assertRaisesRegex(ValueError, "service principal"):
+                        rpmvalidator.validate_rpm_provides(Path("synthetic.rpm"))
+        with patch.object(rpmvalidator, "run_rpm", return_value="\n".join(capabilities)):
+            rpmvalidator.validate_rpm_provides(Path("synthetic.rpm"))
+
     def test_license_material_is_canonical(self) -> None:
         self.assertEqual(linuxsrc.PACKAGE_LICENSE, "Apache-2.0")
         self.assertIn(b"Apache License", linuxsrc.license_file())

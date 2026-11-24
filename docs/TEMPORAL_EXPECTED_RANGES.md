@@ -15,7 +15,9 @@ read-only analytical layer over the Phase 1 temporal signal registry. It adds:
 An expected range is `analytical-context-only`. It does not create or change an
 asset, classification, vulnerability match, finding, alert, severity, risk or
 Operational Attention score, compromise status, investigation, or remediation
-action. Phase 3 deviation candidates are not implemented.
+action. Phase 3 consumes only sufficiently supported, provenance-aligned
+expectations through the separate deterministic assessment boundary documented
+in `docs/TEMPORAL_DEVIATION_ASSESSMENTS.md`.
 
 ## Closed-history and knowledge-cutoff rule
 
@@ -185,9 +187,11 @@ shaded expected band and center marker. The numeric range, method/version,
 confidence, and data-quality state remain visible in separate summary cards.
 
 If usable history is insufficient, the UI says the range is unavailable and
-still displays the observed/missing/incomplete/stale signal states. It does not
-render an anomaly or deviation indicator and does not imply that a value inside
-or outside the range is good, bad, safe, compromised, or actionable.
+still displays the observed/missing/incomplete/stale signal states. The
+separate Phase 3 assessment area remains blocked unless the expectation has a
+populated range, `sufficient` quality, and at least `medium` confidence. Neither
+area implies that a value inside or outside the range is good, bad, safe,
+compromised, or actionable.
 
 ## Storage, performance, and privacy
 
@@ -208,8 +212,11 @@ backtest query occurs in the normal endpoint.
 - The six Phase 1 metrics are the only admitted inputs.
 - The methods do not impute missing values or adjust for holidays, deployments,
   policy changes, or causal explanations.
-- Expected ranges are not deviation candidates and do not create findings.
-- Production-sized Phase 2 latency has not yet been independently qualified.
+- Expected ranges alone are not deviation candidates and do not create
+  findings. Phase 3 applies a separate product-owned direction and persistence
+  policy without changing expectation authority.
+- Phase 2 has passed synthetic local PostgreSQL operational qualification;
+  those measurements are not production performance claims.
 - Historical reconstruction relies on the authoritative receipt/persistence
   timestamps available for each current source table; it is not a materialized
   immutable report snapshot.

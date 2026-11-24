@@ -44,6 +44,8 @@ service backed by PostgreSQL through SQLAlchemy.
   incomplete/stale source states
 - deterministic cutoff-safe temporal expected ranges with visible method,
   confidence, data quality, and analytical-only authority
+- deterministic cutoff-safe temporal deviation assessments with governed
+  direction/persistence policies and investigation-context-only authority
 - release/artifact metadata placeholder
 - static dashboard mount at `/ui`
 - legacy Python collector ingestion and policy endpoints
@@ -349,6 +351,10 @@ missingness/backfill behavior, security boundaries, and Environment Trends UI.
 See `docs/TEMPORAL_EXPECTED_RANGES.md` for the Phase 2 expectation contract,
 closed-history cutoff rules, governed rolling/seasonal methods, confidence and
 data-quality gates, expected-band UI, and analytical-only authority boundary.
+See `docs/TEMPORAL_DEVIATION_ASSESSMENTS.md` for the Phase 3 assessment
+contract, governed direction/persistence policies, observation and expectation
+cutoffs, deterministic identities, read-only API, neutral UI, and explicit
+non-SIEM/non-authority boundaries.
 
 ## Safety Boundaries
 
