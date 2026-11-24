@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import os
+import socket
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -23,6 +24,24 @@ def load_demo_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+class FakeSocket:
+    def __init__(self) -> None:
+        self.connected_address = None
+        self.timeout = None
+
+    def settimeout(self, timeout) -> None:
+        self.timeout = timeout
+
+    def bind(self, _address) -> None:
+        return None
+
+    def connect(self, address) -> None:
+        self.connected_address = address
+
+    def close(self) -> None:
+        return None
 
 
 class FakeClient:
@@ -135,6 +154,87 @@ class SensorEnrollmentDemoTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(self.demo.DemoFailure):
                 self.demo.safe_base_url(value)
         self.assertEqual(self.demo.safe_base_url("http://127.0.0.1:8000"), "http://127.0.0.1:8000")
+
+    def test_localhost_must_resolve_only_to_loopback_addresses(self) -> None:
+        loopback = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 8000, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 8000)),
+        ]
+        with patch.object(self.demo.socket, "getaddrinfo", return_value=loopback):
+            self.assertEqual(
+                self.demo.safe_base_url("http://localhost:8000"),
+                "http://localhost:8000",
+            )
+
+        ambiguous = loopback + [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.10", 8000)),
+        ]
+        with patch.object(self.demo.socket, "getaddrinfo", return_value=ambiguous):
+            with self.assertRaises(self.demo.DemoFailure) as raised:
+                self.demo.safe_base_url("http://localhost:8000")
+        self.assertEqual(raised.exception.code, "cleartext-remote-url")
+
+    def test_credentialed_demo_client_refuses_redirects(self) -> None:
+        handler = self.demo._NoCredentialRedirectHandler()
+        request = self.demo.urllib.request.Request(
+            "https://hub.example.test/api/v1/observations/batches",
+            headers={self.demo.SENSOR_HEADER: FakeClient.first_credential},
+        )
+        self.assertIsNone(
+            handler.redirect_request(
+                request,
+                None,
+                302,
+                "Found",
+                {},
+                "http://192.0.2.10/api/v1/observations/batches",
+            )
+        )
+
+    def test_loopback_is_reverified_and_bound_at_connection_time(self) -> None:
+        loopback = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 8000)),
+        ]
+        fake_socket = FakeSocket()
+        connection = self.demo._VerifiedLoopbackHTTPConnection("localhost", 8000, timeout=3)
+        with patch.object(self.demo.socket, "getaddrinfo", return_value=loopback):
+            with patch.object(self.demo.socket, "socket", return_value=fake_socket):
+                connection.connect()
+        self.assertIs(connection.sock, fake_socket)
+        self.assertEqual(fake_socket.connected_address, ("127.0.0.1", 8000))
+
+        ambiguous = loopback + [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.10", 8000)),
+        ]
+        with patch.object(self.demo.socket, "getaddrinfo", return_value=ambiguous):
+            with patch.object(self.demo.socket, "socket") as socket_mock:
+                with self.assertRaises(self.demo.DemoFailure) as raised:
+                    self.demo._VerifiedLoopbackHTTPConnection(
+                        "localhost", 8000, timeout=3
+                    ).connect()
+        socket_mock.assert_not_called()
+        self.assertEqual(raised.exception.code, "cleartext-remote-url")
+
+    def test_invalid_header_credentials_fail_before_request_without_echo(self) -> None:
+        invalid_admin = "admin-token\nsecret"
+        with self.assertRaises(self.demo.DemoFailure) as raised:
+            self.demo.Client("https://hub.example.test", invalid_admin)
+        self.assertEqual(raised.exception.code, "invalid-credential")
+        self.assertNotIn(invalid_admin, str(raised.exception))
+
+        client = self.demo.Client("https://hub.example.test", "valid-admin-token")
+        invalid_sensor = "sensor-token\nsecret"
+        with patch.object(client.opener, "open") as open_mock:
+            with self.assertRaises(self.demo.DemoFailure) as raised:
+                client.request(
+                    "POST",
+                    "/api/v1/observations/batches",
+                    payload={},
+                    sensor_credential=invalid_sensor,
+                )
+        open_mock.assert_not_called()
+        self.assertEqual(raised.exception.code, "invalid-credential")
+        self.assertNotIn(invalid_sensor, str(raised.exception))
 
     def test_synthetic_flow_returns_only_non_secret_results(self) -> None:
         args = self.demo_args()

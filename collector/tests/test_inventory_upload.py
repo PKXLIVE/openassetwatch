@@ -123,7 +123,7 @@ class InventoryUploadTests(unittest.TestCase):
             captured["timeout"] = timeout
             return FakeResponse()
 
-        with patch("openassetwatch_collector.main.urlopen", side_effect=fake_urlopen):
+        with patch("openassetwatch_collector.main.open_backend_request", side_effect=fake_urlopen):
             response = send_inventory(
                 "http://localhost:8000/",
                 {"mode": "device", "device": {"hostname": "test-host"}},
@@ -155,7 +155,7 @@ class InventoryUploadTests(unittest.TestCase):
             captured["headers"] = dict(request.header_items())
             return FakeResponse()
 
-        with patch("openassetwatch_collector.main.urlopen", side_effect=fake_urlopen):
+        with patch("openassetwatch_collector.main.open_backend_request", side_effect=fake_urlopen):
             send_inventory(
                 "http://localhost:8000/",
                 {"mode": "device", "device": {"hostname": "test-host"}},
@@ -183,7 +183,7 @@ class InventoryUploadTests(unittest.TestCase):
             captured["headers"] = dict(request.header_items())
             return FakeResponse()
 
-        with patch("openassetwatch_collector.main.urlopen", side_effect=fake_urlopen):
+        with patch("openassetwatch_collector.main.open_backend_request", side_effect=fake_urlopen):
             send_checkin(
                 "http://localhost:8000/",
                 {"collector_id": "collector-1", "hostname": "test-host", "collector_version": "0.1.0", "mode": "device"},

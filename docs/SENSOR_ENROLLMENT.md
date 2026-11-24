@@ -98,6 +98,11 @@ Example enrollment request body:
 Store the returned enrollment token immediately in an approved secret channel.
 It is not available from list or detail APIs.
 
+Enrollment tokens and issued sensor credentials are sent only over HTTPS or
+plain HTTP to a verified IPv4 or IPv6 loopback destination. Non-loopback HTTP
+fails before the credential is transmitted, and credentialed redirects are
+refused. Remote enrollment and observation delivery therefore require HTTPS.
+
 ## Sensor configuration and commands
 
 Keep non-secret configuration, stable identity, the credential, and the spool

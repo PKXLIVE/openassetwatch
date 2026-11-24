@@ -64,6 +64,14 @@ Accepted native design expansions are documented in:
 
 These design documents do not claim that their future runtimes are implemented.
 
+## Proposed Exposure Evidence Extensions
+
+We will evaluate an additive evidence model for vulnerability correlation,
+applicability, scoped mitigating controls, network-path evidence and verified
+outcomes. The proposed contract and planned demonstrations are described in
+[Exposure Evidence Evolution](architecture/exposure-evidence-evolution.md).
+This is proposed design with implementation and acceptance validation pending.
+
 ## Hub-And-Spoke Control Plane
 
 The Control Tower hub owns the API, PostgreSQL evidence store, site and sensor
