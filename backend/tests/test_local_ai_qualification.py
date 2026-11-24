@@ -3,11 +3,18 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from app.local_ai import LocalAIHardwareMetadata, LocalAIModelMetadata, LocalAIRuntimeMetadata
+from tests.model_artifact_fixtures import (
+    ARTIFACT_DIGEST,
+    RUNTIME_COMMIT,
+    complete_manifest,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +33,7 @@ def load_qualification_module():
 
 class FakeQualificationClient:
     model = "advisor-model"
+    base_url = "http://127.0.0.1:8080/v1"
 
     def __init__(
         self,
@@ -280,6 +288,85 @@ class LocalAIQualificationHarnessTests(unittest.TestCase):
         self.assertIn("--base-url", option_strings)
         self.assertIn("--model", option_strings)
         self.assertIn("--output", option_strings)
+        self.assertIn("--manifest", option_strings)
+        self.assertIn("--artifact-digest", option_strings)
+        self.assertIn("--qualification-fixture-version", option_strings)
+
+    def test_manifest_bound_qualification_records_exact_lineage(self) -> None:
+        manifest = complete_manifest()
+        runtime, model = metadata()
+        runtime.runtime_commit = RUNTIME_COMMIT
+        model.model_digest = ARTIFACT_DIGEST
+        model.model_size_bytes = manifest.artifact.artifact_size_bytes
+
+        result = self.module.run_qualification(
+            FakeQualificationClient(self.module),
+            runtime=runtime,
+            model=model,
+            artifact_manifest=manifest,
+        )
+
+        self.assertTrue(result.advisor_approved)
+        self.assertEqual(result.artifact_binding.artifact_digest, ARTIFACT_DIGEST)
+        self.assertEqual(result.artifact_binding.artifact_manifest_digest, manifest.manifest_digest)
+        self.assertEqual(result.artifact_binding.converter_commit, manifest.conversion.converter_commit)
+        self.assertEqual(result.artifact_binding.quantizer_commit, manifest.quantization.quantizer_commit)
+        self.assertEqual(result.artifact_binding.runtime_commit, RUNTIME_COMMIT)
+        self.assertLess(len(result.model_dump_json()), 256_000)
+
+    def test_manifest_cli_requires_explicit_matching_artifact_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "manifest.json"
+            manifest_path.write_text(complete_manifest().model_dump_json(indent=2), encoding="utf-8")
+            base_args = [
+                "--base-url",
+                "http://127.0.0.1:8080/v1",
+                "--model",
+                "advisor-model",
+                "--output",
+                str(Path(directory) / "qualification.json"),
+                "--manifest",
+                str(manifest_path),
+                "--runtime-commit",
+                RUNTIME_COMMIT,
+            ]
+            with self.assertRaisesRegex(SystemExit, "requires --artifact-digest"):
+                self.module.main(base_args)
+            with self.assertRaisesRegex(SystemExit, "does not match --manifest"):
+                self.module.main(base_args + ["--artifact-digest", "f" * 64])
+
+    def test_manifest_cli_success_remains_endpoint_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = complete_manifest()
+            manifest_path = Path(directory) / "manifest.json"
+            output_path = Path(directory) / "qualification.json"
+            manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+            fake = FakeQualificationClient(self.module)
+            with patch.object(self.module, "LocalQualificationClient", return_value=fake):
+                exit_code = self.module.main(
+                    [
+                        "--base-url",
+                        "http://127.0.0.1:8080/v1",
+                        "--model",
+                        "advisor-model",
+                        "--output",
+                        str(output_path),
+                        "--manifest",
+                        str(manifest_path),
+                        "--artifact-digest",
+                        ARTIFACT_DIGEST,
+                        "--runtime-commit",
+                        RUNTIME_COMMIT,
+                        "--model-size-bytes",
+                        str(manifest.artifact.artifact_size_bytes),
+                    ]
+                )
+
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(payload["advisor_approved"])
+            self.assertEqual(payload["artifact_binding"]["artifact_digest"], ARTIFACT_DIGEST)
+            self.assertLess(output_path.stat().st_size, 256_000)
 
     def test_bounded_decoder_rejects_oversized_and_malformed_provider_output(self) -> None:
         with self.assertRaises(self.module.QualificationRequestError):

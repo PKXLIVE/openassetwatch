@@ -9,6 +9,9 @@ The long-term vision is to provide enterprise-grade asset visibility using open-
 The authenticated Go endpoint-agent enrollment and canonical inventory path is
 documented in
 [docs/ENDPOINT_AGENT_IDENTITY.md](docs/ENDPOINT_AGENT_IDENTITY.md).
+Native machine-level Windows, Linux, and macOS software/package collection,
+source completeness, and component presence are documented in
+[docs/NATIVE_SOFTWARE_COLLECTION.md](docs/NATIVE_SOFTWARE_COLLECTION.md).
 The common canonical write path, trust ranking, compatibility adapters, replay
 rules, and historical preview are documented in
 [docs/CANONICAL_INGESTION_COMPATIBILITY.md](docs/CANONICAL_INGESTION_COMPATIBILITY.md).

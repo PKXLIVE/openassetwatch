@@ -20,6 +20,18 @@ MAX_FUTURE_SKEW = timedelta(minutes=5)
 MAX_INVENTORY_AGE = timedelta(days=30)
 MAX_ASSETS = 16
 MAX_COMPONENTS_PER_ASSET = 2_000
+NATIVE_SOFTWARE_SOURCES = {
+    "windows": {"windows-uninstall-32", "windows-uninstall-64"},
+    "linux": {"linux-dpkg", "linux-rpm"},
+    "darwin": {"macos-pkgutil"},
+}
+NATIVE_COMPONENT_CONTRACTS = {
+    "windows-uninstall-32": ("generic", "windows-registry", "windows-uninstall-registry", ""),
+    "windows-uninstall-64": ("generic", "windows-registry", "windows-uninstall-registry", ""),
+    "linux-dpkg": ("deb", "dpkg", "dpkg-native-query", None),
+    "linux-rpm": ("rpm", "rpm", "rpm-native-query", None),
+    "macos-pkgutil": ("generic", "pkgutil", "pkgutil-native-query", None),
+}
 
 
 class StrictContract(BaseModel):
@@ -224,6 +236,54 @@ class EndpointAsset(StrictContract):
         return values
 
 
+class NativeSoftwareSourceResult(StrictContract):
+    source_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+    )
+    platform: Literal["windows", "linux", "darwin"]
+    status: Literal["complete", "partial", "unsupported", "failed"]
+    observed_at: datetime
+    record_count: int = Field(..., ge=0, le=MAX_COMPONENTS_PER_ASSET)
+    truncated: bool = False
+    error_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+    )
+    limitations: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("observed_at")
+    @classmethod
+    def bound_source_observed_at(cls, value: datetime) -> datetime:
+        return _timezone_aware(value, label="software source observed_at")
+
+    @field_validator("limitations")
+    @classmethod
+    def bound_source_limitations(cls, values: list[str]) -> list[str]:
+        if any(not value or len(value) > 120 for value in values):
+            raise ValueError("software source limitations must be bounded strings")
+        return list(dict.fromkeys(values))
+
+    @model_validator(mode="after")
+    def require_reviewed_source(self) -> "NativeSoftwareSourceResult":
+        if self.source_id not in NATIVE_SOFTWARE_SOURCES[self.platform]:
+            raise ValueError("software source is not reviewed for the reported platform")
+        if self.status == "complete" and (self.truncated or self.error_code):
+            raise ValueError("complete software source cannot be truncated or failed")
+        if self.status in {"failed", "unsupported"} and self.record_count:
+            raise ValueError("unsuccessful software source cannot report components")
+        if self.status in {"failed", "unsupported"} and not self.error_code:
+            raise ValueError("unsuccessful software source requires an error code")
+        if self.status == "partial" and not (
+            self.truncated or self.error_code or self.limitations
+        ):
+            raise ValueError("partial software source requires bounded diagnostics")
+        return self
+
 class EndpointInventoryRequest(StrictContract):
     schema_version: Literal["oaw.endpoint-inventory.v1"]
     inventory_batch_id: str = Field(..., min_length=8, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$")
@@ -238,6 +298,10 @@ class EndpointInventoryRequest(StrictContract):
     architecture: str | None = Field(default=None, min_length=1, max_length=40)
     supported_capabilities: list[str] = Field(default_factory=list, max_length=64)
     collection_limitations: list[str] = Field(default_factory=list, max_length=64)
+    software_sources: list[NativeSoftwareSourceResult] = Field(
+        default_factory=list,
+        max_length=8,
+    )
     assets: list[EndpointAsset] = Field(..., min_length=1, max_length=MAX_ASSETS)
 
     @field_validator("observed_at")
@@ -268,6 +332,76 @@ class EndpointInventoryRequest(StrictContract):
             raise ValueError("inventory evidence limit exceeded")
         if interfaces > 256 or addresses > 1_024:
             raise ValueError("inventory network evidence limit exceeded")
+        source_ids = [source.source_id for source in self.software_sources]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("software source identifiers must be unique")
+        if self.software_sources and len(self.assets) != 1:
+            raise ValueError(
+                "native software source results must describe exactly one endpoint asset"
+            )
+        component_counts: dict[str, int] = {}
+        for asset in self.assets:
+            for component in asset.components:
+                if component.collection_source_id is None:
+                    continue
+                component_counts[component.collection_source_id] = (
+                    component_counts.get(component.collection_source_id, 0) + 1
+                )
+        reported = {source.source_id: source for source in self.software_sources}
+        if any(source_id not in reported for source_id in component_counts):
+            raise ValueError("native component source must have a source-level result")
+        if any(
+            source.record_count != component_counts.get(source.source_id, 0)
+            for source in self.software_sources
+        ):
+            raise ValueError("software source record count does not match components")
+        native_records: set[tuple[str, str]] = set()
+        for asset in self.assets:
+            for component in asset.components:
+                source_id = component.collection_source_id
+                if source_id is None:
+                    continue
+                source = reported[source_id]
+                expected = NATIVE_COMPONENT_CONTRACTS[source_id]
+                actual = (
+                    component.ecosystem.casefold(),
+                    (component.package_manager or "").casefold(),
+                    component.evidence_method or "",
+                    component.architecture.casefold()
+                    if component.architecture
+                    else None,
+                )
+                architecture_mismatch = (
+                    actual[3] is not None
+                    if expected[3] == ""
+                    else expected[3] is not None and actual[3] != expected[3]
+                )
+                if actual[:3] != expected[:3] or architecture_mismatch:
+                    raise ValueError(
+                        "native component fields do not match the reviewed source contract"
+                    )
+                if component.install_scope != "system":
+                    raise ValueError("native software collection is machine scoped")
+                if (
+                    component.observed_at is not None
+                    and component.observed_at > source.observed_at
+                ):
+                    raise ValueError(
+                        "native component time exceeds its source snapshot time"
+                    )
+                record_key = (source_id, component.source_record_id or "")
+                if record_key in native_records:
+                    raise ValueError("native source record identifiers must be unique")
+                native_records.add(record_key)
+        if any(
+            source.observed_at > self.observed_at + MAX_FUTURE_SKEW
+            for source in self.software_sources
+        ):
+            raise ValueError("software source time exceeds inventory observation time")
+        if self.platform in NATIVE_SOFTWARE_SOURCES and any(
+            source.platform != self.platform for source in self.software_sources
+        ):
+            raise ValueError("software source platform does not match the endpoint")
         return self
 
 

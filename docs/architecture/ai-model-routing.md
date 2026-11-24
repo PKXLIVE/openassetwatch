@@ -384,10 +384,19 @@ A provider adapter should expose metadata such as:
 - privacy classification
 - timeout and retry policy
 - model version or digest
+- artifact manifest, provenance, advisory, and qualification-binding state for
+  local generative models
 
 Local runtimes may include Ollama, llama.cpp, vLLM, or another compatible
 runtime. External providers remain optional integrations selected through
 configuration and policy.
+
+Runtime reachability is not model approval. When a local artifact manifest is
+configured, the router may select that model only when complete immutable
+lineage, an exact artifact/runtime qualification binding, and reviewed artifact
+advisory evaluation all permit use. A compatibility declaration never grants
+authorization. The provider-neutral contract is documented in
+[`MODEL_ARTIFACT_PROVENANCE.md`](../MODEL_ARTIFACT_PROVENANCE.md).
 
 ## Output Validation
 
@@ -539,6 +548,10 @@ ai:
 - Prompt and evidence inputs must be treated as untrusted content.
 - Routing policies and provider configuration changes must be audited.
 - A failed policy or redaction check must fail closed.
+- Configured invalid or mismatched local model provenance must fail closed
+  without hiding the runtime's separate availability state.
+- Model output must never approve its own artifact, qualification, or advisory
+  state.
 
 ## Phased Implementation
 

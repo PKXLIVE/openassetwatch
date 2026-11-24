@@ -193,6 +193,10 @@ OpenAssetWatch machine or a hosted provider:
 | `OPENASSETWATCH_AI_MODEL` | Configured model identifier. |
 | `OPENASSETWATCH_AI_API_KEY` | Optional for approved local endpoints; required for hosted providers. |
 | `OPENASSETWATCH_AI_TIMEOUT_SECONDS` | Bounded request timeout. |
+| `OPENASSETWATCH_AI_QUALIFICATION_RESULT` | Optional operator-owned local qualification record. |
+| `OPENASSETWATCH_AI_MODEL_MANIFEST` | Optional operator-owned model artifact provenance manifest; exact qualification binding is required when configured. |
+| `OPENASSETWATCH_AI_REQUIRE_MODEL_MANIFEST` | Opt-in policy requiring a valid complete local manifest. |
+| `OPENASSETWATCH_AI_ARTIFACT_ADVISORIES` | Optional reviewed local artifact advisory registry. |
 
 Plain HTTP is accepted only for approved local hosts. Other private, reserved,
 link-local, metadata-service, or arbitrary HTTP targets are rejected. Hosted

@@ -32,6 +32,8 @@ from app.ai_advisor import (  # noqa: E402
     _validated_provider_base,
 )
 from app.local_ai import (  # noqa: E402
+    QUALIFICATION_FIXTURE_VERSION,
+    QUALIFICATION_SUITE_VERSION,
     LocalAIHardwareMetadata,
     LocalAIModelMetadata,
     LocalAIQualificationResult,
@@ -42,6 +44,12 @@ from app.local_ai import (  # noqa: E402
 from app.local_ai_transport import (  # noqa: E402
     LocalAITransportSecurityError,
     local_ai_request,
+)
+from app.model_artifact_provenance import (  # noqa: E402
+    ModelArtifactManifest,
+    build_qualification_binding,
+    load_model_artifact_manifest,
+    normalize_sha256_digest,
 )
 from pydantic import Field, ValidationError  # noqa: E402
 
@@ -527,6 +535,8 @@ def run_qualification(
     *,
     runtime: LocalAIRuntimeMetadata,
     model: LocalAIModelMetadata,
+    artifact_manifest: ModelArtifactManifest | None = None,
+    qualification_fixture_version: str = QUALIFICATION_FIXTURE_VERSION,
     test_tools: bool = True,
     test_streaming: bool = True,
 ) -> LocalAIQualificationResult:
@@ -692,11 +702,22 @@ def run_qualification(
         )
     )
 
+    completed_at = datetime.now(timezone.utc)
+    artifact_binding = None
+    if artifact_manifest is not None:
+        artifact_binding = build_qualification_binding(
+            artifact_manifest,
+            runtime_commit=runtime.runtime_commit or "",
+            qualification_suite_version=QUALIFICATION_SUITE_VERSION,
+            qualification_fixture_version=qualification_fixture_version,
+            qualified_at=completed_at,
+        )
     return LocalAIQualificationResult(
         started_at=started_at,
-        completed_at=datetime.now(timezone.utc),
+        completed_at=completed_at,
         runtime=runtime,
         model=model,
+        artifact_binding=artifact_binding,
         tests=tests,
     )
 
@@ -708,6 +729,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", required=True, help="Local OpenAI-compatible API base, including /v1")
     parser.add_argument("--model", required=True, help="Loaded model alias reported by /models")
     parser.add_argument("--output", required=True, help="Qualification JSON output path")
+    parser.add_argument("--manifest", help="Operator-supplied model artifact manifest JSON")
+    parser.add_argument(
+        "--artifact-digest",
+        help="Exact SHA-256 digest of the already-loaded artifact; required with --manifest",
+    )
+    parser.add_argument(
+        "--qualification-fixture-version",
+        default=QUALIFICATION_FIXTURE_VERSION,
+        help="Version of the qualification fixtures executed by this harness",
+    )
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
     parser.add_argument("--api-key-env", default="OPENASSETWATCH_AI_API_KEY", help="Environment variable containing an optional local API key")
     parser.add_argument("--trusted-local-host", action="append", default=[], help="Exact local service hostname; repeat as needed")
@@ -745,6 +776,63 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.timeout_seconds < 2 or args.timeout_seconds > 90:
         raise SystemExit("--timeout-seconds must be between 2 and 90")
+    if not 1 <= len(args.qualification_fixture_version) <= 128:
+        raise SystemExit("--qualification-fixture-version must be between 1 and 128 characters")
+    if args.artifact_digest and not args.manifest:
+        raise SystemExit("--artifact-digest requires --manifest")
+    artifact_manifest: ModelArtifactManifest | None = None
+    bound_artifact_digest: str | None = None
+    if args.manifest:
+        if not args.artifact_digest:
+            raise SystemExit("--manifest requires --artifact-digest")
+        try:
+            artifact_manifest = load_model_artifact_manifest(args.manifest)
+            bound_artifact_digest = normalize_sha256_digest(args.artifact_digest)
+        except (OSError, ValueError, ValidationError) as exc:
+            raise SystemExit(f"model artifact manifest validation failed: {exc}") from exc
+        if artifact_manifest.provenance_state != "complete":
+            raise SystemExit("--manifest must contain complete immutable provenance")
+        if artifact_manifest.model_identity.model_name != args.model:
+            raise SystemExit("--manifest model name does not match --model")
+        if artifact_manifest.artifact.artifact_digest != bound_artifact_digest:
+            raise SystemExit("--artifact-digest does not match --manifest")
+        if not args.runtime_commit:
+            raise SystemExit("--runtime-commit is required with --manifest")
+        if artifact_manifest.runtime_compatibility.runtime_commit != args.runtime_commit:
+            raise SystemExit("--runtime-commit does not match --manifest")
+        if (
+            artifact_manifest.runtime_compatibility.runtime_type
+            and artifact_manifest.runtime_compatibility.runtime_type != args.runtime_type
+        ):
+            raise SystemExit("--runtime-type does not match --manifest")
+        if (
+            args.runtime_version
+            and artifact_manifest.runtime_compatibility.runtime_version
+            and artifact_manifest.runtime_compatibility.runtime_version != args.runtime_version
+        ):
+            raise SystemExit("--runtime-version does not match --manifest")
+        if args.model_digest:
+            try:
+                supplied_model_digest = normalize_sha256_digest(args.model_digest)
+            except ValueError as exc:
+                raise SystemExit(f"--model-digest is invalid: {exc}") from exc
+            if supplied_model_digest != bound_artifact_digest:
+                raise SystemExit("--model-digest does not match --artifact-digest")
+        if (
+            args.model_size_bytes is not None
+            and args.model_size_bytes != artifact_manifest.artifact.artifact_size_bytes
+        ):
+            raise SystemExit("--model-size-bytes does not match --manifest")
+        if (
+            args.quantization
+            and args.quantization != artifact_manifest.quantization.quantization_type
+        ):
+            raise SystemExit("--quantization does not match --manifest")
+        if (
+            args.quant_profile
+            and args.quant_profile != artifact_manifest.quantization.quantization_profile
+        ):
+            raise SystemExit("--quant-profile does not match --manifest")
     trusted_hosts = _configured_local_provider_hosts(",".join(args.trusted_local_host))
     api_key = (os.getenv(args.api_key_env) or "").strip() or None
     client = LocalQualificationClient(
@@ -777,17 +865,39 @@ def main(argv: list[str] | None = None) -> int:
     )
     model = LocalAIModelMetadata(
         model_name=args.model,
-        model_digest=args.model_digest,
-        model_size_bytes=args.model_size_bytes,
-        quantization=args.quantization,
-        quant_profile=args.quant_profile,
-        source=args.model_source,
-        license=args.model_license,
+        model_digest=bound_artifact_digest or args.model_digest,
+        model_size_bytes=(
+            artifact_manifest.artifact.artifact_size_bytes
+            if artifact_manifest is not None
+            else args.model_size_bytes
+        ),
+        quantization=(
+            artifact_manifest.quantization.quantization_type
+            if artifact_manifest is not None
+            else args.quantization
+        ),
+        quant_profile=(
+            artifact_manifest.quantization.quantization_profile
+            if artifact_manifest is not None
+            else args.quant_profile
+        ),
+        source=(
+            artifact_manifest.source_checkpoint.source_reference
+            if artifact_manifest is not None
+            else args.model_source
+        ),
+        license=(
+            artifact_manifest.model_identity.license
+            if artifact_manifest is not None
+            else args.model_license
+        ),
     )
     result = run_qualification(
         client,
         runtime=runtime,
         model=model,
+        artifact_manifest=artifact_manifest,
+        qualification_fixture_version=args.qualification_fixture_version,
         test_tools=not args.skip_tool_test,
         test_streaming=not args.skip_streaming_test,
     )

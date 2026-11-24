@@ -5,6 +5,13 @@ check-in, and canonical `oaw.endpoint-inventory.v1` submission, see
 [ENDPOINT_AGENT_IDENTITY.md](ENDPOINT_AGENT_IDENTITY.md). The unauthenticated
 workflow below remains a lower-trust compatibility path.
 
+Authenticated native Windows, Linux, and macOS software/package collection is
+documented in [NATIVE_SOFTWARE_COLLECTION.md](NATIVE_SOFTWARE_COLLECTION.md).
+When a protected bound credential is present, `run-once` submits those native
+source results through `/api/v1/agents/inventory`; the local `collect` and
+legacy local-inventory examples below remain review/export compatibility
+workflows and do not gain authoritative source completeness.
+
 The Go `oaw-agent` command can run a one-time passive local inventory
 collection and write JSON output for review, export experiments, or future
 agent workflows.

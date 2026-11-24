@@ -24,6 +24,7 @@ from release_common import (
 from stage_agent_macos_install import (
     BINARY_PATH,
     CONFIG_PATH,
+    CREDENTIAL_DIR,
     IDENTITY_PATH,
     INSTALL_MANIFEST_PATH,
     INVENTORY_PATH,
@@ -93,7 +94,7 @@ def validate_layout(root: Path) -> dict[str, Path]:
         raise ValueError("staged macOS agent binary must be a file.")
     if not paths["plist"].is_file():
         raise ValueError("staged LaunchDaemon plist must be a file.")
-    for name in ("state_dir", "logs_dir"):
+    for name in ("state_dir", "credential_dir", "logs_dir"):
         if not paths[name].is_dir():
             raise ValueError(f"staged {name} must be a directory.")
     return paths
@@ -171,6 +172,7 @@ def validate_manifest(repo_root: Path, root: Path, paths: dict[str, Path]) -> No
         "config": CONFIG_PATH,
         "identity": IDENTITY_PATH,
         "state_dir": STATE_DIR,
+        "credential_dir": CREDENTIAL_DIR,
         "status": STATUS_PATH,
         "inventory": INVENTORY_PATH,
         "log_dir": LOG_DIR,
@@ -211,6 +213,9 @@ def validate_scripts(paths: dict[str, Path]) -> None:
         "/var/empty",
         "/usr/bin/false",
         "trap cleanup_on_exit EXIT",
+        '"$CREDENTIAL_DIR"',
+        '/bin/chmod 0700 "$CREDENTIAL_DIR"',
+        '[ -L "$CREDENTIAL_DIR" ]',
         "SUCCESS=true",
         "CREATED_GROUP=true",
         "CREATED_USER=true",

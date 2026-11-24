@@ -82,6 +82,9 @@ OPENASSETWATCH_AI_BASE_URL=http://host.docker.internal:8080/v1
 OPENASSETWATCH_AI_MODEL=operator-supplied-alias
 OPENASSETWATCH_AI_LOCAL_PROVIDER_HOSTS=
 OPENASSETWATCH_AI_QUALIFICATION_RESULT=
+OPENASSETWATCH_AI_MODEL_MANIFEST=
+OPENASSETWATCH_AI_REQUIRE_MODEL_MANIFEST=false
+OPENASSETWATCH_AI_ARTIFACT_ADVISORIES=
 ```
 
 For a Compose service, replace the base hostname and set the exact trust entry:
@@ -107,19 +110,31 @@ untracked runtime environment.
   MTP, MoE, and long context
 - measured metrics when available, with unavailable values left `null`
 - individual qualification tests, summary counts, and `advisor_approved`
+- an optional exact artifact/source/converter/quantizer/runtime/suite binding
 
 GPU hardware is optional. CPU-only providers remain valid. No metric is
 fabricated: the initial provider status returns unavailable metrics as `null`
 rather than treating missing telemetry as zero.
 
-`GET /api/v1/ai/status` can return the validated runtime metadata, current
-health probe time, and qualification state. Set
+`GET /api/v1/ai/status` reports runtime availability separately from
+qualification, artifact-manifest, provenance, advisory, and binding state. Set
 `OPENASSETWATCH_AI_QUALIFICATION_RESULT` to an operator-owned result file to
 connect the record to status. The file is bounded to 1 MB and must match the
 configured base URL and model alias. Once this path is configured, an unreadable,
 invalid, mismatched, rejected, or incomplete record disables local Advisor use.
 If the path is absent, existing local-provider compatibility is preserved and
 the status reports `not-configured`.
+
+Set `OPENASSETWATCH_AI_MODEL_MANIFEST` to a strict operator-owned
+`oaw.model-artifact-manifest.v1` JSON file to bind local approval to the exact
+source checkpoint, converter, quantizer, artifact, and runtime lineage. A
+configured manifest requires a complete, exact qualification binding and fails
+closed on any mismatch. `OPENASSETWATCH_AI_REQUIRE_MODEL_MANIFEST=true` also
+disables local Advisor use when no manifest is configured. An optional reviewed
+registry at `OPENASSETWATCH_AI_ARTIFACT_ADVISORIES` can invalidate qualification
+without changing runtime reachability. Hosted providers and the demo provider
+do not read these local files. See
+[`MODEL_ARTIFACT_PROVENANCE.md`](../MODEL_ARTIFACT_PROVENANCE.md).
 
 ## Qualification harness
 
@@ -132,6 +147,17 @@ python scripts/qualify_local_ai.py `
   --model operator-supplied-alias `
   --output local-ai-qualification.json
 ```
+
+To bind the result to an existing operator-verified artifact, add:
+
+```powershell
+  --manifest operator-owned-manifest.json `
+  --artifact-digest <lowercase-sha256> `
+  --runtime-commit <exact-runtime-commit>
+```
+
+The harness validates those identities before it contacts the endpoint. It does
+not locate or hash a model file automatically.
 
 For an exact container hostname, repeat `--trusted-local-host` as needed. Never
 pass an API key on the command line; `--api-key-env` names an environment
@@ -161,10 +187,12 @@ Fast generation or coherent prose alone cannot approve a model.
 
 ## Pinning, storage, and removal
 
-For a reproducible production record, supply a runtime version/commit, backend,
-hardware architecture, model alias and digest, quantization/profile, source,
-and model license when known. A runtime license and a model license are
-independent; approval of one does not grant rights to use the other.
+For a reproducible production record, use a complete model artifact manifest
+and bind qualification to it. The artifact digest identifies the exact bytes;
+the manifest separately records source, converter, quantizer, runtime,
+quantization/profile, and license identity. A runtime license and a model
+license are independent; approval of one does not grant rights to use the
+other.
 
 Keep one active generative model unless an operator explicitly approves
 retaining another. To unload cleanly, stop the dedicated runtime process or
@@ -179,6 +207,8 @@ is not referenced by another service or qualification record.
 
 - Qualification records are file-backed; there is not yet a tenant-scoped
   model registry or database migration.
+- Artifact manifests and reviewed advisory registries are operator-owned local
+  files; there is not yet a Local Model Manager activation or history workflow.
 - Setting a qualification path enables fail-closed enforcement. Deployments
   that leave it unset retain existing compatibility and must enforce their
   qualification policy operationally.

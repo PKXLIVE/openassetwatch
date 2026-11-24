@@ -65,6 +65,14 @@ should not be added here.
 - `benchmark_vulnerability_intelligence.py`: bounded fictional offline
   normalization/catalog/indexed-matching benchmark. Defaults to 10,000 assets,
   100,000 components, and 2,000 advisories and makes no network request.
+- `demo_native_software_collection.py`: explicitly gated, disposable
+  PostgreSQL proof of fictional bound endpoint enrollment, native source
+  completeness, replay, partial preservation, withdrawal, deterministic
+  vulnerability/finding/risk transition, and server-ID-cited read-only AI.
+- `benchmark_native_software_collection.py`: explicitly gated disposable
+  PostgreSQL development measurement for 2,000 synthetic native components,
+  duplicate input suppression, contract parsing, authenticated canonical
+  ingestion, targeted evaluation, payload size, elapsed time, and peak memory.
 - `release/`: local release artifact helpers. These may build local binaries
   into ignored `dist/` paths, create local TAR.GZ archives from existing dist
   artifacts, create local Debian package artifacts from existing Linux dist

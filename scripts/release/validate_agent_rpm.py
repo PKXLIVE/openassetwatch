@@ -121,6 +121,7 @@ SPEC_REQUIRED_TEXT = (
     "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-neigh-show",
     "%attr(0755,root,root) /usr/lib/openassetwatch/agent/libexec/oaw-ip-addr-show",
     "%attr(0755,root,root) /opt/openassetwatch/agent/bin/oaw-agent",
+    "%dir %attr(0700,openassetwatch,openassetwatch) /var/lib/openassetwatch/agent/credential",
 )
 
 SPEC_FORBIDDEN_TEXT = (
@@ -383,7 +384,7 @@ def validate_forbidden_content(buildroot: Path) -> None:
             continue
         if FORBIDDEN_CONTENT_RE.search(PurePosixPath(package_path).name):
             raise ValueError(f"RPM staging contains forbidden path: {package_path}")
-        if data and FORBIDDEN_CONTENT_RE.search(data.decode("utf-8", errors="ignore")):
+        if data and linuxsrc.contains_forbidden_package_content(package_path, data):
             raise ValueError(f"RPM staging contains forbidden content: {package_path}")
 
 
@@ -500,7 +501,12 @@ def validate_rpm_payload_listing(package_path: Path) -> None:
     missing = expected - listing
     if missing:
         raise ValueError(f"RPM payload listing missing expected paths: {', '.join(sorted(missing))}.")
-    unexpected = [path for path in listing if FORBIDDEN_CONTENT_RE.search(PurePosixPath(path).name)]
+    unexpected = [
+        path
+        for path in listing
+        if path != linuxsrc.CREDENTIAL_DIR
+        and FORBIDDEN_CONTENT_RE.search(PurePosixPath(path).name)
+    ]
     if unexpected:
         raise ValueError(f"RPM payload listing contains forbidden paths: {', '.join(sorted(unexpected))}.")
 
@@ -510,6 +516,18 @@ def validate_rpm_requires(package_path: Path) -> None:
     missing = [dependency for dependency in PACKAGE_DEPENDENCIES if dependency not in requires]
     if missing:
         raise ValueError(f"RPM package is missing required dependencies: {', '.join(missing)}.")
+
+
+def validate_rpm_provides(package_path: Path) -> None:
+    provides = {
+        line.split()[0]
+        for line in run_rpm(["-qp", "--provides", str(package_path)]).splitlines()
+        if line.strip()
+    }
+    expected = {f"user({SERVICE_USER})", f"group({SERVICE_GROUP})"}
+    missing = expected - provides
+    if missing:
+        raise ValueError(f"RPM package is missing service principal provides: {', '.join(sorted(missing))}.")
 
 
 def validate_rpm_scriptlets(package_path: Path) -> None:
@@ -575,6 +593,9 @@ def validate_rpm_dump(package_path: Path) -> None:
             raise ValueError(f"RPM package dump missing metadata for {install_value}.")
         if metadata["owner"] != SERVICE_USER or metadata["group"] != SERVICE_GROUP:
             raise ValueError(f"RPM package {install_value} must be owned by {SERVICE_USER}:{SERVICE_GROUP}.")
+    credential_metadata = entries.get(linuxsrc.CREDENTIAL_DIR)
+    if not credential_metadata or not credential_metadata["mode"].endswith("700"):
+        raise ValueError("RPM credential directory must use mode 0700.")
     sudoers_metadata = entries.get(SUDOERS_INSTALL_PATH)
     if not sudoers_metadata or not sudoers_metadata["mode"].endswith("440"):
         raise ValueError("RPM sudoers payload must use mode 0440.")
@@ -596,6 +617,7 @@ def validate_real_rpm_package(repo_root: Path, version: str, package_path: Path,
     validate_rpm_query_metadata(package_path, version)
     validate_rpm_payload_listing(package_path)
     validate_rpm_requires(package_path)
+    validate_rpm_provides(package_path)
     validate_rpm_scriptlets(package_path)
     validate_rpm_dump(package_path)
 

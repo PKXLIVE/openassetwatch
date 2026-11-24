@@ -12,7 +12,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 
 COMPONENT_MODEL_VERSION = "oaw.components.v1"
-MAX_COMPONENTS_PER_ASSET = 1_000
+MAX_COMPONENTS_PER_ASSET = 2_000
 MAX_COMPONENT_NAME = 240
 MAX_COMPONENT_VERSION = 160
 MAX_COMPONENT_METADATA_FIELDS = 8
@@ -196,10 +196,30 @@ class NormalizedComponent:
     normalization_status: NormalizationStatus
     metadata: dict[str, str]
     inventory_complete: bool
+    collection_source_id: str | None = None
+    source_record_id: str | None = None
+    evidence_method: str | None = None
     model_version: str = COMPONENT_MODEL_VERSION
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class ComponentSourceSnapshot:
+    source_snapshot_id: str
+    canonical_collection_id: str
+    site_id: str
+    asset_id: str
+    agent_source_id: str
+    collection_source_id: str
+    platform: str
+    collection_status: str
+    observed_at: datetime
+    record_count: int
+    truncated: bool
+    error_code: str | None
+    limitations: tuple[str, ...]
 
 
 def bounded_text(value: Any, *, limit: int = MAX_COMPONENT_NAME) -> str:
@@ -685,6 +705,39 @@ def _normalized_component(
         entry.get("confidence"),
         default=default_confidence if direct_source else min(default_confidence, 0.55),
     )
+    collection_source_id = bounded_text(
+        entry.get("collection_source_id"), limit=64
+    ) or None
+    if collection_source_id and not re.fullmatch(
+        r"[a-z0-9][a-z0-9._-]{0,63}", collection_source_id
+    ):
+        collection_source_id = None
+    source_record_id = bounded_text(
+        entry.get("source_record_id"), limit=240
+    ) or None
+    evidence_method = bounded_text(entry.get("evidence_method"), limit=64) or None
+    if evidence_method and not re.fullmatch(
+        r"[a-z0-9][a-z0-9._-]{0,63}", evidence_method
+    ):
+        evidence_method = None
+    if not all((collection_source_id, source_record_id, evidence_method)):
+        collection_source_id = source_record_id = evidence_method = None
+    else:
+        evidence_ids = _evidence_ids(
+            entry,
+            site_id=site_id,
+            asset_id=asset_id,
+            source_id=source_id,
+            identity="\x1f".join(
+                (
+                    identity,
+                    collection_source_id,
+                    source_record_id,
+                    evidence_method,
+                )
+            ),
+            observed_at=observed_at,
+        )
     if ecosystem not in SUPPORTED_ECOSYSTEMS:
         status: NormalizationStatus = "unsupported-ecosystem"
     elif component_type == "firmware" and (
@@ -739,7 +792,105 @@ def _normalized_component(
         normalization_status=status,
         metadata=_safe_metadata(entry.get("metadata")),
         inventory_complete=inventory_complete,
+        collection_source_id=collection_source_id,
+        source_record_id=source_record_id,
+        evidence_method=evidence_method,
     )
+
+
+def component_source_snapshots_for_asset(
+    *,
+    asset: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    received_at: datetime,
+    source_authenticated: bool,
+    canonical_collection_id: str | None,
+) -> tuple[ComponentSourceSnapshot, ...]:
+    """Build server-owned source snapshots only for bound endpoint input."""
+
+    if not canonical_collection_id or not re.fullmatch(
+        r"col_[0-9a-f]{32}", canonical_collection_id
+    ):
+        return ()
+    site_id = bounded_text(asset.get("site_id"), limit=128)
+    asset_id = bounded_text(asset.get("asset_id"), limit=160)
+    source_type, agent_source_id, direct_source = _source_context(
+        payload,
+        asset=asset,
+        source_authenticated=source_authenticated,
+    )
+    raw_sources = payload.get("software_sources")
+    if (
+        not site_id
+        or not asset_id
+        or source_type != "endpoint-collector"
+        or not direct_source
+        or not isinstance(raw_sources, Sequence)
+        or isinstance(raw_sources, (str, bytes, bytearray))
+    ):
+        return ()
+    component_counts: dict[str, int] = {}
+    for entry in _component_entries(asset):
+        source_id = bounded_text(entry.get("collection_source_id"), limit=64)
+        if source_id:
+            component_counts[source_id] = component_counts.get(source_id, 0) + 1
+    snapshots: list[ComponentSourceSnapshot] = []
+    for raw in raw_sources[:8]:
+        if not isinstance(raw, Mapping):
+            continue
+        collection_source_id = bounded_text(raw.get("source_id"), limit=64)
+        platform = bounded_text(raw.get("platform"), limit=32)
+        status = bounded_text(raw.get("status"), limit=16)
+        if (
+            not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", collection_source_id)
+            or platform not in {"windows", "linux", "darwin"}
+            or status not in {"complete", "partial", "unsupported", "failed"}
+        ):
+            continue
+        observed_at = _utc(raw.get("observed_at"), received_at=received_at)
+        digest = hashlib.sha256(
+            "\x00".join(
+                (
+                    canonical_collection_id,
+                    site_id,
+                    asset_id,
+                    agent_source_id,
+                    collection_source_id,
+                )
+            ).encode("utf-8")
+        ).hexdigest()[:32]
+        error_code = bounded_text(raw.get("error_code"), limit=80) or None
+        raw_limitations = raw.get("limitations")
+        limitations = tuple(
+            dict.fromkeys(
+                bounded_text(value, limit=120)
+                for value in (
+                    raw_limitations
+                    if isinstance(raw_limitations, Sequence)
+                    and not isinstance(raw_limitations, (str, bytes, bytearray))
+                    else ()
+                )[:8]
+                if bounded_text(value, limit=120)
+            )
+        )
+        snapshots.append(
+            ComponentSourceSnapshot(
+                source_snapshot_id=f"css_{digest}",
+                canonical_collection_id=canonical_collection_id,
+                site_id=site_id,
+                asset_id=asset_id,
+                agent_source_id=agent_source_id,
+                collection_source_id=collection_source_id,
+                platform=platform,
+                collection_status=status,
+                observed_at=observed_at,
+                record_count=component_counts.get(collection_source_id, 0),
+                truncated=bool(raw.get("truncated")),
+                error_code=error_code,
+                limitations=limitations,
+            )
+        )
+    return tuple(snapshots)
 
 
 def normalize_components_for_asset(

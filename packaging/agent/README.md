@@ -153,6 +153,13 @@ python3 ./scripts/release/validate_agent_rpm.py --version 0.1.0-local
 Local and pull-request Linux packages are unsigned validation artifacts.
 Signed release publication remains a tagged release pipeline responsibility.
 
+DEB and RPM packages create `/var/lib/openassetwatch/agent/credential` as
+`openassetwatch:openassetwatch` mode `0700`. Lifecycle CI creates a fictional
+mode-`0600`, single-linked credential record as the service account and proves
+that install, upgrade, downgrade, and ordinary removal preserve it. Package
+validators reject unsafe ownership/mode metadata and replacement links; purge
+of local enrollment state remains an explicit operator decision.
+
 ## Local Windows MSI Artifact Generation
 
 The Windows MSI helper
@@ -170,6 +177,23 @@ python .\scripts\release\validate_agent_windows_msi.py --version 0.1.0-local
 The MSI installs the native Windows service model using `oaw-agent.exe service
 run`. Local MSI output is unsigned and is not production release-ready until
 the executable and MSI are signed and verified.
+
+The MSI creates the private credential directory under ProgramData with write
+access for the service SID and full control for SYSTEM and Administrators. The
+directory uses SYSTEM ownership and a protected replacement DACL. A deferred
+SYSTEM action resolves the fixed ProgramData path through the Windows
+known-folder API, walks it component by component without following reparse
+points, pins each managed component against replacement, and fails closed on
+unsafe ownership, write-capable access for any unreviewed principal (including
+delete-child), or an already-open credential-state file. It normalizes the credential directory
+and every bounded direct regular file to SYSTEM ownership and the reviewed
+protected DACL, including credentials created by an older inheriting MSI.
+The installer stops the service first and leaves credential contents unchanged
+if exclusive validation cannot acquire every direct state file.
+The Windows installed-package lifecycle job seeds a legacy broad-read fixture
+and verifies its removal, protected directory/file DACLs, SYSTEM ownership,
+and credential preservation through repair, major upgrade, and uninstall.
+WiX/source validation alone is not reported as installed-DACL validation.
 
 ## Local macOS PKG Artifact Generation
 
@@ -194,6 +218,12 @@ running as `_openassetwatch`, with config, identity, and state under
 
 Local PKG output is unsigned and is not production release-ready until the
 binary and package are signed, notarized, stapled, and verified.
+
+The PKG creates the service-owned `state/credential` directory with mode
+`0700`, rejects a symlink or non-directory replacement, and preserves a
+fictional service-readable mode-`0600` credential across upgrade attempts and
+uninstall guidance. These runtime claims are validated only on the macOS CI
+runner; staging checks are source/package-construction evidence.
 
 ## Release Publication
 

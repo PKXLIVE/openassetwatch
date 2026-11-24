@@ -222,6 +222,11 @@ curl -sS -X POST \
   http://127.0.0.1:8000/api/v1/admin/findings/evaluate
 ```
 
+Manual work tracking (work status, unverified owner and reference labels,
+notes, and an append-only event history) is a separate, additive surface
+documented in `docs/FINDING_WORK_TRACKING.md`. It never changes finding status,
+evidence, or risk, and it never triggers evaluation.
+
 Asset and sensor scope require `site_id` and are mutually exclusive.
 Sensor-scoped evaluation permits only the sensor-health rule. Rule selection is
 an explicit bounded list of registered IDs. There is no endpoint for uploading

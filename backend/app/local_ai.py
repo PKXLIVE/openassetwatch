@@ -8,8 +8,16 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .model_artifact_provenance import (
+    ModelQualificationBinding,
+    normalize_sha256_digest,
+    read_bounded_local_json,
+)
+
 
 QUALIFICATION_VERSION = "oaw.local-ai.v1"
+QUALIFICATION_SUITE_VERSION = QUALIFICATION_VERSION
+QUALIFICATION_FIXTURE_VERSION = "oaw.local-ai-advisor-fixtures.v1"
 MAX_QUALIFICATION_RESULT_BYTES = 1_000_000
 REQUIRED_QUALIFICATION_TESTS = frozenset(
     {
@@ -112,6 +120,7 @@ class LocalAIQualificationResult(StrictLocalAIModel):
     completed_at: datetime
     runtime: LocalAIRuntimeMetadata
     model: LocalAIModelMetadata
+    artifact_binding: ModelQualificationBinding | None = None
     tests: list[LocalAIQualificationTest] = Field(..., min_length=1, max_length=128)
     summary: LocalAIQualificationSummary = Field(default_factory=LocalAIQualificationSummary)
     advisor_approved: bool = False
@@ -131,6 +140,22 @@ class LocalAIQualificationResult(StrictLocalAIModel):
         required_ids = set(REQUIRED_QUALIFICATION_TESTS)
         if self.runtime.runtime_type.casefold() == "rocmfpx":
             required_ids.add("runtime_provenance")
+        binding_consistent = True
+        if self.artifact_binding is not None:
+            try:
+                model_digest = normalize_sha256_digest(self.model.model_digest or "")
+            except ValueError:
+                binding_consistent = False
+            else:
+                binding_consistent = (
+                    model_digest == self.artifact_binding.artifact_digest
+                    and self.runtime.runtime_commit == self.artifact_binding.runtime_commit
+                    and self.artifact_binding.qualification_suite_version
+                    == QUALIFICATION_SUITE_VERSION
+                    and self.artifact_binding.qualification_fixture_version
+                    == QUALIFICATION_FIXTURE_VERSION
+                    and self.artifact_binding.qualified_at == self.completed_at
+                )
         self.advisor_approved = (
             all(
                 test_id in required_by_id
@@ -138,6 +163,7 @@ class LocalAIQualificationResult(StrictLocalAIModel):
                 for test_id in required_ids
             )
             and all(item.status == "passed" for item in self.tests if item.required)
+            and binding_consistent
         )
         self.runtime.validation_status = "passed" if self.advisor_approved else "failed"
         return self
@@ -146,9 +172,8 @@ class LocalAIQualificationResult(StrictLocalAIModel):
 def load_qualification_result(path: str | Path) -> LocalAIQualificationResult:
     """Load one bounded operator-supplied qualification record."""
 
-    result_path = Path(path)
-    with result_path.open("rb") as handle:
-        raw = handle.read(MAX_QUALIFICATION_RESULT_BYTES + 1)
-    if len(raw) > MAX_QUALIFICATION_RESULT_BYTES:
-        raise ValueError("qualification result exceeds the safety limit")
-    return LocalAIQualificationResult.model_validate_json(raw)
+    payload = read_bounded_local_json(
+        path,
+        maximum_bytes=MAX_QUALIFICATION_RESULT_BYTES,
+    )
+    return LocalAIQualificationResult.model_validate(payload)

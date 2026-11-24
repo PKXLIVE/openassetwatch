@@ -73,10 +73,12 @@ class MigrationDiscoveryTests(unittest.TestCase):
     def test_packaged_baseline_is_ordered_checksummed_and_complete(self) -> None:
         migrations = discover_migrations()
 
-        self.assertEqual([item.version for item in migrations], [1, 2, 3])
+        self.assertEqual([item.version for item in migrations], [1, 2, 3, 4, 5])
         self.assertEqual(migrations[0].name, "current_schema_baseline")
         self.assertEqual(migrations[1].name, "endpoint_agent_identity")
         self.assertEqual(migrations[2].name, "canonical_ingestion_compatibility")
+        self.assertEqual(migrations[3].name, "native_software_source_presence")
+        self.assertEqual(migrations[4].name, "finding_work_tracking")
         self.assertEqual(
             migrations[0].checksum,
             hashlib.sha256(
@@ -98,6 +100,21 @@ class MigrationDiscoveryTests(unittest.TestCase):
                 ).read_bytes()
             ).hexdigest(),
         )
+        self.assertEqual(
+            migrations[3].checksum,
+            hashlib.sha256(
+                (
+                    MIGRATION_DIRECTORY
+                    / "0004_native_software_source_presence.sql"
+                ).read_bytes()
+            ).hexdigest(),
+        )
+        self.assertEqual(
+            migrations[4].checksum,
+            hashlib.sha256(
+                (MIGRATION_DIRECTORY / "0005_finding_work_tracking.sql").read_bytes()
+            ).hexdigest(),
+        )
         contract = schema_contract(migrations)
         self.assertIn("oaw_schema_migrations", contract.columns)
         self.assertIn("classification_evidence", contract.columns)
@@ -111,7 +128,58 @@ class MigrationDiscoveryTests(unittest.TestCase):
         self.assertIn("canonical_asset_authority", contract.columns)
         self.assertIn("legacy_submission_mappings", contract.columns)
         self.assertIn("ingestion_compatibility_events", contract.columns)
+        self.assertIn("component_source_snapshots", contract.columns)
+        self.assertIn("component_collection_sources", contract.columns)
+        self.assertIn("component_source_presence", contract.columns)
+        self.assertIn("finding_work_items", contract.columns)
+        self.assertIn("finding_work_references", contract.columns)
+        self.assertIn("finding_work_events", contract.columns)
         self.assertGreaterEqual(len(contract.columns), 50)
+
+    def test_finding_work_tracking_migration_is_additive_and_site_bound(self) -> None:
+        migrations = discover_migrations()
+        work = migrations[4]
+        self.assertEqual(work.identifier, "0005_finding_work_tracking")
+        self.assertNotRegex(work.sql, r"(?i)\bALTER\s+TABLE\b")
+        self.assertNotRegex(work.sql, r"(?i)\bDROP\s+(TABLE|INDEX|COLUMN)\b")
+        self.assertNotRegex(work.sql, r"(?i)\b(UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+findings\b")
+        previous = schema_contract(migrations[:4])
+        contract = schema_contract(migrations)
+        # Existing tables keep exactly their prior column contract.
+        for table, columns in previous.columns.items():
+            self.assertEqual(contract.columns[table], columns, table)
+        self.assertEqual(
+            contract.indexes["uq_findings_id_site"],
+            ("findings", True, ("finding_id", "site_id"), None),
+        )
+        self.assertIn(
+            (("finding_id", "site_id"), "findings", ("finding_id", "site_id"), "cascade"),
+            contract.foreign_keys["finding_work_items"],
+        )
+        self.assertIn(
+            (
+                ("work_item_id", "finding_id", "site_id"),
+                "finding_work_items",
+                ("work_item_id", "finding_id", "site_id"),
+                "cascade",
+            ),
+            contract.foreign_keys["finding_work_events"],
+        )
+        self.assertIn(
+            (("work_item_id", "site_id"), "finding_work_items", ("work_item_id", "site_id"), "cascade"),
+            contract.foreign_keys["finding_work_references"],
+        )
+        checks = contract.check_constraints["finding_work_items"]
+        self.assertIn("owner_verification='unverified'", checks)
+        self.assertIn("actor_verification='unverified'", checks)
+        self.assertIn("created_principal='api-admin-token'", checks)
+        self.assertIn(
+            "principal='api-admin-token'",
+            contract.check_constraints["finding_work_events"],
+        )
+        self.assertIn("BEFORE UPDATE OR DELETE ON finding_work_events", work.sql)
+        self.assertIn("BEFORE TRUNCATE ON finding_work_events", work.sql)
+        self.assertIn("BEFORE DELETE ON finding_work_items", work.sql)
 
     def test_duplicate_version_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory(prefix="oaw-migrations-") as temporary:
