@@ -227,6 +227,13 @@ notes, and an append-only event history) is a separate, additive surface
 documented in `docs/FINDING_WORK_TRACKING.md`. It never changes finding status,
 evidence, or risk, and it never triggers evaluation.
 
+Each evaluation also reconciles the deterministic decision layer
+(`oaw.decision.v1`): an action band, urgency, and reason codes per finding,
+with append-only transition history. It sits beside the Operational Attention
+Score, which never selects a band, and it reads no work-tracking state. See
+`docs/ctem/CTEM_DECISION_LAYER.md` and the read-only
+`GET /api/v1/decisions/...` endpoints.
+
 Asset and sensor scope require `site_id` and are mutually exclusive.
 Sensor-scoped evaluation permits only the sensor-health rule. Rule selection is
 an explicit bounded list of registered IDs. There is no endpoint for uploading

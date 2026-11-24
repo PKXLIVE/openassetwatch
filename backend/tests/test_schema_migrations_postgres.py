@@ -84,9 +84,9 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         second = migrate_database_schema(self.database_engine)
 
         self.assertEqual(first.state, "ready")
-        self.assertEqual(first.current_version, 5)
+        self.assertEqual(first.current_version, 6)
         self.assertEqual(second, first)
-        self.assertEqual(self._state_count(), 5)
+        self.assertEqual(self._state_count(), 6)
         with self.database_engine.connect() as connection:
             table_count = int(
                 connection.execute(
@@ -158,7 +158,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         status = migrate_database_schema(self.database_engine)
 
         self.assertEqual(status.state, "ready")
-        self.assertEqual(self._state_count(), 5)
+        self.assertEqual(self._state_count(), 6)
         with self.database_engine.connect() as connection:
             preserved = connection.execute(
                 text(
@@ -381,7 +381,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
                     INSERT INTO oaw_schema_migrations (
                         version, name, checksum, execution_duration_ms,
                         application_version, minimum_application_version
-                    ) VALUES (6, 'unknown', :checksum, 0, '0.1.0', '0.1.0')
+                    ) VALUES (7, 'unknown', :checksum, 0, '0.1.0', '0.1.0')
                     """
                 ),
                 {"checksum": "a" * 64},
@@ -411,7 +411,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(len(results), 2)
         self.assertTrue(all(isinstance(item, type(results[0])) for item in results))
         self.assertTrue(all(getattr(item, "state", None) == "ready" for item in results))
-        self.assertEqual(self._state_count(), 5)
+        self.assertEqual(self._state_count(), 6)
 
     def test_version_one_database_upgrades_through_canonical_ingestion(self) -> None:
         migrations = discover_migrations()
@@ -421,8 +421,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
         self.assertEqual(upgraded.state, "ready")
-        self.assertEqual(upgraded.current_version, 5)
-        self.assertEqual(self._state_count(), 5)
+        self.assertEqual(upgraded.current_version, 6)
+        self.assertEqual(self._state_count(), 6)
         with self.database_engine.connect() as connection:
             tables = {
                 connection.execute(text("SELECT to_regclass('public.endpoint_agent_enrollments')")).scalar_one(),
@@ -444,8 +444,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(version_two.current_version, 2)
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 5)
-        self.assertEqual(self._state_count(), 5)
+        self.assertEqual(upgraded.current_version, 6)
+        self.assertEqual(self._state_count(), 6)
         with self.database_engine.connect() as connection:
             tables = {
                 connection.execute(text("SELECT to_regclass('public.canonical_ingestion_sources')")).scalar_one(),
@@ -466,8 +466,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(version_three.current_version, 3)
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 5)
-        self.assertEqual(self._state_count(), 5)
+        self.assertEqual(upgraded.current_version, 6)
+        self.assertEqual(self._state_count(), 6)
         with self.database_engine.connect() as connection:
             tables = {
                 connection.execute(
@@ -532,8 +532,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
 
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 5)
-        self.assertEqual(self._state_count(), 5)
+        self.assertEqual(upgraded.current_version, 6)
+        self.assertEqual(self._state_count(), 6)
         with self.database_engine.connect() as connection:
             after = dict(
                 connection.execute(
@@ -576,6 +576,90 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         )
         repeated = migrate_database_schema(self.database_engine, migrations=migrations)
         self.assertEqual(repeated, upgraded)
+
+    def test_version_five_database_upgrades_to_finding_decision_layer(self) -> None:
+        migrations = discover_migrations()
+        version_five = migrate_database_schema(self.database_engine, migrations=migrations[:5])
+        self.assertEqual(version_five.current_version, 5)
+        finding_id = "fnd_" + "5" * 32
+        with self.database_engine.begin() as connection:
+            connection.execute(
+                text("INSERT INTO sites (site_id, name) VALUES ('upgrade-site', 'Upgrade Site')")
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO finding_evaluation_runs (
+                        run_id, trigger_type, ruleset_version, status, started_at
+                    ) VALUES ('frun_upgrade5', 'test', 'oaw.findings.v1', 'completed', NOW())
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO findings (
+                        finding_id, dedupe_key, rule_id, rule_version,
+                        engine_version, category, subject_type, site_id, title,
+                        description, recommendation, severity, confidence, status,
+                        evidence_freshness, first_seen_at, last_seen_at,
+                        evaluated_at, last_evaluation_run_id
+                    ) VALUES (
+                        :finding_id, :dedupe_key, 'unknown-asset', 1,
+                        'oaw.findings.v1', 'inventory', 'site', 'upgrade-site', 't',
+                        'd', 'r', 'low', 0.5, 'active', 'fresh', NOW(), NOW(),
+                        NOW(), 'frun_upgrade5'
+                    )
+                    """
+                ),
+                {"finding_id": finding_id, "dedupe_key": "fdk_" + "5" * 64},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO finding_work_items (
+                        work_item_id, finding_id, site_id, work_status, revision,
+                        created_principal, created_actor_label, created_at, updated_at
+                    ) VALUES (
+                        :work_item_id, :finding_id, 'upgrade-site', 'open', 1,
+                        'api-admin-token', 'alex', NOW(), NOW()
+                    )
+                    """
+                ),
+                {"work_item_id": "fwi_" + "5" * 32, "finding_id": finding_id},
+            )
+            before = {
+                table: [dict(row) for row in connection.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
+                for table in ("findings", "finding_work_items")
+            }
+
+        upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
+
+        self.assertEqual(upgraded.current_version, 6)
+        self.assertEqual(self._state_count(), 6)
+        with self.database_engine.connect() as connection:
+            after = {
+                table: [dict(row) for row in connection.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
+                for table in ("findings", "finding_work_items")
+            }
+            for table in ("finding_decisions", "finding_decision_history"):
+                self.assertEqual(
+                    connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one(), 0
+                )
+            triggers = set(
+                connection.execute(
+                    text(
+                        "SELECT tgname FROM pg_trigger "
+                        "WHERE tgrelid = 'public.finding_decision_history'::regclass AND NOT tgisinternal"
+                    )
+                ).scalars()
+            )
+        self.assertEqual(after, before)
+        self.assertEqual(
+            triggers,
+            {"trg_finding_decision_history_append_only", "trg_finding_decision_history_no_truncate"},
+        )
+        self.assertEqual(migrate_database_schema(self.database_engine, migrations=migrations), upgraded)
 
     def test_lock_contention_times_out_without_schema_change(self) -> None:
         with self.database_engine.connect() as blocker:

@@ -124,6 +124,8 @@ class FindingEvaluationResponse(StrictFindingContract):
     data_as_of: datetime | None = None
     started_at: datetime
     completed_at: datetime
+    decision_evaluated_count: int = Field(default=0, ge=0)
+    decision_transition_count: int = Field(default=0, ge=0)
 
 
 class FindingAcknowledgeRequest(StrictFindingContract):

@@ -144,6 +144,14 @@ from .finding_work_contracts import (
     FindingWorkStatusRequest,
 )
 from .finding_work_store import FindingWorkError, SqlFindingWorkStore
+from .decision_contracts import (
+    FindingDecisionHistoryResponse,
+    FindingDecisionListResponse,
+    FindingDecisionResponse,
+    DecisionRulesetResponse,
+)
+from .decision_store import SqlDecisionStore
+from .decisions import ruleset_public as decision_ruleset_public
 from .findings import RULESET_VERSION, rule_registry_public
 from .hub_contracts import (
     ObservationBatchRequest,
@@ -1618,6 +1626,10 @@ def _finding_work_store() -> SqlFindingWorkStore:
     return SqlFindingWorkStore()
 
 
+def _decision_store() -> SqlDecisionStore:
+    return SqlDecisionStore()
+
+
 def _classification_store() -> SqlClassificationStore:
     return SqlClassificationStore()
 
@@ -2965,6 +2977,77 @@ def admin_add_finding_work_note(
         ),
         "failed to add finding work note",
     )
+
+
+@app.get("/api/v1/decisions/rules", response_model=DecisionRulesetResponse)
+def api_decision_rules(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    return decision_ruleset_public()
+
+
+@app.get("/api/v1/decisions/findings", response_model=FindingDecisionListResponse)
+def api_finding_decisions(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    action_band: str | None = Query(default=None, min_length=1, max_length=16),
+    decision_state: str | None = Query(default="current", min_length=1, max_length=16),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    """Read-only. Decisions change only through deterministic finding evaluation."""
+
+    require_admin_token(admin_token)
+    try:
+        return _decision_store().list_decisions(
+            site_id=site_id,
+            action_band=action_band,
+            decision_state=decision_state,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load finding decisions") from exc
+
+
+@app.get("/api/v1/decisions/findings/{finding_id}", response_model=FindingDecisionResponse)
+def api_finding_decision(
+    finding_id: str = ApiPath(..., pattern=r"^fnd_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        decision = _decision_store().get_decision(finding_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load finding decision") from exc
+    if decision is None:
+        raise HTTPException(status_code=404, detail="decision not found; run deterministic evaluation")
+    return decision
+
+
+@app.get(
+    "/api/v1/decisions/findings/{finding_id}/history",
+    response_model=FindingDecisionHistoryResponse,
+)
+def api_finding_decision_history(
+    finding_id: str = ApiPath(..., pattern=r"^fnd_[0-9a-f]{32}$"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_admin_token(admin_token)
+    try:
+        history = _decision_store().list_history(finding_id, limit=limit, offset=offset)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to load finding decision history") from exc
+    if history is None:
+        raise HTTPException(status_code=404, detail="decision not found; run deterministic evaluation")
+    return history
 
 
 @app.get("/api/v1/risk/summary", response_model=RiskSummaryResponse)

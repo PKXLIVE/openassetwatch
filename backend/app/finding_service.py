@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
+from .decision_store import DecisionReconcileResult, SqlDecisionStore
 from .finding_store import InMemoryFindingStore, ReconcileResult, SqlFindingStore
 from .findings import RULESET_VERSION, EvaluationSnapshot, FindingsConfig, evaluate_rules
 from .risk import RiskConfig, calculate_risk
@@ -37,6 +38,8 @@ class EvaluationResult:
     data_as_of: datetime | None
     started_at: datetime
     completed_at: datetime
+    decision_evaluated_count: int = 0
+    decision_transition_count: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -97,6 +100,7 @@ def evaluate_findings(
     findings_config: FindingsConfig | None = None,
     risk_config: RiskConfig | None = None,
     store: SqlFindingStore | InMemoryFindingStore | None = None,
+    decision_store: SqlDecisionStore | None = None,
     sites: Sequence[dict[str, Any]] | None = None,
     sensors: Sequence[dict[str, Any]] | None = None,
     assets: Sequence[dict[str, Any]] | None = None,
@@ -113,6 +117,9 @@ def evaluate_findings(
         elif set(rule_ids) - {"sensor-stale"}:
             raise ValueError("sensor-scoped evaluation supports only sensor-stale")
     started_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    # Decisions are recomputed in production evaluations. A caller that injects
+    # its own finding store (tests, in-memory demos) opts in explicitly.
+    resolved_decision_store = decision_store or (SqlDecisionStore() if store is None else None)
     resolved_store = store or SqlFindingStore()
     run_id = resolved_store.begin_run(
         trigger_type=trigger_type,
@@ -177,6 +184,18 @@ def evaluate_findings(
             snapshot_at=started_at,
             site_id=site_id,
         )
+        # The decision layer runs after findings and the Operational Attention
+        # Score are settled, inside the same evaluation run. It reads only
+        # findings and finding evidence; work tracking never reaches it.
+        decisions = (
+            resolved_decision_store.reconcile_decisions(
+                run_id=run_id,
+                evaluated_at=started_at,
+                site_id=site_id,
+            )
+            if resolved_decision_store is not None
+            else DecisionReconcileResult(evaluated=0, changed=0, transitions=0)
+        )
         resolved_store.complete_run(
             run_id,
             snapshot=snapshot,
@@ -201,6 +220,8 @@ def evaluate_findings(
             data_as_of=snapshot.data_as_of,
             started_at=started_at,
             completed_at=completed_at,
+            decision_evaluated_count=decisions.evaluated,
+            decision_transition_count=decisions.transitions,
         )
     except Exception as exc:
         try:

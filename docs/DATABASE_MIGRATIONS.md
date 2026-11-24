@@ -21,7 +21,11 @@ matching presence inactive rather than deleting rows. Migration
 labels, and an append-only work event history (see
 `docs/FINDING_WORK_TRACKING.md`). It adds a unique `(finding_id, site_id)`
 index on `findings` as a composite foreign-key target, alters no existing
-column, and rewrites no rows.
+column, and rewrites no rows. Migration `0006_finding_decision_layer.sql`
+adds the deterministic finding decision projection and its append-only
+transition history (see `docs/ctem/CTEM_DECISION_LAYER.md`). It reuses the
+`(finding_id, site_id)` key target, alters no existing table, and rewrites no
+rows.
 
 ## Authority and packaged files
 
@@ -114,6 +118,18 @@ migration transaction commits; reads continue. Existing findings,
 evidence, and risk rows are unchanged. Back up the database and verify the
 restore before applying version 5 to any persistent database. The compatibility
 verifier does not yet check trigger presence; the gated PostgreSQL tests do.
+
+A database at version 5 upgrades transactionally to version 6. The upgrade
+creates `finding_decisions`, `finding_decision_history`, their indexes, one
+PL/pgSQL trigger function, and two triggers that keep the history append-only
+except for the cascade that removes a whole finding. It creates no index on an
+existing table and has no rows to validate, but adding foreign keys locks
+`findings` and `finding_evaluation_runs` against writes (not reads) until the
+migration transaction commits. Decisions are empty until the next
+finding evaluation produces them. Existing findings, evidence, risk, and
+work-tracking rows are unchanged. Back up and verify the restore before
+applying version 6 to a persistent database; an older backend refuses to start
+against a version 6 database.
 
 For an existing database created by the former startup and store-owned DDL,
 the runner first inspects the schema. It permits objects that are genuinely
@@ -239,6 +255,9 @@ docker compose run --rm --volume "${PWD}:/workspace" `
   dashboard redesign, or AI mutation authority.
 - Migration 0005 does not add external integrations, URLs, SLA tracking, risk
   acceptance, or any path that changes finding status or risk.
+- Migration 0006 does not add asset importance, exposure, risk acceptance, AI
+  authority, or any path that changes findings, evidence, risk, or work
+  tracking.
 
 The broader target architecture and release policy remain documented in
 `docs/architecture/database-schema-migration-governance.md`.
