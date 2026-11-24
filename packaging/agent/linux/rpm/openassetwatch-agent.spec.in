@@ -8,6 +8,9 @@ URL: {{PACKAGE_URL}}
 BuildArch: x86_64
 Requires: systemd
 Requires: shadow-utils
+# The %pre scriptlet creates these principals before payload ownership is applied.
+Provides: user({{SERVICE_USER}})
+Provides: group({{SERVICE_GROUP}})
 
 %description
 The OpenAssetWatch agent collects local, passive asset inventory
