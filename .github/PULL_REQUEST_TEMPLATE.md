@@ -10,4 +10,3 @@ Describe what changed.
 - [ ] Release, installer, workflow, or security-sensitive changes reviewed carefully
 - [ ] Documentation updated where needed
 - [ ] Every human-authored commit includes a `Signed-off-by` trailer required by `DCO`
-- [ ] Any AI-assisted or third-party material was reviewed for accuracy, licensing, attribution, and eligibility for submission
