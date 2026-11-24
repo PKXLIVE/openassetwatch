@@ -1,9 +1,12 @@
 # Explainable Risk Decision Model
 
-- **Status:** Approved architecture; not yet implemented
+- **Status:** Approved architecture; partially implemented. The finding-level
+  `oaw.decision.v1` action bands, reason codes, persistence, and history
+  (Phase 2, without asset and site summaries) are implemented as described in
+  `docs/ctem/CTEM_DECISION_LAYER.md`. Later phases are not implemented.
 - **Decision record:** `docs/architecture/decisions/0001-research-aligned-expansion.md`
 - **Current scoring engine:** `oaw.risk.v1`
-- **Proposed decision contract:** `oaw.decision.v1`
+- **Decision contract:** `oaw.decision.v1` (ruleset `oaw.decision.rules.v1`)
 - **Primary research:** `REM-RES-001`, `EXT-RES-003`, `EXT-RES-004`,
   `ID-RES-010`, `REM-SAFE-002`, `EVAL-CAL-001`, and `EVAL-GATE-001`
 

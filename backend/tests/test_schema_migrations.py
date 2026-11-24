@@ -73,12 +73,13 @@ class MigrationDiscoveryTests(unittest.TestCase):
     def test_packaged_baseline_is_ordered_checksummed_and_complete(self) -> None:
         migrations = discover_migrations()
 
-        self.assertEqual([item.version for item in migrations], [1, 2, 3, 4, 5])
+        self.assertEqual([item.version for item in migrations], [1, 2, 3, 4, 5, 6])
         self.assertEqual(migrations[0].name, "current_schema_baseline")
         self.assertEqual(migrations[1].name, "endpoint_agent_identity")
         self.assertEqual(migrations[2].name, "canonical_ingestion_compatibility")
         self.assertEqual(migrations[3].name, "native_software_source_presence")
         self.assertEqual(migrations[4].name, "finding_work_tracking")
+        self.assertEqual(migrations[5].name, "finding_decision_layer")
         self.assertEqual(
             migrations[0].checksum,
             hashlib.sha256(
@@ -115,6 +116,12 @@ class MigrationDiscoveryTests(unittest.TestCase):
                 (MIGRATION_DIRECTORY / "0005_finding_work_tracking.sql").read_bytes()
             ).hexdigest(),
         )
+        self.assertEqual(
+            migrations[5].checksum,
+            hashlib.sha256(
+                (MIGRATION_DIRECTORY / "0006_finding_decision_layer.sql").read_bytes()
+            ).hexdigest(),
+        )
         contract = schema_contract(migrations)
         self.assertIn("oaw_schema_migrations", contract.columns)
         self.assertIn("classification_evidence", contract.columns)
@@ -134,7 +141,40 @@ class MigrationDiscoveryTests(unittest.TestCase):
         self.assertIn("finding_work_items", contract.columns)
         self.assertIn("finding_work_references", contract.columns)
         self.assertIn("finding_work_events", contract.columns)
+        self.assertIn("finding_decisions", contract.columns)
+        self.assertIn("finding_decision_history", contract.columns)
         self.assertGreaterEqual(len(contract.columns), 50)
+
+    def test_finding_decision_migration_is_additive_site_bound_and_append_only(self) -> None:
+        migrations = discover_migrations()
+        decision = migrations[5]
+        self.assertEqual(decision.identifier, "0006_finding_decision_layer")
+        self.assertNotRegex(decision.sql, r"(?i)\bALTER\s+TABLE\b")
+        self.assertNotRegex(decision.sql, r"(?i)\bDROP\s+(TABLE|INDEX|COLUMN)\b")
+        self.assertNotRegex(
+            decision.sql,
+            r"(?i)\b(UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+"
+            r"(findings|finding_evidence|asset_risk_scores|site_risk_scores|risk_factors|finding_work_[a-z]+)\b",
+        )
+        self.assertNotIn("finding_work", decision.sql)
+        previous = schema_contract(migrations[:5])
+        contract = schema_contract(migrations)
+        for table, columns in previous.columns.items():
+            self.assertEqual(contract.columns[table], columns, table)
+        self.assertEqual(previous.indexes, {key: contract.indexes[key] for key in previous.indexes})
+        for table in ("finding_decisions", "finding_decision_history"):
+            self.assertIn(
+                (("finding_id", "site_id"), "findings", ("finding_id", "site_id"), "cascade"),
+                contract.foreign_keys[table],
+            )
+        checks = contract.check_constraints["finding_decisions"]
+        self.assertIn("schema_version='oaw.decision.v1'", checks)
+        self.assertIn("action_band in('monitor','plan','prioritize','act-now')", checks)
+        self.assertIn("decision_state<>'current' or action_band is not null", checks)
+        self.assertIn("decision_state='current' or action_band is null", checks)
+        self.assertIn(("finding_id", "revision"), contract.unique_constraints["finding_decision_history"])
+        self.assertIn("BEFORE UPDATE OR DELETE ON finding_decision_history", decision.sql)
+        self.assertIn("BEFORE TRUNCATE ON finding_decision_history", decision.sql)
 
     def test_finding_work_tracking_migration_is_additive_and_site_bound(self) -> None:
         migrations = discover_migrations()
