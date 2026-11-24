@@ -1,6 +1,6 @@
 # Temporal Intelligence Roadmap
 
-- **Status:** Accepted design; not yet implemented
+- **Status:** Accepted design; Phases 1-3 deterministic foundation implemented
 - **Decision:** `docs/architecture/decisions/0003-native-agent-investigation-and-temporal-intelligence.md`
 
 ## Purpose
@@ -444,6 +444,11 @@ Controls should include:
 
 ### Phase 1 — Signal projection
 
+**Implemented and operationally qualified.** See
+`docs/TEMPORAL_SIGNAL_FOUNDATION.md` for the governed registry, UTC bucketing,
+bounded read-only projection/API, missingness and backfill behavior,
+conservative metric deferrals, and Environment Trends UI.
+
 - define temporal signal registry;
 - create deterministic bucket rules;
 - project selected existing histories into signals;
@@ -452,6 +457,12 @@ Controls should include:
 
 ### Phase 2 — Deterministic expected ranges
 
+**Implemented and operationally qualified.** See
+`docs/TEMPORAL_EXPECTED_RANGES.md` for the typed expectation contract, governed
+rolling/seasonal policies, closed-bucket and exclusive knowledge-cutoff rules,
+confidence/data-quality gates, read-only API, and Environment Trends
+expected-band overlay.
+
 - implement robust rolling/seasonal methods;
 - produce typed expectation artifacts;
 - display expected bands;
@@ -459,10 +470,16 @@ Controls should include:
 
 ### Phase 3 — Deviation candidates
 
+**Implemented.** See `docs/TEMPORAL_DEVIATION_ASSESSMENTS.md` for the strict
+assessment contract, cutoff-safe observation and expectation composition,
+versioned direction/persistence policies, authenticated read-only API, neutral
+Environment Trends context, and non-authoritative boundary. Persistent review
+and automatic investigation remain deferred.
+
 - deterministic deviation rules;
 - persistence and freshness handling;
-- candidate review UI;
-- optional investigation trigger.
+- neutral candidate context UI;
+- optional investigation trigger (deferred).
 
 ### Phase 4 — Advanced forecasting research
 
@@ -485,8 +502,12 @@ Temporal Intelligence does not approve:
 - replacing current finding rules with anomaly scores; or
 - making an advanced forecasting model a required OpenAssetWatch dependency.
 
-## Documentation-only status
+## Implementation status
 
-This roadmap defines future native temporal capabilities. No temporal signal
-registry, expected-range engine, advanced forecasting provider, deviation rule,
-or temporal UI described here is currently implemented.
+Phase 1 signal projection, Phase 2 deterministic expected ranges, and Phase 3
+deterministic deviation assessments are implemented and remain read-only.
+Phase 4 advanced forecasting research, persistent candidate review, automatic
+investigation, finding/alert/risk integration, and related AI Advisor temporal
+explanations remain unimplemented. Environment Trends displays observed
+signals, source data-quality states, the current target's deterministic expected
+band, and neutral assessment context for the latest closed UTC bucket.

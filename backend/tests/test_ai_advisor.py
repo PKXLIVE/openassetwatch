@@ -164,6 +164,53 @@ class AIAdvisorTests(unittest.TestCase):
         self.assertIn("dns address-record router.example.test=192.0.2.10", protocol_items[0].summary)
         self.assertNotIn("raw_packet", protocol_items[0].summary)
 
+    def test_historical_native_component_is_not_presented_as_current(self) -> None:
+        component_id = "cmp_" + "a" * 32
+        snapshot_id = "css_" + "b" * 32
+        tools = ReadOnlyHubTools(
+            sites=[{"site_id": "home", "name": "Home Demo"}],
+            sensors=[],
+            assets=[],
+            components=[
+                {
+                    "component_id": component_id,
+                    "site_id": "home",
+                    "asset_id": "asset-home-0",
+                    "component_type": "operating-system-package",
+                    "ecosystem": "deb",
+                    "name": "fictional-package",
+                    "version": "1.0.0",
+                    "source_type": "endpoint-agent-native",
+                    "source_id": "agent-home",
+                    "normalization_status": "normalized",
+                    "confidence": 1.0,
+                    "active": False,
+                    "observed_at": NOW,
+                    "collection_sources": [
+                        {
+                            "source_snapshot_id": snapshot_id,
+                            "canonical_collection_id": "col_" + "c" * 32,
+                            "agent_source_id": "agent-home",
+                            "collection_source_id": "linux-dpkg",
+                            "platform": "linux",
+                            "collection_status": "complete",
+                            "presence_active": False,
+                            "last_attempt_at": NOW,
+                            "last_successful_complete_at": NOW,
+                        }
+                    ],
+                }
+            ],
+            now=NOW,
+        )
+
+        evidence = tools.evidence_catalog(site_id="home", asset_id="asset-home-0")
+        component = next(item for item in evidence if item.evidence_id == component_id)
+        source = next(item for item in evidence if item.evidence_id == snapshot_id)
+
+        self.assertIn("historical (not currently observed)", component.summary)
+        self.assertIn("component presence is historical", source.summary)
+
     def test_deterministic_classification_tools_and_citations_are_read_only(self) -> None:
         classification_id = "cls_" + "a" * 32
         evidence_id = "cev_" + "b" * 40

@@ -1759,6 +1759,7 @@ def list_agent_enrollments(
             b.inventory_batch_id AS latest_inventory_batch_id,
             b.reevaluation_state AS latest_inventory_state,
             b.received_at AS latest_inventory_at,
+            COALESCE(ss.software_sources, '[]'::jsonb) AS software_sources,
             CASE
                 WHEN c.credential_status = 'active' AND a.identity_status = 'active'
                     THEN 'authenticated-endpoint'
@@ -1782,6 +1783,42 @@ def list_agent_enrollments(
               ORDER BY received_at DESC, storage_id DESC
               LIMIT 1
           ) b ON TRUE
+          LEFT JOIN LATERAL (
+              SELECT jsonb_agg(
+                  bounded.source_state
+                  ORDER BY bounded.asset_id, bounded.collection_source_id
+              ) AS software_sources
+              FROM (
+                  SELECT
+                      ccs.asset_id,
+                      ccs.collection_source_id,
+                      jsonb_build_object(
+                          'source_snapshot_id', ccs.last_source_snapshot_id,
+                          'canonical_collection_id', ccs.canonical_collection_id,
+                          'asset_id', ccs.asset_id,
+                          'source_id', ccs.collection_source_id,
+                          'platform', ccs.platform,
+                          'status', ccs.collection_status,
+                          'last_attempt_at', ccs.last_attempt_at,
+                          'last_successful_complete_at', ccs.last_successful_complete_at,
+                          'record_count', ccs.record_count,
+                          'truncated', ccs.truncated,
+                          'error_code', ccs.error_code,
+                          'limitations', ccs.limitations_json
+                      ) AS source_state
+                  FROM component_collection_sources ccs
+                  JOIN canonical_ingestion_sources cis
+                    ON cis.source_id = ccs.agent_source_id
+                  WHERE cis.site_id = a.site_id
+                    AND cis.source_identity = a.agent_id
+                    AND cis.adapter_type = 'endpoint-agent'
+                    AND cis.source_authority = 'authenticated-endpoint'
+                  ORDER BY ccs.last_attempt_at DESC,
+                           ccs.asset_id,
+                           ccs.collection_source_id
+                  LIMIT 32
+              ) bounded
+          ) ss ON TRUE
           WHERE (:site_id IS NULL OR a.site_id = :site_id)
           ORDER BY a.last_seen_at DESC NULLS LAST, a.updated_at DESC, a.agent_id ASC
         """
@@ -2248,25 +2285,40 @@ def _persist_component_inventory_best_effort(
     payload: dict[str, Any],
     received_at: datetime,
     source_authenticated: bool,
+    canonical_collection_id: str | None = None,
 ) -> bool:
     """Persist component evidence without making accepted ingestion depend on it."""
 
     from .component_intelligence import (
+        component_source_snapshots_for_asset,
         complete_component_inventory_scope,
         normalize_components_for_asset,
     )
-    from .component_store import persist_components
+    from .component_store import (
+        lock_authenticated_endpoint_source_site,
+        persist_authenticated_endpoint_source_presence,
+        persist_components,
+    )
 
     try:
         components = []
         complete_assets = []
+        source_snapshots = []
         for asset in normalized_assets:
-            components.extend(
-                normalize_components_for_asset(
+            asset_components = normalize_components_for_asset(
+                asset=asset,
+                payload=payload,
+                received_at=received_at,
+                source_authenticated=source_authenticated,
+            )
+            components.extend(asset_components)
+            source_snapshots.extend(
+                component_source_snapshots_for_asset(
                     asset=asset,
                     payload=payload,
                     received_at=received_at,
                     source_authenticated=source_authenticated,
+                    canonical_collection_id=canonical_collection_id,
                 )
             )
             complete_scope = complete_component_inventory_scope(
@@ -2277,13 +2329,26 @@ def _persist_component_inventory_best_effort(
             )
             if complete_scope is not None:
                 complete_assets.append(complete_scope)
-        if not components and not complete_assets:
+        if not components and not complete_assets and not source_snapshots:
             return True
         with get_engine().begin() as connection:
+            if source_snapshots:
+                # Native source projection uses one lock order: site first,
+                # then component rows. The presence writer reuses this lock
+                # while it validates the exact authenticated source scope.
+                lock_authenticated_endpoint_source_site(
+                    connection,
+                    source_snapshots=source_snapshots,
+                )
             persist_components(
                 connection,
                 components=components,
                 complete_assets=complete_assets,
+            )
+            persist_authenticated_endpoint_source_presence(
+                connection,
+                components=components,
+                source_snapshots=source_snapshots,
             )
     except Exception as exc:  # noqa: BLE001 - accepted ingestion must remain accepted.
         LOGGER.warning(

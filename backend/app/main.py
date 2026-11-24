@@ -132,6 +132,18 @@ from .finding_contracts import (
 )
 from .finding_service import evaluate_findings, evaluate_site_best_effort
 from .finding_store import SqlFindingStore
+from .finding_work_contracts import (
+    FindingWorkEventListResponse,
+    FindingWorkItemCreateRequest,
+    FindingWorkItemListResponse,
+    FindingWorkItemResponse,
+    FindingWorkNoteRequest,
+    FindingWorkOwnerRequest,
+    FindingWorkReferenceRemoveRequest,
+    FindingWorkReferenceRequest,
+    FindingWorkStatusRequest,
+)
+from .finding_work_store import FindingWorkError, SqlFindingWorkStore
 from .findings import RULESET_VERSION, rule_registry_public
 from .hub_contracts import (
     ObservationBatchRequest,
@@ -200,6 +212,22 @@ from .schema_migrations import (
     runtime_schema_readiness,
     set_runtime_migration_failure,
 )
+from .temporal_contracts import (
+    METRIC_KEY_PATTERN,
+    TemporalDeviationAssessment,
+    TemporalExpectation,
+    TemporalMetricRegistryResponse,
+    TemporalSignalSeriesResponse,
+    temporal_registry_public,
+)
+from .temporal_deviations import TemporalDeviationService
+from .temporal_expectations import TemporalExpectationService
+from .temporal_projection import (
+    TemporalProjectionError,
+    TemporalProjectionService,
+    TemporalSiteNotFound,
+)
+from .temporal_store import SqlTemporalStore
 
 
 LOGGER = logging.getLogger(__name__)
@@ -531,6 +559,7 @@ def _run_canonical_inventory_evaluation(
             payload=work["payload"],
             received_at=work["received_at"],
             source_authenticated=bool(work["source_authenticated"]),
+            canonical_collection_id=canonical_collection_id,
         ):
             raise RuntimeError("canonical evidence projection failed")
         if asset_ids:
@@ -1585,6 +1614,10 @@ def _finding_store() -> SqlFindingStore:
     return SqlFindingStore()
 
 
+def _finding_work_store() -> SqlFindingWorkStore:
+    return SqlFindingWorkStore()
+
+
 def _classification_store() -> SqlClassificationStore:
     return SqlClassificationStore()
 
@@ -1611,6 +1644,143 @@ def _vulnerability_store() -> SqlVulnerabilityStore:
 
 def _kev_store() -> SqlKevStore:
     return SqlKevStore()
+
+
+def _temporal_store() -> SqlTemporalStore:
+    return SqlTemporalStore()
+
+
+def _temporal_service() -> TemporalProjectionService:
+    return TemporalProjectionService(store=_temporal_store())
+
+
+def _temporal_expectation_service() -> TemporalExpectationService:
+    return TemporalExpectationService.from_projection_store(store=_temporal_store())
+
+
+def _temporal_deviation_service() -> TemporalDeviationService:
+    return TemporalDeviationService.from_projection_store(store=_temporal_store())
+
+
+@app.get(
+    "/api/v1/temporal/metrics",
+    response_model=TemporalMetricRegistryResponse,
+)
+def api_temporal_metrics(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="temporal signal access",
+    )
+    return temporal_registry_public()
+
+
+@app.get(
+    "/api/v1/temporal/signals",
+    response_model=TemporalSignalSeriesResponse,
+)
+def api_temporal_signals(
+    metric_key: str = Query(..., pattern=METRIC_KEY_PATTERN, max_length=120),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    start: datetime = Query(...),
+    end: datetime = Query(...),
+    granularity: str = Query(default="daily", min_length=1, max_length=16),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="temporal signal access",
+    )
+    try:
+        return _temporal_service().series(
+            metric_key=metric_key,
+            site_id=site_id,
+            start=start,
+            end=end,
+            granularity=granularity,
+            asset_id=asset_id,
+        )
+    except TemporalSiteNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TemporalProjectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="failed to project temporal signals",
+        ) from exc
+
+
+@app.get(
+    "/api/v1/temporal/expectations",
+    response_model=TemporalExpectation,
+)
+def api_temporal_expectation(
+    metric_key: str = Query(..., pattern=METRIC_KEY_PATTERN, max_length=120),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    target_start: datetime = Query(...),
+    granularity: str = Query(default="daily", min_length=1, max_length=16),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="temporal expectation access",
+    )
+    try:
+        return _temporal_expectation_service().expectation(
+            metric_key=metric_key,
+            site_id=site_id,
+            target_start=target_start,
+            granularity=granularity,
+            asset_id=asset_id,
+        )
+    except TemporalSiteNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TemporalProjectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="failed to calculate temporal expectation",
+        ) from exc
+
+
+@app.get(
+    "/api/v1/temporal/deviation-assessments",
+    response_model=TemporalDeviationAssessment,
+)
+def api_temporal_deviation_assessment(
+    metric_key: str = Query(..., pattern=METRIC_KEY_PATTERN, max_length=120),
+    site_id: str = Query(..., min_length=1, max_length=128),
+    target_start: datetime = Query(...),
+    granularity: str = Query(default="daily", min_length=1, max_length=16),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=160),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    require_configured_admin_token(
+        admin_token,
+        capability="temporal deviation assessment access",
+    )
+    try:
+        return _temporal_deviation_service().assessment(
+            metric_key=metric_key,
+            site_id=site_id,
+            target_start=target_start,
+            granularity=granularity,
+            asset_id=asset_id,
+        )
+    except TemporalSiteNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TemporalProjectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="failed to calculate temporal deviation assessment",
+        ) from exc
 
 
 @app.get("/api/v1/components", response_model=ComponentListResponse)
@@ -2571,6 +2741,230 @@ def admin_suppress_finding(
         raise
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="failed to suppress finding") from exc
+
+
+FINDING_WORK_CAPABILITY = "finding work tracking"
+FINDING_WORK_ERROR_STATUS = {"finding_not_found": 404, "not_found": 404, "conflict": 409}
+FINDING_ID_PATH_PATTERN = r"^fnd_[0-9a-f]{32}$"
+
+
+def _require_finding_work_token(admin_token: str | None) -> None:
+    # Owner, actor, and note labels may name people, so work tracking fails
+    # closed for reads as well as writes when no admin secret is configured.
+    require_configured_admin_token(admin_token, capability=FINDING_WORK_CAPABILITY)
+
+
+def _finding_work_call(operation, failure_detail: str):
+    """Map bounded store failures to HTTP without leaking database detail.
+
+    Work tracking deliberately never triggers finding evaluation: finding
+    status and risk remain owned by the evidence-based path.
+    """
+    try:
+        return operation()
+    except FindingWorkError as exc:
+        raise HTTPException(
+            status_code=FINDING_WORK_ERROR_STATUS[exc.kind],
+            detail=exc.detail,
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail=failure_detail) from exc
+
+
+@app.get("/api/v1/finding-work-items", response_model=FindingWorkItemListResponse)
+def api_finding_work_items(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    work_status: str | None = Query(default=None, min_length=1, max_length=16),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_finding_work_token(admin_token)
+    return _finding_work_call(
+        lambda: _finding_work_store().list_work_items(
+            site_id=site_id,
+            work_status=work_status,
+            limit=limit,
+            offset=offset,
+        ),
+        "failed to load finding work items",
+    )
+
+
+@app.get("/api/v1/findings/{finding_id}/work-item", response_model=FindingWorkItemResponse)
+def api_finding_work_item(
+    finding_id: str = ApiPath(..., pattern=FINDING_ID_PATH_PATTERN),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_finding_work_token(admin_token)
+    item = _finding_work_call(
+        lambda: _finding_work_store().get_work_item(finding_id),
+        "failed to load finding work item",
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="work item not found")
+    return item
+
+
+@app.get(
+    "/api/v1/findings/{finding_id}/work-item/events",
+    response_model=FindingWorkEventListResponse,
+)
+def api_finding_work_events(
+    finding_id: str = ApiPath(..., pattern=FINDING_ID_PATH_PATTERN),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_finding_work_token(admin_token)
+    events = _finding_work_call(
+        lambda: _finding_work_store().list_events(finding_id, limit=limit, offset=offset),
+        "failed to load finding work events",
+    )
+    if events is None:
+        raise HTTPException(status_code=404, detail="work item not found")
+    return events
+
+
+@app.post(
+    "/api/v1/admin/findings/{finding_id}/work-item",
+    response_model=FindingWorkItemResponse,
+    status_code=201,
+)
+def admin_create_finding_work_item(
+    payload: FindingWorkItemCreateRequest,
+    finding_id: str = ApiPath(..., pattern=FINDING_ID_PATH_PATTERN),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_finding_work_token(admin_token)
+    return _finding_work_call(
+        lambda: _finding_work_store().create_work_item(
+            finding_id,
+            actor=payload.actor,
+            owner_kind=payload.owner_kind,
+            owner_label=payload.owner_label,
+            note=payload.note,
+            at=datetime.now(timezone.utc),
+        ),
+        "failed to create finding work item",
+    )
+
+
+@app.post(
+    "/api/v1/admin/findings/{finding_id}/work-item/status",
+    response_model=FindingWorkItemResponse,
+)
+def admin_change_finding_work_status(
+    payload: FindingWorkStatusRequest,
+    finding_id: str = ApiPath(..., pattern=FINDING_ID_PATH_PATTERN),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_finding_work_token(admin_token)
+    return _finding_work_call(
+        lambda: _finding_work_store().change_status(
+            finding_id,
+            actor=payload.actor,
+            status=payload.status,
+            expected_revision=payload.expected_revision,
+            note=payload.note,
+            at=datetime.now(timezone.utc),
+        ),
+        "failed to change finding work status",
+    )
+
+
+@app.post(
+    "/api/v1/admin/findings/{finding_id}/work-item/owner",
+    response_model=FindingWorkItemResponse,
+)
+def admin_change_finding_work_owner(
+    payload: FindingWorkOwnerRequest,
+    finding_id: str = ApiPath(..., pattern=FINDING_ID_PATH_PATTERN),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_finding_work_token(admin_token)
+    return _finding_work_call(
+        lambda: _finding_work_store().change_owner(
+            finding_id,
+            actor=payload.actor,
+            owner_kind=payload.owner_kind,
+            owner_label=payload.owner_label,
+            expected_revision=payload.expected_revision,
+            at=datetime.now(timezone.utc),
+        ),
+        "failed to change finding work owner",
+    )
+
+
+@app.post(
+    "/api/v1/admin/findings/{finding_id}/work-item/references",
+    response_model=FindingWorkItemResponse,
+)
+def admin_add_finding_work_reference(
+    payload: FindingWorkReferenceRequest,
+    finding_id: str = ApiPath(..., pattern=FINDING_ID_PATH_PATTERN),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_finding_work_token(admin_token)
+    return _finding_work_call(
+        lambda: _finding_work_store().add_reference(
+            finding_id,
+            actor=payload.actor,
+            reference_type=payload.reference_type,
+            reference_system=payload.reference_system,
+            reference_label=payload.reference_label,
+            expected_revision=payload.expected_revision,
+            at=datetime.now(timezone.utc),
+        ),
+        "failed to add finding work reference",
+    )
+
+
+@app.post(
+    "/api/v1/admin/findings/{finding_id}/work-item/references/{reference_id}/remove",
+    response_model=FindingWorkItemResponse,
+)
+def admin_remove_finding_work_reference(
+    payload: FindingWorkReferenceRemoveRequest,
+    finding_id: str = ApiPath(..., pattern=FINDING_ID_PATH_PATTERN),
+    reference_id: str = ApiPath(..., pattern=r"^fwr_[0-9a-f]{32}$"),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_finding_work_token(admin_token)
+    return _finding_work_call(
+        lambda: _finding_work_store().remove_reference(
+            finding_id,
+            reference_id,
+            actor=payload.actor,
+            expected_revision=payload.expected_revision,
+            at=datetime.now(timezone.utc),
+        ),
+        "failed to remove finding work reference",
+    )
+
+
+@app.post(
+    "/api/v1/admin/findings/{finding_id}/work-item/notes",
+    response_model=FindingWorkItemResponse,
+)
+def admin_add_finding_work_note(
+    payload: FindingWorkNoteRequest,
+    finding_id: str = ApiPath(..., pattern=FINDING_ID_PATH_PATTERN),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_finding_work_token(admin_token)
+    return _finding_work_call(
+        lambda: _finding_work_store().add_note(
+            finding_id,
+            actor=payload.actor,
+            note=payload.note,
+            expected_revision=payload.expected_revision,
+            at=datetime.now(timezone.utc),
+        ),
+        "failed to add finding work note",
+    )
 
 
 @app.get("/api/v1/risk/summary", response_model=RiskSummaryResponse)

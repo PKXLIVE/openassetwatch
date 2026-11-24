@@ -1,0 +1,50 @@
+{
+  "schema_version": "oaw.advisory-catalog.v1",
+  "catalog_version": "synthetic-native-software-2026.1",
+  "source": {
+    "name": "OpenAssetWatch Synthetic Native Software Laboratory",
+    "version": "2026.1",
+    "license": "Apache-2.0",
+    "provenance": "Fictional records authored for deterministic offline native-package testing; no third-party vulnerability data is included."
+  },
+  "generated_at": "2026-08-27T00:00:00Z",
+  "advisories": [
+    {
+      "id": "OAW-NATIVE-DEMO-2099-0001",
+      "aliases": [
+        "CVE-DEMO-2099-1001"
+      ],
+      "title": "Synthetic native library validation issue",
+      "summary": "A fictional Debian package range is marked affected only for the OpenAssetWatch native software demonstration.",
+      "severity": "high",
+      "cvss": 8.0,
+      "known_exploited": false,
+      "published_at": "2026-08-01T00:00:00Z",
+      "modified_at": "2026-08-20T00:00:00Z",
+      "affected": [
+        {
+          "ecosystem": "deb",
+          "name": "fictional-native-library",
+          "identifier": "pkg:deb/fictional-native-library",
+          "ranges": [
+            {
+              "introduced": "1.0.0",
+              "introduced_inclusive": true,
+              "fixed": "2.0.0",
+              "fixed_inclusive": false
+            }
+          ],
+          "fixed_versions": [
+            "2.0.0"
+          ]
+        }
+      ],
+      "references": [
+        {
+          "type": "advisory",
+          "url": "https://advisories.example.invalid/OAW-NATIVE-DEMO-2099-0001"
+        }
+      ]
+    }
+  ]
+}
