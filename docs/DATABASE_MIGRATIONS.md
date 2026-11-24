@@ -16,7 +16,12 @@ through this migration runner; service modules do not execute DDL. Migration
 `0004_native_software_source_presence.sql` adds authenticated native-package
 source snapshots, latest source status, and exact-scope component presence.
 It is additive and preserves component history; complete-source omission marks
-matching presence inactive rather than deleting rows.
+matching presence inactive rather than deleting rows. Migration
+`0005_finding_work_tracking.sql` adds manual finding work items, reference
+labels, and an append-only work event history (see
+`docs/FINDING_WORK_TRACKING.md`). It adds a unique `(finding_id, site_id)`
+index on `findings` as a composite foreign-key target, alters no existing
+column, and rewrites no rows.
 
 ## Authority and packaged files
 
@@ -98,6 +103,17 @@ creates only the three native-source tables and their exact-scope indexes and
 foreign keys. It performs no ambiguous historical backfill and grants no
 legacy source withdrawal authority. Existing components remain unchanged
 until a new bound endpoint-agent source snapshot is accepted and evaluated.
+
+A database at version 4 upgrades transactionally to version 5. The upgrade
+creates the three work-tracking tables, their indexes, and the
+`uq_findings_id_site` index. It also creates two PL/pgSQL trigger functions
+and three triggers: two keep `finding_work_events` append-only, and one allows
+`finding_work_items` rows to be deleted only by the cascade that removes their
+finding. Building the unique index blocks writes to `findings` until the
+migration transaction commits; reads continue. Existing findings,
+evidence, and risk rows are unchanged. Back up the database and verify the
+restore before applying version 5 to any persistent database. The compatibility
+verifier does not yet check trigger presence; the gated PostgreSQL tests do.
 
 For an existing database created by the former startup and store-owned DDL,
 the runner first inspects the schema. It permits objects that are genuinely
@@ -221,6 +237,8 @@ docker compose run --rm --volume "${PWD}:/workspace" `
   upgrades to avoid unbounded waits on application-held table locks.
 - Migration 0004 does not add tenancy, RBAC, job scheduling, EPSS, new feeds,
   dashboard redesign, or AI mutation authority.
+- Migration 0005 does not add external integrations, URLs, SLA tracking, risk
+  acceptance, or any path that changes finding status or risk.
 
 The broader target architecture and release policy remain documented in
 `docs/architecture/database-schema-migration-governance.md`.

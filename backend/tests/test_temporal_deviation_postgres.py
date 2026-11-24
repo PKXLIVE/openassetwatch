@@ -57,7 +57,7 @@ class TemporalDeviationPostgresTests(unittest.TestCase):
             poolclass=NullPool,
         )
         migration = migrate_database_schema(self.database_engine)
-        self.assertEqual(migration.current_version, 4)
+        self.assertEqual(migration.current_version, 5)
         self._seed_history()
 
     def tearDown(self) -> None:
