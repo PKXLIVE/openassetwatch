@@ -834,6 +834,7 @@ class ReadOnlyHubTools:
             "vulnerability_evidence",
             "fixed_version_availability",
             "known_exploited_matches",
+            "component_inventory",
             "component_inventory_gaps",
             "advisory_provenance",
             "vulnerability_risk_contribution",
@@ -985,6 +986,42 @@ class ReadOnlyHubTools:
         }
 
     def _project_component(self, item: dict[str, Any]) -> dict[str, Any]:
+        raw_sources = item.get("collection_sources")
+        collection_sources = []
+        for source in (
+            raw_sources if isinstance(raw_sources, list) else []
+        )[:8]:
+            if not isinstance(source, dict):
+                continue
+            snapshot_id = _text(source.get("source_snapshot_id"), limit=80)
+            canonical_collection_id = _text(
+                source.get("canonical_collection_id"), limit=80
+            )
+            if not re.fullmatch(r"css_[0-9a-f]{32}", snapshot_id) or not re.fullmatch(
+                r"col_[0-9a-f]{32}", canonical_collection_id
+            ):
+                continue
+            collection_sources.append(
+                {
+                    "source_snapshot_id": snapshot_id,
+                    "canonical_collection_id": canonical_collection_id,
+                    "agent_source_id": _text(
+                        source.get("agent_source_id"), limit=80
+                    ),
+                    "collection_source_id": _text(
+                        source.get("collection_source_id"), limit=64
+                    ),
+                    "platform": _text(source.get("platform"), limit=32),
+                    "collection_status": _text(
+                        source.get("collection_status"), limit=16
+                    ),
+                    "presence_active": bool(source.get("presence_active")),
+                    "last_attempt_at": _datetime(source.get("last_attempt_at")),
+                    "last_successful_complete_at": _datetime(
+                        source.get("last_successful_complete_at")
+                    ),
+                }
+            )
         return {
             "component_id": _text(item.get("component_id"), limit=80),
             "site_id": _text(item.get("site_id"), limit=128),
@@ -1016,6 +1053,7 @@ class ReadOnlyHubTools:
                 maximum=1.0,
             ),
             "active": bool(item.get("active", True)),
+            "collection_sources": collection_sources,
             "observed_at": _datetime(
                 item.get("observed_at") or item.get("last_seen_at")
             ),
@@ -1822,6 +1860,8 @@ class ReadOnlyHubTools:
                     and item["known_exploited"]
                 ]
             )
+        if tool_name == "component_inventory":
+            return _bounded(self._filtered_components(site_id, asset_id))
         if tool_name == "component_inventory_gaps":
             return _bounded(
                 [
@@ -2177,6 +2217,7 @@ class ReadOnlyHubTools:
                         confidence=item["match_confidence"],
                     )
                 )
+        collection_evidence_ids: set[str] = set()
         for item in self._filtered_components(site_id, asset_id):
             evidence.append(
                 EvidenceItem(
@@ -2185,7 +2226,8 @@ class ReadOnlyHubTools:
                     summary=(
                         f"{item['component_id']}: {item['name']} "
                         f"{item['version'] or 'version unknown'} from "
-                        f"{item['source_type']}."
+                        f"{item['source_type']}; inventory state is "
+                        f"{'current' if item['active'] else 'historical'} (not currently observed)."
                     ),
                     site_id=item["site_id"],
                     sensor_id=item["source_id"],
@@ -2197,6 +2239,53 @@ class ReadOnlyHubTools:
                     confidence=item["confidence"],
                 )
             )
+            for source in item["collection_sources"]:
+                canonical_collection_id = source["canonical_collection_id"]
+                if canonical_collection_id not in collection_evidence_ids:
+                    collection_evidence_ids.add(canonical_collection_id)
+                    evidence.append(
+                        EvidenceItem(
+                            evidence_id=canonical_collection_id,
+                            evidence_type="native_software_collection",
+                            summary=(
+                                f"{canonical_collection_id}: authenticated native "
+                                f"software collection for {source['collection_source_id']} "
+                                f"was {source['collection_status']}."
+                            ),
+                            site_id=item["site_id"],
+                            sensor_id=source["agent_source_id"],
+                            asset_id=item["asset_id"],
+                            authority="normalized-evidence",
+                            source="canonical-inventory-collections",
+                            observed_at=source["last_attempt_at"],
+                            freshness=freshness(
+                                source["last_attempt_at"], now=self.now
+                            ),
+                            confidence=item["confidence"],
+                        )
+                    )
+                evidence.append(
+                    EvidenceItem(
+                        evidence_id=source["source_snapshot_id"],
+                        evidence_type="native_software_source_snapshot",
+                        summary=(
+                            f"{source['source_snapshot_id']}: "
+                            f"{source['collection_source_id']} collection was "
+                            f"{source['collection_status']}; component presence is "
+                            f"{'current' if source['presence_active'] else 'historical'}."
+                        ),
+                        site_id=item["site_id"],
+                        sensor_id=source["agent_source_id"],
+                        asset_id=item["asset_id"],
+                        authority="normalized-evidence",
+                        source="component-source-snapshots",
+                        observed_at=source["last_attempt_at"],
+                        freshness=freshness(
+                            source["last_attempt_at"], now=self.now
+                        ),
+                        confidence=item["confidence"],
+                    )
+                )
         canonical_ids: set[str] = set()
         for asset in self._filtered_assets(site_id):
             if asset_id and asset["asset_id"] != asset_id:
@@ -2473,6 +2562,7 @@ def select_tools(question: str) -> list[str]:
             ("vulnerable", "vulnerability", "cve", "advisory"),
             "vulnerable_components",
         ),
+        (("component", "package", "software", "firmware"), "component_inventory"),
         (("component", "package", "software", "firmware"), "vulnerable_components"),
         (("vulnerability evidence", "match evidence"), "vulnerability_evidence"),
         (("fixed version", "upgrade"), "fixed_version_availability"),
@@ -2531,6 +2621,7 @@ def build_tool_context(
         "known_exploited_matches",
         "fixed_version_availability",
         "vulnerability_evidence",
+        "component_inventory",
         "component_inventory_gaps",
         "kev_records_for_matches",
         "kev_ransomware_matches",
@@ -2543,6 +2634,11 @@ def build_tool_context(
                 value = item.get(field)
                 if isinstance(value, str):
                     priority_ids.append(value)
+            for source in item.get("collection_sources", [])[:8]:
+                for field in ("source_snapshot_id", "canonical_collection_id"):
+                    evidence_id = source.get(field)
+                    if isinstance(evidence_id, str):
+                        priority_ids.append(evidence_id)
     for item in results.get(
         "vulnerability_risk_contribution",
         {},
@@ -2647,6 +2743,50 @@ class DeterministicDemoProvider:
             )
             match = matches[0] if matches else None
             if match:
+                component_item = next(
+                    (
+                        value
+                        for value in results.get("component_inventory", {}).get(
+                            "items", []
+                        )
+                        if isinstance(value, dict)
+                        and value.get("component_id") == match.get("component_id")
+                    ),
+                    None,
+                )
+                component_sources = (
+                    component_item.get("collection_sources", [])
+                    if isinstance(component_item, dict)
+                    else []
+                )
+                component_source = next(
+                    (
+                        value
+                        for value in component_sources
+                        if isinstance(value, dict)
+                        and value.get("presence_active")
+                    ),
+                    component_sources[0] if component_sources else None,
+                )
+                source_snapshot_id = (
+                    component_source.get("source_snapshot_id")
+                    if isinstance(component_source, dict)
+                    else None
+                )
+                source_collection_id = (
+                    component_source.get("canonical_collection_id")
+                    if isinstance(component_source, dict)
+                    else None
+                )
+                source_clause = (
+                    f"Native source {component_source['collection_source_id']} "
+                    f"reported this component in canonical collection "
+                    f"{source_collection_id} with source snapshot "
+                    f"{source_snapshot_id}; collection status was "
+                    f"{component_source['collection_status']}. "
+                    if isinstance(component_source, dict)
+                    else ""
+                )
                 risk_items = results.get(
                     "vulnerability_risk_contribution",
                     {},
@@ -2766,6 +2906,7 @@ class DeterministicDemoProvider:
                     f"{match['installed_version'] or 'version unknown'}). "
                     f"Fixed version "
                     f"{match['fixed_version'] or 'is not supplied by the reviewed catalog'}. "
+                    f"{source_clause}"
                     f"{finding_clause}"
                     f"{kev_clause}"
                     "The Advisor is explaining server-issued evidence and did not decide applicability."
@@ -2776,6 +2917,8 @@ class DeterministicDemoProvider:
                         match["match_id"],
                         match["component_id"],
                         match["advisory_id"],
+                        source_collection_id,
+                        source_snapshot_id,
                         f"finding:{finding_id}" if finding_id else None,
                         risk_evidence_id,
                         agent_evidence_id,

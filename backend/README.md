@@ -19,6 +19,8 @@ service backed by PostgreSQL through SQLAlchemy.
 - local-only fictional vendor catalog with safe reviewed replacement
 - normalized software, package, operating-system, and reviewed firmware
   inventory with material history
+- authenticated native Windows registry, Linux dpkg/RPM, and macOS receipt
+  source snapshots with exact-scope component presence and collection status
 - strict versioned offline advisory catalogs with licensing, provenance, and
   checksums
 - reviewed signed-feed synchronization with Ed25519 verification, bounded
@@ -42,6 +44,8 @@ service backed by PostgreSQL through SQLAlchemy.
   incomplete/stale source states
 - deterministic cutoff-safe temporal expected ranges with visible method,
   confidence, data quality, and analytical-only authority
+- deterministic cutoff-safe temporal deviation assessments with governed
+  direction/persistence policies and investigation-context-only authority
 - release/artifact metadata placeholder
 - static dashboard mount at `/ui`
 - legacy Python collector ingestion and policy endpoints
@@ -184,6 +188,9 @@ Control Tower tables include:
 - `asset_classification_evidence`
 - `classification_conflicts`
 - `asset_components`
+- `component_source_snapshots`
+- `component_collection_sources`
+- `component_source_presence`
 - `asset_component_history`
 - `component_evidence`
 - `advisory_catalog_imports`
@@ -344,6 +351,10 @@ missingness/backfill behavior, security boundaries, and Environment Trends UI.
 See `docs/TEMPORAL_EXPECTED_RANGES.md` for the Phase 2 expectation contract,
 closed-history cutoff rules, governed rolling/seasonal methods, confidence and
 data-quality gates, expected-band UI, and analytical-only authority boundary.
+See `docs/TEMPORAL_DEVIATION_ASSESSMENTS.md` for the Phase 3 assessment
+contract, governed direction/persistence policies, observation and expectation
+cutoffs, deterministic identities, read-only API, neutral UI, and explicit
+non-SIEM/non-authority boundaries.
 
 ## Safety Boundaries
 

@@ -19,6 +19,7 @@ import (
 
 	agentconfig "github.com/openassetwatch/openassetwatch/internal/agent/config"
 	agentcredential "github.com/openassetwatch/openassetwatch/internal/agent/credential"
+	agentcredentialacl "github.com/openassetwatch/openassetwatch/internal/agent/credentialacl"
 	agenthubclient "github.com/openassetwatch/openassetwatch/internal/agent/hubclient"
 	agentidentity "github.com/openassetwatch/openassetwatch/internal/agent/identity"
 	agentinstallplan "github.com/openassetwatch/openassetwatch/internal/agent/installplan"
@@ -38,6 +39,9 @@ var submitHTTPClient = func() *http.Client {
 }
 var defaultAgentPaths = agentpaths.DefaultAgentPaths
 var readOSRelease = os.ReadFile
+var repairDefaultCredentialACL = func() error {
+	return agentcredentialacl.RepairDefault()
+}
 
 const localInventorySubmitPath = "/api/v1/collections/local-inventory"
 const agentCheckInPath = "/api/v1/agents/check-in"
@@ -48,6 +52,17 @@ func main() {
 }
 
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "repair-private-state-acl" {
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "repair-private-state-acl accepts no arguments")
+			return 2
+		}
+		if err := repairDefaultCredentialACL(); err != nil {
+			fmt.Fprintln(stderr, "private state ACL repair failed")
+			return 1
+		}
+		return 0
+	}
 	if len(args) > 0 && args[0] == "enroll" {
 		return runEnroll(args[1:], os.Stdin, stdout, stderr)
 	}
@@ -1617,7 +1632,7 @@ func buildBoundAgentCheckInPayload(identity agentidentity.Identity) map[string]a
 		"site_id": identity.SiteID, "agent_id": identity.AgentID,
 		"agent_type": "endpoint-agent", "agent_version": version.Number,
 		"platform": runtime.GOOS, "architecture": runtime.GOARCH,
-		"supported_capabilities":   []string{"check-in", "endpoint-inventory-v1"},
+		"supported_capabilities":   []string{"check-in", "endpoint-inventory-v1", "native-software-inventory-v1"},
 		"inventory_schema_version": "oaw.endpoint-inventory.v1",
 		"health":                   "healthy", "observed_at": time.Now().UTC(),
 	}
@@ -1658,7 +1673,7 @@ func buildEndpointInventoryPayload(inventory models.Inventory, record agentcrede
 		}
 		item := map[string]any{
 			"interfaces": interfaces, "evidence": evidence,
-			"components": []any{}, "management_capabilities": []string{},
+			"components": asset.Components, "management_capabilities": []string{},
 		}
 		for key, value := range map[string]string{
 			"asset_id": asset.AssetID, "hostname": asset.Hostname, "fqdn": asset.FQDN,
@@ -1676,6 +1691,12 @@ func buildEndpointInventoryPayload(inventory models.Inventory, record agentcrede
 	if observedAt.IsZero() {
 		observedAt = time.Now().UTC()
 	}
+	limitations := make([]string, 0, len(inventory.SoftwareSources))
+	for _, source := range inventory.SoftwareSources {
+		if source.Status != "complete" {
+			limitations = append(limitations, "software-source-"+source.SourceID+"-"+source.Status)
+		}
+	}
 	return map[string]any{
 		"schema_version":     "oaw.endpoint-inventory.v1",
 		"inventory_batch_id": fmt.Sprintf("batch_%x", digest[:16]),
@@ -1684,8 +1705,9 @@ func buildEndpointInventoryPayload(inventory models.Inventory, record agentcrede
 		"deployment_id": emptyStringAsNil(record.DeploymentID),
 		"agent_type":    "endpoint-agent", "agent_version": version.Number,
 		"platform": runtime.GOOS, "architecture": runtime.GOARCH,
-		"supported_capabilities": []string{"endpoint-inventory-v1"},
-		"collection_limitations": []string{"installed-component-collection-not-yet-supported"},
+		"supported_capabilities": []string{"endpoint-inventory-v1", "native-software-inventory-v1"},
+		"collection_limitations": limitations,
+		"software_sources":       inventory.SoftwareSources,
 		"assets":                 assets,
 	}
 }

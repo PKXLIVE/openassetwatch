@@ -28,6 +28,11 @@ class TemporalUiTests(unittest.TestCase):
             "/api/v1/temporal/metrics",
             "/api/v1/temporal/signals",
             "/api/v1/temporal/expectations",
+            "/api/v1/temporal/deviation-assessments",
+            'id="temporal-deviation-assessment"',
+            'id="trend-deviation-state"',
+            'id="trend-deviation-persistence"',
+            'id="trend-deviation-provenance"',
         )
         for value in expected:
             with self.subTest(value=value):
@@ -77,11 +82,31 @@ class TemporalUiTests(unittest.TestCase):
         self.assertIn("site_id: siteId", loader)
         self.assertIn('granularity: "daily"', loader)
         self.assertIn("target_start: window.targetStart", loader)
-        self.assertIn("Promise.all", loader)
+        self.assertNotIn("Promise.all", loader)
         self.assertIn("[30, 90].includes", loader)
         self.assertIn("advisorHeaders()", loader)
         self.assertNotIn("tenant_id", loader)
         self.assertNotIn("group_by", loader)
+        self.assertIn("assessmentTargetStart", loader)
+        self.assertIn("endpoints.temporalDeviation", loader)
+        series_index = loader.index("endpoints.temporalSignals")
+        expectation_index = loader.index("endpoints.temporalExpectation")
+        deviation_index = loader.index("endpoints.temporalDeviation")
+        self.assertLess(series_index, expectation_index)
+        self.assertLess(expectation_index, deviation_index)
+        self.assertIn("let deviationAvailable = false", loader)
+        self.assertIn("Assessment unavailable; observed history and expected context remain visible.", loader)
+        for forbidden in (
+            "direction:",
+            "persistence:",
+            "confidence_threshold",
+            "quality_threshold",
+            "method:",
+            "formula:",
+            "severity:",
+            "risk:",
+        ):
+            self.assertNotIn(forbidden, loader)
 
     def test_untrusted_values_are_rendered_as_text(self) -> None:
         self.assertNotIn("innerHTML", self.dashboard)
@@ -110,6 +135,78 @@ class TemporalUiTests(unittest.TestCase):
         self.assertIn("expectation.upper", chart)
         self.assertNotIn("anomaly-indicator", section)
         self.assertNotIn("deviation-indicator", section)
+
+    def test_deviation_assessment_uses_latest_closed_bucket_and_neutral_states(self) -> None:
+        window = self.dashboard.split("function temporalUtcWindow(days)", 1)[1].split(
+            "function temporalPointPresentation",
+            1,
+        )[0]
+        self.assertIn("assessmentTargetStart", window)
+        self.assertIn("assessmentTargetStart.setUTCDate(assessmentTargetStart.getUTCDate() - 1)", window)
+
+        renderer = self.dashboard.split(
+            "function temporalDeviationStateText(stateValue)",
+            1,
+        )[1].split("async function loadTemporalRegistry", 1)[0]
+        for state in (
+            "blocked",
+            "within-range",
+            "outside-policy-direction",
+            "pending-persistence",
+            "candidate",
+        ):
+            self.assertIn(f'"{state}"', renderer)
+        for phrase in (
+            "Assessment unavailable",
+            "Within expected historical range",
+            "Outside expected range",
+            "Persistence requirement not yet met",
+            "Review candidate",
+            "Above expected range",
+            "Below expected range",
+        ):
+            self.assertIn(phrase, renderer)
+
+    def test_blocked_assessment_does_not_fabricate_distance_or_provenance(self) -> None:
+        renderer = self.dashboard.split(
+            "function renderTemporalDeviationAssessment(assessment",
+            1,
+        )[1].split("async function loadTemporalRegistry", 1)[0]
+        self.assertIn('setText("trend-deviation-distance", "not available")', renderer)
+        self.assertIn('setText("trend-deviation-relative", "not available")', renderer)
+        self.assertIn("Observation and expectation provenance are unavailable", renderer)
+        self.assertIn("assessment.distance_beyond_bound !== null", renderer)
+        self.assertIn("assessment.relative_change !== null", renderer)
+
+    def test_deviation_language_is_non_authoritative_and_has_no_automatic_action(self) -> None:
+        section = self.dashboard.split(
+            '<section id="temporal-deviation-assessment"',
+            1,
+        )[1].split('<section id="assets"', 1)[0]
+        lower = section.lower()
+        self.assertIn("deterministic investigation context", lower)
+        for prohibited in (
+            "confirmed anomaly",
+            "alert",
+            "incident",
+            "breach",
+            "malicious",
+            "compromised",
+            "attack detected",
+            "critical",
+            "high severity",
+            "remediation required",
+        ):
+            self.assertNotIn(prohibited, lower)
+        loader = self.dashboard.split("async function loadTemporalTrend()", 1)[1].split(
+            "function setupTemporalTrends",
+            1,
+        )[0]
+        self.assertNotIn("setInterval", loader)
+        self.assertNotIn("setTimeout", loader)
+        self.assertNotIn("POST", loader)
+        self.assertNotIn("save", loader.lower())
+        self.assertNotIn("openInvestigation", loader)
 
 
 if __name__ == "__main__":

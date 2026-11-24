@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -14,14 +15,26 @@ TEMPORAL_SIGNAL_SCHEMA_VERSION = "oaw.temporal-signal.v1"
 TEMPORAL_REGISTRY_SCHEMA_VERSION = "oaw.temporal-metric-registry.v1"
 TEMPORAL_SERIES_SCHEMA_VERSION = "oaw.temporal-series.v1"
 TEMPORAL_EXPECTATION_SCHEMA_VERSION = "oaw.temporal-expectation.v1"
+TEMPORAL_DEVIATION_ASSESSMENT_SCHEMA_VERSION = (
+    "oaw.temporal-deviation-assessment.v1"
+)
 TEMPORAL_PROJECTION_VERSION = "1"
 TEMPORAL_EXPECTATION_METHOD_VERSION = "1"
+TEMPORAL_DEVIATION_POLICY_VERSION = "1"
 MAX_TEMPORAL_HISTORY_DAYS = 366
 MAX_TEMPORAL_BUCKETS = 366
 TEMPORAL_EXPECTATION_HISTORY_BUCKETS = 56
+MAX_TEMPORAL_DEVIATION_ASSESSMENTS = 3
+MAX_TEMPORAL_DEVIATION_SUPPORTING_ASSESSMENTS = (
+    MAX_TEMPORAL_DEVIATION_ASSESSMENTS - 1
+)
+MAX_TEMPORAL_DEVIATION_REASON_CODES = 8
 METRIC_KEY_PATTERN = r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$"
 SIGNAL_ID_PATTERN = r"^sig_[0-9a-f]{32}$"
 EXPECTATION_ID_PATTERN = r"^exp_[0-9a-f]{32}$"
+DEVIATION_ASSESSMENT_ID_PATTERN = r"^tda_[0-9a-f]{32}$"
+DEVIATION_POLICY_ID_PATTERN = r"^tdp_[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+VERSION_PATTERN = r"^[1-9][0-9]{0,7}$"
 HISTORY_DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 
 BucketGranularity = Literal["daily"]
@@ -36,6 +49,29 @@ ExpectationMethod = Literal[
 ExpectationConfidence = Literal["none", "low", "medium", "high"]
 ExpectationDataQuality = Literal["insufficient", "limited", "sufficient"]
 ExpectationBlockedReason = Literal["insufficient-usable-history"]
+DeviationPolicyDirection = Literal["above", "below"]
+DeviationDirection = Literal["inside", "above", "below", "unknown"]
+DeviationAssessmentState = Literal[
+    "blocked",
+    "within-range",
+    "outside-policy-direction",
+    "pending-persistence",
+    "candidate",
+]
+DeviationReasonCode = Literal[
+    "target-observation-unavailable",
+    "target-observation-incomplete",
+    "target-observation-stale",
+    "target-observation-untrusted-quality",
+    "expectation-range-unavailable",
+    "expectation-confidence-below-policy",
+    "expectation-quality-below-policy",
+    "expectation-provenance-invalid",
+    "within-expected-range",
+    "direction-not-admitted",
+    "persistence-requirement-not-met",
+    "deviation-candidate",
+]
 
 
 class StrictTemporalContract(BaseModel):
@@ -433,6 +469,250 @@ class TemporalExpectation(StrictTemporalContract):
                 raise ValueError("a populated expected range cannot be insufficient")
             if self.confidence == "none" or self.blocked_reason is not None:
                 raise ValueError("a populated expected range requires confidence and no block")
+        return self
+
+
+class TemporalDeviationPolicy(StrictTemporalContract):
+    """One product-owned candidate-selection policy for a governed metric."""
+
+    policy_id: str = Field(..., pattern=DEVIATION_POLICY_ID_PATTERN, max_length=160)
+    policy_version: str = Field(..., pattern=VERSION_PATTERN, max_length=8)
+    metric_key: str = Field(..., pattern=METRIC_KEY_PATTERN, max_length=120)
+    allowed_directions: tuple[DeviationPolicyDirection, ...] = Field(
+        ...,
+        min_length=1,
+        max_length=2,
+    )
+    minimum_expectation_confidence: Literal["medium"]
+    required_expectation_data_quality: Literal["sufficient"]
+    required_persistence_buckets: int = Field(..., ge=1, le=3)
+    maximum_persistence_lookback: int = Field(..., ge=1, le=3)
+    supported_granularity: Literal["daily"]
+    entity_scope: Literal["site"]
+
+    @model_validator(mode="after")
+    def validate_policy(self) -> "TemporalDeviationPolicy":
+        if len(self.allowed_directions) != len(set(self.allowed_directions)):
+            raise ValueError("deviation policy directions must be unique")
+        if self.required_persistence_buckets > self.maximum_persistence_lookback:
+            raise ValueError("deviation persistence cannot exceed its bounded lookback")
+        return self
+
+
+class TemporalDeviationAssessment(StrictTemporalContract):
+    """One deterministic, read-only assessment for one closed daily bucket."""
+
+    schema_version: Literal["oaw.temporal-deviation-assessment.v1"]
+    assessment_id: str = Field(..., pattern=DEVIATION_ASSESSMENT_ID_PATTERN)
+    input_digest: str = Field(..., pattern=HISTORY_DIGEST_PATTERN)
+
+    metric_key: str = Field(..., pattern=METRIC_KEY_PATTERN, max_length=120)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=128)
+    site_id: str = Field(..., min_length=1, max_length=128, pattern=SITE_ID_PATTERN)
+    asset_id: str | None = Field(default=None, min_length=1, max_length=160)
+
+    target_bucket_start: datetime
+    target_bucket_end: datetime
+    bucket_granularity: BucketGranularity
+    generated_at: datetime
+    observation_knowledge_cutoff: datetime
+
+    signal_id: str = Field(..., pattern=SIGNAL_ID_PATTERN)
+    observation_digest: str = Field(..., pattern=HISTORY_DIGEST_PATTERN)
+    observed_value: float | None = Field(default=None, ge=0)
+    observation_unit: str = Field(..., min_length=1, max_length=40)
+    observation_freshness: SignalFreshness
+    observation_data_quality: SignalDataQuality
+    observation_complete: bool
+
+    expectation_id: str = Field(..., pattern=EXPECTATION_ID_PATTERN)
+    history_digest: str = Field(..., pattern=HISTORY_DIGEST_PATTERN)
+    expected: float | None = Field(default=None, ge=0)
+    lower: float | None = Field(default=None, ge=0)
+    upper: float | None = Field(default=None, ge=0)
+    expectation_method: ExpectationMethod
+    expectation_method_version: str = Field(..., min_length=1, max_length=32)
+    expectation_confidence: ExpectationConfidence
+    expectation_data_quality: ExpectationDataQuality
+
+    policy_id: str = Field(..., pattern=DEVIATION_POLICY_ID_PATTERN, max_length=160)
+    policy_version: str = Field(..., pattern=VERSION_PATTERN, max_length=8)
+    allowed_directions: tuple[DeviationPolicyDirection, ...] = Field(
+        ...,
+        min_length=1,
+        max_length=2,
+    )
+    required_persistence_buckets: int = Field(..., ge=1, le=3)
+
+    direction: DeviationDirection
+    distance_beyond_bound: float | None = Field(default=None, ge=0)
+    relative_change: float | None = Field(default=None, ge=0)
+    persistence_observed_buckets: int = Field(..., ge=0, le=3)
+    supporting_assessment_ids: tuple[str, ...] = Field(
+        default=(),
+        max_length=MAX_TEMPORAL_DEVIATION_SUPPORTING_ASSESSMENTS,
+    )
+
+    assessment_state: DeviationAssessmentState
+    candidate: bool
+    reason_codes: tuple[DeviationReasonCode, ...] = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_TEMPORAL_DEVIATION_REASON_CODES,
+    )
+    authority: Literal["analytical-investigation-context-only"]
+
+    @field_validator(
+        "target_bucket_start",
+        "target_bucket_end",
+        "generated_at",
+        "observation_knowledge_cutoff",
+    )
+    @classmethod
+    def require_deviation_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("temporal deviation timestamps must include a timezone")
+        return value.astimezone(timezone.utc)
+
+    @field_validator("supporting_assessment_ids")
+    @classmethod
+    def validate_supporting_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("supporting assessment identifiers must be unique")
+        for assessment_id in value:
+            if not isinstance(assessment_id, str) or not re.fullmatch(
+                DEVIATION_ASSESSMENT_ID_PATTERN,
+                assessment_id,
+            ):
+                raise ValueError("supporting assessment identifier is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_deviation_consistency(self) -> "TemporalDeviationAssessment":
+        if self.target_bucket_end - self.target_bucket_start != timedelta(days=1):
+            raise ValueError("deviation assessments must span exactly one UTC day")
+        for value in (
+            self.target_bucket_start,
+            self.target_bucket_end,
+            self.observation_knowledge_cutoff,
+        ):
+            if any((value.hour, value.minute, value.second, value.microsecond)):
+                raise ValueError("deviation boundaries must align to UTC midnight")
+        if self.observation_knowledge_cutoff != self.target_bucket_end:
+            raise ValueError("observation cutoff must equal the target bucket end")
+        if len(self.allowed_directions) != len(set(self.allowed_directions)):
+            raise ValueError("deviation assessment directions must be unique")
+        if len(self.reason_codes) != len(set(self.reason_codes)):
+            raise ValueError("deviation reason codes must be unique")
+
+        range_values = (self.expected, self.lower, self.upper)
+        if any(value is None for value in range_values) and any(
+            value is not None for value in range_values
+        ):
+            raise ValueError("assessment expectation values must be all present or absent")
+
+        required_reason = {
+            "within-range": "within-expected-range",
+            "outside-policy-direction": "direction-not-admitted",
+            "pending-persistence": "persistence-requirement-not-met",
+            "candidate": "deviation-candidate",
+        }.get(self.assessment_state)
+        if required_reason is not None and required_reason not in self.reason_codes:
+            raise ValueError("assessment state requires its matching reason code")
+
+        blocked_reasons = {
+            "target-observation-unavailable",
+            "target-observation-incomplete",
+            "target-observation-stale",
+            "target-observation-untrusted-quality",
+            "expectation-range-unavailable",
+            "expectation-confidence-below-policy",
+            "expectation-quality-below-policy",
+            "expectation-provenance-invalid",
+        }
+        if self.assessment_state == "blocked":
+            if not set(self.reason_codes).issubset(blocked_reasons):
+                raise ValueError("a blocked assessment contains a non-blocking reason")
+        elif tuple(self.reason_codes) != (required_reason,):
+            raise ValueError("an evaluated assessment requires one state reason")
+
+        if self.assessment_state == "blocked":
+            if self.candidate:
+                raise ValueError("a blocked assessment cannot be a candidate")
+            if self.direction != "unknown" or self.distance_beyond_bound is not None:
+                raise ValueError("a blocked assessment requires unknown direction and null distance")
+            if self.relative_change is not None:
+                raise ValueError("a blocked assessment requires null relative change")
+            if self.persistence_observed_buckets != 0 or self.supporting_assessment_ids:
+                raise ValueError("a blocked assessment cannot claim persistence support")
+            return self
+
+        if self.observed_value is None or any(value is None for value in range_values):
+            raise ValueError("an evaluated assessment requires observation and range values")
+        assert self.expected is not None
+        assert self.lower is not None
+        assert self.upper is not None
+        if not self.lower <= self.expected <= self.upper:
+            raise ValueError("assessment range bounds must contain the expected value")
+        if (
+            not self.observation_complete
+            or self.observation_freshness != "current"
+            or self.observation_data_quality != "observed"
+        ):
+            raise ValueError("an evaluated assessment requires a trustworthy observation")
+        if (
+            self.expectation_data_quality != "sufficient"
+            or self.expectation_confidence not in {"medium", "high"}
+        ):
+            raise ValueError("an evaluated assessment requires a trustworthy expectation")
+
+        if self.observed_value < self.lower:
+            calculated_direction = "below"
+            calculated_distance = self.lower - self.observed_value
+        elif self.observed_value > self.upper:
+            calculated_direction = "above"
+            calculated_distance = self.observed_value - self.upper
+        else:
+            calculated_direction = "inside"
+            calculated_distance = 0.0
+        if self.direction != calculated_direction:
+            raise ValueError("assessment direction is inconsistent with its values")
+        if self.distance_beyond_bound is None or self.distance_beyond_bound != calculated_distance:
+            raise ValueError("assessment distance is inconsistent with its values")
+        if self.expected == 0:
+            if self.relative_change is not None:
+                raise ValueError("relative change must be null when expected is zero")
+        else:
+            calculated_relative_change = abs(self.observed_value - self.expected) / self.expected
+            if self.relative_change != calculated_relative_change:
+                raise ValueError("relative change is inconsistent with its values")
+
+        if self.assessment_state == "within-range":
+            if self.direction != "inside" or self.candidate:
+                raise ValueError("within-range assessments must be inside and non-candidates")
+            if self.persistence_observed_buckets != 0 or self.supporting_assessment_ids:
+                raise ValueError("within-range assessments cannot claim persistence")
+        elif self.assessment_state == "outside-policy-direction":
+            if self.direction == "inside" or self.direction in self.allowed_directions:
+                raise ValueError("outside-policy-direction must use a disallowed direction")
+            if self.candidate or self.persistence_observed_buckets != 0:
+                raise ValueError("a disallowed direction cannot claim candidate persistence")
+        elif self.assessment_state == "pending-persistence":
+            if self.direction not in self.allowed_directions or self.candidate:
+                raise ValueError("pending persistence requires an admitted non-candidate direction")
+            if not 1 <= self.persistence_observed_buckets < self.required_persistence_buckets:
+                raise ValueError("pending persistence count is inconsistent with policy")
+        elif self.assessment_state == "candidate":
+            if self.direction not in self.allowed_directions or not self.candidate:
+                raise ValueError("candidate state requires an admitted candidate direction")
+            if self.persistence_observed_buckets != self.required_persistence_buckets:
+                raise ValueError("candidate persistence count must meet the policy exactly")
+        else:  # pragma: no cover - Literal validation rejects this first.
+            raise ValueError("unsupported deviation assessment state")
+
+        expected_support_count = max(0, self.persistence_observed_buckets - 1)
+        if len(self.supporting_assessment_ids) != expected_support_count:
+            raise ValueError("supporting assessment count is inconsistent with persistence")
         return self
 
 

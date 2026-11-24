@@ -27,7 +27,42 @@ type Asset struct {
 	MACAddresses      []MACAddressObservation    `json:"mac_addresses,omitempty"`
 	DefaultGateway    *DefaultGatewayObservation `json:"default_gateway,omitempty"`
 	NetworkNeighbors  []NetworkNeighbor          `json:"network_neighbors,omitempty"`
+	Components        []SoftwareComponent        `json:"components,omitempty"`
 	Evidence          []Evidence                 `json:"evidence,omitempty"`
+}
+
+// SoftwareComponent is a bounded package or application observation. It
+// deliberately excludes executable paths, command lines, license data, and
+// unrestricted platform metadata.
+type SoftwareComponent struct {
+	ComponentType    string            `json:"component_type"`
+	Ecosystem        string            `json:"ecosystem"`
+	Name             string            `json:"name"`
+	Version          string            `json:"version,omitempty"`
+	Vendor           string            `json:"vendor,omitempty"`
+	Architecture     string            `json:"architecture,omitempty"`
+	PackageManager   string            `json:"package_manager,omitempty"`
+	PackageURL       string            `json:"purl,omitempty"`
+	InstallScope     string            `json:"install_scope"`
+	CollectionSource string            `json:"collection_source_id"`
+	SourceRecordID   string            `json:"source_record_id"`
+	EvidenceMethod   string            `json:"evidence_method"`
+	ObservedAt       time.Time         `json:"observed_at"`
+	Confidence       float64           `json:"confidence"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
+}
+
+// SoftwareSourceResult reports completeness independently for each native
+// package source. Only a complete result is authoritative for absence.
+type SoftwareSourceResult struct {
+	SourceID    string    `json:"source_id"`
+	Platform    string    `json:"platform"`
+	Status      string    `json:"status"`
+	ObservedAt  time.Time `json:"observed_at"`
+	RecordCount int       `json:"record_count"`
+	Truncated   bool      `json:"truncated"`
+	ErrorCode   string    `json:"error_code,omitempty"`
+	Limitations []string  `json:"limitations,omitempty"`
 }
 
 type HostObservation struct {
@@ -111,14 +146,15 @@ type CollectorHeartbeat struct {
 }
 
 type Inventory struct {
-	SchemaVersion string     `json:"schema_version"`
-	TenantID      string     `json:"tenant_id,omitempty"`
-	SiteID        string     `json:"site_id,omitempty"`
-	DeploymentID  string     `json:"deployment_id,omitempty"`
-	AgentID       string     `json:"agent_id,omitempty"`
-	SensorID      string     `json:"sensor_id,omitempty"`
-	CollectedAt   time.Time  `json:"collected_at"`
-	Assets        []Asset    `json:"assets"`
-	Findings      []Finding  `json:"findings,omitempty"`
-	Evidence      []Evidence `json:"evidence,omitempty"`
+	SchemaVersion   string                 `json:"schema_version"`
+	TenantID        string                 `json:"tenant_id,omitempty"`
+	SiteID          string                 `json:"site_id,omitempty"`
+	DeploymentID    string                 `json:"deployment_id,omitempty"`
+	AgentID         string                 `json:"agent_id,omitempty"`
+	SensorID        string                 `json:"sensor_id,omitempty"`
+	CollectedAt     time.Time              `json:"collected_at"`
+	Assets          []Asset                `json:"assets"`
+	SoftwareSources []SoftwareSourceResult `json:"software_sources,omitempty"`
+	Findings        []Finding              `json:"findings,omitempty"`
+	Evidence        []Evidence             `json:"evidence,omitempty"`
 }

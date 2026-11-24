@@ -9,6 +9,7 @@ BIN_DIR="$APP_ROOT/bin"
 CONFIG_DIR="$APP_ROOT/config"
 IDENTITY_DIR="$APP_ROOT/identity"
 STATE_DIR="$APP_ROOT/state"
+CREDENTIAL_DIR="$STATE_DIR/credential"
 LOG_DIR="/Library/Logs/OpenAssetWatch/Agent"
 PLIST="/Library/LaunchDaemons/com.openassetwatch.agent.plist"
 BINARY="$BIN_DIR/oaw-agent"
@@ -113,13 +114,17 @@ ensure_user() {
 }
 
 apply_permissions() {
-  /bin/mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$IDENTITY_DIR" "$STATE_DIR" "$LOG_DIR"
+  if [ -L "$CREDENTIAL_DIR" ] || { [ -e "$CREDENTIAL_DIR" ] && [ ! -d "$CREDENTIAL_DIR" ]; }; then
+    fail "credential directory must be a real directory"
+  fi
+  /bin/mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$IDENTITY_DIR" "$STATE_DIR" "$CREDENTIAL_DIR" "$LOG_DIR"
   /usr/sbin/chown root:wheel "$APP_ROOT" "$BIN_DIR"
   /bin/chmod 0755 "$APP_ROOT" "$BIN_DIR"
   /usr/sbin/chown root:"$GROUP_NAME" "$CONFIG_DIR" "$IDENTITY_DIR"
   /bin/chmod 0750 "$CONFIG_DIR" "$IDENTITY_DIR"
   /bin/chmod 0750 "$STATE_DIR" "$LOG_DIR"
   /usr/sbin/chown -R "$USER_NAME:$GROUP_NAME" "$STATE_DIR" "$LOG_DIR"
+  /bin/chmod 0700 "$CREDENTIAL_DIR"
   [ ! -f "$BINARY" ] || /usr/sbin/chown root:wheel "$BINARY"
   [ ! -f "$BINARY" ] || /bin/chmod 0755 "$BINARY"
   [ ! -f "$PLIST" ] || /usr/sbin/chown root:wheel "$PLIST"
