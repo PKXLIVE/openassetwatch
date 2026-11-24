@@ -7,7 +7,9 @@ scan, probe, inject packets, fetch discovered URLs, or upload raw packet data.
 Production-oriented enrollment and per-sensor credential binding are
 documented in `docs/SENSOR_ENROLLMENT.md`. Hardened systemd deployment,
 bounded diagnostics, and the authorized SPAN workflow are documented in
-`docs/SENSOR_LINUX_DEPLOYMENT.md`.
+`docs/SENSOR_LINUX_DEPLOYMENT.md`. Enable capture only on networks and
+systems you own or are authorized to monitor, including the traffic mirrored
+to the capture interface.
 
 The sensor keeps the hub authoritative. The spoke may report an asset identity,
 protocol evidence, VLAN scope, timestamps, and confidence. Risk, findings,

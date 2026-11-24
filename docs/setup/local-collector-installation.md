@@ -1,7 +1,8 @@
 # Local Collector Installation MVP
 
 This guide describes the MVP local installer flow for testing OpenAssetWatch
-collectors on multiple machines.
+collectors on multiple machines. Deploy endpoint collection and network
+observation only on systems and networks you own or are authorized to monitor.
 
 The collector remains Python-first. Native service managers are used only to
 keep the Python collector running:
