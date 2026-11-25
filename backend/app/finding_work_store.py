@@ -21,6 +21,7 @@ from .finding_work_contracts import (
     WORK_ACTOR_PRINCIPAL,
     WORK_STATUS_TRANSITIONS,
 )
+from .verification_store import capture_baseline
 
 
 MAX_WORK_PAGE = 200
@@ -491,6 +492,19 @@ class SqlFindingWorkStore:
                 to_status=status,
                 note=note,
             )
+            if status == "done":
+                # Marking work done is a remediation report, not proof. Copy
+                # the evidence present now so later evidence can be compared;
+                # the finding itself is unchanged and stays unresolved until
+                # deterministic evaluation proves otherwise.
+                capture_baseline(
+                    connection,
+                    work_item_id=item["work_item_id"],
+                    finding_id=finding["finding_id"],
+                    site_id=finding["site_id"],
+                    report_revision=revision,
+                    reported_at=at,
+                )
             loaded = self._load_item(connection, finding_id)
         assert loaded is not None
         return loaded

@@ -84,9 +84,9 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         second = migrate_database_schema(self.database_engine)
 
         self.assertEqual(first.state, "ready")
-        self.assertEqual(first.current_version, 7)
+        self.assertEqual(first.current_version, 8)
         self.assertEqual(second, first)
-        self.assertEqual(self._state_count(), 7)
+        self.assertEqual(self._state_count(), 8)
         with self.database_engine.connect() as connection:
             table_count = int(
                 connection.execute(
@@ -158,7 +158,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         status = migrate_database_schema(self.database_engine)
 
         self.assertEqual(status.state, "ready")
-        self.assertEqual(self._state_count(), 7)
+        self.assertEqual(self._state_count(), 8)
         with self.database_engine.connect() as connection:
             preserved = connection.execute(
                 text(
@@ -381,7 +381,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
                     INSERT INTO oaw_schema_migrations (
                         version, name, checksum, execution_duration_ms,
                         application_version, minimum_application_version
-                    ) VALUES (8, 'unknown', :checksum, 0, '0.1.0', '0.1.0')
+                    ) VALUES (9, 'unknown', :checksum, 0, '0.1.0', '0.1.0')
                     """
                 ),
                 {"checksum": "a" * 64},
@@ -411,7 +411,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(len(results), 2)
         self.assertTrue(all(isinstance(item, type(results[0])) for item in results))
         self.assertTrue(all(getattr(item, "state", None) == "ready" for item in results))
-        self.assertEqual(self._state_count(), 7)
+        self.assertEqual(self._state_count(), 8)
 
     def test_version_one_database_upgrades_through_canonical_ingestion(self) -> None:
         migrations = discover_migrations()
@@ -421,8 +421,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
         self.assertEqual(upgraded.state, "ready")
-        self.assertEqual(upgraded.current_version, 7)
-        self.assertEqual(self._state_count(), 7)
+        self.assertEqual(upgraded.current_version, 8)
+        self.assertEqual(self._state_count(), 8)
         with self.database_engine.connect() as connection:
             tables = {
                 connection.execute(text("SELECT to_regclass('public.endpoint_agent_enrollments')")).scalar_one(),
@@ -444,8 +444,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(version_two.current_version, 2)
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 7)
-        self.assertEqual(self._state_count(), 7)
+        self.assertEqual(upgraded.current_version, 8)
+        self.assertEqual(self._state_count(), 8)
         with self.database_engine.connect() as connection:
             tables = {
                 connection.execute(text("SELECT to_regclass('public.canonical_ingestion_sources')")).scalar_one(),
@@ -466,8 +466,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(version_three.current_version, 3)
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 7)
-        self.assertEqual(self._state_count(), 7)
+        self.assertEqual(upgraded.current_version, 8)
+        self.assertEqual(self._state_count(), 8)
         with self.database_engine.connect() as connection:
             tables = {
                 connection.execute(
@@ -532,8 +532,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
 
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 7)
-        self.assertEqual(self._state_count(), 7)
+        self.assertEqual(upgraded.current_version, 8)
+        self.assertEqual(self._state_count(), 8)
         with self.database_engine.connect() as connection:
             after = dict(
                 connection.execute(
@@ -635,8 +635,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
 
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 7)
-        self.assertEqual(self._state_count(), 7)
+        self.assertEqual(upgraded.current_version, 8)
+        self.assertEqual(self._state_count(), 8)
         with self.database_engine.connect() as connection:
             after = {
                 table: [dict(row) for row in connection.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
@@ -826,8 +826,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
 
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 7)
-        self.assertEqual(self._state_count(), 7)
+        self.assertEqual(upgraded.current_version, 8)
+        self.assertEqual(self._state_count(), 8)
         with self.database_engine.connect() as connection:
             after = {
                 table: [dict(row) for row in connection.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
@@ -856,6 +856,137 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
                 "trg_asset_importance_events_append_only",
                 "trg_asset_importance_events_no_truncate",
                 "trg_asset_importance_assignments_cascade_only_delete",
+            },
+        )
+        self.assertEqual(migrate_database_schema(self.database_engine, migrations=migrations), upgraded)
+
+    def test_version_seven_database_upgrades_to_finding_verification(self) -> None:
+        migrations = discover_migrations()
+        version_seven = migrate_database_schema(self.database_engine, migrations=migrations[:7])
+        self.assertEqual(version_seven.current_version, 7)
+        finding_id = "fnd_" + "7" * 32
+        work_item_id = "fwi_" + "7" * 32
+        with self.database_engine.begin() as connection:
+            connection.execute(text("INSERT INTO sites (site_id, name) VALUES ('upgrade-site', 'Upgrade Site')"))
+            connection.execute(
+                text(
+                    "INSERT INTO control_tower_assets (asset_key, asset_id, site_id, first_seen_at, last_seen_at)"
+                    " VALUES ('upgrade-site:asset-a', 'asset-a', 'upgrade-site', NOW(), NOW())"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO finding_evaluation_runs (run_id, trigger_type, ruleset_version, status, started_at)"
+                    " VALUES ('frun_upgrade7', 'test', 'oaw.findings.v1', 'completed', NOW())"
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO findings (
+                        finding_id, dedupe_key, rule_id, rule_version, engine_version, category,
+                        subject_type, site_id, asset_id, title, description, recommendation,
+                        severity, confidence, status, evidence_freshness, first_seen_at,
+                        last_seen_at, evaluated_at, last_evaluation_run_id
+                    ) VALUES (
+                        :finding_id, :dedupe_key, 'vulnerable-component', 2, 'oaw.findings.v1',
+                        'vulnerability', 'asset', 'upgrade-site', 'asset-a', 't', 'd', 'r', 'high',
+                        0.95, 'active', 'fresh', NOW(), NOW(), NOW(), 'frun_upgrade7'
+                    )
+                    """
+                ),
+                {"finding_id": finding_id, "dedupe_key": "fdk_" + "7" * 64},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO finding_evidence (finding_id, evidence_ref, evidence_type, source, freshness,"
+                    " confidence, summary) VALUES (:f, 'vmt_upgrade', 'vulnerability-match', 'm', 'fresh', 1.0, 's')"
+                ),
+                {"f": finding_id},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO finding_work_items (
+                        work_item_id, finding_id, site_id, work_status, revision,
+                        created_principal, created_actor_label, created_at, updated_at
+                    ) VALUES (:w, :f, 'upgrade-site', 'done', 2, 'api-admin-token', 'alex', NOW(), NOW())
+                    """
+                ),
+                {"w": work_item_id, "f": finding_id},
+            )
+            for revision, event_type, from_status, to_status in ((1, "created", None, "open"), (2, "status_changed", "open", "done")):
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO finding_work_events (
+                            work_item_id, finding_id, site_id, revision, event_type, from_status,
+                            to_status, finding_status, principal, actor_label, occurred_at
+                        ) VALUES (:w, :f, 'upgrade-site', :r, :e, :fs, :ts, 'active', 'api-admin-token', 'alex', NOW())
+                        """
+                    ),
+                    {"w": work_item_id, "f": finding_id, "r": revision, "e": event_type, "fs": from_status, "ts": to_status},
+                )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO asset_importance_assignments (
+                        site_id, asset_id, importance, assignment_state, source, reason, revision,
+                        principal, actor_label, created_at, reviewed_at, updated_at
+                    ) VALUES ('upgrade-site', 'asset-a', 'high', 'assigned', 'operator', 'r', 1,
+                              'api-admin-token', 'alex', NOW(), NOW(), NOW())
+                    """
+                )
+            )
+        tables = (
+            "sites", "control_tower_assets", "findings", "finding_evidence",
+            "finding_work_items", "finding_work_events", "asset_importance_assignments",
+        )
+        with self.database_engine.connect() as connection:
+            before = {
+                table: [dict(row) for row in connection.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
+                for table in tables
+            }
+
+        upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
+
+        self.assertEqual(upgraded.current_version, 8)
+        self.assertEqual(self._state_count(), 8)
+        with self.database_engine.connect() as connection:
+            after = {
+                table: [dict(row) for row in connection.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
+                for table in tables
+            }
+            for table in (
+                "finding_resolution_evidence",
+                "finding_verification_baselines",
+                "finding_verification_history",
+                "finding_verification_runs",
+            ):
+                self.assertEqual(connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one(), 0)
+            triggers = set(
+                connection.execute(
+                    text(
+                        "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN ("
+                        "'public.finding_resolution_evidence'::regclass, "
+                        "'public.finding_verification_baselines'::regclass, "
+                        "'public.finding_verification_history'::regclass, "
+                        "'public.finding_verification_runs'::regclass)"
+                    )
+                ).scalars()
+            )
+        self.assertEqual(after, before)
+        self.assertEqual(
+            triggers,
+            {
+                "trg_finding_resolution_evidence_append_only",
+                "trg_finding_resolution_evidence_no_truncate",
+                "trg_finding_verification_baselines_append_only",
+                "trg_finding_verification_baselines_no_truncate",
+                "trg_finding_verification_history_append_only",
+                "trg_finding_verification_history_no_truncate",
+                "trg_finding_verification_runs_append_only",
+                "trg_finding_verification_runs_no_truncate",
             },
         )
         self.assertEqual(migrate_database_schema(self.database_engine, migrations=migrations), upgraded)

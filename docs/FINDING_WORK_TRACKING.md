@@ -12,6 +12,12 @@ by the evidence-based reconciliation path described in
 work `done` does not resolve a finding; only fresh deterministic evidence that
 no longer matches the rule resolves it.
 
+Marking work `done` is a remediation report. In the same transaction,
+OpenAssetWatch records the evidence present at that moment as a verification
+baseline, so later evidence can be compared with it. Whether the report is
+supported is a separate, deterministic verification read model; see
+[CTEM_REMEDIATION_VERIFICATION.md](ctem/CTEM_REMEDIATION_VERIFICATION.md).
+
 ## Scope of v1
 
 Included:

@@ -1,7 +1,8 @@
 # CTEM Implementation Roadmap
 
-**Status:** planning document, refreshed after asset importance (`CTEM-GAP-02`)
-was implemented on top of the decision layer (`CTEM-GAP-01`). Capability detail is in
+**Status:** planning document, refreshed after remediation verification
+(`CTEM-GAP-06`), asset importance (`CTEM-GAP-02`), and the decision layer
+(`CTEM-GAP-01`) were implemented. Capability detail is in
 [CTEM_CAPABILITY_GAP_SYNTHESIS.md](CTEM_CAPABILITY_GAP_SYNTHESIS.md).
 
 ## Current status by CTEM stage
@@ -24,7 +25,7 @@ was implemented on top of the decision layer (`CTEM-GAP-01`). Capability detail 
 | Prioritization | Compensating-control assessment (`CTEM-GAP-07`) | PROPOSED (proposed design on main) |
 | Prioritization | Relationship and path hints (`CTEM-GAP-13`) | FUTURE |
 | Validation | Resolution on fresh affirmative evidence | IMPLEMENTED |
-| Validation | Verification guidance and records (`CTEM-GAP-06`) | PROPOSED (proposed design on main) |
+| Validation | **Verification guidance and records (`CTEM-GAP-06`)** | **IMPLEMENTED (evidence-based read model, baselines, history)** |
 | Mobilization | Manual work tracking | IMPLEMENTED |
 | Mobilization | Shared-treatment grouping (`CTEM-GAP-05`) | FUTURE |
 | Mobilization | Target dates from action bands (`CTEM-GAP-12`) | FUTURE |
@@ -68,16 +69,27 @@ Implementing `CTEM-GAP-01` surfaced these facts, which change the order:
    exception governance, enforced separation of duties waits for per-user
    identity.
 
+## What remediation verification changed
+
+1. **Completed work is no longer silently trusted.** Work marked done has a
+   deterministic verification state, and unverified work is listed.
+2. **Before-and-after evidence is preserved.** Finding evidence is replaced on
+   each evaluation, so baselines are captured when work is marked done.
+3. **Outcome metrics have their inputs.** Report times, verification
+   transitions, and decision history now exist for `CTEM-GAP-09`.
+4. **Five append-only governance tables exist** (work events, decision
+   history, importance events, verification baselines, verification history).
+
 ## Recommended order
 
 | Order | Capability | Why now | Depends on |
 | --- | --- | --- | --- |
 | done | `CTEM-GAP-02` asset importance (asset-level audited assignment) | First Act Now rule | Decision layer |
-| 1 | `CTEM-GAP-06` verification guidance and records | Answers "did remediation reduce exposure?" by joining work status, decision history, and later evidence | Decision layer, work tracking (done) |
-| 2 | `CTEM-GAP-09` outcome metrics | Time in each band, time to verified resolution, and done-but-unverified work, from existing history | `CTEM-GAP-06` for the verification metrics |
+| done | `CTEM-GAP-06` verification guidance and records | Answers "did remediation reduce exposure?" from later evidence | Decision layer, work tracking |
+| 1 | `CTEM-GAP-09` outcome metrics | Time in each band, time to verified resolution, and done-but-unverified work, from existing history | `CTEM-GAP-06` (done) |
 | 3 | `CTEM-GAP-03` exposure state and verified scope | Enables the remaining Act Now rule (known exploitation that is reachable) and lets the critical-asset rule see ruled-out exposure | Scope registry, approved external sources |
 | 4 | `CTEM-GAP-05` shared-treatment grouping | Groups findings one fix closes; independent of bands | Fixed-version data on findings |
-| 5 | `CTEM-GAP-10` tamper-evident governance history | Three append-only tables now benefit | None |
+| 5 | `CTEM-GAP-10` tamper-evident governance history | Five append-only tables now benefit | None |
 | 6 | `CTEM-GAP-12` target dates from action bands | Act Now now exists, but the scale is still incomplete until exposure exists | `CTEM-GAP-02` (done), preferably `CTEM-GAP-03` |
 | 7 | `CTEM-GAP-08` exploit-likelihood context | Separate field and reason only | Source Licensing Registry decision |
 | 8 | `CTEM-GAP-04` exception governance, and enforced review of lowered importance | High value, but real two-person approval is blocked | Per-user identity |
@@ -100,7 +112,7 @@ Smaller items that extend `CTEM-GAP-01` without a new gap:
 
 ## Recommended next implementation
 
-**`CTEM-GAP-06`: verification guidance and records.** Asset importance
-(`CTEM-GAP-02`) is implemented as scoped above; see
-[CTEM_ASSET_IMPORTANCE.md](CTEM_ASSET_IMPORTANCE.md) for what was built and
-what was deferred.
+**`CTEM-GAP-09`: outcome metrics.** Remediation verification (`CTEM-GAP-06`)
+is implemented; see [CTEM_REMEDIATION_VERIFICATION.md](CTEM_REMEDIATION_VERIFICATION.md).
+Asset importance (`CTEM-GAP-02`) is described in
+[CTEM_ASSET_IMPORTANCE.md](CTEM_ASSET_IMPORTANCE.md).

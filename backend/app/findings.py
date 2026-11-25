@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, Literal, Mapping, Sequence
 
@@ -145,6 +145,29 @@ ResolutionKey = tuple[str, SubjectType, str, str]
 
 
 @dataclass(frozen=True)
+class ResolutionEvidence:
+    """The affirmative evidence that made a finding eligible to resolve.
+
+    `basis` separates a confirmed technical change (for example a component
+    version at or above the fix) from a reviewed advisory or applicability
+    change. `observed_at` is when the evidence was collected, which is
+    distinct from the evaluation time that resolves the finding.
+    """
+
+    basis: str
+    evidence_ref: str
+    evidence_type: str
+    source: str
+    observed_at: datetime | None
+    freshness: Freshness
+    installed_version: str | None = None
+    fixed_version: str | None = None
+    # The component source snapshot that observed the component (or confirmed
+    # its removal), when the projection supplies it.
+    supporting_snapshot_id: str | None = None
+
+
+@dataclass(frozen=True)
 class EvaluationSnapshot:
     candidates: tuple[FindingCandidate, ...]
     resolution_eligible: frozenset[ResolutionKey]
@@ -154,6 +177,9 @@ class EvaluationSnapshot:
     site_count: int
     sensor_count: int
     asset_count: int
+    # Affirmative evidence for each eligible resolution, keyed by dedupe key or
+    # by `resolution_evidence_key(resolution key)`.
+    resolution_evidence: Mapping[str, tuple[ResolutionEvidence, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -1491,6 +1517,227 @@ def _resolution_eligible_vulnerability_dedupe_keys(
     return frozenset(keys)
 
 
+def resolution_evidence_key(key: ResolutionKey) -> str:
+    return "rk:" + "\x00".join(key)
+
+
+# Resolution bases. A technical basis is a newer observation showing the
+# condition changed; an advisory basis is a reviewed catalog or applicability
+# change that removes the finding without any change on the asset.
+TECHNICAL_RESOLUTION_BASES = frozenset(
+    {
+        "component-removed",
+        "component-version-fixed",
+        "component-version-available",
+        "sensor-check-in",
+        "fresh-observation",
+        "classification-recognized",
+        "classification-consistent",
+        "managed-evidence",
+        "healthy-coverage",
+    }
+)
+ADVISORY_RESOLUTION_BASES = frozenset(
+    {"applicability-not-affected", "advisory-withdrawn", "advisory-identity-reviewed"}
+)
+# A `fixed` match whose matcher reason is neither confirmed removal nor a
+# version at or after the fixed boundary. No remediation is claimed for it.
+UNATTRIBUTED_RESOLUTION_BASES = frozenset({"match-fixed-unattributed"})
+# Matcher reason codes (vulnerability_matching) that explain a `fixed` match.
+MATCH_REMOVAL_REASON = "component-removal-confirmed-by-complete-inventory"
+MATCH_VERSION_FIXED_REASON = "at-or-after-fixed-boundary"
+_SUBJECT_RESOLUTION_EVIDENCE: dict[str, tuple[str, str, str]] = {
+    # rule_id: (basis, evidence_type, source)
+    "asset-stale": ("fresh-observation", "asset-observation", "control_tower_assets.observed_at"),
+    "unknown-asset": ("classification-recognized", "asset-classification", "asset_classifications"),
+    "passive-only-asset": ("managed-evidence", "asset-observation", "control_tower_assets.observation_source"),
+    "classification-conflict": ("classification-consistent", "asset-classification", "asset_classifications"),
+    "security-coverage-gap": (
+        "healthy-coverage",
+        "security-coverage",
+        "control_tower_assets.metadata.security_coverage",
+    ),
+}
+_MATCH_RESOLUTION_BASIS = {
+    "fixed": "component-version-fixed",
+    "not-affected": "applicability-not-affected",
+    "advisory-withdrawn": "advisory-withdrawn",
+}
+
+
+def _match_describes_component(match: Mapping[str, Any], *, removed: bool) -> bool:
+    """Whether a match result was computed from the projected component state.
+
+    The match and the component row are written in separate transactions, so
+    the match can lag the component. A removal must still be a removal, and a
+    version result must be for the version the component now records. Missing
+    state is never assumed consistent.
+    """
+
+    active = match.get("component_active")
+    if removed:
+        return active is False
+    installed = _text(match.get("installed_version"), limit=160)
+    return active is True and bool(installed) and installed == _text(
+        match.get("component_normalized_version"), limit=160
+    )
+
+
+def _resolution_evidence(
+    context: RuleContext,
+    keys: frozenset[ResolutionKey],
+    dedupe_keys: frozenset[str],
+) -> dict[str, tuple[ResolutionEvidence, ...]]:
+    """Derive the affirmative evidence behind each eligible resolution.
+
+    Uses only the same inputs that made the key eligible. Nothing is inferred:
+    a key whose evidence cannot be found here gets no entry.
+    """
+
+    result: dict[str, tuple[ResolutionEvidence, ...]] = {}
+    for sensor in context.sensors:
+        sensor_id = _text(sensor.get("agent_id"), limit=160)
+        site_id = _text(sensor.get("site_id"), limit=128)
+        key = _subject_key("sensor-stale", "sensor", site_id, sensor_id)
+        if key in keys:
+            observed_at = _utc(sensor.get("last_seen_at"))
+            result[resolution_evidence_key(key)] = (
+                ResolutionEvidence(
+                    basis="sensor-check-in",
+                    evidence_ref=_evidence_ref(
+                        source="agent_enrollments.last_seen_at",
+                        evidence_type="sensor-check-in",
+                        site_id=site_id,
+                        subject_id=sensor_id,
+                    ),
+                    evidence_type="sensor-check-in",
+                    source="agent_enrollments.last_seen_at",
+                    observed_at=observed_at,
+                    freshness=evidence_freshness(observed_at, now=context.now, config=context.config),
+                ),
+            )
+    for asset in context.assets:
+        site_id = _text(asset.get("site_id"), limit=128)
+        asset_id = _text(asset.get("asset_id"), limit=160)
+        if not site_id or not asset_id:
+            continue
+        observed_at = _utc(asset.get("observed_at") or asset.get("last_seen_at"))
+        freshness = evidence_freshness(observed_at, now=context.now, config=context.config)
+        for rule_id, (basis, evidence_type, source) in _SUBJECT_RESOLUTION_EVIDENCE.items():
+            key = _subject_key(rule_id, "asset", site_id, asset_id)
+            if key in keys:
+                result[resolution_evidence_key(key)] = (
+                    ResolutionEvidence(
+                        basis=basis,
+                        evidence_ref=_evidence_ref(
+                            source=source, evidence_type=evidence_type, site_id=site_id, subject_id=asset_id
+                        ),
+                        evidence_type=evidence_type,
+                        source=source,
+                        observed_at=observed_at,
+                        freshness=freshness,
+                    ),
+                )
+        by_component: dict[str, list[dict[str, Any]]] = {}
+        for match in _vulnerability_matches(asset):
+            component_id = _text(match.get("component_id"), limit=80)
+            if component_id:
+                by_component.setdefault(component_id, []).append(match)
+            match_id = _text(match.get("match_id"), limit=80)
+            status = _text(match.get("match_status"), limit=40)
+            if not match_id or status not in _MATCH_RESOLUTION_BASIS:
+                continue
+            dedupe = _dedupe_key("vulnerable-component", "asset", site_id, match_id)
+            if dedupe not in dedupe_keys:
+                continue
+            basis = _MATCH_RESOLUTION_BASIS[status]
+            reasons = match.get("reason_codes") if isinstance(match.get("reason_codes"), list) else []
+            match_observed = _utc(match.get("component_last_seen_at"))
+            match_freshness = _text(match.get("component_freshness"), limit=32)
+            if status == "fixed":
+                # The matcher reports `fixed` both for a confirmed removal and
+                # for a version at or after the fixed boundary; its reason code
+                # says which. Neither is assumed from the status alone.
+                if MATCH_REMOVAL_REASON in reasons:
+                    basis = "component-removed"
+                    # Removal is observed when a complete inventory omitted it.
+                    match_observed = _utc(match.get("component_not_observed_at"))
+                    match_freshness = ""
+                elif MATCH_VERSION_FIXED_REASON in reasons:
+                    basis = "component-version-fixed"
+                else:
+                    basis = "match-fixed-unattributed"
+            if basis in {"component-removed", "component-version-fixed"} and not _match_describes_component(
+                match, removed=basis == "component-removed"
+            ):
+                # The match was computed from an earlier component state than
+                # the one (and its snapshot) now projected, for example when
+                # matching has not yet run on a newer inventory. No proof is
+                # assembled from records that describe different observations.
+                continue
+            result[dedupe] = (
+                ResolutionEvidence(
+                    basis=basis,
+                    evidence_ref=match_id,
+                    evidence_type="vulnerability-match",
+                    source="deterministic-vulnerability-matcher",
+                    observed_at=match_observed,
+                    freshness=match_freshness  # type: ignore[arg-type]
+                    if match_freshness in {"fresh", "aging", "stale", "unknown"}
+                    else evidence_freshness(match_observed, now=context.now, config=context.config),
+                    installed_version=_text(match.get("installed_version"), limit=160) or None,
+                    fixed_version=_text(match.get("fixed_version"), limit=160) or None,
+                    supporting_snapshot_id=_text(match.get("component_source_snapshot_id"), limit=80) or None,
+                ),
+            )
+        for component_id, matches in by_component.items():
+            for rule_id, basis in (
+                ("component-version-unavailable", "component-version-available"),
+                ("advisory-identity-uncertain", "advisory-identity-reviewed"),
+            ):
+                dedupe = _dedupe_key(rule_id, "asset", site_id, component_id)
+                if dedupe not in dedupe_keys:
+                    continue
+                candidates = matches
+                if basis == "component-version-available":
+                    # Only matches computed from the current component state
+                    # can supply the version and its supporting snapshot.
+                    candidates = [item for item in matches if _match_describes_component(item, removed=False)]
+                    if not candidates:
+                        continue
+                component_observed = max(
+                    (value for value in (_utc(item.get("component_last_seen_at")) for item in candidates) if value),
+                    default=None,
+                )
+                result[dedupe] = (
+                    ResolutionEvidence(
+                        basis=basis,
+                        evidence_ref=component_id,
+                        evidence_type="normalized-component",
+                        source="asset_components",
+                        observed_at=component_observed,
+                        freshness=evidence_freshness(component_observed, now=context.now, config=context.config),
+                        installed_version=next(
+                            (
+                                _text(item.get("installed_version"), limit=160)
+                                for item in candidates
+                                if _text(item.get("installed_version"), limit=160)
+                            ),
+                            None,
+                        ),
+                        supporting_snapshot_id=next(
+                            (
+                                _text(item.get("component_source_snapshot_id"), limit=80)
+                                for item in candidates
+                                if _text(item.get("component_source_snapshot_id"), limit=80)
+                            ),
+                            None,
+                        ),
+                    ),
+                )
+    return result
+
+
 def evaluate_rules(
     *,
     sites: Sequence[Mapping[str, Any]],
@@ -1615,4 +1862,7 @@ def evaluate_rules(
         site_count=len(filtered_sites),
         sensor_count=0 if asset_id else len(filtered_sensors),
         asset_count=len(target_assets),
+        resolution_evidence=_resolution_evidence(
+            context, resolution_eligible, resolution_eligible_dedupe_keys
+        ),
     )

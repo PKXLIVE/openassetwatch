@@ -73,7 +73,12 @@ class MigrationDiscoveryTests(unittest.TestCase):
     def test_packaged_baseline_is_ordered_checksummed_and_complete(self) -> None:
         migrations = discover_migrations()
 
-        self.assertEqual([item.version for item in migrations], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual([item.version for item in migrations], [1, 2, 3, 4, 5, 6, 7, 8])
+        self.assertEqual(migrations[7].name, "finding_verification")
+        self.assertEqual(
+            migrations[7].checksum,
+            hashlib.sha256((MIGRATION_DIRECTORY / "0008_finding_verification.sql").read_bytes()).hexdigest(),
+        )
         self.assertEqual(migrations[6].name, "asset_importance")
         self.assertEqual(
             migrations[6].checksum,
@@ -150,6 +155,8 @@ class MigrationDiscoveryTests(unittest.TestCase):
         self.assertIn("finding_decision_history", contract.columns)
         self.assertIn("asset_importance_assignments", contract.columns)
         self.assertIn("asset_importance_events", contract.columns)
+        self.assertIn("finding_verification_baselines", contract.columns)
+        self.assertIn("finding_verification_history", contract.columns)
         self.assertGreaterEqual(len(contract.columns), 50)
 
     def test_asset_importance_migration_is_additive_site_bound_and_append_only(self) -> None:
@@ -189,6 +196,48 @@ class MigrationDiscoveryTests(unittest.TestCase):
         self.assertIn("BEFORE UPDATE OR DELETE ON asset_importance_events", importance.sql)
         self.assertIn("BEFORE TRUNCATE ON asset_importance_events", importance.sql)
         self.assertIn("BEFORE DELETE ON asset_importance_assignments", importance.sql)
+
+    def test_finding_verification_migration_is_additive_site_bound_and_append_only(self) -> None:
+        migrations = discover_migrations()
+        verification = migrations[7]
+        self.assertEqual(verification.identifier, "0008_finding_verification")
+        self.assertNotRegex(verification.sql, r"(?i)\bALTER\s+TABLE\b")
+        self.assertNotRegex(verification.sql, r"(?i)\bDROP\s+(TABLE|INDEX|COLUMN)\b")
+        self.assertNotRegex(verification.sql, r"(?i)\bINSERT\s+INTO\b")
+        self.assertNotRegex(verification.sql, r"(?i)\bDELETE\s+FROM\b")
+        self.assertNotRegex(verification.sql, r"(?i)\bUPDATE\s+(?!OR\b)[a-z_]+\s+SET\b")
+        previous = schema_contract(migrations[:7])
+        contract = schema_contract(migrations)
+        for table, columns in previous.columns.items():
+            self.assertEqual(contract.columns[table], columns, table)
+        self.assertEqual(previous.indexes, {key: contract.indexes[key] for key in previous.indexes})
+        site_bound = (
+            ("work_item_id", "finding_id", "site_id"),
+            "finding_work_items",
+            ("work_item_id", "finding_id", "site_id"),
+            "cascade",
+        )
+        for table in ("finding_verification_baselines", "finding_verification_history"):
+            self.assertIn(site_bound, contract.foreign_keys[table])
+            self.assertIn(f"BEFORE UPDATE OR DELETE ON {table}", verification.sql)
+            self.assertIn(f"BEFORE TRUNCATE ON {table}", verification.sql)
+        self.assertIn(("work_item_id", "report_revision"), contract.unique_constraints["finding_verification_baselines"])
+        self.assertIn(
+            ("work_item_id", "report_revision", "sequence"),
+            contract.unique_constraints["finding_verification_history"],
+        )
+        checks = contract.check_constraints["finding_verification_history"]
+        self.assertIn("ruleset_version~'^oaw[.]verification[.]rules[.]v[0-9]+$'", checks)
+        self.assertIn(
+            (("finding_id", "site_id"), "findings", ("finding_id", "site_id"), "cascade"),
+            contract.foreign_keys["finding_resolution_evidence"],
+        )
+        self.assertIn(
+            ("finding_id", "resolved_at", "evidence_ref"),
+            contract.unique_constraints["finding_resolution_evidence"],
+        )
+        self.assertIn("BEFORE UPDATE OR DELETE ON finding_resolution_evidence", verification.sql)
+        self.assertIn("BEFORE TRUNCATE ON finding_resolution_evidence", verification.sql)
 
     def test_finding_decision_migration_is_additive_site_bound_and_append_only(self) -> None:
         migrations = discover_migrations()

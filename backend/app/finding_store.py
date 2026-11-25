@@ -9,7 +9,12 @@ from uuid import uuid4
 
 from sqlalchemy import bindparam, text
 
-from .findings import RULESET_VERSION, EvaluationSnapshot, FindingCandidate
+from .findings import (
+    RULESET_VERSION,
+    EvaluationSnapshot,
+    FindingCandidate,
+    resolution_evidence_key,
+)
 from .risk import AssetRiskScore, SiteRiskScore
 
 
@@ -534,6 +539,48 @@ class SqlFindingStore:
                     },
                 )
                 resolved += max(0, resolution_result.rowcount)
+                if resolution_result.rowcount == 1:
+                    # Preserve the affirmative evidence that established this
+                    # resolution, in the same transaction. Finding evidence
+                    # rows describe the condition; these rows describe why it
+                    # ended. Nothing is recorded when no evidence is known.
+                    proof = snapshot.resolution_evidence.get(row["dedupe_key"]) or snapshot.resolution_evidence.get(
+                        resolution_evidence_key(resolution_key)
+                    ) or ()
+                    for evidence in proof:
+                        connection.execute(
+                            text(
+                                """
+                                INSERT INTO finding_resolution_evidence (
+                                    finding_id, site_id, resolved_at, evaluation_run_id,
+                                    resolution_basis, evidence_ref, evidence_type, source,
+                                    observed_at, freshness, installed_version, fixed_version,
+                                    supporting_snapshot_id
+                                ) VALUES (
+                                    :finding_id, :site_id, :resolved_at, :run_id,
+                                    :basis, :evidence_ref, :evidence_type, :source,
+                                    :observed_at, :freshness, :installed_version, :fixed_version,
+                                    :supporting_snapshot_id
+                                )
+                                ON CONFLICT (finding_id, resolved_at, evidence_ref) DO NOTHING
+                                """
+                            ),
+                            {
+                                "finding_id": row["finding_id"],
+                                "site_id": row["site_id"],
+                                "resolved_at": evaluated_at,
+                                "run_id": run_id,
+                                "basis": evidence.basis,
+                                "evidence_ref": evidence.evidence_ref,
+                                "evidence_type": evidence.evidence_type,
+                                "source": evidence.source[:120],
+                                "observed_at": evidence.observed_at,
+                                "freshness": evidence.freshness,
+                                "installed_version": evidence.installed_version,
+                                "fixed_version": evidence.fixed_version,
+                                "supporting_snapshot_id": evidence.supporting_snapshot_id,
+                            },
+                        )
         return ReconcileResult(opened=opened, updated=updated, reopened=reopened, resolved=resolved)
 
     def active_findings(self, *, site_id: str | None = None) -> list[dict[str, Any]]:

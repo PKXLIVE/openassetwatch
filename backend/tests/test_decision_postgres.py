@@ -65,8 +65,13 @@ def vulnerable_asset(
                 "match_status": status,
                 "match_confidence": 1.0,
                 "component_name": "example-agent",
-                "installed_version": "1.2.0",
+                # A fixed match reflects an installed version at the fix, with
+                # the matcher's reason, as the production matcher reports it.
+                "installed_version": "1.4.2" if status == "fixed" else "1.2.0",
                 "fixed_version": "1.4.2",
+                "reason_codes": ["at-or-after-fixed-boundary"]
+                if status == "fixed"
+                else ["installed-version-in-affected-range"],
                 "severity": severity,
                 "known_exploited": False,
                 "component_freshness": "fresh",
@@ -94,7 +99,7 @@ class DecisionPostgresTests(unittest.TestCase):
         with self.admin_engine.connect() as connection:
             connection.exec_driver_sql(f'CREATE DATABASE "{self.database_name}"')
         self.database_engine = create_engine(parsed.set(database=self.database_name), poolclass=NullPool)
-        self.assertEqual(migrate_database_schema(self.database_engine).current_version, 7)
+        self.assertEqual(migrate_database_schema(self.database_engine).current_version, 8)
         self.patchers = [
             patch("app.database.get_engine", return_value=self.database_engine),
             patch("app.database.ensure_database_schema"),

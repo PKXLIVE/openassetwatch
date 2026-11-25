@@ -93,6 +93,15 @@ match must become `fixed`, `not-affected`, `advisory-withdrawn`, or removed by a
 newer complete current inventory. Missing, passive, stale, partial, or failed
 inventory cannot resolve an affected component.
 
+Each resolution also records, in the same transaction, the affirmative evidence
+that made the finding eligible to resolve (`finding_resolution_evidence`): its
+basis, reference, source, collection time, freshness, and for software the
+installed and fixed versions. The basis keeps a confirmed technical change
+(for example `component-version-fixed`) distinct from an advisory or
+applicability change (`advisory-withdrawn`, `applicability-not-affected`).
+Remediation verification uses this record; see
+[CTEM_REMEDIATION_VERIFICATION.md](ctem/CTEM_REMEDIATION_VERIFICATION.md).
+
 Evaluation failures are recorded without failing evidence ingestion. New
 endpoint and observation evidence first queues targeted classification of only
 affected assets. Semantic reclassification then queues targeted finding and

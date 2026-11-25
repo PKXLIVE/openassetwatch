@@ -126,6 +126,10 @@ class FindingEvaluationResponse(StrictFindingContract):
     completed_at: datetime
     decision_evaluated_count: int = Field(default=0, ge=0)
     decision_transition_count: int = Field(default=0, ge=0)
+    verification_evaluated_count: int = Field(default=0, ge=0)
+    verification_transition_count: int = Field(default=0, ge=0)
+    verification_status: Literal["completed", "incomplete", "failed", "not-run"] = "not-run"
+    verification_error_code: str | None = Field(default=None, max_length=80)
 
 
 class FindingAcknowledgeRequest(StrictFindingContract):
