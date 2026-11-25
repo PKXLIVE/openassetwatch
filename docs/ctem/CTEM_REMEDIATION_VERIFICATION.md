@@ -154,8 +154,9 @@ supporting snapshot. A software proof is recorded only when the two agree:
 
 When they disagree the finding still resolves (the lifecycle is unchanged), but
 no proof is assembled from the mismatched records, and verification reports
-`insufficient-evidence` with `RESOLUTION_EVIDENCE_UNAVAILABLE`. A later
-resolution after matching catches up records its own evidence.
+`insufficient-evidence` with `RESOLUTION_EVIDENCE_UNAVAILABLE`. That
+resolution keeps no proof; only a new resolution (after the finding reopens)
+records its own evidence.
 
 The production matcher evaluates only active components. A complete inventory
 that omits a component therefore reaches its match as `not-affected`, and the

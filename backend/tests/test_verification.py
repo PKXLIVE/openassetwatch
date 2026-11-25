@@ -548,7 +548,7 @@ class VerificationInvariantTests(unittest.TestCase):
 class ResolutionEvidenceDerivationTests(unittest.TestCase):
     """The finding lifecycle records why a resolution happened, from its own inputs."""
 
-    def _snapshot(self, status: str, **match_overrides):
+    def _snapshot(self, status: str, rule_ids=("vulnerable-component", "asset-stale"), **match_overrides):
         from app.findings import evaluate_rules
 
         match = {
@@ -580,7 +580,7 @@ class ResolutionEvidenceDerivationTests(unittest.TestCase):
             sensors=[],
             assets=[asset],
             now=AFTER + timedelta(minutes=1),
-            rule_ids=["vulnerable-component", "asset-stale"],
+            rule_ids=list(rule_ids),
         )
 
     def test_fixed_match_basis_comes_from_the_matcher_reason(self) -> None:
@@ -628,6 +628,20 @@ class ResolutionEvidenceDerivationTests(unittest.TestCase):
                 )
                 (dedupe,) = snapshot_value.resolution_eligible_dedupe_keys
                 self.assertEqual(snapshot_value.resolution_evidence.get(dedupe, ()), ())
+
+    def test_lagging_match_skips_only_the_version_proof_for_its_component(self) -> None:
+        from app.findings import _dedupe_key
+
+        component_id = "cmp_" + "c" * 32
+        snapshot_value = self._snapshot(
+            "affected", rule_ids=("component-version-unavailable", "advisory-identity-uncertain"),
+            component_normalized_version="1.0.0",
+        )
+        version_key = _dedupe_key("component-version-unavailable", "asset", "site-a", component_id)
+        identity_key = _dedupe_key("advisory-identity-uncertain", "asset", "site-a", component_id)
+        self.assertEqual(snapshot_value.resolution_evidence.get(version_key, ()), ())
+        (identity,) = snapshot_value.resolution_evidence[identity_key]
+        self.assertEqual((identity.basis, identity.observed_at), ("advisory-identity-reviewed", AFTER))
 
     def test_advisory_changes_are_recorded_as_advisory_bases(self) -> None:
         for status, basis in (("advisory-withdrawn", "advisory-withdrawn"), ("not-affected", "applicability-not-affected")):

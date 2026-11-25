@@ -1698,14 +1698,15 @@ def _resolution_evidence(
                 dedupe = _dedupe_key(rule_id, "asset", site_id, component_id)
                 if dedupe not in dedupe_keys:
                     continue
+                candidates = matches
                 if basis == "component-version-available":
                     # Only matches computed from the current component state
                     # can supply the version and its supporting snapshot.
-                    matches = [item for item in matches if _match_describes_component(item, removed=False)]
-                    if not matches:
+                    candidates = [item for item in matches if _match_describes_component(item, removed=False)]
+                    if not candidates:
                         continue
                 component_observed = max(
-                    (value for value in (_utc(item.get("component_last_seen_at")) for item in matches) if value),
+                    (value for value in (_utc(item.get("component_last_seen_at")) for item in candidates) if value),
                     default=None,
                 )
                 result[dedupe] = (
@@ -1719,7 +1720,7 @@ def _resolution_evidence(
                         installed_version=next(
                             (
                                 _text(item.get("installed_version"), limit=160)
-                                for item in matches
+                                for item in candidates
                                 if _text(item.get("installed_version"), limit=160)
                             ),
                             None,
@@ -1727,7 +1728,7 @@ def _resolution_evidence(
                         supporting_snapshot_id=next(
                             (
                                 _text(item.get("component_source_snapshot_id"), limit=80)
-                                for item in matches
+                                for item in candidates
                                 if _text(item.get("component_source_snapshot_id"), limit=80)
                             ),
                             None,
