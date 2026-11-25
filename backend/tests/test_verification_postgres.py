@@ -529,6 +529,96 @@ class VerificationPostgresTests(unittest.TestCase):
         for table in ("finding_verification_baselines", "finding_verification_history", "finding_resolution_evidence"):
             self.assertEqual(self._rows(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"], 0, table)
 
+    def _real_collection(self, when: datetime, source: str, status: str, version: str | None) -> str:
+        """Ingest one native source collection through production persistence."""
+
+        import hashlib
+
+        from app.component_intelligence import ComponentSourceSnapshot, NormalizedComponent
+        from app.component_store import persist_authenticated_endpoint_source_presence, persist_components
+
+        collection_id = "col_" + uuid4().hex
+        self._exec(
+            """
+            INSERT INTO canonical_inventory_collections (
+                canonical_collection_id, site_id, source_id, adapter_type, route_name, idempotency_key,
+                payload_sha256, schema_version, observed_at, ingested_at, inventory_mode,
+                observed_asset_count, canonical_asset_count, evidence_count, component_count,
+                evaluation_state
+            ) VALUES (:cid, 'site-a', :s, 'endpoint-agent', 'test', :cid, :sha, 'test.v1', :t, :t,
+                      'complete', 1, 1, 1, 1, 'running')
+            """,
+            cid=collection_id, s=SOURCE_ID, sha="f" * 64, t=when,
+        )
+        digest = hashlib.sha256(
+            "\x00".join((collection_id, "site-a", "asset-a", SOURCE_ID, source)).encode("utf-8")
+        ).hexdigest()[:32]
+        snapshot = ComponentSourceSnapshot(
+            source_snapshot_id=f"css_{digest}", canonical_collection_id=collection_id, site_id="site-a",
+            asset_id="asset-a", agent_source_id=SOURCE_ID, collection_source_id=source, platform="linux",
+            collection_status=status, observed_at=when, record_count=0 if version is None else 1,
+            truncated=status == "partial", error_code=None,
+            limitations=() if status == "complete" else ("inventory truncated",),
+        )
+        components = []
+        if version is not None:
+            components.append(
+                NormalizedComponent(
+                    component_id=COMPONENT_ID, asset_id="asset-a", site_id="site-a", component_type="package",
+                    ecosystem="pypi", namespace=None, vendor=None, name="example-agent",
+                    normalized_name="example-agent", version=version, normalized_version=version,
+                    architecture=None, package_manager=None, canonical_identifier=None, cpe_hint=None,
+                    install_scope="system", source_type="endpoint-collector", source_id=SOURCE_ID,
+                    firmware_evidence_type="direct", evidence_ids=(), observed_at=when, first_seen_at=at(0),
+                    last_seen_at=when, freshness="fresh", confidence=1.0, normalization_status="normalized",
+                    metadata={}, inventory_complete=status == "complete", collection_source_id=source,
+                    source_record_id="pkg:example-agent", evidence_method="package-manager",
+                )
+            )
+        with self.database_engine.begin() as connection:
+            if components:
+                persist_components(connection, components=components)
+            persist_authenticated_endpoint_source_presence(
+                connection, components=components, source_snapshots=[snapshot]
+            )
+        return snapshot.source_snapshot_id
+
+    def test_partial_version_source_and_later_complete_omission_elsewhere_never_verify(self) -> None:
+        # Two reviewed sources report the same canonical component. The partial
+        # source supplies the new version; the other source's later complete
+        # inventory omits it. That complete inventory neither supplied the
+        # version nor established canonical absence (the component is still
+        # present elsewhere), so it cannot support verification.
+        finding_id = self._reported()
+        self._real_collection(at(1.2), "linux-rpm", "complete", "1.2.0")
+        partial = self._real_collection(at(1.5), "linux-dpkg", "partial", "1.4.2")
+        omitting = self._real_collection(at(2), "linux-rpm", "complete", None)
+        self._match(at(2), "fixed", "at-or-after-fixed-boundary", installed="1.4.2")
+        (match,) = SqlVulnerabilityStore().active_match_snapshot(site_id="site-a")
+        self.assertTrue(match["component_active"])
+        self.assertNotEqual(match["component_source_snapshot_id"], omitting)
+        self.assertEqual(match["component_source_snapshot_id"], partial)
+        self._evaluate(at(2.5))
+        state = self._state(finding_id)
+        self.assertEqual(state["finding_status"], "resolved")
+        self.assertNotEqual(state["verification_state"], "verified")
+        self.assertEqual(state["verification_state"], "insufficient-evidence")
+        self.assertIn("COLLECTION_INCOMPLETE_AT_RESOLUTION", state["reason_codes"])
+
+    def test_ambiguous_supporting_observation_is_insufficient(self) -> None:
+        # Two sources observe the component at the same instant: the exact
+        # supporting collection cannot be established, so none is chosen.
+        finding_id = self._reported()
+        self._real_collection(at(2), "linux-rpm", "complete", "1.4.2")
+        self._real_collection(at(2), "linux-dpkg", "complete", "1.4.2")
+        self._match(at(2), "fixed", "at-or-after-fixed-boundary", installed="1.4.2")
+        (match,) = SqlVulnerabilityStore().active_match_snapshot(site_id="site-a")
+        self.assertIsNone(match["component_source_snapshot_id"])
+        self._evaluate(at(2.5))
+        state = self._state(finding_id)
+        self.assertEqual(state["verification_state"], "insufficient-evidence")
+        self.assertIn("COLLECTION_NOT_COMPLETE_AT_RESOLUTION", state["reason_codes"])
+
     def test_verification_never_changes_findings_risk_decisions_or_work(self) -> None:
         finding_id = self._reported()
         self._upgrade_and_resolve(finding_id)
