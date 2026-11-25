@@ -1,32 +1,12 @@
-# License Policy
+# License policy
 
-OpenAssetWatch is licensed under the Apache License, Version 2.0.
+OpenAssetWatch is licensed under the Apache License, Version 2.0. See
+[LICENSE](LICENSE) and [NOTICE](NOTICE) for the project terms and notice.
 
-## Preferred dependency licenses
+The [third-party software policy](docs/THIRD_PARTY_SOFTWARE_POLICY.md) defines
+dependency intake, license review, and distribution obligations. The
+[Source Licensing Registry](docs/SOURCE_LICENSING_REGISTRY.md) records
+decisions for external data and feeds.
 
-Preferred licenses include:
-
-- Apache-2.0
-- MIT
-- BSD-2-Clause
-- BSD-3-Clause
-- ISC
-- MPL-2.0
-
-## Restricted dependency licenses
-
-Dependencies under strong copyleft, network copyleft, source-available, proprietary, unknown, or custom licenses require maintainer review before inclusion.
-
-Examples requiring review:
-
-- AGPL
-- GPL
-- LGPL
-- SSPL
-- BUSL
-- Commons Clause
-- Unknown or missing license metadata
-
-## Contribution licensing
-
-Unless explicitly stated otherwise, contributions are submitted under Apache-2.0, matching the project license.
+See [CONTRIBUTING](CONTRIBUTING.md) for the contribution license, third-party
+material rules, and Developer Certificate of Origin sign-off.

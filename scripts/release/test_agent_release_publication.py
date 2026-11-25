@@ -466,6 +466,47 @@ class ReleasePublicationTests(unittest.TestCase):
                     require_signed=False,
                 )
 
+    def test_optional_sidecars_must_be_nonempty_release_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            release_root = repo / "dist" / "agent" / "0.1.0"
+            package, _ = write_artifact(release_root, "packages/openassetwatch-agent_0.1.0_amd64.deb")
+            sbom = release_root / "packages" / "agent.spdx.json"
+            provenance = release_root / "packages" / "agent.provenance.json"
+            sbom.write_text("{}", encoding="utf-8")
+            provenance.write_text("{}", encoding="utf-8")
+            paths = {
+                "sbom_path": sbom.relative_to(repo).as_posix(),
+                "provenance_path": provenance.relative_to(repo).as_posix(),
+            }
+
+            manifest = write_manifest(repo, package, {})
+            artifact = releasepub.artifact_from_manifest(repo, release_root, manifest, "0.1.0")
+            self.assertEqual("", artifact.sbom_path)
+            self.assertEqual("", artifact.provenance_path)
+
+            manifest = write_manifest(repo, package, paths)
+            artifact = releasepub.artifact_from_manifest(repo, release_root, manifest, "0.1.0")
+            self.assertEqual(paths["sbom_path"], artifact.sbom_path)
+            self.assertEqual(paths["provenance_path"], artifact.provenance_path)
+
+            (repo / "outside-release.json").write_text("{}", encoding="utf-8")
+            (release_root / "empty.json").touch()
+            for field in paths:
+                for invalid in (
+                    "outside-release.json",
+                    sbom.with_name("missing.json").relative_to(repo).as_posix(),
+                    (release_root / "empty.json").relative_to(repo).as_posix(),
+                    release_root.relative_to(repo).as_posix(),
+                    str(sbom.resolve()),
+                    " ",
+                    42,
+                ):
+                    with self.subTest(field=field, invalid=invalid):
+                        manifest = write_manifest(repo, package, paths | {field: invalid})
+                        with self.assertRaisesRegex(ValueError, field):
+                            releasepub.artifact_from_manifest(repo, release_root, manifest, "0.1.0")
+
     def test_signed_claim_requires_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

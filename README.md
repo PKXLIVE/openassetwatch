@@ -591,3 +591,8 @@ it before the backend becomes ready.
 ## License
 
 OpenAssetWatch is licensed under the Apache License, Version 2.0. See LICENSE for details.
+
+See the [license policy](LICENSE_POLICY.md) for dependency and contribution
+rules, [third-party notices](THIRD_PARTY_NOTICES.md) for upstream attribution,
+and the [data-handling disclosure](docs/DATA_HANDLING_AND_PRIVACY.md) for
+collection, storage, and optional external processing.

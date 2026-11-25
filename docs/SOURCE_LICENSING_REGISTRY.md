@@ -42,6 +42,14 @@ Every proposed source must record:
 - review date and next review date;
 - evidence used for the decision.
 
+Record a determination for each field that applies to the proposed use.
+Mark a field `not applicable` with a reason, or `unknown` when evidence is
+missing. If an unknown field could affect the requested use, keep that use in
+`review-required`. Record retention and withdrawal handling for both the
+local cache and any distributed or hosted copy. Candidate and design-only rows
+are intake records. Each production use needs its own completed decision
+record.
+
 No adapter may weaken or omit the upstream provenance or license metadata.
 Conflicting or unclear terms result in `review-required`, not implied
 permission.
