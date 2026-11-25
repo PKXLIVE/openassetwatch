@@ -30,6 +30,46 @@ MAX_DECISION_PAGE = 200
 MAX_DECISION_OFFSET = 10_000
 DECISION_STATES = frozenset({"current", "not-current"})
 
+# Effective operator-assigned importance for a finding row aliased `f`.
+# Importance counts only when the current assignment is `assigned` and agrees
+# with the append-only history: an event exists at the assignment's revision
+# with the same value, reason, principal, actor label, verification, and time,
+# and no later event exists (the same rule as `history_agrees`). Anything else, including no
+# assignment, a withdrawal, a non-asset finding, or a projection that was
+# altered without history, is `unknown`. Unknown is never read as low, and a
+# corrupted projection can never drive the critical-asset rule.
+EFFECTIVE_IMPORTANCE_JOIN = """
+        LEFT JOIN asset_importance_assignments AS ai
+          ON f.subject_type = 'asset'
+         AND ai.site_id = f.site_id
+         AND ai.asset_id = f.asset_id
+        LEFT JOIN asset_importance_events AS aie
+          ON aie.site_id = ai.site_id
+         AND aie.asset_id = ai.asset_id
+         AND aie.revision = ai.revision
+         AND aie.importance = ai.importance
+         AND aie.reason = ai.reason
+         AND aie.principal = ai.principal
+         AND aie.actor_label = ai.actor_label
+         AND aie.actor_verification = ai.actor_verification
+         AND aie.occurred_at = ai.updated_at
+         AND aie.occurred_at = ai.reviewed_at
+"""
+EFFECTIVE_IMPORTANCE_COLUMN = """
+        CASE
+            WHEN ai.assignment_state = 'assigned'
+             AND aie.event_id IS NOT NULL
+             AND NOT EXISTS (
+                 SELECT 1 FROM asset_importance_events AS later
+                 WHERE later.site_id = ai.site_id
+                   AND later.asset_id = ai.asset_id
+                   AND later.revision > ai.revision
+             )
+            THEN ai.importance
+            ELSE 'unknown'
+        END
+"""
+
 
 @dataclass(frozen=True)
 class DecisionReconcileResult:
@@ -120,12 +160,18 @@ class SqlDecisionStore:
             findings = connection.execute(
                 text(
                     """
-                    SELECT finding_id, site_id, rule_id, subject_type, category,
-                           severity, confidence, evidence_freshness, status,
-                           evaluated_at
-                    FROM findings
-                    WHERE (:site_id IS NULL OR site_id = :site_id)
-                    ORDER BY finding_id
+                    SELECT f.finding_id, f.site_id, f.rule_id, f.subject_type, f.category,
+                           f.severity, f.confidence, f.evidence_freshness, f.status,
+                           f.evaluated_at,
+                    """
+                    + EFFECTIVE_IMPORTANCE_COLUMN
+                    + """ AS asset_importance
+                    FROM findings AS f
+                    """
+                    + EFFECTIVE_IMPORTANCE_JOIN
+                    + """
+                    WHERE (:site_id IS NULL OR f.site_id = :site_id)
+                    ORDER BY f.finding_id
                     LIMIT :limit
                     """
                 ),
@@ -321,17 +367,23 @@ class SqlDecisionStore:
 
     # ---------------------------------------------------------------- reads
 
-    _DECISION_SELECT = """
+    _DECISION_SELECT = (
+        """
         SELECT d.*, f.status AS finding_status, f.asset_id, f.sensor_id,
                f.rule_id AS current_rule_id, f.subject_type, f.category,
                f.severity AS current_severity, f.confidence AS current_confidence,
                f.evidence_freshness AS current_evidence_freshness,
-               f.evaluated_at AS current_finding_evaluated_at
+               f.evaluated_at AS current_finding_evaluated_at,
+        """
+        + EFFECTIVE_IMPORTANCE_COLUMN
+        + """ AS current_asset_importance
         FROM finding_decisions AS d
         JOIN findings AS f
           ON f.finding_id = d.finding_id
          AND f.site_id = d.site_id
-    """
+        """
+        + EFFECTIVE_IMPORTANCE_JOIN
+    )
 
     @staticmethod
     def _projection_state(row: Mapping[str, Any], evidence: Sequence[Mapping[str, Any]]) -> str:
@@ -356,6 +408,7 @@ class SqlDecisionStore:
                     "evidence_freshness": row["current_evidence_freshness"],
                     "status": row["finding_status"],
                     "evaluated_at": row["current_finding_evaluated_at"],
+                    "asset_importance": row["current_asset_importance"],
                 },
                 evidence,
             )

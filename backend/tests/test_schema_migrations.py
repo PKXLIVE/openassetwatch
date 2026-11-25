@@ -73,7 +73,12 @@ class MigrationDiscoveryTests(unittest.TestCase):
     def test_packaged_baseline_is_ordered_checksummed_and_complete(self) -> None:
         migrations = discover_migrations()
 
-        self.assertEqual([item.version for item in migrations], [1, 2, 3, 4, 5, 6])
+        self.assertEqual([item.version for item in migrations], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual(migrations[6].name, "asset_importance")
+        self.assertEqual(
+            migrations[6].checksum,
+            hashlib.sha256((MIGRATION_DIRECTORY / "0007_asset_importance.sql").read_bytes()).hexdigest(),
+        )
         self.assertEqual(migrations[0].name, "current_schema_baseline")
         self.assertEqual(migrations[1].name, "endpoint_agent_identity")
         self.assertEqual(migrations[2].name, "canonical_ingestion_compatibility")
@@ -143,7 +148,47 @@ class MigrationDiscoveryTests(unittest.TestCase):
         self.assertIn("finding_work_events", contract.columns)
         self.assertIn("finding_decisions", contract.columns)
         self.assertIn("finding_decision_history", contract.columns)
+        self.assertIn("asset_importance_assignments", contract.columns)
+        self.assertIn("asset_importance_events", contract.columns)
         self.assertGreaterEqual(len(contract.columns), 50)
+
+    def test_asset_importance_migration_is_additive_site_bound_and_append_only(self) -> None:
+        migrations = discover_migrations()
+        importance = migrations[6]
+        self.assertEqual(importance.identifier, "0007_asset_importance")
+        self.assertNotRegex(importance.sql, r"(?i)\bALTER\s+TABLE\b")
+        self.assertNotRegex(importance.sql, r"(?i)\bDROP\s+(TABLE|INDEX|COLUMN)\b")
+        # No existing row is written: no data statement targets any table.
+        self.assertNotRegex(importance.sql, r"(?i)\bINSERT\s+INTO\b")
+        self.assertNotRegex(importance.sql, r"(?i)\bDELETE\s+FROM\b")
+        self.assertNotRegex(importance.sql, r"(?i)\bUPDATE\s+(?!OR\b)[a-z_]+\s+SET\b")
+        for table in ("finding_decisions", "finding_work", "risk_factors", "finding_evidence"):
+            self.assertNotIn(table, importance.sql)
+        previous = schema_contract(migrations[:6])
+        contract = schema_contract(migrations)
+        for table, columns in previous.columns.items():
+            self.assertEqual(contract.columns[table], columns, table)
+        self.assertEqual(previous.indexes, {key: contract.indexes[key] for key in previous.indexes})
+        self.assertIn(
+            (("site_id", "asset_id"), "control_tower_assets", ("site_id", "asset_id"), "cascade"),
+            contract.foreign_keys["asset_importance_assignments"],
+        )
+        self.assertIn(
+            (("site_id", "asset_id"), "asset_importance_assignments", ("site_id", "asset_id"), "cascade"),
+            contract.foreign_keys["asset_importance_events"],
+        )
+        self.assertEqual(contract.primary_keys["asset_importance_assignments"], ("site_id", "asset_id"))
+        self.assertIn(
+            ("site_id", "asset_id", "revision"), contract.unique_constraints["asset_importance_events"]
+        )
+        checks = contract.check_constraints["asset_importance_assignments"]
+        self.assertIn("importance in('critical','high','standard','low','unknown')", checks)
+        self.assertIn("(importance='unknown')=(assignment_state='withdrawn')", checks)
+        event_checks = contract.check_constraints["asset_importance_events"]
+        self.assertIn("event_type in('assigned','changed','reviewed','withdrawn')", event_checks)
+        self.assertIn("BEFORE UPDATE OR DELETE ON asset_importance_events", importance.sql)
+        self.assertIn("BEFORE TRUNCATE ON asset_importance_events", importance.sql)
+        self.assertIn("BEFORE DELETE ON asset_importance_assignments", importance.sql)
 
     def test_finding_decision_migration_is_additive_site_bound_and_append_only(self) -> None:
         migrations = discover_migrations()

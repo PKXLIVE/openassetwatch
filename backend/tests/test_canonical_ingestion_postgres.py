@@ -64,7 +64,7 @@ class CanonicalIngestionPostgresTests(unittest.TestCase):
             poolclass=NullPool,
         )
         migration = migrate_database_schema(self.database_engine)
-        self.assertEqual(migration.current_version, 6)
+        self.assertEqual(migration.current_version, 7)
         self.patchers = [
             patch("app.database.get_engine", return_value=self.database_engine),
             patch("app.database.ensure_database_schema"),

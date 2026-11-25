@@ -152,6 +152,16 @@ from .decision_contracts import (
 )
 from .decision_store import SqlDecisionStore
 from .decisions import ruleset_public as decision_ruleset_public
+from .asset_importance_contracts import (
+    ASSET_ID_PATH_PATTERN,
+    AssetImportanceAssignRequest,
+    AssetImportanceHistoryResponse,
+    AssetImportanceListResponse,
+    AssetImportanceMutationResponse,
+    AssetImportanceResponse,
+    AssetImportanceWithdrawRequest,
+)
+from .asset_importance_store import AssetImportanceError, SqlAssetImportanceStore
 from .findings import RULESET_VERSION, rule_registry_public
 from .hub_contracts import (
     ObservationBatchRequest,
@@ -1630,6 +1640,10 @@ def _decision_store() -> SqlDecisionStore:
     return SqlDecisionStore()
 
 
+def _asset_importance_store() -> SqlAssetImportanceStore:
+    return SqlAssetImportanceStore()
+
+
 def _classification_store() -> SqlClassificationStore:
     return SqlClassificationStore()
 
@@ -3048,6 +3062,181 @@ def api_finding_decision_history(
     if history is None:
         raise HTTPException(status_code=404, detail="decision not found; run deterministic evaluation")
     return history
+
+
+ASSET_IMPORTANCE_CAPABILITY = "asset importance"
+ASSET_IMPORTANCE_ERROR_STATUS = {"asset_not_found": 404, "not_found": 404, "conflict": 409}
+SITE_ID_PATH_PATTERN = r"^[A-Za-z0-9._-]{1,128}$"
+
+
+def _require_asset_importance_token(admin_token: str | None) -> None:
+    # Actor labels and reasons may name people, so importance fails closed for
+    # reads as well as writes when no admin secret is configured.
+    require_configured_admin_token(admin_token, capability=ASSET_IMPORTANCE_CAPABILITY)
+
+
+def _asset_importance_call(operation, failure_detail: str):
+    try:
+        return operation()
+    except AssetImportanceError as exc:
+        raise HTTPException(
+            status_code=ASSET_IMPORTANCE_ERROR_STATUS[exc.kind],
+            detail=exc.detail,
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail=failure_detail) from exc
+
+
+def _reevaluate_asset_decisions(*, site_id: str, asset_id: str, actor: str) -> str:
+    """Recompute decisions through the existing deterministic finding evaluation.
+
+    Scoped to the asset. Importance is one decision input; this never changes
+    finding facts, evidence, the Operational Attention Score, or work state.
+    A failure leaves decisions stale, which reads report, and never undoes the
+    recorded importance change.
+    """
+
+    try:
+        evaluate_findings(
+            trigger_type="asset-importance-change",
+            requested_by=actor,
+            site_id=site_id,
+            asset_id=asset_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - the importance change already committed.
+        LOGGER.warning("asset importance decision reevaluation failed safely: %s", type(exc).__name__)
+        return "failed"
+    return "completed"
+
+
+@app.get("/api/v1/asset-importance", response_model=AssetImportanceListResponse)
+def api_asset_importance_list(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    importance: str | None = Query(default=None, min_length=1, max_length=16),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    """Assets with an importance record. Every other asset is `unknown`."""
+
+    _require_asset_importance_token(admin_token)
+    return _asset_importance_call(
+        lambda: _asset_importance_store().list_importance(
+            site_id=site_id,
+            importance=importance,
+            limit=limit,
+            offset=offset,
+            now=datetime.now(timezone.utc),
+        ),
+        "failed to load asset importance",
+    )
+
+
+@app.get(
+    "/api/v1/sites/{site_id}/assets/{asset_id:path}/importance",
+    response_model=AssetImportanceResponse,
+)
+def api_asset_importance(
+    site_id: str = ApiPath(..., pattern=SITE_ID_PATH_PATTERN),
+    asset_id: str = ApiPath(..., pattern=ASSET_ID_PATH_PATTERN),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_asset_importance_token(admin_token)
+    item = _asset_importance_call(
+        lambda: _asset_importance_store().get_importance(
+            site_id, asset_id, now=datetime.now(timezone.utc)
+        ),
+        "failed to load asset importance",
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="asset not found in this site")
+    return item
+
+
+@app.get(
+    "/api/v1/sites/{site_id}/assets/{asset_id:path}/importance/history",
+    response_model=AssetImportanceHistoryResponse,
+)
+def api_asset_importance_history(
+    site_id: str = ApiPath(..., pattern=SITE_ID_PATH_PATTERN),
+    asset_id: str = ApiPath(..., pattern=ASSET_ID_PATH_PATTERN),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_asset_importance_token(admin_token)
+    history = _asset_importance_call(
+        lambda: _asset_importance_store().list_history(site_id, asset_id, limit=limit, offset=offset),
+        "failed to load asset importance history",
+    )
+    if history is None:
+        raise HTTPException(status_code=404, detail="asset not found in this site")
+    return history
+
+
+@app.post(
+    "/api/v1/admin/sites/{site_id}/assets/{asset_id:path}/importance",
+    response_model=AssetImportanceMutationResponse,
+)
+def admin_assign_asset_importance(
+    payload: AssetImportanceAssignRequest,
+    site_id: str = ApiPath(..., pattern=SITE_ID_PATH_PATTERN),
+    asset_id: str = ApiPath(..., pattern=ASSET_ID_PATH_PATTERN),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_asset_importance_token(admin_token)
+    current, event = _asset_importance_call(
+        lambda: _asset_importance_store().assign(
+            site_id,
+            asset_id,
+            importance=payload.importance,
+            reason=payload.reason,
+            actor=payload.actor,
+            expected_revision=payload.expected_revision,
+            at=datetime.now(timezone.utc),
+        ),
+        "failed to assign asset importance",
+    )
+    return {
+        "importance": current,
+        "event": event,
+        "decision_reevaluation": _reevaluate_asset_decisions(
+            site_id=site_id, asset_id=asset_id, actor=payload.actor
+        ),
+    }
+
+
+@app.post(
+    "/api/v1/admin/sites/{site_id}/assets/{asset_id:path}/importance/withdraw",
+    response_model=AssetImportanceMutationResponse,
+)
+def admin_withdraw_asset_importance(
+    payload: AssetImportanceWithdrawRequest,
+    site_id: str = ApiPath(..., pattern=SITE_ID_PATH_PATTERN),
+    asset_id: str = ApiPath(..., pattern=ASSET_ID_PATH_PATTERN),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_asset_importance_token(admin_token)
+    current, event = _asset_importance_call(
+        lambda: _asset_importance_store().withdraw(
+            site_id,
+            asset_id,
+            reason=payload.reason,
+            actor=payload.actor,
+            expected_revision=payload.expected_revision,
+            at=datetime.now(timezone.utc),
+        ),
+        "failed to withdraw asset importance",
+    )
+    return {
+        "importance": current,
+        "event": event,
+        "decision_reevaluation": _reevaluate_asset_decisions(
+            site_id=site_id, asset_id=asset_id, actor=payload.actor
+        ),
+    }
 
 
 @app.get("/api/v1/risk/summary", response_model=RiskSummaryResponse)

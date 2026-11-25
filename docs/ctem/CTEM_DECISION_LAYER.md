@@ -1,8 +1,10 @@
 # CTEM Decision Layer
 
-**Status: IMPLEMENTED (v1), with documented limits.** Contract
-`oaw.decision.v1`, ruleset `oaw.decision.rules.v1`, migration
-`0006_finding_decision_layer.sql`.
+**Status: IMPLEMENTED, with documented limits.** Record contract
+`oaw.decision.v1`; active ruleset `oaw.decision.rules.v2` (adds asset
+importance, see [CTEM_ASSET_IMPORTANCE.md](CTEM_ASSET_IMPORTANCE.md));
+historical ruleset `oaw.decision.rules.v1`, kept exactly reproducible;
+migrations `0006_finding_decision_layer.sql` and `0007_asset_importance.sql`.
 
 The decision layer answers one question for each deterministic finding:
 
@@ -36,7 +38,8 @@ Future CTEM layers keep the same separation:
 | Concept | Meaning | Status |
 | --- | --- | --- |
 | Finding | A deterministic observed or derived security condition | IMPLEMENTED |
-| Exposure | The contextual state describing how that condition can affect the environment (reachability, importance, controls) | NOT IMPLEMENTED (all `unknown`) |
+| Exposure | The contextual state describing how that condition can affect the environment (reachability, controls) | NOT IMPLEMENTED (all `unknown`) |
+| Asset importance | The consequence of losing the asset, as an audited operator assertion | IMPLEMENTED (`CTEM-GAP-02`) |
 | Decision | The deterministic action band and reasons for a finding | IMPLEMENTED (v1) |
 | Treatment | Human work addressing the condition | IMPLEMENTED (manual work tracking) |
 | Verification | Evidence proving the exposure changed | NOT IMPLEMENTED (resolution on fresh evidence only) |
@@ -58,13 +61,14 @@ ascending attention order.
 When verification is required, urgency is `verification-required` and the band
 is unchanged. A band is never an execution command.
 
-**No v1 rule can produce Act Now.** The approved Act Now conditions need
-confirmed exposure, a critical asset, compromise evidence, or safety-impact
-evidence. OpenAssetWatch records none of these yet, so producing Act Now would
-mean inventing facts. Act Now remains in the contract so later rulesets can use
-it without a schema change.
+**One v2 rule produces Act Now; no v1 rule does.** The approved Act Now
+conditions need confirmed exposure, a critical asset, compromise evidence, or
+safety-impact evidence. Ruleset v2 implements only the critical-asset
+condition, because operator-assigned asset importance now exists. Exposure,
+compromise, and safety evidence are still not recorded, so no other Act Now
+rule exists.
 
-## Ordered rules (`oaw.decision.rules.v1`)
+## Ordered rules (`oaw.decision.rules.v2`, active)
 
 The first matching rule selects the band. The uncertainty floor is applied
 afterwards.
@@ -72,15 +76,31 @@ afterwards.
 | Order | Rule | Condition | Band |
 | --- | --- | --- | --- |
 | 1 | `finding-resolved` | Finding status is resolved | none (`not-current`) |
-| 2 | `vulnerability-known-exploited` | Confirmed vulnerable component with known-exploited catalog evidence | Prioritize |
-| 3 | `vulnerability-critical` | Confirmed vulnerable component, critical severity | Prioritize |
-| 4 | `vulnerability-confirmed` | Confirmed vulnerable component, high, medium, or low severity | Plan |
-| 5 | `vulnerability-informational` | Confirmed vulnerable component, informational severity | Monitor |
-| 6 | `identity-or-version-gap` | Version unknown or product identity uncertain | Plan, verification required |
-| 7 | `evidence-conflict` | Classification or identity conflict | Prioritize, verification required |
-| 8 | `collection-gap` | Stale collection, unclassified asset, or passive-only asset | Plan, verification required |
-| 9 | `severity-default` | Other mapped rules: critical or high is Prioritize, medium or low is Plan, informational is Monitor | by severity |
-| 10 | `unmapped-finding-rule` | A finding rule without a reviewed mapping | Plan, verification required |
+| 2 | `vulnerability-known-exploited-critical-asset` | Confirmed vulnerable component with known-exploited catalog evidence on an asset with operator-assigned `critical` importance, and exposure not affirmatively ruled out | Act Now |
+| 3 | `vulnerability-known-exploited` | Confirmed vulnerable component with known-exploited catalog evidence, importance not `critical` (including `unknown`) | Prioritize |
+| 4 | `vulnerability-critical` | Confirmed vulnerable component, critical severity | Prioritize |
+| 5 | `vulnerability-confirmed` | Confirmed vulnerable component, high, medium, or low severity | Plan |
+| 6 | `vulnerability-informational` | Confirmed vulnerable component, informational severity | Monitor |
+| 7 | `identity-or-version-gap` | Version unknown or product identity uncertain | Plan, verification required |
+| 8 | `evidence-conflict` | Classification or identity conflict | Prioritize, verification required |
+| 9 | `collection-gap` | Stale collection, unclassified asset, or passive-only asset | Plan, verification required |
+| 10 | `severity-default` | Other mapped rules: critical or high is Prioritize, medium or low is Plan, informational is Monitor | by severity |
+| 11 | `unmapped-finding-rule` | A finding rule without a reviewed mapping | Plan, verification required |
+
+Rule 2 keeps exposure `unknown`: it fires because exposure is not ruled out,
+not because reachability is established, and it emits no reachability reason.
+A later exposure state of `not-reachable` prevents it. `segmented` does not:
+segmentation limits reachability without ruling alternate paths out. Whether a
+reviewed segmentation control should lower a critical-asset Act Now is an open
+policy decision for `CTEM-GAP-03`. Asset importance never lowers the band that
+other evidence justifies; lowering or withdrawing critical importance removes
+only the Act Now escalation that depended on it.
+
+`oaw.decision.rules.v1` is the same table without rule 2. It reads no
+importance and stays exactly reproducible: a test regenerates 84,480 v1
+decisions and compares a recorded digest. Decisions recorded under v1 keep
+that identity in history; the first v2 evaluation records a `ruleset-changed`
+transition for each finding.
 
 **Uncertainty floor:** if evidence is stale or of unknown age, confidence is
 low, insufficient, or conflicted, or the known-exploited catalog evidence is
@@ -166,7 +186,8 @@ reviewed product code; no external text can define or select one.
 | `DECISION_RULE_UNMAPPED` | `findings.rule_id` | rule has no reviewed mapping |
 | `SEVERITY_CRITICAL` to `SEVERITY_INFORMATIONAL` | `findings.severity` | exactly one, always present |
 | `EXPOSURE_UNKNOWN` | exposure model (absent) | asset vulnerability finding |
-| `ASSET_IMPORTANCE_UNKNOWN` | asset importance (absent) | asset vulnerability finding |
+| `ASSET_IMPORTANCE_CRITICAL`, `_HIGH`, `_STANDARD`, `_LOW` | `asset_importance_assignments` (v2) | asset vulnerability finding with that consistent operator assignment |
+| `ASSET_IMPORTANCE_UNKNOWN` | `asset_importance_assignments` | asset vulnerability finding with no consistent assignment (always, under v1) |
 | `EVIDENCE_STALE` | `findings.evidence_freshness` | `stale` |
 | `EVIDENCE_FRESHNESS_UNKNOWN` | `findings.evidence_freshness` | `unknown` |
 | `CONFIDENCE_LOW` | `findings.confidence` | low or insufficient band, excluding identity and version gap rules |
@@ -174,8 +195,8 @@ reviewed product code; no external text can define or select one.
 
 Codes considered but **not implemented**, because the repository has no
 canonical per-finding source for them yet: internet exposure, unsupported or
-end-of-life software or firmware, fix available, exploit probability, asset
-importance values, and a combined "multiple drivers" code. Known exploitation
+end-of-life software or firmware, fix available, exploit probability, and a
+combined "multiple drivers" code. Known exploitation
 from a reviewed advisory's own flag (rather than catalog evidence) is also left
 to a later ruleset, because that flag lives on the advisory, not the finding.
 
@@ -206,8 +227,11 @@ is no separate or hidden recomputation path:
 
 The inputs whose change produces a new decision are the finding's rule,
 subject type, category, severity, confidence, evidence freshness, lifecycle
-class (current, suppressed, or resolved), and its evidence references, types,
-and freshness. A ruleset version change is also a transition.
+class (current, suppressed, or resolved), its evidence references, types, and
+freshness, and (under v2) the effective importance of its asset. A ruleset
+version change is also a transition. An importance assignment or withdrawal
+runs the existing finding evaluation scoped to that asset (trigger
+`asset-importance-change`).
 
 These never cause a decision change:
 
@@ -336,10 +360,10 @@ an action band; only authoritative evidence does.
 
 ## Limits
 
-- Act Now is unreachable until exposure, asset importance, compromise, or
-  safety evidence exists.
-- Exposure and asset importance are always `unknown` (or `not-applicable` for
-  non-asset findings).
+- Act Now is reachable only through the critical-asset rule. The exposure,
+  compromise, and safety conditions wait for evidence that does not exist yet.
+- Exposure is always `unknown` (or `not-applicable` for non-asset findings).
+  Asset importance is `unknown` unless an operator assigned it.
 - Exploitation status is `known-exploited`, `unknown`, or `not-applicable`.
   `no-known-exploitation` is never asserted, because v1 cannot prove the
   catalog was current for that finding.

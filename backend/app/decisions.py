@@ -1,4 +1,9 @@
-"""Deterministic finding decision layer (`oaw.decision.v1`).
+"""Deterministic finding decision layer (`oaw.decision.v1` contract).
+
+Two rulesets exist. `oaw.decision.rules.v1` is kept exactly reproducible so
+historical decisions keep their meaning. `oaw.decision.rules.v2` is active: it
+adds operator-assigned asset importance as an input and one Act Now rule
+(known exploitation on a critical asset when exposure is not ruled out).
 
 The decision layer answers "what should receive attention now, and why" for one
 deterministic finding. It sits beside the Operational Attention Score
@@ -24,7 +29,11 @@ from typing import Any, Iterable, Literal, Mapping, Sequence
 
 
 DECISION_SCHEMA_VERSION = "oaw.decision.v1"
-DECISION_RULESET_VERSION = "oaw.decision.rules.v1"
+DECISION_RULESET_V1 = "oaw.decision.rules.v1"
+DECISION_RULESET_V2 = "oaw.decision.rules.v2"
+SUPPORTED_DECISION_RULESETS = (DECISION_RULESET_V1, DECISION_RULESET_V2)
+# The active ruleset. Earlier versions stay evaluable for reproduction only.
+DECISION_RULESET_VERSION = DECISION_RULESET_V2
 MAX_DECISION_EVIDENCE_REFERENCES = 8
 
 ActionBand = Literal["monitor", "plan", "prioritize", "act-now"]
@@ -48,6 +57,16 @@ ExposureState = Literal[
     "not-applicable",
 ]
 AssetImportance = Literal["critical", "high", "standard", "low", "unknown", "not-applicable"]
+# Effective importance an input may carry. `unknown` means no operator
+# assignment; it is never read as low and never satisfies a critical rule.
+ASSET_IMPORTANCE_INPUTS = ("critical", "high", "standard", "low", "unknown")
+# Exposure states that affirmatively rule exposure out. Only `not-reachable`
+# does. `segmented` means reachability is limited, not that alternate paths are
+# ruled out, so it does not block the critical-asset rule. Whether a reviewed
+# segmentation control should lower a critical-asset Act Now is a policy
+# decision for the exposure model (CTEM-GAP-03); no current input produces any
+# of these states.
+EXPOSURE_RULED_OUT_STATES = frozenset({"not-reachable"})
 
 # Ascending order of attention. The display names are product copy.
 ACTION_BANDS: tuple[ActionBand, ...] = ("monitor", "plan", "prioritize", "act-now")
@@ -196,9 +215,31 @@ REASON_CODE_CATALOG: tuple[ReasonCodeDefinition, ...] = (
         "Reachability is not established from current evidence. It is not assumed to be safe.",
     ),
     ReasonCodeDefinition(
+        "ASSET_IMPORTANCE_CRITICAL",
+        "asset_importance_assignments",
+        "An operator assigned critical importance to this asset. This is an audited "
+        "assertion, not discovered evidence.",
+    ),
+    ReasonCodeDefinition(
+        "ASSET_IMPORTANCE_HIGH",
+        "asset_importance_assignments",
+        "An operator assigned high importance to this asset.",
+    ),
+    ReasonCodeDefinition(
+        "ASSET_IMPORTANCE_STANDARD",
+        "asset_importance_assignments",
+        "An operator assigned standard importance to this asset.",
+    ),
+    ReasonCodeDefinition(
+        "ASSET_IMPORTANCE_LOW",
+        "asset_importance_assignments",
+        "An operator assigned low importance to this asset. Low importance never lowers "
+        "an action band.",
+    ),
+    ReasonCodeDefinition(
         "ASSET_IMPORTANCE_UNKNOWN",
-        "asset importance (not yet available)",
-        "Asset importance has not been assigned. It is not assumed to be low.",
+        "asset_importance_assignments",
+        "Asset importance has not been assigned by an operator. It is not assumed to be low.",
     ),
     ReasonCodeDefinition(
         "EVIDENCE_STALE",
@@ -235,20 +276,39 @@ class DecisionRuleDefinition:
     verification_required: bool
 
 
-# Ordered rule table. The first matching rule selects the band; the uncertainty
-# floor is applied afterwards. No rule in this version yields `act-now`: the
-# approved Act Now conditions need confirmed exposure, asset importance,
-# compromise, or safety evidence, none of which the repository records yet.
-DECISION_RULES: tuple[DecisionRuleDefinition, ...] = (
-    DecisionRuleDefinition("finding-resolved", 1, "Finding status is resolved.", None, False),
-    DecisionRuleDefinition(
-        "vulnerability-known-exploited",
-        2,
-        "Confirmed vulnerable component with known-exploited catalog evidence; exposure and "
-        "importance are unknown, so the result is at least Prioritize.",
-        "prioritize",
-        False,
-    ),
+_RULE_RESOLVED = DecisionRuleDefinition("finding-resolved", 1, "Finding status is resolved.", None, False)
+_RULE_KNOWN_EXPLOITED = DecisionRuleDefinition(
+    "vulnerability-known-exploited",
+    2,
+    "Confirmed vulnerable component with known-exploited catalog evidence; exposure and "
+    "importance are unknown, so the result is at least Prioritize.",
+    "prioritize",
+    False,
+)
+_RULE_KNOWN_EXPLOITED_CRITICAL_ASSET = DecisionRuleDefinition(
+    "vulnerability-known-exploited-critical-asset",
+    2,
+    "Confirmed vulnerable component with known-exploited catalog evidence on an asset an "
+    "operator assigned critical importance, and exposure is not affirmatively ruled out.",
+    "act-now",
+    False,
+)
+
+
+def _renumbered(rules: Sequence[DecisionRuleDefinition]) -> tuple[DecisionRuleDefinition, ...]:
+    return tuple(
+        DecisionRuleDefinition(rule.rule_id, order, rule.condition, rule.action_band, rule.verification_required)
+        for order, rule in enumerate(rules, start=1)
+    )
+
+
+# Ordered rule table for `oaw.decision.rules.v1`. The first matching rule
+# selects the band; the uncertainty floor is applied afterwards. No v1 rule
+# yields `act-now`: the approved Act Now conditions need confirmed exposure,
+# asset importance, compromise, or safety evidence, none of which v1 reads.
+DECISION_RULES_V1: tuple[DecisionRuleDefinition, ...] = (
+    _RULE_RESOLVED,
+    _RULE_KNOWN_EXPLOITED,
     DecisionRuleDefinition(
         "vulnerability-critical",
         3,
@@ -308,6 +368,33 @@ DECISION_RULES: tuple[DecisionRuleDefinition, ...] = (
     ),
 )
 
+# `oaw.decision.rules.v2` is v1 with one rule inserted ahead of the
+# known-exploited Prioritize rule. Every other rule keeps its meaning; asset
+# importance never lowers a band.
+_RULE_KNOWN_EXPLOITED_V2 = DecisionRuleDefinition(
+    "vulnerability-known-exploited",
+    3,
+    "Confirmed vulnerable component with known-exploited catalog evidence where asset "
+    "importance is not an operator-assigned critical value (including unknown); exposure "
+    "is unknown, so the result is at least Prioritize.",
+    "prioritize",
+    False,
+)
+DECISION_RULES_V2: tuple[DecisionRuleDefinition, ...] = _renumbered(
+    (
+        DECISION_RULES_V1[0],
+        _RULE_KNOWN_EXPLOITED_CRITICAL_ASSET,
+        _RULE_KNOWN_EXPLOITED_V2,
+        *DECISION_RULES_V1[2:],
+    )
+)
+RULES_BY_RULESET: dict[str, tuple[DecisionRuleDefinition, ...]] = {
+    DECISION_RULESET_V1: DECISION_RULES_V1,
+    DECISION_RULESET_V2: DECISION_RULES_V2,
+}
+# The active rule table.
+DECISION_RULES = DECISION_RULES_V2
+
 
 @dataclass(frozen=True)
 class DecisionEvidence:
@@ -329,6 +416,9 @@ class DecisionInput:
     status: str
     finding_evaluated_at: datetime
     evidence: tuple[DecisionEvidence, ...] = ()
+    # Effective operator-assigned importance of the finding's asset, or
+    # `unknown`. Read by `oaw.decision.rules.v2` only; v1 ignores it.
+    asset_importance: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -406,16 +496,45 @@ def _validated(value: DecisionInput) -> DecisionInput:
         raise ValueError("unsupported evidence freshness for decision evaluation")
     if not (0.0 <= float(value.confidence) <= 1.0):
         raise ValueError("finding confidence must be between 0 and 1")
+    if value.asset_importance not in ASSET_IMPORTANCE_INPUTS:
+        raise ValueError("unsupported asset importance for decision evaluation")
     lifecycle_class(value.status)
     _utc(value.finding_evaluated_at)
     return value
 
 
-def input_digest(value: DecisionInput) -> str:
-    """SHA-256 over the exact normalized inputs and ruleset version."""
+def _require_ruleset(ruleset_version: str) -> str:
+    if ruleset_version not in SUPPORTED_DECISION_RULESETS:
+        raise ValueError("unsupported decision ruleset version")
+    return ruleset_version
 
-    payload = {
-        "ruleset_version": DECISION_RULESET_VERSION,
+
+def _effective_importance(value: DecisionInput, ruleset_version: str) -> AssetImportance:
+    """Importance as the ruleset sees it. Only asset findings carry importance."""
+
+    if value.subject_type != "asset":
+        return "not-applicable"
+    if ruleset_version == DECISION_RULESET_V1:
+        return "unknown"
+    return value.asset_importance  # type: ignore[return-value]
+
+
+def input_digest(value: DecisionInput) -> str:
+    """SHA-256 over the exact normalized inputs and the active ruleset version."""
+
+    return input_digest_for_ruleset(value, DECISION_RULESET_VERSION)
+
+
+def input_digest_for_ruleset(value: DecisionInput, ruleset_version: str) -> str:
+    """SHA-256 over the exact normalized inputs and ruleset version.
+
+    The v1 payload is byte-for-byte the original one, so v1 digests stay
+    reproducible. Later rulesets add only the inputs they read.
+    """
+
+    _require_ruleset(ruleset_version)
+    payload: dict[str, Any] = {
+        "ruleset_version": ruleset_version,
         "finding_id": value.finding_id,
         "site_id": value.site_id,
         "rule_id": value.rule_id,
@@ -429,6 +548,8 @@ def input_digest(value: DecisionInput) -> str:
             [item.evidence_ref, item.evidence_type, item.freshness] for item in value.evidence
         ),
     }
+    if ruleset_version != DECISION_RULESET_V1:
+        payload["asset_importance"] = _effective_importance(value, ruleset_version)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -449,9 +570,21 @@ def _severity_default_band(severity: str) -> ActionBand:
     return "monitor"
 
 
-def _select_rule(value: DecisionInput, known_exploited: bool) -> tuple[str, ActionBand, bool]:
+def _select_rule(
+    value: DecisionInput,
+    known_exploited: bool,
+    *,
+    critical_asset: bool,
+    exposure: ExposureState,
+) -> tuple[str, ActionBand, bool]:
     rule_id = value.rule_id
     if rule_id == VULNERABILITY_RULE:
+        # Every predicate is canonical: catalog evidence on a confirmed
+        # vulnerable component, an operator-assigned `critical` value, and an
+        # exposure state that does not rule exposure out. `critical_asset` is
+        # false under v1 and whenever importance is anything but `critical`.
+        if known_exploited and critical_asset and exposure not in EXPOSURE_RULED_OUT_STATES:
+            return "vulnerability-known-exploited-critical-asset", "act-now", False
         if known_exploited:
             return "vulnerability-known-exploited", "prioritize", False
         if value.severity == "critical":
@@ -471,11 +604,25 @@ def _select_rule(value: DecisionInput, known_exploited: bool) -> tuple[str, Acti
 
 
 def evaluate_decision(value: DecisionInput) -> FindingDecision:
-    """Deterministically decide one finding. Identical inputs give identical output."""
+    """Deterministically decide one finding with the active ruleset.
 
+    Identical inputs give identical output.
+    """
+
+    return evaluate_decision_with_ruleset(value, DECISION_RULESET_VERSION)
+
+
+def evaluate_decision_with_ruleset(value: DecisionInput, ruleset_version: str) -> FindingDecision:
+    """Decide one finding under an explicit supported ruleset version.
+
+    Used to reproduce historical decisions. A ruleset version is reviewed
+    product code; it is never taken from request or external input.
+    """
+
+    _require_ruleset(ruleset_version)
     value = _validated(value)
     lifecycle = lifecycle_class(value.status)
-    digest = input_digest(value)
+    digest = input_digest_for_ruleset(value, ruleset_version)
     confidence = confidence_band(value.rule_id, float(value.confidence))
     kev = [item for item in value.evidence if item.evidence_type in KEV_EVIDENCE_TYPES]
     known_exploited = value.rule_id == VULNERABILITY_RULE and bool(kev)
@@ -484,12 +631,12 @@ def evaluate_decision(value: DecisionInput) -> FindingDecision:
         "known-exploited" if known_exploited else "unknown" if is_asset_vulnerability else "not-applicable"
     )
     exposure: ExposureState = "unknown" if is_asset_vulnerability else "not-applicable"
-    importance: AssetImportance = "unknown" if value.subject_type == "asset" else "not-applicable"
+    importance = _effective_importance(value, ruleset_version)
     references = tuple(sorted({item.evidence_ref for item in value.evidence}))[:MAX_DECISION_EVIDENCE_REFERENCES]
 
     common = {
         "schema_version": DECISION_SCHEMA_VERSION,
-        "ruleset_version": DECISION_RULESET_VERSION,
+        "ruleset_version": ruleset_version,
         "finding_id": value.finding_id,
         "site_id": value.site_id,
         "finding_rule_id": value.rule_id,
@@ -529,7 +676,7 @@ def evaluate_decision(value: DecisionInput) -> FindingDecision:
         if kev_stale:
             reasons.append("EXPLOITATION_SOURCE_STALE")
     if is_asset_vulnerability:
-        reasons.extend(("EXPOSURE_UNKNOWN", "ASSET_IMPORTANCE_UNKNOWN"))
+        reasons.extend(("EXPOSURE_UNKNOWN", f"ASSET_IMPORTANCE_{importance.upper()}"))
     if value.evidence_freshness == "stale":
         reasons.append("EVIDENCE_STALE")
     elif value.evidence_freshness == "unknown":
@@ -540,7 +687,12 @@ def evaluate_decision(value: DecisionInput) -> FindingDecision:
     if suppressed:
         reasons.append("SUPPRESSION_ACTIVE")
 
-    decision_rule_id, band, rule_requires_verification = _select_rule(value, known_exploited)
+    decision_rule_id, band, rule_requires_verification = _select_rule(
+        value,
+        known_exploited,
+        critical_asset=is_asset_vulnerability and importance == "critical",
+        exposure=exposure,
+    )
     uncertainty = (
         value.evidence_freshness in {"stale", "unknown"}
         or confidence in {"low", "insufficient", "conflicted"}
@@ -584,6 +736,8 @@ def decision_input_from_records(
         evidence_freshness=str(finding["evidence_freshness"]),
         status=str(finding["status"]),
         finding_evaluated_at=evaluated_at,
+        # Absent importance (no assignment, withdrawn, or not an asset) is unknown.
+        asset_importance=str(finding.get("asset_importance") or "unknown"),
         evidence=tuple(
             DecisionEvidence(
                 evidence_ref=str(item["evidence_ref"]),
@@ -629,9 +783,9 @@ def ruleset_public() -> dict[str, Any]:
             "low_min": CONFIDENCE_LOW_MIN,
         },
         "limitations": [
-            "No rule in this version can produce Act Now: it needs confirmed exposure, asset "
-            "importance, compromise, or safety evidence, which are not yet recorded.",
-            "Exposure and asset importance are always unknown in this version.",
+            "Act Now is produced only by known-exploited catalog evidence on a confirmed "
+            "vulnerable component of an asset an operator assigned critical importance.",
+            "Exposure is always unknown in this version; unknown importance is never read as low.",
             "The Operational Attention Score is shown for context and never selects a band.",
         ],
     }
