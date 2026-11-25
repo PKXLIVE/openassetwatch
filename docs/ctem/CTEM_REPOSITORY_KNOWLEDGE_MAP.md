@@ -65,9 +65,10 @@ Status meanings: **implemented** (code and tests on `main`), **partial**,
 | Signed advisory feeds and offline mirror | implemented | `advisory_*.py`, `osv_pypi_*`; `test_advisory_*` | `TRUSTED_ADVISORY_FEEDS.md`, `ADVISORY_MIRROR.md` |
 | Deterministic findings (10 rules) | implemented | `findings.py`, `finding_store.py`; `test_findings*.py` | `DETERMINISTIC_FINDINGS_AND_RISK.md` |
 | Operational Attention Score `oaw.risk.v1` (prioritization) | implemented | `risk.py`; `test_risk.py` | ADR-0001 DR-01; `DETERMINISTIC_FINDINGS_AND_RISK.md` |
-| Action bands and decision record `oaw.decision.v1` | implemented (v1; no Act Now rule yet) | `decisions.py`, `decision_store.py`, migration 0006; `test_decisions.py`, `test_decision_api.py`, gated decision database tests | ADR-0001 DR-02, DR-03; `EXPLAINABLE_RISK_DECISION_MODEL.md`; `docs/ctem/CTEM_DECISION_LAYER.md` |
+| Action bands and decision record `oaw.decision.v1` | implemented (ruleset v2; one Act Now rule) | `decisions.py`, `decision_store.py`, migration 0006; `test_decisions.py`, `test_decision_api.py`, gated decision database tests | ADR-0001 DR-02, DR-03; `EXPLAINABLE_RISK_DECISION_MODEL.md`; `docs/ctem/CTEM_DECISION_LAYER.md` |
 | Exposure state per finding | designed (defaults to `unknown`) | none | `EXPLAINABLE_RISK_DECISION_MODEL.md` (exposure state); PR #189 |
-| Asset importance and business services | designed | none | `EXPLAINABLE_RISK_DECISION_MODEL.md` (asset importance); `itsm-cmdb-enrichment-roadmap.md` |
+| Asset importance | implemented (asset-level audited assignment) | `asset_importance*.py`, migration 0007; `test_asset_importance*.py`, gated importance database tests | `EXPLAINABLE_RISK_DECISION_MODEL.md` (asset importance); `docs/ctem/CTEM_ASSET_IMPORTANCE.md` |
+| Business services and inherited importance | designed | none | `itsm-cmdb-enrichment-roadmap.md` |
 | External exposure, Certificate Transparency, passive DNS | designed | none | ADR-0002 (AD-01 to AD-10) |
 | Internet-facing reachability, attack paths | research-only | none | `research/.../EXPLAINABLE_RISK_AND_REMEDIATION.md`; `LANDSCAPE_AND_PRODUCT_BENCHMARK.md` (freshness-gated attack-path hints) |
 | Compensating controls, control effectiveness | proposed | none | PR #189; `EXPLAINABLE_RISK_DECISION_MODEL.md` (remediation guidance) |

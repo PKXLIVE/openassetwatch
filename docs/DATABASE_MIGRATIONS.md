@@ -25,7 +25,11 @@ column, and rewrites no rows. Migration `0006_finding_decision_layer.sql`
 adds the deterministic finding decision projection and its append-only
 transition history (see `docs/ctem/CTEM_DECISION_LAYER.md`). It reuses the
 `(finding_id, site_id)` key target, alters no existing table, and rewrites no
-rows.
+rows. Migration `0007_asset_importance.sql` adds audited asset importance
+assignments and their append-only event history (see
+`docs/ctem/CTEM_ASSET_IMPORTANCE.md`). It references the existing
+`(site_id, asset_id)` unique key of `control_tower_assets`, alters no existing
+table, and rewrites no rows.
 
 ## Authority and packaged files
 
@@ -130,6 +134,24 @@ finding evaluation produces them. Existing findings, evidence, risk, and
 work-tracking rows are unchanged. Back up and verify the restore before
 applying version 6 to a persistent database; an older backend refuses to start
 against a version 6 database.
+
+A database at version 6 upgrades transactionally to version 7. The upgrade
+creates `asset_importance_assignments`, `asset_importance_events`, two
+indexes, two PL/pgSQL trigger functions, and three triggers: two keep the
+events append-only, and one allows a current assignment to be deleted only by
+the cascade that removes its asset. It creates no index on an existing table
+and has no rows to validate, but adding the foreign key to
+`control_tower_assets` locks that table against writes (not reads) until the
+migration transaction commits, so inventory ingestion waits briefly. Existing
+assets, findings, evidence, risk, decisions, and work-tracking rows are
+unchanged, and stored decisions keep their `oaw.decision.rules.v1` identity.
+Importance is empty, and therefore `unknown` for every asset, until an
+operator assigns it. The next finding evaluation records a `ruleset-changed`
+decision transition under `oaw.decision.rules.v2`. Back up and verify the
+restore before applying version 7 to a persistent database; an older backend
+refuses to start against a version 7 database. There is no downgrade: to
+return to version 6, restore the version 6 backup, which discards importance
+assignments made since.
 
 For an existing database created by the former startup and store-owned DDL,
 the runner first inspects the schema. It permits objects that are genuinely
@@ -258,6 +280,10 @@ docker compose run --rm --volume "${PWD}:/workspace" `
 - Migration 0006 does not add asset importance, exposure, risk acceptance, AI
   authority, or any path that changes findings, evidence, risk, or work
   tracking.
+- Migration 0007 does not add business services, inherited or imported
+  importance, per-user identity, enforced separation of duties, exposure, AI
+  authority, or any path that changes findings, evidence, risk, decisions, or
+  work tracking.
 
 The broader target architecture and release policy remain documented in
 `docs/architecture/database-schema-migration-governance.md`.

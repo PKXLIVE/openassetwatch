@@ -170,8 +170,28 @@ class DecisionRuleTests(unittest.TestCase):
         registered = {rule.rule_id for rule in RULE_REGISTRY}
         self.assertEqual(registered - set(RULE_FAMILY_REASON), set())
 
-    def test_no_rule_in_this_version_produces_act_now(self) -> None:
-        self.assertNotIn("act-now", {rule.action_band for rule in DECISION_RULES})
+    def test_no_v1_rule_produces_act_now(self) -> None:
+        # Historical v1 behavior is preserved: v1 has no Act Now rule and does
+        # not read importance, even when a critical importance is supplied.
+        self.assertNotIn("act-now", {rule.action_band for rule in decisions.DECISION_RULES_V1})
+        for rule_id in sorted(RULE_FAMILY_REASON):
+            for severity in ("critical", "high"):
+                for evidence in ((MATCH,), (MATCH, KEV_RANSOMWARE)):
+                    decision = decisions.evaluate_decision_with_ruleset(
+                        finding(
+                            rule_id=rule_id,
+                            severity=severity,
+                            evidence=evidence,
+                            asset_importance="critical",
+                        ),
+                        decisions.DECISION_RULESET_V1,
+                    )
+                    self.assertNotEqual(decision.action_band, "act-now")
+
+    def test_only_the_critical_asset_rule_produces_act_now_in_v2(self) -> None:
+        act_now = [rule.rule_id for rule in DECISION_RULES if rule.action_band == "act-now"]
+        self.assertEqual(act_now, ["vulnerability-known-exploited-critical-asset"])
+        # Without an operator-assigned critical importance nothing is Act Now.
         for rule_id in sorted(RULE_FAMILY_REASON):
             for severity in ("critical", "high"):
                 for evidence in ((MATCH,), (MATCH, KEV_RANSOMWARE)):
@@ -474,7 +494,17 @@ class DeterminismAndContractTests(unittest.TestCase):
 
     def test_versions_are_explicit_and_stable(self) -> None:
         self.assertEqual(DECISION_SCHEMA_VERSION, "oaw.decision.v1")
-        self.assertEqual(DECISION_RULESET_VERSION, "oaw.decision.rules.v1")
+        # The record contract stays v1; the active rule policy is v2. v1 stays
+        # supported so historical decisions can be reproduced.
+        self.assertEqual(DECISION_RULESET_VERSION, "oaw.decision.rules.v2")
+        self.assertEqual(
+            decisions.SUPPORTED_DECISION_RULESETS,
+            ("oaw.decision.rules.v1", "oaw.decision.rules.v2"),
+        )
+        self.assertEqual(
+            [rule.order for rule in decisions.DECISION_RULES_V1],
+            list(range(1, len(decisions.DECISION_RULES_V1) + 1)),
+        )
         self.assertEqual(evaluate_decision(finding()).ruleset_version, DECISION_RULESET_VERSION)
         self.assertEqual([rule.order for rule in DECISION_RULES], list(range(1, len(DECISION_RULES) + 1)))
 

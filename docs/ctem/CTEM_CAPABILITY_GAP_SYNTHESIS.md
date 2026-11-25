@@ -45,7 +45,7 @@ Classifications: **ALREADY PRESENT**, **PARTIALLY PRESENT**, **USEFUL GAP**,
 | Scoping | Verified external scope (owned domains, addresses) | USEFUL GAP | Designed (ADR-0002 AD-02); see [`CTEM-GAP-03`](#ctem-gap-03-evidence-derived-exposure-state-and-verified-scope) |
 | Scoping | Rule-based asset groups and saved selections | USEFUL GAP | [`CTEM-GAP-11`](#ctem-gap-11-rule-based-asset-groups) |
 | Scoping | Scoped review cycle with exclusions and success criteria | USEFUL GAP (low priority) | [`CTEM-GAP-14`](#ctem-gap-14-scoped-review-cycle) |
-| Scoping | Asset importance and business-service context | USEFUL GAP | [`CTEM-GAP-02`](#ctem-gap-02-asset-importance-and-business-service-context) |
+| Scoping | Asset importance and business-service context | PARTIALLY PRESENT | Asset-level audited importance implemented; business services deferred ([`CTEM-GAP-02`](#ctem-gap-02-asset-importance-and-business-service-context)) |
 | Discovery | Typed asset inventory with source provenance | ALREADY PRESENT | Canonical ingestion, classification, evidence fusion |
 | Discovery | Endpoint software inventory and version history | ALREADY PRESENT | Native software collection, component store |
 | Discovery | Passive network discovery | ALREADY PRESENT | Passive sensor |
@@ -142,7 +142,10 @@ RESEARCH**, **EXTERNAL RESEARCH** (generalized; sources are not recorded), and
   services that may raise, but never lower, an asset's effective importance.
   Lowering importance on an asset with open findings should require a second
   person.
-- **Existing equivalent:** none implemented.
+- **Existing equivalent:** asset-level audited importance is implemented
+  ([CTEM_ASSET_IMPORTANCE.md](CTEM_ASSET_IMPORTANCE.md)). Lowering is recorded
+  as security-sensitive, but second-person review is not enforceable until
+  per-user identity exists. Business services are not implemented.
 - **Build or integrate:** build the native assignment. Imported
   asset-management data may later supply suggestions.
 - **Evidence:** operator assignment (authoritative); imported values and

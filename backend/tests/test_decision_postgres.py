@@ -94,7 +94,7 @@ class DecisionPostgresTests(unittest.TestCase):
         with self.admin_engine.connect() as connection:
             connection.exec_driver_sql(f'CREATE DATABASE "{self.database_name}"')
         self.database_engine = create_engine(parsed.set(database=self.database_name), poolclass=NullPool)
-        self.assertEqual(migrate_database_schema(self.database_engine).current_version, 6)
+        self.assertEqual(migrate_database_schema(self.database_engine).current_version, 7)
         self.patchers = [
             patch("app.database.get_engine", return_value=self.database_engine),
             patch("app.database.ensure_database_schema"),
@@ -342,13 +342,20 @@ class DecisionPostgresTests(unittest.TestCase):
         self.assertEqual(self.decisions.get_decision(finding_id)["projection_state"], "stale")
 
     def test_ruleset_version_change_is_a_recorded_transition(self) -> None:
-        self._evaluate(NOW)
-        finding_id = self._finding_id()
-        with patch("app.decisions.DECISION_RULESET_VERSION", "oaw.decision.rules.v2"):
-            self._evaluate(NOW + timedelta(minutes=1))
-            history = self._history(finding_id)
-        self.assertEqual(history[-1]["transition_cause"], "ruleset-changed")
-        self.assertEqual(history[-1]["ruleset_version"], "oaw.decision.rules.v2")
+        # Decisions recorded under v1 keep their v1 identity in history; the
+        # first evaluation under the active v2 ruleset is a recorded transition.
+        with patch("app.decisions.DECISION_RULESET_VERSION", "oaw.decision.rules.v1"):
+            self._evaluate(NOW)
+            finding_id = self._finding_id()
+            self.assertEqual(self.decisions.get_decision(finding_id)["projection_state"], "current")
+        self.assertEqual(self.decisions.get_decision(finding_id)["projection_state"], "stale")
+        self._evaluate(NOW + timedelta(minutes=1))
+        history = self._history(finding_id)
+        self.assertEqual(
+            [(item["transition_cause"], item["ruleset_version"]) for item in history],
+            [("initial", "oaw.decision.rules.v1"), ("ruleset-changed", "oaw.decision.rules.v2")],
+        )
+        self.assertEqual(self.decisions.get_decision(finding_id)["projection_state"], "current")
 
     def test_suppression_is_an_overlay_transition(self) -> None:
         self._evaluate(NOW)

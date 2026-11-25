@@ -84,9 +84,9 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         second = migrate_database_schema(self.database_engine)
 
         self.assertEqual(first.state, "ready")
-        self.assertEqual(first.current_version, 6)
+        self.assertEqual(first.current_version, 7)
         self.assertEqual(second, first)
-        self.assertEqual(self._state_count(), 6)
+        self.assertEqual(self._state_count(), 7)
         with self.database_engine.connect() as connection:
             table_count = int(
                 connection.execute(
@@ -158,7 +158,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         status = migrate_database_schema(self.database_engine)
 
         self.assertEqual(status.state, "ready")
-        self.assertEqual(self._state_count(), 6)
+        self.assertEqual(self._state_count(), 7)
         with self.database_engine.connect() as connection:
             preserved = connection.execute(
                 text(
@@ -381,7 +381,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
                     INSERT INTO oaw_schema_migrations (
                         version, name, checksum, execution_duration_ms,
                         application_version, minimum_application_version
-                    ) VALUES (7, 'unknown', :checksum, 0, '0.1.0', '0.1.0')
+                    ) VALUES (8, 'unknown', :checksum, 0, '0.1.0', '0.1.0')
                     """
                 ),
                 {"checksum": "a" * 64},
@@ -411,7 +411,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(len(results), 2)
         self.assertTrue(all(isinstance(item, type(results[0])) for item in results))
         self.assertTrue(all(getattr(item, "state", None) == "ready" for item in results))
-        self.assertEqual(self._state_count(), 6)
+        self.assertEqual(self._state_count(), 7)
 
     def test_version_one_database_upgrades_through_canonical_ingestion(self) -> None:
         migrations = discover_migrations()
@@ -421,8 +421,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
         self.assertEqual(upgraded.state, "ready")
-        self.assertEqual(upgraded.current_version, 6)
-        self.assertEqual(self._state_count(), 6)
+        self.assertEqual(upgraded.current_version, 7)
+        self.assertEqual(self._state_count(), 7)
         with self.database_engine.connect() as connection:
             tables = {
                 connection.execute(text("SELECT to_regclass('public.endpoint_agent_enrollments')")).scalar_one(),
@@ -444,8 +444,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(version_two.current_version, 2)
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 6)
-        self.assertEqual(self._state_count(), 6)
+        self.assertEqual(upgraded.current_version, 7)
+        self.assertEqual(self._state_count(), 7)
         with self.database_engine.connect() as connection:
             tables = {
                 connection.execute(text("SELECT to_regclass('public.canonical_ingestion_sources')")).scalar_one(),
@@ -466,8 +466,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(version_three.current_version, 3)
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 6)
-        self.assertEqual(self._state_count(), 6)
+        self.assertEqual(upgraded.current_version, 7)
+        self.assertEqual(self._state_count(), 7)
         with self.database_engine.connect() as connection:
             tables = {
                 connection.execute(
@@ -532,8 +532,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
 
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 6)
-        self.assertEqual(self._state_count(), 6)
+        self.assertEqual(upgraded.current_version, 7)
+        self.assertEqual(self._state_count(), 7)
         with self.database_engine.connect() as connection:
             after = dict(
                 connection.execute(
@@ -635,8 +635,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
 
         upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
 
-        self.assertEqual(upgraded.current_version, 6)
-        self.assertEqual(self._state_count(), 6)
+        self.assertEqual(upgraded.current_version, 7)
+        self.assertEqual(self._state_count(), 7)
         with self.database_engine.connect() as connection:
             after = {
                 table: [dict(row) for row in connection.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
@@ -658,6 +658,205 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(
             triggers,
             {"trg_finding_decision_history_append_only", "trg_finding_decision_history_no_truncate"},
+        )
+        self.assertEqual(migrate_database_schema(self.database_engine, migrations=migrations), upgraded)
+
+    def test_version_six_database_upgrades_to_asset_importance(self) -> None:
+        migrations = discover_migrations()
+        version_six = migrate_database_schema(self.database_engine, migrations=migrations[:6])
+        self.assertEqual(version_six.current_version, 6)
+        finding_id = "fnd_" + "6" * 32
+        with self.database_engine.begin() as connection:
+            connection.execute(text("INSERT INTO sites (site_id, name) VALUES ('upgrade-site', 'Upgrade Site')"))
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO control_tower_assets (
+                        asset_key, asset_id, site_id, hostname, first_seen_at, last_seen_at
+                    ) VALUES ('upgrade-site:asset-a', 'asset-a', 'upgrade-site', 'db01', NOW(), NOW())
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO finding_evaluation_runs (
+                        run_id, trigger_type, ruleset_version, status, started_at
+                    ) VALUES ('frun_upgrade6', 'test', 'oaw.findings.v1', 'completed', NOW())
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO findings (
+                        finding_id, dedupe_key, rule_id, rule_version,
+                        engine_version, category, subject_type, site_id, asset_id, title,
+                        description, recommendation, severity, confidence, status,
+                        evidence_freshness, first_seen_at, last_seen_at,
+                        evaluated_at, last_evaluation_run_id
+                    ) VALUES (
+                        :finding_id, :dedupe_key, 'vulnerable-component', 1,
+                        'oaw.findings.v1', 'vulnerability', 'asset', 'upgrade-site', 'asset-a',
+                        't', 'd', 'r', 'high', 0.95, 'active', 'fresh', NOW(), NOW(),
+                        NOW(), 'frun_upgrade6'
+                    )
+                    """
+                ),
+                {"finding_id": finding_id, "dedupe_key": "fdk_" + "6" * 64},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO finding_decisions (
+                        finding_id, site_id, schema_version, ruleset_version, decision_state,
+                        decision_rule_id, action_band, urgency, severity, evidence_confidence,
+                        evidence_confidence_value, evidence_freshness, exploitation_status,
+                        exposure_state, asset_importance, uncertainty_present,
+                        verification_required, prioritization_excluded, reason_codes,
+                        evidence_references, input_digest, finding_evaluated_at, evaluated_at,
+                        evaluation_run_id, revision
+                    ) VALUES (
+                        :finding_id, 'upgrade-site', 'oaw.decision.v1', 'oaw.decision.rules.v1',
+                        'current', 'vulnerability-confirmed', 'plan', 'scheduled', 'high', 'high',
+                        0.95, 'fresh', 'unknown', 'unknown', 'unknown', FALSE, FALSE, FALSE,
+                        '["VULNERABILITY_CONFIRMED"]'::jsonb, '[]'::jsonb, :digest, NOW(), NOW(),
+                        'frun_upgrade6', 1
+                    )
+                    """
+                ),
+                {"finding_id": finding_id, "digest": "a" * 64},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO finding_work_items (
+                        work_item_id, finding_id, site_id, work_status, revision,
+                        created_principal, created_actor_label, created_at, updated_at
+                    ) VALUES (
+                        :work_item_id, :finding_id, 'upgrade-site', 'open', 1,
+                        'api-admin-token', 'alex', NOW(), NOW()
+                    )
+                    """
+                ),
+                {"work_item_id": "fwi_" + "6" * 32, "finding_id": finding_id},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO finding_work_events (
+                        work_item_id, finding_id, site_id, revision, event_type, to_status,
+                        finding_status, principal, actor_label, occurred_at
+                    ) VALUES (
+                        :work_item_id, :finding_id, 'upgrade-site', 1, 'created', 'open',
+                        'active', 'api-admin-token', 'alex', NOW()
+                    )
+                    """
+                ),
+                {"work_item_id": "fwi_" + "6" * 32, "finding_id": finding_id},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO finding_evidence (
+                        finding_id, evidence_ref, evidence_type, source, freshness, confidence, summary
+                    ) VALUES (:finding_id, 'kevr_upgrade', 'kev-prioritization', 'kev', 'fresh', 1.0, 's')
+                    """
+                ),
+                {"finding_id": finding_id},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO asset_risk_scores (
+                        site_id, asset_id, score, band, formula_version, finding_count,
+                        calculated_at, evaluation_run_id
+                    ) VALUES ('upgrade-site', 'asset-a', 42, 'elevated', 'oaw.risk.v1', 1, NOW(), 'frun_upgrade6')
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO risk_factors (
+                        subject_type, site_id, asset_id, finding_id, factor_type, category, label,
+                        severity, confidence, freshness, base_weight, adjusted_weight, ordinal,
+                        evaluation_run_id
+                    ) VALUES (
+                        'asset', 'upgrade-site', 'asset-a', :finding_id, 'finding', 'vulnerability', 'l',
+                        'high', 0.95, 'fresh', 25.0, 25.0, 1, 'frun_upgrade6'
+                    )
+                    """
+                ),
+                {"finding_id": finding_id},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO finding_decision_history (
+                        finding_id, site_id, revision, transition_cause, ruleset_version,
+                        decision_state, action_band, urgency, reason_codes, input_digest,
+                        finding_evaluated_at, evaluated_at, evaluation_run_id
+                    ) VALUES (
+                        :finding_id, 'upgrade-site', 1, 'initial', 'oaw.decision.rules.v1',
+                        'current', 'plan', 'scheduled', '["VULNERABILITY_CONFIRMED"]'::jsonb,
+                        :digest, NOW(), NOW(), 'frun_upgrade6'
+                    )
+                    """
+                ),
+                {"finding_id": finding_id, "digest": "a" * 64},
+            )
+        tables = (
+            "sites",
+            "control_tower_assets",
+            "findings",
+            "finding_evidence",
+            "asset_risk_scores",
+            "risk_factors",
+            "finding_decisions",
+            "finding_decision_history",
+            "finding_work_items",
+            "finding_work_events",
+        )
+        with self.database_engine.connect() as connection:
+            before = {
+                table: [dict(row) for row in connection.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
+                for table in tables
+            }
+
+        upgraded = migrate_database_schema(self.database_engine, migrations=migrations)
+
+        self.assertEqual(upgraded.current_version, 7)
+        self.assertEqual(self._state_count(), 7)
+        with self.database_engine.connect() as connection:
+            after = {
+                table: [dict(row) for row in connection.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
+                for table in tables
+            }
+            # Stored decisions keep their original v1 ruleset identity.
+            self.assertEqual(
+                connection.execute(text("SELECT ruleset_version FROM finding_decisions")).scalar_one(),
+                "oaw.decision.rules.v1",
+            )
+            for table in ("asset_importance_assignments", "asset_importance_events"):
+                self.assertEqual(connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one(), 0)
+            triggers = set(
+                connection.execute(
+                    text(
+                        "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN ("
+                        "'public.asset_importance_events'::regclass, "
+                        "'public.asset_importance_assignments'::regclass)"
+                    )
+                ).scalars()
+            )
+        self.assertEqual(after, before)
+        self.assertEqual(
+            triggers,
+            {
+                "trg_asset_importance_events_append_only",
+                "trg_asset_importance_events_no_truncate",
+                "trg_asset_importance_assignments_cascade_only_delete",
+            },
         )
         self.assertEqual(migrate_database_schema(self.database_engine, migrations=migrations), upgraded)
 
