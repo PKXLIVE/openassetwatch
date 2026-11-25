@@ -30,7 +30,8 @@ assignments and their append-only event history (see
 `docs/ctem/CTEM_ASSET_IMPORTANCE.md`). It references the existing
 `(site_id, asset_id)` unique key of `control_tower_assets`, alters no existing
 table, and rewrites no rows. Migration `0008_finding_verification.sql` adds
-append-only remediation verification baselines and transition history (see
+append-only resolution evidence, remediation verification baselines, and
+verification transition history (see
 `docs/ctem/CTEM_REMEDIATION_VERIFICATION.md`). It references the existing
 `(work_item_id, finding_id, site_id)` unique key of `finding_work_items`,
 alters no existing table, and rewrites no rows.
@@ -158,12 +159,14 @@ return to version 6, restore the version 6 backup, which discards importance
 assignments made since.
 
 A database at version 7 upgrades transactionally to version 8. The upgrade
-creates `finding_verification_baselines`, `finding_verification_history`, two
-indexes, one PL/pgSQL trigger function, and four triggers that keep both
-tables append-only except for the cascade that removes a whole finding. It
-creates no index on an existing table and has no rows to validate, but adding
-the foreign keys locks `finding_work_items` and `finding_evaluation_runs`
-against writes (not reads) until the migration transaction commits. Existing
+creates `finding_resolution_evidence`, `finding_verification_baselines`,
+`finding_verification_history`, three indexes, one PL/pgSQL trigger function,
+and six triggers that keep all three tables append-only except for the cascade
+that removes a whole finding. It creates no index on an existing table and has
+no rows to validate, but adding the foreign keys locks `findings`,
+`finding_work_items`, and `finding_evaluation_runs` against writes (not reads)
+until the migration transaction commits. Resolutions recorded before version 8
+have no resolution evidence. Existing
 findings, evidence, risk, decisions, importance, and work-tracking rows are
 unchanged. Work already marked done has no baseline; its verification reports
 `BASELINE_NOT_CAPTURED`. History is empty until the next finding evaluation.

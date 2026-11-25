@@ -35,7 +35,9 @@ from .verification import (
     evidence_from_records,
     evidence_to_json,
     method_for,
+    proofs_from_records,
 )
+from .findings import TECHNICAL_RESOLUTION_BASES
 
 
 MAX_VERIFICATION_RECORDS = 20_000
@@ -163,7 +165,8 @@ class SqlVerificationStore:
         finding_ids = [str(row["finding_id"]) for row in findings]
         context: dict[str, dict[str, Any]] = {
             str(row["finding_id"]): {"finding": dict(row), "evidence": [], "work": None, "report": None,
-                                     "baseline": None, "snapshot": None, "recorded": False, "conflict": False}
+                                     "baseline": None, "snapshot": None, "recorded": False, "conflict": False,
+                                     "proofs": [], "at_resolution": None, "after_resolution": None}
             for row in findings
         }
         if not finding_ids:
@@ -230,9 +233,40 @@ class SqlVerificationStore:
                     {"work_ids": [p[0] for p in pairs], "revisions": [p[1] for p in pairs]},
                 ).mappings():
                     context[str(row["finding_id"])]["baseline"] = dict(row)
-        # Collection completeness after the report, for component methods.
+        # Affirmative evidence recorded for each finding's current resolution.
+        resolved = [
+            (fid, item["finding"]["resolved_at"])
+            for fid, item in context.items()
+            if item["finding"]["status"] == "resolved" and item["finding"].get("resolved_at") is not None
+        ]
+        if resolved:
+            for row in connection.execute(
+                text(
+                    """
+                    SELECT e.finding_id, e.resolution_basis, e.evidence_ref, e.evidence_type,
+                           e.source, e.observed_at, e.freshness, e.installed_version, e.fixed_version
+                    FROM finding_resolution_evidence AS e
+                    JOIN unnest(CAST(:finding_ids AS TEXT[]), CAST(:resolved AS TIMESTAMPTZ[]))
+                         AS wanted(finding_id, resolved_at)
+                      ON wanted.finding_id = e.finding_id
+                     AND wanted.resolved_at = e.resolved_at
+                    ORDER BY e.finding_id, e.evidence_type, e.evidence_ref
+                    """
+                ),
+                {"finding_ids": [r[0] for r in resolved], "resolved": [r[1] for r in resolved]},
+            ).mappings():
+                context[str(row["finding_id"])]["proofs"].append(dict(row))
+        # Collection completeness for component methods: the newest snapshot
+        # since the report, the newest between the report and the resolution,
+        # and the newest after the resolution.
         wanted = [
-            (fid, item["finding"]["site_id"], item["finding"]["asset_id"], item["report"]["occurred_at"])
+            (
+                fid,
+                item["finding"]["site_id"],
+                item["finding"]["asset_id"],
+                item["report"]["occurred_at"],
+                item["finding"]["resolved_at"] if item["finding"]["status"] == "resolved" else None,
+            )
             for fid, item in context.items()
             if item["report"] is not None
             and item["finding"].get("asset_id") is not None
@@ -247,11 +281,17 @@ class SqlVerificationStore:
                                SELECT 1 FROM component_source_snapshots AS any_s
                                WHERE any_s.site_id = wanted.site_id AND any_s.asset_id = wanted.asset_id
                            ) AS recorded,
-                           later.source_snapshot_id, later.collection_status, later.observed_at
+                           later.source_snapshot_id, later.collection_status, later.observed_at,
+                           at_res.source_snapshot_id AS at_id, at_res.collection_status AS at_status,
+                           at_res.observed_at AS at_observed,
+                           after_res.source_snapshot_id AS after_id,
+                           after_res.collection_status AS after_status,
+                           after_res.observed_at AS after_observed
                     FROM unnest(
                         CAST(:finding_ids AS TEXT[]), CAST(:site_ids AS TEXT[]),
-                        CAST(:asset_ids AS TEXT[]), CAST(:reported AS TIMESTAMPTZ[])
-                    ) AS wanted(finding_id, site_id, asset_id, reported_at)
+                        CAST(:asset_ids AS TEXT[]), CAST(:reported AS TIMESTAMPTZ[]),
+                        CAST(:resolved AS TIMESTAMPTZ[])
+                    ) AS wanted(finding_id, site_id, asset_id, reported_at, resolved_at)
                     LEFT JOIN LATERAL (
                         SELECT s.source_snapshot_id, s.collection_status, s.observed_at
                         FROM component_source_snapshots AS s
@@ -260,6 +300,25 @@ class SqlVerificationStore:
                         ORDER BY s.observed_at DESC, s.source_snapshot_id
                         LIMIT 1
                     ) AS later ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT s.source_snapshot_id, s.collection_status, s.observed_at
+                        FROM component_source_snapshots AS s
+                        WHERE s.site_id = wanted.site_id AND s.asset_id = wanted.asset_id
+                          AND wanted.resolved_at IS NOT NULL
+                          AND s.observed_at > wanted.reported_at
+                          AND s.observed_at <= wanted.resolved_at
+                        ORDER BY s.observed_at DESC, s.source_snapshot_id
+                        LIMIT 1
+                    ) AS at_res ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT s.source_snapshot_id, s.collection_status, s.observed_at
+                        FROM component_source_snapshots AS s
+                        WHERE s.site_id = wanted.site_id AND s.asset_id = wanted.asset_id
+                          AND wanted.resolved_at IS NOT NULL
+                          AND s.observed_at > wanted.resolved_at
+                        ORDER BY s.observed_at DESC, s.source_snapshot_id
+                        LIMIT 1
+                    ) AS after_res ON TRUE
                     """
                 ),
                 {
@@ -267,15 +326,19 @@ class SqlVerificationStore:
                     "site_ids": [w[1] for w in wanted],
                     "asset_ids": [w[2] for w in wanted],
                     "reported": [w[3] for w in wanted],
+                    "resolved": [w[4] for w in wanted],
                 },
             ).mappings():
                 item = context[str(row["finding_id"])]
                 item["recorded"] = bool(row["recorded"])
-                if row["source_snapshot_id"] is not None:
-                    item["snapshot"] = CollectionSnapshot(
-                        snapshot_id=str(row["source_snapshot_id"]),
-                        collection_status=str(row["collection_status"]),
-                        observed_at=row["observed_at"],
+                for target, prefix in (("snapshot", ""), ("at_resolution", "at_"), ("after_resolution", "after_")):
+                    snapshot_id = row["source_snapshot_id"] if not prefix else row[f"{prefix}id"]
+                    if snapshot_id is None:
+                        continue
+                    item[target] = CollectionSnapshot(
+                        snapshot_id=str(snapshot_id),
+                        collection_status=str(row["collection_status"] if not prefix else row[f"{prefix}status"]),
+                        observed_at=row["observed_at"] if not prefix else row[f"{prefix}observed"],
                     )
         # Identity and classification conflicts current on the same asset.
         assets = sorted(
@@ -344,6 +407,9 @@ class SqlVerificationStore:
             collection_since_report=item["snapshot"],
             collection_recorded=bool(item["recorded"]),
             identity_conflict_active=bool(item["conflict"]),
+            resolution_evidence=proofs_from_records(item["proofs"]),
+            collection_at_resolution=item["at_resolution"],
+            collection_after_resolution=item["after_resolution"],
         )
 
     _FINDING_SELECT = """
@@ -440,7 +506,9 @@ class SqlVerificationStore:
         run_id: str,
         at: datetime,
     ) -> None:
-        snapshot = item["snapshot"]
+        # The collection that decided the outcome: at resolution for a resolved
+        # finding, otherwise the newest since the report.
+        snapshot = item["at_resolution"] if item["finding"]["status"] == "resolved" else item["snapshot"]
         connection.execute(
             text(
                 """
@@ -519,6 +587,16 @@ class SqlVerificationStore:
             "components": components,
         }
 
+    @staticmethod
+    def _collection(snapshot: CollectionSnapshot | None) -> dict[str, Any] | None:
+        if snapshot is None:
+            return None
+        return {
+            "snapshot_id": snapshot.snapshot_id,
+            "collection_status": snapshot.collection_status,
+            "observed_at": snapshot.observed_at,
+        }
+
     def _project(self, connection: Any, item: Mapping[str, Any], *, with_guidance: bool) -> dict[str, Any]:
         outcome = evaluate_verification(self._input(item))
         finding = item["finding"]
@@ -569,6 +647,22 @@ class SqlVerificationStore:
                 "observed_at": baseline["collection_observed_at"],
             },
             "after_evidence_references": evidence_to_json(outcome.after_evidence_references),
+            "resolution_evidence": [
+                {
+                    "resolution_basis": proof["resolution_basis"],
+                    "technical": proof["resolution_basis"] in TECHNICAL_RESOLUTION_BASES,
+                    "evidence_ref": proof["evidence_ref"],
+                    "evidence_type": proof["evidence_type"],
+                    "source": proof["source"],
+                    "observed_at": proof["observed_at"],
+                    "freshness": proof["freshness"],
+                    "installed_version": proof["installed_version"],
+                    "fixed_version": proof["fixed_version"],
+                }
+                for proof in item["proofs"][:MAX_VERIFICATION_EVIDENCE_REFERENCES]
+            ],
+            "collection_at_resolution": self._collection(item["at_resolution"]),
+            "collection_after_resolution": self._collection(item["after_resolution"]),
             "input_digest": outcome.input_digest,
         }
         if with_guidance:

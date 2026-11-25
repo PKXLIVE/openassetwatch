@@ -228,6 +228,16 @@ class MigrationDiscoveryTests(unittest.TestCase):
         )
         checks = contract.check_constraints["finding_verification_history"]
         self.assertIn("ruleset_version~'^oaw[.]verification[.]rules[.]v[0-9]+$'", checks)
+        self.assertIn(
+            (("finding_id", "site_id"), "findings", ("finding_id", "site_id"), "cascade"),
+            contract.foreign_keys["finding_resolution_evidence"],
+        )
+        self.assertIn(
+            ("finding_id", "resolved_at", "evidence_ref"),
+            contract.unique_constraints["finding_resolution_evidence"],
+        )
+        self.assertIn("BEFORE UPDATE OR DELETE ON finding_resolution_evidence", verification.sql)
+        self.assertIn("BEFORE TRUNCATE ON finding_resolution_evidence", verification.sql)
 
     def test_finding_decision_migration_is_additive_site_bound_and_append_only(self) -> None:
         migrations = discover_migrations()

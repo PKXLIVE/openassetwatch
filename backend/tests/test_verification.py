@@ -16,10 +16,12 @@ from app.verification import (
     REASON_CODE_ORDER,
     UNVERIFIED_STATES,
     VERIFICATION_METHODS,
+    NOT_ATTRIBUTABLE_STATES,
     CollectionSnapshot,
     EvidenceReference,
     FindingState,
     RemediationReport,
+    ResolutionProof,
     VerificationInput,
     evaluate_verification,
     input_digest,
@@ -70,6 +72,28 @@ def snapshot(status: str, at: datetime = AFTER) -> CollectionSnapshot:
     return CollectionSnapshot("css_" + "b" * 32, status, at)
 
 
+def proof(basis: str = "component-version-fixed", *, at: datetime = AFTER, freshness: str = "fresh") -> ResolutionProof:
+    return ResolutionProof(
+        basis=basis,
+        evidence_ref="vmt_" + "a" * 32,
+        evidence_type="vulnerability-match",
+        source="deterministic-vulnerability-matcher",
+        observed_at=at,
+        freshness=freshness,
+        installed_version="1.4.2",
+        fixed_version="1.4.2",
+    )
+
+
+RESOLVED_AFTER = AFTER + timedelta(minutes=5)
+
+
+def resolved(**overrides) -> FindingState:
+    values = {"status": "resolved", "resolved_at": RESOLVED_AFTER, "evaluated_at": RESOLVED_AFTER}
+    values.update(overrides)
+    return finding(**values)
+
+
 def verify(finding_state=None, report_value="default", **kwargs):
     return evaluate_verification(
         VerificationInput(
@@ -94,24 +118,118 @@ class VerificationStateTests(unittest.TestCase):
         self.assertIn("NO_EVIDENCE_SINCE_REPORT", outcome.reason_codes)
         self.assertIn(outcome.verification_state, UNVERIFIED_STATES)
 
-    def test_deterministic_resolution_after_report_verifies(self) -> None:
+    def test_fixed_component_on_complete_post_report_inventory_verifies(self) -> None:
         outcome = verify(
-            finding(status="resolved", resolved_at=AFTER, evaluated_at=AFTER, evidence_observed_at=AFTER,
-                    evidence=(MATCH_AFTER,)),
-            collection_since_report=snapshot("complete"),
+            resolved(),
+            resolution_evidence=(proof(),),
+            collection_at_resolution=snapshot("complete"),
             collection_recorded=True,
         )
         self.assertEqual(outcome.verification_state, "verified")
-        self.assertIn("RESOLVED_BY_FRESH_EVIDENCE", outcome.reason_codes)
-        self.assertIn("COLLECTION_COMPLETE_SINCE_REPORT", outcome.reason_codes)
+        for code in ("RESOLVED_BY_FRESH_EVIDENCE", "COMPONENT_VERSION_FIXED", "COLLECTION_COMPLETE_AT_RESOLUTION"):
+            self.assertIn(code, outcome.reason_codes)
         self.assertEqual(outcome.collection_completeness, "complete")
-        self.assertEqual(outcome.after_evidence_references, (MATCH_AFTER,))
+        # The after-evidence is the recorded resolution evidence, not the old
+        # finding evidence that described the condition.
+        self.assertEqual(
+            outcome.after_evidence_references,
+            (EvidenceReference("vmt_" + "a" * 32, "vulnerability-match", "fresh", AFTER),),
+        )
 
-    def test_resolution_before_report_is_verified_but_labelled(self) -> None:
-        outcome = verify(finding(status="resolved", resolved_at=BEFORE))
-        self.assertEqual(outcome.verification_state, "verified")
+    def test_a_resolution_timestamp_alone_is_not_verification(self) -> None:
+        outcome = verify(resolved(), collection_at_resolution=snapshot("complete"), collection_recorded=True)
+        self.assertEqual(outcome.verification_state, "insufficient-evidence")
+        self.assertIn("RESOLUTION_EVIDENCE_UNAVAILABLE", outcome.reason_codes)
+        self.assertEqual(outcome.after_evidence_references, ())
+
+    def test_resolution_before_report_is_not_attributable(self) -> None:
+        outcome = verify(
+            resolved(resolved_at=BEFORE),
+            resolution_evidence=(proof(at=BEFORE),),
+            collection_at_resolution=None,
+        )
+        self.assertEqual(outcome.verification_state, "resolved-before-report")
         self.assertIn("RESOLVED_BEFORE_REPORT", outcome.reason_codes)
         self.assertNotIn("RESOLVED_BY_FRESH_EVIDENCE", outcome.reason_codes)
+        self.assertIn(outcome.verification_state, NOT_ATTRIBUTABLE_STATES)
+        self.assertNotIn(outcome.verification_state, UNVERIFIED_STATES)
+
+    def test_resolution_after_report_using_evidence_observed_before_it(self) -> None:
+        outcome = verify(
+            resolved(),
+            resolution_evidence=(proof(at=BEFORE),),
+            collection_at_resolution=snapshot("complete"),
+            collection_recorded=True,
+        )
+        self.assertEqual(outcome.verification_state, "insufficient-evidence")
+        self.assertIn("RESOLUTION_EVIDENCE_PREDATES_REPORT", outcome.reason_codes)
+
+    def test_stale_or_unknown_resolution_evidence_is_not_proof(self) -> None:
+        stale = verify(resolved(), resolution_evidence=(proof(freshness="stale"),),
+                       collection_at_resolution=snapshot("complete"))
+        unknown = verify(resolved(), resolution_evidence=(proof(freshness="unknown"),),
+                         collection_at_resolution=snapshot("complete"))
+        self.assertEqual(stale.verification_state, "evidence-stale")
+        self.assertEqual(unknown.verification_state, "insufficient-evidence")
+        self.assertIn("EVIDENCE_FRESHNESS_UNKNOWN", unknown.reason_codes)
+
+    def test_component_resolution_needs_a_complete_collection_before_resolution(self) -> None:
+        for status in ("partial", "failed", "unsupported"):
+            with self.subTest(status=status):
+                outcome = verify(resolved(), resolution_evidence=(proof(),), collection_at_resolution=snapshot(status),
+                                 collection_recorded=True)
+                self.assertEqual(outcome.verification_state, "insufficient-evidence")
+                self.assertIn("COLLECTION_INCOMPLETE_AT_RESOLUTION", outcome.reason_codes)
+        for recorded in (True, False):
+            with self.subTest(recorded=recorded):
+                outcome = verify(resolved(), resolution_evidence=(proof(),), collection_recorded=recorded)
+                self.assertEqual(outcome.verification_state, "insufficient-evidence")
+                self.assertIn("COLLECTION_NOT_COMPLETE_AT_RESOLUTION", outcome.reason_codes)
+        # Methods without a component collection check rely on rule freshness.
+        coverage = verify(
+            resolved(rule_id="security-coverage-gap"),
+            resolution_evidence=(proof("healthy-coverage"),),
+        )
+        self.assertEqual(coverage.verification_state, "verified")
+        self.assertIn("OBSERVATION_CONFIRMS_CHANGE", coverage.reason_codes)
+
+    def test_advisory_withdrawal_and_applicability_are_not_remediation(self) -> None:
+        for basis, code in (
+            ("advisory-withdrawn", "ADVISORY_WITHDRAWN"),
+            ("applicability-not-affected", "APPLICABILITY_REVISED"),
+            ("advisory-identity-reviewed", "ADVISORY_IDENTITY_REVIEWED"),
+        ):
+            with self.subTest(basis=basis):
+                outcome = verify(resolved(), resolution_evidence=(proof(basis),),
+                                 collection_at_resolution=snapshot("complete"))
+                self.assertEqual(outcome.verification_state, "resolved-by-advisory-change")
+                self.assertIn(code, outcome.reason_codes)
+                self.assertNotIn("RESOLVED_BY_FRESH_EVIDENCE", outcome.reason_codes)
+                self.assertIn(outcome.verification_state, NOT_ATTRIBUTABLE_STATES)
+
+    def test_later_degraded_collection_keeps_a_verified_outcome(self) -> None:
+        for status in ("partial", "failed", "unsupported"):
+            with self.subTest(status=status):
+                outcome = verify(
+                    resolved(),
+                    resolution_evidence=(proof(),),
+                    collection_at_resolution=snapshot("complete"),
+                    collection_after_resolution=snapshot(status, RESOLVED_AFTER + timedelta(hours=1)),
+                    collection_recorded=True,
+                )
+                self.assertEqual(outcome.verification_state, "verified")
+                self.assertIn("COLLECTION_DEGRADED_SINCE_VERIFICATION", outcome.reason_codes)
+                self.assertEqual(outcome.collection_completeness, "complete")
+
+    def test_manual_only_and_unknown_methods_never_verify_a_resolution(self) -> None:
+        for rule_id in ("identity-conflict", "future-rule"):
+            with self.subTest(rule_id=rule_id):
+                outcome = verify(resolved(rule_id=rule_id), resolution_evidence=(proof("fresh-observation"),))
+                self.assertEqual(outcome.verification_state, "manual-review-required")
+
+    def test_unknown_resolution_basis_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            verify(resolved(), resolution_evidence=(proof("guessed-remediation"),))
 
     def test_later_evidence_that_still_matches_is_still_present(self) -> None:
         outcome = verify(finding(evidence_observed_at=AFTER, evaluated_at=AFTER, evidence=(MATCH_AFTER,)))
@@ -198,44 +316,97 @@ class VerificationStateTests(unittest.TestCase):
 class VerificationInvariantTests(unittest.TestCase):
     """Exhaustive: only deterministic resolution can produce `verified`."""
 
-    def test_verified_requires_deterministic_resolution(self) -> None:
+    def test_verified_requires_every_evidence_condition(self) -> None:
+        """`verified` iff every independently stated requirement holds.
+
+        The expectation is written from the requirements, not from the
+        implementation: an automatic method, a resolution after the report,
+        technical resolution evidence collected after the report that is
+        fresh or aging, a complete pre-resolution collection for component
+        methods, work still done, and no identity conflict. A later degraded
+        collection never changes the result.
+        """
+
         rules = sorted(VERIFICATION_METHODS) + ["future-rule"]
-        statuses = ("active", "acknowledged", "suppressed", "resolved")
-        freshness = ("fresh", "aging", "stale", "unknown")
-        observed = (None, BEFORE, AFTER)
-        collections = (None, "complete", "partial", "failed", "unsupported")
-        work = ("done", "open")
+        statuses = ("active", "suppressed", "resolved")
+        resolutions = (None, BEFORE, RESOLVED_AFTER)
+        proofs = (
+            None,
+            ("component-version-fixed", AFTER, "fresh"),
+            ("component-version-fixed", AFTER, "stale"),
+            ("component-version-fixed", AFTER, "unknown"),
+            ("component-version-fixed", BEFORE, "fresh"),
+            ("fresh-observation", AFTER, "aging"),
+            ("advisory-withdrawn", AFTER, "fresh"),
+            ("applicability-not-affected", AFTER, "fresh"),
+        )
+        at_resolution = (None, "complete", "partial", "failed")
+        after_resolution = (None, "failed")
         count = 0
-        for rule_id, status, fresh, seen, collected, work_status, conflict in itertools.product(
-            rules, statuses, freshness, observed, collections, work, (False, True)
+        for rule_id, status, resolved_at, proof_spec, at_status, after_status, work_status, conflict in itertools.product(
+            rules, statuses, resolutions, proofs, at_resolution, after_resolution, ("done", "open"), (False, True)
         ):
+            if (status == "resolved") != (resolved_at is not None):
+                continue
             outcome = verify(
-                finding(
-                    rule_id=rule_id,
-                    status=status,
-                    evidence_freshness=fresh,
-                    evidence_observed_at=seen,
-                    resolved_at=AFTER if status == "resolved" else None,
-                ),
+                finding(rule_id=rule_id, status=status, resolved_at=resolved_at),
                 report(work_status=work_status),
-                collection_since_report=snapshot(collected) if collected else None,
-                collection_recorded=collected is not None,
+                resolution_evidence=() if proof_spec is None else (proof(proof_spec[0], at=proof_spec[1], freshness=proof_spec[2]),),
+                collection_at_resolution=snapshot(at_status) if at_status else None,
+                collection_after_resolution=snapshot(after_status, RESOLVED_AFTER + timedelta(hours=1))
+                if after_status
+                else None,
+                collection_recorded=at_status is not None,
                 identity_conflict_active=conflict,
             )
             count += 1
-            expected = status == "resolved" and work_status == "done" and not conflict
-            self.assertEqual(outcome.verification_state == "verified", expected)
+            method = VERIFICATION_METHODS.get(rule_id)
+            component_method = method is not None and method.collection_check == "component-source-snapshot"
+            expected = (
+                status == "resolved"
+                and work_status == "done"
+                and not conflict
+                and method is not None
+                and method.automated
+                and resolved_at > REPORTED
+                and proof_spec is not None
+                and proof_spec[0] in {"component-version-fixed", "fresh-observation"}
+                and proof_spec[1] > REPORTED
+                and proof_spec[2] in {"fresh", "aging"}
+                and (not component_method or at_status == "complete")
+            )
+            self.assertEqual(
+                outcome.verification_state == "verified",
+                expected,
+                (rule_id, status, resolved_at, proof_spec, at_status, after_status, work_status, conflict),
+            )
             if outcome.verification_state == "verified":
-                self.assertTrue(
-                    {"RESOLVED_BY_FRESH_EVIDENCE", "RESOLVED_BEFORE_REPORT"} & set(outcome.reason_codes)
-                )
-            # Absence of evidence or incomplete collection never verifies.
+                self.assertIn("RESOLVED_BY_FRESH_EVIDENCE", outcome.reason_codes)
+                self.assertTrue(outcome.after_evidence_references)
             if status != "resolved":
+                self.assertNotEqual(outcome.verification_state, "verified")
+            if proof_spec is not None and proof_spec[0].startswith(("advisory", "applicability")) and status == "resolved":
                 self.assertNotEqual(outcome.verification_state, "verified")
             self.assertEqual(
                 list(outcome.reason_codes), sorted(outcome.reason_codes, key=REASON_CODE_ORDER.__getitem__)
             )
-        self.assertEqual(count, 11 * 4 * 4 * 3 * 5 * 2 * 2)
+        self.assertEqual(count, 11 * (2 * 1 + 1 * 2) * 8 * 4 * 2 * 2 * 2)
+
+    def test_unresolved_findings_never_verify_whatever_the_later_evidence(self) -> None:
+        for rule_id, status, fresh, seen, collected in itertools.product(
+            sorted(VERIFICATION_METHODS) + ["future-rule"],
+            ("active", "acknowledged", "suppressed"),
+            ("fresh", "aging", "stale", "unknown"),
+            (None, BEFORE, AFTER),
+            (None, "complete", "partial", "failed", "unsupported"),
+        ):
+            outcome = verify(
+                finding(rule_id=rule_id, status=status, evidence_freshness=fresh, evidence_observed_at=seen),
+                collection_since_report=snapshot(collected) if collected else None,
+                collection_recorded=collected is not None,
+                resolution_evidence=(proof(),),
+            )
+            self.assertNotIn(outcome.verification_state, {"verified", *NOT_ATTRIBUTABLE_STATES})
 
     def test_identical_inputs_are_identical_and_digest_tracks_inputs(self) -> None:
         base = VerificationInput(finding=finding(), report=report())
@@ -261,6 +432,74 @@ class VerificationInvariantTests(unittest.TestCase):
                     verify(bad)
         with self.assertRaises(ValueError):
             verify(collection_since_report=snapshot("weird"))
+
+
+class ResolutionEvidenceDerivationTests(unittest.TestCase):
+    """The finding lifecycle records why a resolution happened, from its own inputs."""
+
+    def _snapshot(self, status: str, **match_overrides):
+        from app.findings import evaluate_rules
+
+        match = {
+            "match_id": "vmt_" + "a" * 32,
+            "component_id": "cmp_" + "c" * 32,
+            "advisory_id": "adv_" + "d" * 32,
+            "match_status": status,
+            "match_confidence": 1.0,
+            "installed_version": "1.4.2",
+            "fixed_version": "1.4.2",
+            "component_freshness": "fresh",
+            "component_last_seen_at": AFTER,
+            "evaluated_at": AFTER,
+        }
+        match.update(match_overrides)
+        asset = {
+            "asset_id": "asset-a",
+            "site_id": "site-a",
+            "observed_at": AFTER,
+            "last_seen_at": AFTER,
+            "metadata": {"category": "server"},
+            "vulnerability_matches": [match],
+        }
+        return evaluate_rules(
+            sites=[{"site_id": "site-a"}],
+            sensors=[],
+            assets=[asset],
+            now=AFTER + timedelta(minutes=1),
+            rule_ids=["vulnerable-component", "asset-stale"],
+        )
+
+    def test_fixed_match_records_a_technical_basis_with_versions(self) -> None:
+        snapshot_value = self._snapshot("fixed")
+        (dedupe,) = snapshot_value.resolution_eligible_dedupe_keys
+        (evidence,) = snapshot_value.resolution_evidence[dedupe]
+        self.assertEqual(evidence.basis, "component-version-fixed")
+        self.assertEqual(evidence.evidence_ref, "vmt_" + "a" * 32)
+        self.assertEqual((evidence.installed_version, evidence.fixed_version), ("1.4.2", "1.4.2"))
+        self.assertEqual(evidence.observed_at, AFTER)
+        self.assertEqual(evidence.freshness, "fresh")
+
+    def test_advisory_changes_are_recorded_as_advisory_bases(self) -> None:
+        for status, basis in (("advisory-withdrawn", "advisory-withdrawn"), ("not-affected", "applicability-not-affected")):
+            with self.subTest(status=status):
+                snapshot_value = self._snapshot(status)
+                (dedupe,) = snapshot_value.resolution_eligible_dedupe_keys
+                self.assertEqual(snapshot_value.resolution_evidence[dedupe][0].basis, basis)
+
+    def test_affected_match_records_nothing(self) -> None:
+        snapshot_value = self._snapshot("affected")
+        self.assertEqual(snapshot_value.resolution_eligible_dedupe_keys, frozenset())
+        self.assertFalse(any(key.startswith("fdk") for key in snapshot_value.resolution_evidence))
+
+    def test_subject_rules_record_their_fresh_observation(self) -> None:
+        from app.findings import resolution_evidence_key
+
+        snapshot_value = self._snapshot("affected")
+        key = ("asset-stale", "asset", "site-a", "asset-a")
+        self.assertIn(key, snapshot_value.resolution_eligible)
+        (evidence,) = snapshot_value.resolution_evidence[resolution_evidence_key(key)]
+        self.assertEqual((evidence.basis, evidence.evidence_type), ("fresh-observation", "asset-observation"))
+        self.assertTrue(evidence.evidence_ref.startswith("ev_"))
 
 
 class VerificationCatalogTests(unittest.TestCase):

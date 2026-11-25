@@ -21,7 +21,8 @@ no remediation or finding state machine.
 | --- | --- | --- |
 | Remediation report | A finding work item marked `done` | No |
 | Resolution | The deterministic finding lifecycle (fresh, affirmative, complete evidence) | No |
-| Comparable "after" evidence | Finding evidence observed after the report | No |
+| Resolution evidence | Recorded by the finding lifecycle at resolution (`finding_resolution_evidence`) | No |
+| Comparable "after" evidence | For a resolved finding, its resolution evidence collected after the report; otherwise finding evidence observed after the report | No |
 | Collection completeness | Component source snapshots (`complete`, `partial`, `unsupported`, `failed`) | No |
 | Decision band | `oaw.decision.v1` / `oaw.decision.rules.v2` | No |
 
@@ -42,29 +43,83 @@ command, configuration change, or containment, and AI has no role in it.
 | --- | --- |
 | `not-reported` | No work item for the finding is marked done. Guidance is still available. |
 | `awaiting-evidence` | Work is done, and no comparable evidence has been observed since the report. |
-| `insufficient-evidence` | Evidence arrived, but it cannot decide the outcome: collection after the report was partial, failed, or unsupported, or the later evidence's age is unknown. |
-| `evidence-stale` | The evidence observed after the report is stale. |
+| `insufficient-evidence` | Evidence cannot decide the outcome: later collection was partial, failed, or unsupported; the evidence's age is unknown; no resolution evidence was recorded; the resolving evidence was collected before the report; or no complete collection preceded a software resolution. |
+| `evidence-stale` | The evidence after the report (or the resolving evidence) is stale. |
 | `still-present` | Fresh evidence observed after the report still matches the finding rule. |
 | `conflicting-evidence` | The finding resolved, but an active identity or classification conflict on the asset prevents attributing the outcome. |
 | `manual-review-required` | The finding rule has no automatic verification path (for example identity conflicts). |
-| `verified` | Deterministic evaluation resolved the finding from fresh affirmative evidence. |
+| `verified` | Recorded technical evidence collected after the report shows the condition ended. |
+| `resolved-before-report` | The finding resolved before remediation was reported. The resolution is not evidence the reported work caused it. |
+| `resolved-by-advisory-change` | A reviewed advisory or applicability change resolved the finding. Nothing changed on the asset. |
 | `report-withdrawn` | Work was marked done and later reopened or cancelled. |
 
-Only `verified` means the outcome is supported, and it is reachable only when
-the finding lifecycle has resolved the finding, the work is still marked
-done, and no identity or classification conflict is active on the asset. An
-exhaustive test checks this across rules, finding states, freshness,
-observation times, collection states, work states, and conflicts (10,560
-cases).
+### When an outcome is verified
 
-If the finding was already resolved before the report, the state is still
-`verified`, with reason `RESOLVED_BEFORE_REPORT` instead of
-`RESOLVED_BY_FRESH_EVIDENCE`. Suppression never verifies anything; it adds
-`SUPPRESSION_ACTIVE`.
+A historical resolution is not proof that the reported work caused the
+change. `verified` requires every one of these:
+
+1. the finding rule has an automatic verification method;
+2. no identity or classification conflict is active on the asset;
+3. the finding resolved after the report;
+4. the finding lifecycle recorded affirmative resolution evidence with a
+   technical basis (a change observed on the asset, such as a component version
+   at or above the fix), not an advisory or applicability basis;
+5. that evidence was collected after the report and is fresh or aging;
+6. for software methods, the newest component collection between the report
+   and the resolution was complete.
+
+A resolution timestamp alone never verifies anything. An exhaustive test
+states these requirements independently of the implementation and checks them
+across rules, finding states, resolution times, resolution evidence (basis,
+collection time, freshness), collections before and after resolution, work
+states, and conflicts (11,264 cases). A second exhaustive test checks that no
+unresolved finding is ever verified or closed as not attributable.
+
+A later partial, failed, or unsupported collection does not undo a verified
+outcome. The state stays `verified` and gains
+`COLLECTION_DEGRADED_SINCE_VERIFICATION`. If the condition returns, the
+finding reopens, the state becomes `still-present` with
+`REOPENED_SINCE_REPORT`, and the earlier `verified` transition remains in
+history.
+
+Suppression never verifies anything; it adds `SUPPRESSION_ACTIVE`.
 
 "Completed but unverified" means work marked done whose state is any of
 `awaiting-evidence`, `insufficient-evidence`, `evidence-stale`,
 `still-present`, `conflicting-evidence`, or `manual-review-required`.
+`resolved-before-report` and `resolved-by-advisory-change` are closed but not
+attributable to the reported work, and are listed separately in the rules.
+
+## Resolution evidence
+
+The finding lifecycle records why each resolution happened, in
+`finding_resolution_evidence`, in the same transaction that resolves the
+finding. It derives the evidence from the same inputs that made the finding
+eligible to resolve; nothing is inferred, and nothing is recorded when no
+evidence is known. Each row keeps:
+
+- the finding and site (bound by composite foreign key);
+- the resolution time (evaluation time) and evaluation run;
+- the basis, the evidence reference, type, and source;
+- the collection time of that evidence, distinct from the resolution time;
+- freshness, and for software the installed and fixed versions.
+
+| Basis | Meaning | Technical change? |
+| --- | --- | --- |
+| `component-version-fixed` | The match became fixed: the observed version is at or above the fix | Yes |
+| `component-version-available` | A later inventory supplied a usable version | Yes |
+| `fresh-observation`, `sensor-check-in`, `classification-recognized`, `classification-consistent`, `managed-evidence`, `healthy-coverage` | A fresh authorized observation shows the rule's condition ended | Yes |
+| `applicability-not-affected` | The match became not-affected | No (applicability change) |
+| `advisory-withdrawn` | The reviewed advisory was withdrawn | No (advisory change) |
+| `advisory-identity-reviewed` | Identity was resolved through catalog review | No (advisory change) |
+
+`not-affected` is treated as an applicability change, not confirmed
+remediation, because it can come from an advisory revision as well as from an
+upgrade. A person can confirm such cases.
+
+The table is append-only by trigger, except for the cascade that removes a
+whole finding. Resolutions recorded before this capability existed have no
+resolution evidence; their verification reports `RESOLUTION_EVIDENCE_UNAVAILABLE`.
 
 ## Verification methods
 
@@ -93,21 +148,27 @@ stored match supplies them; none are inferred.
 
 ### Collection completeness
 
-For component methods, the newest component source snapshot for the asset
-observed after the report sets `collection_completeness`:
+For component methods, `collection_completeness` comes from the collection
+that decides the outcome. For a resolved finding that is the newest component
+source snapshot between the report and the resolution
+(`collection_at_resolution`); otherwise it is the newest snapshot after the
+report (`collection_since_report`):
 
-- `complete`: a complete snapshot arrived after the report;
-- `incomplete`: the newest later snapshot is partial, failed, or unsupported;
-- `none-since-report`: snapshots exist for the asset, but none after the
-  report;
+- `complete`: that snapshot is complete;
+- `incomplete`: it is partial, failed, or unsupported;
+- `none-since-report`: snapshots exist for the asset, but none in that window;
 - `not-recorded`: the asset has no snapshot records (for example legacy
   collection).
 
-An incomplete later collection with no newer observation gives
-`insufficient-evidence`. A complete later collection that deterministic
-evaluation has not processed yet gives `awaiting-evidence` with reason
-`EVALUATION_PENDING`. Other methods report `not-applicable`, because their
-rules already gate resolution on fresh evidence.
+A software resolution without a complete collection in that window is
+`insufficient-evidence`. An incomplete later collection with no newer
+observation of an unresolved finding is also `insufficient-evidence`. A
+complete later collection that deterministic evaluation has not processed yet
+gives `awaiting-evidence` with reason `EVALUATION_PENDING`. The newest snapshot
+after a resolution is reported as `collection_after_resolution` and can only
+add `COLLECTION_DEGRADED_SINCE_VERIFICATION`. Other methods report
+`not-applicable`, because their rules already gate resolution on fresh
+evidence.
 
 ## Before and after evidence
 
@@ -125,7 +186,10 @@ If baseline capture fails, the `done` transition rolls back with it. Work
 marked done before migration 0008 has no baseline; its verification reports
 `BASELINE_NOT_CAPTURED`.
 
-"After" evidence is the finding's current evidence observed after the report.
+"After" evidence is, for a resolved finding, its recorded resolution evidence
+collected after the report; for an unresolved finding, its current evidence
+observed after the report. Finding evidence rows from before a resolution are
+never presented as proof that the condition ended.
 
 ## History
 
@@ -160,8 +224,10 @@ They fail closed when none is configured, because they expose work items.
 - `GET /api/v1/verification/unverified-work?site_id=&verification_state=&limit=&offset=`:
   work marked done whose finding is not verified, oldest report first.
 - `GET /api/v1/findings/{finding_id}/verification`: guidance, current state,
-  reasons, before-and-after evidence references, collection completeness, and
-  the last recorded transition.
+  reasons, before-and-after evidence references, the recorded resolution
+  evidence (basis, technical flag, reference, source, collection time,
+  freshness, versions), the collections at and after resolution, and the last
+  recorded transition.
 - `GET /api/v1/findings/{finding_id}/verification/history`: recorded
   transitions in report and sequence order.
 

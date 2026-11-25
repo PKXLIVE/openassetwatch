@@ -3,7 +3,49 @@
 -- authorities: a work item marked done is the remediation report, and the
 -- deterministic finding lifecycle remains the only path that resolves a
 -- finding. These tables never change findings, evidence, risk, decisions,
--- asset importance, or work status.
+-- asset importance, or work status. The finding lifecycle additionally
+-- records the affirmative evidence behind each resolution it makes.
+
+-- Affirmative evidence that established each deterministic resolution.
+-- Written by the finding lifecycle in the same transaction that resolves the
+-- finding, from the same inputs that made it eligible. The resolution basis
+-- keeps a confirmed technical change (for example a component version at or
+-- above the fix) distinct from a reviewed advisory or applicability change.
+-- `observed_at` is collection time; `resolved_at` is evaluation time.
+CREATE TABLE IF NOT EXISTS finding_resolution_evidence (
+    resolution_evidence_id BIGSERIAL PRIMARY KEY,
+    finding_id TEXT NOT NULL,
+    site_id TEXT NOT NULL,
+    resolved_at TIMESTAMPTZ NOT NULL,
+    evaluation_run_id TEXT NOT NULL REFERENCES finding_evaluation_runs(run_id),
+    resolution_basis VARCHAR(40) NOT NULL,
+    evidence_ref TEXT NOT NULL,
+    evidence_type VARCHAR(64) NOT NULL,
+    source VARCHAR(120) NOT NULL,
+    observed_at TIMESTAMPTZ,
+    freshness VARCHAR(16) NOT NULL,
+    installed_version VARCHAR(160),
+    fixed_version VARCHAR(160),
+    UNIQUE (finding_id, resolved_at, evidence_ref),
+    FOREIGN KEY (finding_id, site_id)
+        REFERENCES findings(finding_id, site_id) ON DELETE CASCADE,
+    CHECK (
+        resolution_basis IN (
+            'component-version-fixed',
+            'component-version-available',
+            'sensor-check-in',
+            'fresh-observation',
+            'classification-recognized',
+            'classification-consistent',
+            'managed-evidence',
+            'healthy-coverage',
+            'applicability-not-affected',
+            'advisory-withdrawn',
+            'advisory-identity-reviewed'
+        )
+    ),
+    CHECK (freshness IN ('fresh', 'aging', 'stale', 'unknown'))
+);
 
 -- Evidence captured when a work item is marked done. Finding evidence rows are
 -- replaced on every evaluation, so the "before" references must be copied at
@@ -76,6 +118,8 @@ CREATE TABLE IF NOT EXISTS finding_verification_history (
             'conflicting-evidence',
             'manual-review-required',
             'verified',
+            'resolved-before-report',
+            'resolved-by-advisory-change',
             'report-withdrawn'
         )
     ),
@@ -88,6 +132,8 @@ CREATE TABLE IF NOT EXISTS finding_verification_history (
             'conflicting-evidence',
             'manual-review-required',
             'verified',
+            'resolved-before-report',
+            'resolved-by-advisory-change',
             'report-withdrawn'
         )
     ),
@@ -100,6 +146,9 @@ CREATE TABLE IF NOT EXISTS finding_verification_history (
     CHECK (collection_status IN ('complete', 'partial', 'unsupported', 'failed')),
     CHECK (input_digest ~ '^[0-9a-f]{64}$')
 );
+
+CREATE INDEX IF NOT EXISTS idx_finding_resolution_evidence_finding
+    ON finding_resolution_evidence (finding_id, resolved_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_finding_verification_baselines_finding
     ON finding_verification_baselines (finding_id, report_revision DESC);
@@ -122,6 +171,18 @@ BEGIN
         USING ERRCODE = 'check_violation';
 END;
 $$;
+
+DROP TRIGGER IF EXISTS trg_finding_resolution_evidence_append_only
+    ON finding_resolution_evidence;
+CREATE TRIGGER trg_finding_resolution_evidence_append_only
+    BEFORE UPDATE OR DELETE ON finding_resolution_evidence
+    FOR EACH ROW EXECUTE FUNCTION public.oaw_finding_verification_append_only();
+
+DROP TRIGGER IF EXISTS trg_finding_resolution_evidence_no_truncate
+    ON finding_resolution_evidence;
+CREATE TRIGGER trg_finding_resolution_evidence_no_truncate
+    BEFORE TRUNCATE ON finding_resolution_evidence
+    FOR EACH STATEMENT EXECUTE FUNCTION public.oaw_finding_verification_append_only();
 
 DROP TRIGGER IF EXISTS trg_finding_verification_baselines_append_only
     ON finding_verification_baselines;

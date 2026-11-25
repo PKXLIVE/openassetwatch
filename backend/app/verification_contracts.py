@@ -26,6 +26,8 @@ VerificationStateValue = Literal[
     "conflicting-evidence",
     "manual-review-required",
     "verified",
+    "resolved-before-report",
+    "resolved-by-advisory-change",
     "report-withdrawn",
 ]
 RecordedStateValue = Literal[
@@ -36,7 +38,22 @@ RecordedStateValue = Literal[
     "conflicting-evidence",
     "manual-review-required",
     "verified",
+    "resolved-before-report",
+    "resolved-by-advisory-change",
     "report-withdrawn",
+]
+ResolutionBasisValue = Literal[
+    "component-version-fixed",
+    "component-version-available",
+    "sensor-check-in",
+    "fresh-observation",
+    "classification-recognized",
+    "classification-consistent",
+    "managed-evidence",
+    "healthy-coverage",
+    "applicability-not-affected",
+    "advisory-withdrawn",
+    "advisory-identity-reviewed",
 ]
 CompletenessValue = Literal["complete", "incomplete", "none-since-report", "not-recorded", "not-applicable"]
 CollectionStatusValue = Literal["complete", "partial", "unsupported", "failed"]
@@ -58,6 +75,22 @@ class VerificationEvidenceReference(StrictVerificationContract):
     evidence_type: str = Field(..., min_length=1, max_length=64)
     freshness: FreshnessValue
     observed_at: datetime | None = None
+
+
+class ResolutionEvidenceReference(StrictVerificationContract):
+    """Affirmative evidence the finding lifecycle recorded when it resolved."""
+
+    resolution_basis: ResolutionBasisValue
+    technical: bool = Field(
+        ..., description="True for a change observed on the asset; false for an advisory or applicability change."
+    )
+    evidence_ref: str = Field(..., min_length=1, max_length=200)
+    evidence_type: str = Field(..., min_length=1, max_length=64)
+    source: str = Field(..., min_length=1, max_length=120)
+    observed_at: datetime | None = Field(default=None, description="Collection time, not evaluation time.")
+    freshness: FreshnessValue
+    installed_version: str | None = Field(default=None, max_length=160)
+    fixed_version: str | None = Field(default=None, max_length=160)
 
 
 class VerificationCollection(StrictVerificationContract):
@@ -122,6 +155,9 @@ class FindingVerificationSummary(StrictVerificationContract):
     before_evidence_references: list[VerificationEvidenceReference] = Field(default_factory=list, max_length=8)
     before_collection: VerificationCollection | None = None
     after_evidence_references: list[VerificationEvidenceReference] = Field(default_factory=list, max_length=8)
+    resolution_evidence: list[ResolutionEvidenceReference] = Field(default_factory=list, max_length=8)
+    collection_at_resolution: VerificationCollection | None = None
+    collection_after_resolution: VerificationCollection | None = None
     input_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
 
 
@@ -181,6 +217,7 @@ class VerificationRulesetResponse(StrictVerificationContract):
     ruleset_version: str = Field(..., pattern=r"^oaw[.]verification[.]rules[.]v[0-9]+$")
     states: list[VerificationStateValue] = Field(max_length=16)
     unverified_states: list[VerificationStateValue] = Field(max_length=16)
+    not_attributable_states: list[VerificationStateValue] = Field(max_length=16)
     methods: list[VerificationMethodResponse] = Field(max_length=32)
     reason_codes: list[VerificationReasonResponse] = Field(max_length=64)
     limitations: list[str] = Field(max_length=8)

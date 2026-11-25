@@ -957,12 +957,17 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
                 table: [dict(row) for row in connection.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
                 for table in tables
             }
-            for table in ("finding_verification_baselines", "finding_verification_history"):
+            for table in (
+                "finding_resolution_evidence",
+                "finding_verification_baselines",
+                "finding_verification_history",
+            ):
                 self.assertEqual(connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one(), 0)
             triggers = set(
                 connection.execute(
                     text(
                         "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN ("
+                        "'public.finding_resolution_evidence'::regclass, "
                         "'public.finding_verification_baselines'::regclass, "
                         "'public.finding_verification_history'::regclass)"
                     )
@@ -972,6 +977,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
         self.assertEqual(
             triggers,
             {
+                "trg_finding_resolution_evidence_append_only",
+                "trg_finding_resolution_evidence_no_truncate",
                 "trg_finding_verification_baselines_append_only",
                 "trg_finding_verification_baselines_no_truncate",
                 "trg_finding_verification_history_append_only",

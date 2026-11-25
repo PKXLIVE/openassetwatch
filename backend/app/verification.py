@@ -31,6 +31,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
+from .findings import ADVISORY_RESOLUTION_BASES, TECHNICAL_RESOLUTION_BASES
+
 
 VERIFICATION_SCHEMA_VERSION = "oaw.verification.v1"
 VERIFICATION_RULESET_VERSION = "oaw.verification.rules.v1"
@@ -45,6 +47,8 @@ VerificationState = Literal[
     "conflicting-evidence",
     "manual-review-required",
     "verified",
+    "resolved-before-report",
+    "resolved-by-advisory-change",
     "report-withdrawn",
 ]
 # States that can be recorded in history (a remediation report exists).
@@ -56,11 +60,16 @@ RECORDED_STATES: tuple[str, ...] = (
     "conflicting-evidence",
     "manual-review-required",
     "verified",
+    "resolved-before-report",
+    "resolved-by-advisory-change",
     "report-withdrawn",
 )
 VERIFICATION_STATES: tuple[str, ...] = ("not-reported", *RECORDED_STATES)
-# Every state except `verified` means reported work is not yet verified.
-UNVERIFIED_STATES = frozenset(RECORDED_STATES) - {"verified", "report-withdrawn"}
+# Closed without evidence that the reported work caused the change: the
+# finding resolved before the report, or a reviewed advisory change removed it.
+NOT_ATTRIBUTABLE_STATES = frozenset({"resolved-before-report", "resolved-by-advisory-change"})
+# Reported work that still needs evidence or a person's review.
+UNVERIFIED_STATES = frozenset(RECORDED_STATES) - {"verified", "report-withdrawn"} - NOT_ATTRIBUTABLE_STATES
 CollectionCompleteness = Literal["complete", "incomplete", "none-since-report", "not-recorded", "not-applicable"]
 
 FRESH_ENOUGH = frozenset({"fresh", "aging"})
@@ -176,14 +185,26 @@ REASON_CODE_CATALOG: tuple[ReasonCodeDefinition, ...] = (
     ReasonCodeDefinition("REMEDIATION_REPORTED", "A work item marked done reports remediation. A report is a claim, not proof."),
     ReasonCodeDefinition("BASELINE_CAPTURED", "Evidence present when remediation was reported was recorded for comparison."),
     ReasonCodeDefinition("BASELINE_NOT_CAPTURED", "No evidence was recorded at report time, so before-and-after comparison is limited."),
-    ReasonCodeDefinition("RESOLVED_BY_FRESH_EVIDENCE", "Deterministic evaluation resolved the finding from fresh affirmative evidence after the report."),
-    ReasonCodeDefinition("RESOLVED_BEFORE_REPORT", "The finding was already resolved by fresh evidence before remediation was reported."),
+    ReasonCodeDefinition("RESOLVED_BY_FRESH_EVIDENCE", "Deterministic evaluation resolved the finding from fresh affirmative evidence collected after the report."),
+    ReasonCodeDefinition("RESOLVED_BEFORE_REPORT", "The finding was resolved before remediation was reported, so the resolution is not evidence that the reported work caused it."),
+    ReasonCodeDefinition("COMPONENT_VERSION_FIXED", "A later observation shows the component at a version the advisory marks fixed."),
+    ReasonCodeDefinition("COMPONENT_VERSION_COLLECTED", "A later observation supplied a usable component version."),
+    ReasonCodeDefinition("OBSERVATION_CONFIRMS_CHANGE", "A later authorized observation shows the condition the rule detects has ended."),
+    ReasonCodeDefinition("ADVISORY_WITHDRAWN", "The reviewed advisory was withdrawn. Nothing changed on the asset."),
+    ReasonCodeDefinition("APPLICABILITY_REVISED", "The deterministic match became not-affected. That is an applicability change, not confirmed remediation."),
+    ReasonCodeDefinition("ADVISORY_IDENTITY_REVIEWED", "Component identity was resolved through catalog review, not by a change on the asset."),
+    ReasonCodeDefinition("RESOLUTION_EVIDENCE_UNAVAILABLE", "No affirmative resolution evidence was recorded for this resolution."),
+    ReasonCodeDefinition("RESOLUTION_EVIDENCE_PREDATES_REPORT", "The evidence that resolved the finding was collected before remediation was reported."),
     ReasonCodeDefinition("EVIDENCE_SINCE_REPORT_STILL_MATCHES", "Evidence observed after the report still matches the finding rule."),
     ReasonCodeDefinition("REOPENED_SINCE_REPORT", "The finding reopened after remediation was reported."),
     ReasonCodeDefinition("NO_EVIDENCE_SINCE_REPORT", "No comparable evidence has been observed since remediation was reported."),
     ReasonCodeDefinition("EVALUATION_PENDING", "Newer collection exists but deterministic evaluation has not run on it yet."),
     ReasonCodeDefinition("COLLECTION_COMPLETE_SINCE_REPORT", "A complete collection was received after the report."),
     ReasonCodeDefinition("COLLECTION_INCOMPLETE_SINCE_REPORT", "Collection after the report was partial, failed, or unsupported. It cannot prove the condition ended."),
+    ReasonCodeDefinition("COLLECTION_COMPLETE_AT_RESOLUTION", "A complete collection after the report preceded the resolution."),
+    ReasonCodeDefinition("COLLECTION_INCOMPLETE_AT_RESOLUTION", "The newest collection before the resolution was partial, failed, or unsupported."),
+    ReasonCodeDefinition("COLLECTION_NOT_COMPLETE_AT_RESOLUTION", "No complete collection between the report and the resolution was recorded."),
+    ReasonCodeDefinition("COLLECTION_DEGRADED_SINCE_VERIFICATION", "Collection after the verified resolution was partial, failed, or unsupported. The earlier verification stands."),
     ReasonCodeDefinition("EVIDENCE_STALE", "The latest comparable evidence is stale."),
     ReasonCodeDefinition("EVIDENCE_FRESHNESS_UNKNOWN", "The age of the latest comparable evidence is unknown."),
     ReasonCodeDefinition("IDENTITY_CONFLICT_ACTIVE", "An active identity or classification conflict on this asset prevents attributing the outcome."),
@@ -200,6 +221,20 @@ class EvidenceReference:
     evidence_type: str
     freshness: str
     observed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ResolutionProof:
+    """Affirmative evidence recorded by the finding lifecycle at resolution."""
+
+    basis: str
+    evidence_ref: str
+    evidence_type: str
+    source: str
+    observed_at: datetime | None
+    freshness: str
+    installed_version: str | None = None
+    fixed_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -248,6 +283,13 @@ class VerificationInput:
     # Whether an identity or classification conflict finding is current on the
     # same asset.
     identity_conflict_active: bool = False
+    # Affirmative evidence recorded for the finding's current resolution.
+    resolution_evidence: tuple[ResolutionProof, ...] = ()
+    # Newest component source snapshot observed after the report and at or
+    # before the resolution (component methods only).
+    collection_at_resolution: CollectionSnapshot | None = None
+    # Newest component source snapshot observed after the resolution.
+    collection_after_resolution: CollectionSnapshot | None = None
 
 
 @dataclass(frozen=True)
@@ -297,13 +339,63 @@ def _after(evidence: Sequence[EvidenceReference], reported_at: datetime) -> tupl
 
 
 def _completeness(value: VerificationInput, method: VerificationMethod) -> CollectionCompleteness:
+    """Completeness of the collection that decides the outcome.
+
+    For a resolved finding that is the collection before the resolution, so a
+    later failed collection cannot undo a verified outcome. Otherwise it is the
+    newest collection since the report.
+    """
+
+    for snapshot in (
+        value.collection_since_report,
+        value.collection_at_resolution,
+        value.collection_after_resolution,
+    ):
+        if snapshot is not None and snapshot.collection_status not in COLLECTION_STATUSES:
+            raise ValueError("unsupported collection status")
     if method.collection_check != "component-source-snapshot":
         return "not-applicable"
-    if value.collection_since_report is not None:
-        if value.collection_since_report.collection_status not in COLLECTION_STATUSES:
-            raise ValueError("unsupported collection status")
-        return "complete" if value.collection_since_report.collection_status == "complete" else "incomplete"
+    deciding = (
+        value.collection_at_resolution
+        if value.finding.status == "resolved"
+        else value.collection_since_report
+    )
+    if deciding is not None:
+        return "complete" if deciding.collection_status == "complete" else "incomplete"
     return "none-since-report" if value.collection_recorded else "not-recorded"
+
+
+def _proof_payload(items: Sequence[ResolutionProof]) -> list[list[Any]]:
+    return sorted(
+        [
+            item.basis,
+            item.evidence_ref,
+            item.evidence_type,
+            item.source,
+            _iso(item.observed_at),
+            item.freshness,
+            item.installed_version,
+            item.fixed_version,
+        ]
+        for item in items
+    )
+
+
+def _snapshot_payload(item: CollectionSnapshot | None) -> list[Any] | None:
+    return None if item is None else [item.snapshot_id, item.collection_status, _iso(item.observed_at)]
+
+
+_BASIS_REASON = {
+    "component-version-fixed": "COMPONENT_VERSION_FIXED",
+    "component-version-available": "COMPONENT_VERSION_COLLECTED",
+    "applicability-not-affected": "APPLICABILITY_REVISED",
+    "advisory-withdrawn": "ADVISORY_WITHDRAWN",
+    "advisory-identity-reviewed": "ADVISORY_IDENTITY_REVIEWED",
+}
+
+
+def _basis_reason(basis: str) -> str:
+    return _BASIS_REASON.get(basis, "OBSERVATION_CONFIRMS_CHANGE")
 
 
 def _evidence_payload(items: Sequence[EvidenceReference]) -> list[list[Any]]:
@@ -346,15 +438,12 @@ def input_digest(value: VerificationInput) -> str:
             "baseline_captured": report.baseline_captured,
             "baseline_reopen_count": report.baseline_reopen_count,
         },
-        "collection_since_report": None
-        if value.collection_since_report is None
-        else [
-            value.collection_since_report.snapshot_id,
-            value.collection_since_report.collection_status,
-            _iso(value.collection_since_report.observed_at),
-        ],
+        "collection_since_report": _snapshot_payload(value.collection_since_report),
+        "collection_at_resolution": _snapshot_payload(value.collection_at_resolution),
+        "collection_after_resolution": _snapshot_payload(value.collection_after_resolution),
         "collection_recorded": value.collection_recorded,
         "identity_conflict_active": value.identity_conflict_active,
+        "resolution_evidence": _proof_payload(value.resolution_evidence),
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -408,33 +497,15 @@ def evaluate_verification(value: VerificationInput) -> VerificationOutcome:
             after_evidence_references=after,
         )
 
+    if finding.status == "resolved":
+        return _resolved_outcome(value, method, completeness, reported_at, reasons, common)
+
     if completeness == "complete":
         reasons.append("COLLECTION_COMPLETE_SINCE_REPORT")
     elif completeness == "incomplete":
         reasons.append("COLLECTION_INCOMPLETE_SINCE_REPORT")
     if finding.status == "suppressed":
         reasons.append("SUPPRESSION_ACTIVE")
-
-    resolved_at = _utc(finding.resolved_at)
-    if finding.status == "resolved":
-        # Resolution comes only from the deterministic finding lifecycle, which
-        # already requires fresh, affirmative, complete evidence.
-        if value.identity_conflict_active:
-            reasons.append("IDENTITY_CONFLICT_ACTIVE")
-            state: VerificationState = "conflicting-evidence"
-        else:
-            reasons.append(
-                "RESOLVED_BEFORE_REPORT"
-                if resolved_at is not None and resolved_at <= reported_at
-                else "RESOLVED_BY_FRESH_EVIDENCE"
-            )
-            state = "verified"
-        return VerificationOutcome(
-            **common,
-            verification_state=state,
-            reason_codes=_ordered(reasons),
-            after_evidence_references=after,
-        )
 
     # The finding is not resolved. Nothing below can produce `verified`.
     if not method.automated:
@@ -486,6 +557,115 @@ def evaluate_verification(value: VerificationInput) -> VerificationOutcome:
     )
 
 
+def _resolved_outcome(
+    value: VerificationInput,
+    method: VerificationMethod,
+    completeness: CollectionCompleteness,
+    reported_at: datetime,
+    reasons: list[str],
+    common: Mapping[str, Any],
+) -> VerificationOutcome:
+    """Decide a resolved finding.
+
+    A historical resolution is not proof that the reported work caused the
+    change. `verified` needs all of:
+
+    - an automatic verification method for the rule;
+    - no identity or classification conflict on the asset;
+    - a resolution after the report;
+    - recorded affirmative evidence with a technical basis (a change on the
+      asset, not a reviewed advisory or applicability change);
+    - that evidence collected after the report and fresh or aging;
+    - for component methods, a complete collection between the report and the
+      resolution.
+
+    A later failed or partial collection does not undo a verified outcome; it
+    adds `COLLECTION_DEGRADED_SINCE_VERIFICATION`.
+    """
+
+    finding = value.finding
+    resolved_at = _utc(finding.resolved_at)
+    proofs = value.resolution_evidence
+    if any(item.basis not in TECHNICAL_RESOLUTION_BASES | ADVISORY_RESOLUTION_BASES for item in proofs):
+        raise ValueError("unsupported resolution basis")
+    technical = [item for item in proofs if item.basis in TECHNICAL_RESOLUTION_BASES]
+    after_report = [
+        item for item in technical if item.observed_at is not None and _utc(item.observed_at) > reported_at
+    ]
+    after = tuple(
+        sorted(
+            (
+                EvidenceReference(item.evidence_ref, item.evidence_type, item.freshness, item.observed_at)
+                for item in proofs
+                if item.observed_at is not None and _utc(item.observed_at) > reported_at
+            ),
+            key=lambda item: (item.evidence_ref, item.evidence_type),
+        )
+    )[:MAX_VERIFICATION_EVIDENCE_REFERENCES]
+
+    def outcome(state: VerificationState) -> VerificationOutcome:
+        return VerificationOutcome(
+            **common,
+            verification_state=state,
+            reason_codes=_ordered(reasons),
+            after_evidence_references=after,
+        )
+
+    if not method.automated:
+        reasons.append("NOT_AUTOMATICALLY_VERIFIABLE")
+        return outcome("manual-review-required")
+    if value.identity_conflict_active:
+        reasons.append("IDENTITY_CONFLICT_ACTIVE")
+        return outcome("conflicting-evidence")
+    if resolved_at is None or resolved_at <= reported_at:
+        reasons.append("RESOLVED_BEFORE_REPORT")
+        return outcome("resolved-before-report")
+    if not proofs:
+        reasons.append("RESOLUTION_EVIDENCE_UNAVAILABLE")
+        return outcome("insufficient-evidence")
+    reasons.extend(_basis_reason(item.basis) for item in proofs)
+    if not technical:
+        return outcome("resolved-by-advisory-change")
+    if not after_report:
+        reasons.append("RESOLUTION_EVIDENCE_PREDATES_REPORT")
+        return outcome("insufficient-evidence")
+    if not any(item.freshness in FRESH_ENOUGH for item in after_report):
+        if any(item.freshness == "stale" for item in after_report):
+            reasons.append("EVIDENCE_STALE")
+            return outcome("evidence-stale")
+        reasons.append("EVIDENCE_FRESHNESS_UNKNOWN")
+        return outcome("insufficient-evidence")
+    if method.collection_check == "component-source-snapshot":
+        if completeness == "incomplete":
+            reasons.append("COLLECTION_INCOMPLETE_AT_RESOLUTION")
+            return outcome("insufficient-evidence")
+        if completeness != "complete":
+            reasons.append("COLLECTION_NOT_COMPLETE_AT_RESOLUTION")
+            return outcome("insufficient-evidence")
+        reasons.append("COLLECTION_COMPLETE_AT_RESOLUTION")
+        later = value.collection_after_resolution
+        if later is not None and later.collection_status != "complete":
+            reasons.append("COLLECTION_DEGRADED_SINCE_VERIFICATION")
+    reasons.append("RESOLVED_BY_FRESH_EVIDENCE")
+    return outcome("verified")
+
+
+def proofs_from_records(rows: Sequence[Mapping[str, Any]]) -> tuple[ResolutionProof, ...]:
+    return tuple(
+        ResolutionProof(
+            basis=str(row["resolution_basis"]),
+            evidence_ref=str(row["evidence_ref"]),
+            evidence_type=str(row["evidence_type"]),
+            source=str(row["source"]),
+            observed_at=row.get("observed_at"),
+            freshness=str(row["freshness"]),
+            installed_version=row.get("installed_version"),
+            fixed_version=row.get("fixed_version"),
+        )
+        for row in rows
+    )
+
+
 def evidence_from_records(rows: Sequence[Mapping[str, Any]]) -> tuple[EvidenceReference, ...]:
     return tuple(
         EvidenceReference(
@@ -533,6 +713,7 @@ def ruleset_public() -> dict[str, Any]:
         "ruleset_version": VERIFICATION_RULESET_VERSION,
         "states": list(VERIFICATION_STATES),
         "unverified_states": sorted(UNVERIFIED_STATES),
+        "not_attributable_states": sorted(NOT_ATTRIBUTABLE_STATES),
         "methods": [
             {
                 "finding_rule_id": rule_id,
@@ -549,6 +730,10 @@ def ruleset_public() -> dict[str, Any]:
         "limitations": [
             "A work item marked done is a remediation claim; only deterministic finding evaluation "
             "on fresh, affirmative evidence resolves a finding.",
+            "A resolution counts as verified remediation only with recorded technical evidence "
+            "collected after the report and, for software, a complete collection before the resolution.",
+            "Advisory withdrawal and applicability changes resolve findings without remediation "
+            "evidence and are reported separately.",
             "Verification waits for the next authorized collection; it never retests actively.",
             "Absence of an observation, or a partial or failed collection, never establishes resolution.",
         ],

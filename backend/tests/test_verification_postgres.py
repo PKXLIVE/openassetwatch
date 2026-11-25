@@ -290,14 +290,171 @@ class VerificationPostgresTests(unittest.TestCase):
         state = self._state(finding_id)
         self.assertEqual(state["finding_status"], "resolved")
         self.assertEqual(state["verification_state"], "verified")
-        self.assertIn("RESOLVED_BY_FRESH_EVIDENCE", state["reason_codes"])
+        for code in ("RESOLVED_BY_FRESH_EVIDENCE", "COMPONENT_VERSION_FIXED", "COLLECTION_COMPLETE_AT_RESOLUTION"):
+            self.assertIn(code, state["reason_codes"])
         self.assertEqual(state["record_state"], "current")
         self.assertEqual(self.verification.list_unverified()["total"], 0)
+        # The affirmative evidence that resolved the finding is retained and
+        # returned: the fixed match, its versions, and its collection time.
+        (evidence,) = state["resolution_evidence"]
+        self.assertEqual(
+            (evidence["resolution_basis"], evidence["technical"], evidence["evidence_ref"]),
+            ("component-version-fixed", True, "vmt_" + "a" * 32),
+        )
+        self.assertEqual((evidence["installed_version"], evidence["fixed_version"]), ("1.2.0", "1.4.2"))
+        self.assertEqual(evidence["observed_at"], later)
+        self.assertEqual(state["after_evidence_references"][0]["evidence_ref"], "vmt_" + "a" * 32)
+        self.assertEqual(state["collection_at_resolution"]["collection_status"], "complete")
+        stored = self._rows("SELECT * FROM finding_resolution_evidence")
+        self.assertEqual(len(stored), 1)
+        self.assertEqual((stored[0]["resolved_at"], stored[0]["observed_at"]), (later, later))
         history = self._history(finding_id)
         self.assertEqual(
             [(item["sequence"], item["previous_state"], item["verification_state"]) for item in history],
             [(1, None, "awaiting-evidence"), (2, "awaiting-evidence", "verified")],
         )
+
+    def _verify_after_report(self, *, status: str = "fixed", seen_offset: timedelta = timedelta(hours=2),
+                             snapshot_status: str | None = "complete") -> tuple[str, datetime]:
+        self._evaluate(NOW)
+        finding_id = self._finding_id()
+        self._report_done(finding_id, NOW + timedelta(minutes=1))
+        later = NOW + timedelta(hours=2)
+        if snapshot_status is not None:
+            self._snapshot(later, snapshot_status)
+        self._evaluate(later, observed_asset(later, seen=NOW + seen_offset, status=status))
+        return finding_id, later
+
+    def test_resolution_before_the_report_is_not_attributable(self) -> None:
+        self._evaluate(NOW)
+        finding_id = self._finding_id()
+        item = self.work.create_work_item(
+            finding_id, actor="alex", owner_kind=None, owner_label=None, note=None, at=NOW + timedelta(seconds=1)
+        )
+        self._snapshot(NOW + timedelta(minutes=30), "complete")
+        self._evaluate(NOW + timedelta(minutes=30), observed_asset(NOW + timedelta(minutes=30),
+                                                                   seen=NOW + timedelta(minutes=30), status="fixed"))
+        self.work.change_status(
+            finding_id, actor="alex", status="done", expected_revision=item["revision"], note=None,
+            at=NOW + timedelta(hours=1),
+        )
+        state = self._state(finding_id)
+        self.assertEqual(state["verification_state"], "resolved-before-report")
+        self.assertIn("RESOLVED_BEFORE_REPORT", state["reason_codes"])
+        self.assertFalse(state["verified"])
+        self.assertEqual(self.verification.list_unverified()["total"], 0)
+
+    def test_resolution_after_report_from_evidence_observed_before_it(self) -> None:
+        finding_id, _ = self._verify_after_report(seen_offset=timedelta(0))
+        state = self._state(finding_id)
+        self.assertEqual(state["finding_status"], "resolved")
+        self.assertEqual(state["verification_state"], "insufficient-evidence")
+        self.assertIn("RESOLUTION_EVIDENCE_PREDATES_REPORT", state["reason_codes"])
+        self.assertEqual(state["after_evidence_references"], [])
+
+    def test_incomplete_or_missing_collection_before_resolution_is_insufficient(self) -> None:
+        for snapshot_status, code in (
+            ("partial", "COLLECTION_INCOMPLETE_AT_RESOLUTION"),
+            ("failed", "COLLECTION_INCOMPLETE_AT_RESOLUTION"),
+            ("unsupported", "COLLECTION_INCOMPLETE_AT_RESOLUTION"),
+            (None, "COLLECTION_NOT_COMPLETE_AT_RESOLUTION"),
+        ):
+            with self.subTest(snapshot_status=snapshot_status):
+                self.tearDown()
+                self.setUp()
+                finding_id, _ = self._verify_after_report(snapshot_status=snapshot_status)
+                state = self._state(finding_id)
+                self.assertEqual(state["finding_status"], "resolved")
+                self.assertEqual(state["verification_state"], "insufficient-evidence")
+                self.assertIn(code, state["reason_codes"])
+                self.assertEqual(self.verification.list_unverified()["total"], 1)
+
+    def test_stale_resolution_evidence_is_not_verification(self) -> None:
+        self._evaluate(NOW)
+        finding_id = self._finding_id()
+        self._report_done(finding_id, NOW + timedelta(minutes=1))
+        later = NOW + timedelta(hours=2)
+        self._snapshot(later, "complete")
+        self._evaluate(later, observed_asset(later, seen=later, status="fixed", freshness="stale"))
+        self.assertEqual(self._state(finding_id)["verification_state"], "evidence-stale")
+
+    def test_advisory_withdrawal_is_distinct_from_technical_remediation(self) -> None:
+        for status, basis in (("advisory-withdrawn", "advisory-withdrawn"), ("not-affected", "applicability-not-affected")):
+            with self.subTest(status=status):
+                self.tearDown()
+                self.setUp()
+                finding_id, _ = self._verify_after_report(status=status)
+                state = self._state(finding_id)
+                self.assertEqual(state["finding_status"], "resolved")
+                self.assertEqual(state["verification_state"], "resolved-by-advisory-change")
+                self.assertEqual(state["resolution_evidence"][0]["resolution_basis"], basis)
+                self.assertFalse(state["resolution_evidence"][0]["technical"])
+                self.assertFalse(state["verified"])
+
+    def test_verified_outcome_survives_later_degraded_collection(self) -> None:
+        finding_id, later = self._verify_after_report()
+        self.assertEqual(self._state(finding_id)["verification_state"], "verified")
+        self._snapshot(later + timedelta(hours=1), "failed")
+        self._evaluate(later + timedelta(hours=1, minutes=5),
+                       observed_asset(later + timedelta(hours=1, minutes=5), seen=later, status="fixed"))
+        state = self._state(finding_id)
+        self.assertEqual(state["verification_state"], "verified")
+        self.assertIn("COLLECTION_DEGRADED_SINCE_VERIFICATION", state["reason_codes"])
+        self.assertEqual(state["collection_after_resolution"]["collection_status"], "failed")
+        states = [item["verification_state"] for item in self._history(finding_id)]
+        self.assertEqual(states, ["verified", "verified"])
+
+    def test_resolution_evidence_is_append_only_site_bound_and_cascades(self) -> None:
+        finding_id, _ = self._verify_after_report()
+        self.assertEqual(len(self._rows("SELECT * FROM finding_resolution_evidence")), 1)
+        for statement in (
+            "UPDATE finding_resolution_evidence SET resolution_basis = 'component-version-fixed'",
+            "DELETE FROM finding_resolution_evidence",
+            "TRUNCATE finding_resolution_evidence",
+        ):
+            with self.subTest(statement=statement):
+                with self.assertRaises(DBAPIError) as raised:
+                    with self.database_engine.begin() as connection:
+                        connection.execute(text(statement))
+                self.assertIn("append-only", str(raised.exception.orig))
+        for column, value in (("resolution_basis", "'guessed-remediation'"), ("site_id", "'site-b'")):
+            with self.subTest(column=column):
+                with self.assertRaises(IntegrityError):
+                    with self.database_engine.begin() as connection:
+                        connection.execute(
+                            text(
+                                f"""
+                                INSERT INTO finding_resolution_evidence (
+                                    finding_id, site_id, resolved_at, evaluation_run_id, resolution_basis,
+                                    evidence_ref, evidence_type, source, freshness
+                                )
+                                SELECT finding_id, {value if column == 'site_id' else 'site_id'}, NOW(),
+                                       evaluation_run_id,
+                                       {value if column == 'resolution_basis' else "'fresh-observation'"},
+                                       'x', 'x', 'x', 'fresh'
+                                FROM finding_resolution_evidence
+                                """
+                            )
+                        )
+        with self.database_engine.begin() as connection:
+            connection.execute(text("DELETE FROM findings WHERE finding_id = :f"), {"f": finding_id})
+        self.assertEqual(self._rows("SELECT COUNT(*) AS n FROM finding_resolution_evidence")[0]["n"], 0)
+
+    def test_reopened_finding_is_still_present_and_history_is_preserved(self) -> None:
+        finding_id, later = self._verify_after_report()
+        verified_history = self._history(finding_id)
+        evidence_before = self._rows("SELECT * FROM finding_resolution_evidence ORDER BY 1")
+        reopened_at = later + timedelta(hours=3)
+        self._evaluate(reopened_at, observed_asset(reopened_at, seen=reopened_at, status="affected"))
+        state = self._state(finding_id)
+        self.assertEqual(state["finding_status"], "active")
+        self.assertEqual(state["verification_state"], "still-present")
+        self.assertIn("REOPENED_SINCE_REPORT", state["reason_codes"])
+        history = self._history(finding_id)
+        self.assertEqual(history[: len(verified_history)], verified_history)
+        self.assertEqual(history[-1]["previous_state"], "verified")
+        # The resolution evidence that once verified it is kept unchanged.
+        self.assertEqual(self._rows("SELECT * FROM finding_resolution_evidence ORDER BY 1"), evidence_before)
 
     def test_partial_collection_after_report_is_insufficient_and_never_resolves(self) -> None:
         self._evaluate(NOW)
