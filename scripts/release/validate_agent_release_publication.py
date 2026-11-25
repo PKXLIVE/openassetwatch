@@ -277,6 +277,22 @@ def validate_notarization_evidence(artifact_path: Path, manifest_path: Path, man
         raise ValueError(f"{manifest_path} claims notarized=true without notarization evidence.")
 
 
+def validate_sidecar_path(
+    repo_root: Path, release_root: Path, manifest: dict[str, Any], field: str
+) -> str:
+    value = manifest.get(field)
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str) or not value.strip() or Path(value).is_absolute():
+        raise ValueError(f"{field} must be a repository-relative file path.")
+    path = resolve_repo_path(repo_root, value)
+    if not is_inside(release_root, path):
+        raise ValueError(f"{field} must stay under the release root.")
+    if not path.is_file() or path.stat().st_size == 0:
+        raise ValueError(f"{field} must reference a non-empty release file.")
+    return to_repo_relative(repo_root, path)
+
+
 def artifact_from_manifest(repo_root: Path, release_root: Path, manifest_path: Path, version: str) -> ReleaseArtifact:
     manifest = read_json(manifest_path)
     artifact_path = manifest_artifact_path(repo_root, manifest_path, manifest)
@@ -326,8 +342,8 @@ def artifact_from_manifest(repo_root: Path, release_root: Path, manifest_path: P
         license=PROJECT_LICENSE,
         signed=signed_flag(manifest),
         notarized=notarized_flag(manifest),
-        sbom_path=str(manifest.get("sbom_path", "") or ""),
-        provenance_path=str(manifest.get("provenance_path", "") or ""),
+        sbom_path=validate_sidecar_path(repo_root, release_root, manifest, "sbom_path"),
+        provenance_path=validate_sidecar_path(repo_root, release_root, manifest, "provenance_path"),
         path=to_repo_relative(repo_root, artifact_path),
         manifest_path=to_repo_relative(repo_root, manifest_path),
         checksum_path=to_repo_relative(repo_root, checksum_path),

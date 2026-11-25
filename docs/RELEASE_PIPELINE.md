@@ -260,6 +260,9 @@ Before public publication, verify:
 - every artifact manifest includes filename, package type, OS, architecture,
   version, git commit, build timestamp, SHA256, Apache-2.0 license metadata,
   signed state, notarized state where applicable, SBOM path, and provenance path
+- each declared SBOM or provenance path names a nonempty file within the
+  release tree. Paths are relative to the repository root. An empty path
+  records that the manifest makes no claim for that artifact.
 - every `.sha256` file matches the referenced artifact
 - unsigned validation artifacts are marked `signed=false`
 - signed artifacts include signing evidence
