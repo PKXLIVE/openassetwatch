@@ -16,6 +16,7 @@ from fastapi import BackgroundTasks, Body, Header, HTTPException, FastAPI, Path 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -372,6 +373,8 @@ CONTROL_TOWER_VERSION = os.getenv("OPENASSETWATCH_CONTROL_TOWER_VERSION", "0.1.0
 EXPECTED_AGENT_VERSION = os.getenv("OPENASSETWATCH_EXPECTED_AGENT_VERSION", "0.1.0")
 AGENT_RELEASE_CHANNEL = os.getenv("OPENASSETWATCH_AGENT_RELEASE_CHANNEL", "local")
 UI_STATIC_DIR = Path(__file__).resolve().parent / "static"
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 allowed_origins = [
     origin.strip()
@@ -1102,6 +1105,16 @@ def readiness():
     if schema["state"] != "ready":
         return JSONResponse(status_code=503, content=payload)
     return payload
+
+
+@app.get("/login", include_in_schema=False)
+def login_page(request: Request):
+    return templates.TemplateResponse(request=request, name="login.html", context={"hide_chrome": True})
+
+
+@app.get("/dashboard", include_in_schema=False)
+def dashboard_page(request: Request):
+    return templates.TemplateResponse(request=request, name="dashboard.html", context={"hide_chrome": True})
 
 
 @app.get("/ui", include_in_schema=False)
@@ -3245,7 +3258,7 @@ def api_risk_summary(
     limit: int = Query(default=100, ge=1, le=200),
     admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
 ):
-    require_admin_token(admin_token)
+    require_configured_admin_token(admin_token, capability="risk summary")
     try:
         return _finding_store().risk_summary(site_id=site_id, limit=limit)
     except SQLAlchemyError as exc:
