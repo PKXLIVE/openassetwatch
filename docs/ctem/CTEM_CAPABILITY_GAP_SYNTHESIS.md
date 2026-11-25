@@ -71,7 +71,7 @@ Classifications: **ALREADY PRESENT**, **PARTIALLY PRESENT**, **USEFUL GAP**,
 | Prioritization | Single multiplied risk score; external-posture letter grade | NOT APPROPRIATE | Hides separate dimensions (DR-03) |
 | Prioritization | Temporal baselines and deviations | ALREADY PRESENT | Context only, never authority |
 | Validation | Resolution only on fresh affirmative evidence | ALREADY PRESENT | Deterministic reconciliation |
-| Validation | Per-finding verification guidance and recorded proof | USEFUL GAP | [`CTEM-GAP-06`](#ctem-gap-06-remediation-verification-records) |
+| Validation | Per-finding verification guidance and recorded proof | ALREADY PRESENT | [`CTEM-GAP-06`](#ctem-gap-06-remediation-verification-records), implemented |
 | Validation | Coverage-aware closure (partial or failed collection never clears a finding) | PARTIALLY PRESENT | Freshness gating exists; coverage states designed (PR #175) and proposed (PR #189); both on `main` |
 | Validation | Active retest by re-running detection checks | NOT APPROPRIATE (default) | `CTEM-GAP-06` verifies passively |
 | Validation | Attack simulation and penetration-test management | NOT APPROPRIATE | Offensive testing is out of scope |
@@ -237,8 +237,12 @@ RESEARCH**, **EXTERNAL RESEARCH** (generalized; sources are not recorded), and
   passive observation no longer showing a service). It also shows the
   comparable before-and-after evidence once available. Completed work with no
   verification is visibly unverified.
-- **Existing equivalent:** resolution on fresh affirmative evidence exists;
-  the guidance and the "done but unverified" view do not.
+- **Existing equivalent:** implemented
+  ([CTEM_REMEDIATION_VERIFICATION.md](CTEM_REMEDIATION_VERIFICATION.md)):
+  per-rule guidance, baselines captured when work is marked done, a
+  deterministic verification state, a "done but unverified" view, and
+  append-only transition history. Resolution still comes only from the
+  deterministic finding lifecycle.
 - **Build or integrate:** build.
 - **Evidence:** the evidence source that produced the finding, at a later
   time, from a healthy, complete collection.

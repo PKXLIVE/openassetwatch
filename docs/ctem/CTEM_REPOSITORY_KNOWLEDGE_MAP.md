@@ -74,7 +74,7 @@ Status meanings: **implemented** (code and tests on `main`), **partial**,
 | Compensating controls, control effectiveness | proposed | none | PR #189; `EXPLAINABLE_RISK_DECISION_MODEL.md` (remediation guidance) |
 | Temporal baselines and deviations | implemented (context only) | `temporal_*.py`; `test_temporal*.py` | ADR-0003 AIT-10 to AIT-12; `TEMPORAL_*.md` |
 | Finding resolution on fresh affirmative evidence (validation) | implemented | `finding_store.reconcile`; resolve/reopen tests | `DETERMINISTIC_FINDINGS_AND_RISK.md` |
-| Remediation verification (before and after) | proposed | none | PR #189; ADR-0001 (REM-VERIFY-001 in the gap matrix) |
+| Remediation verification (before and after) | implemented (read model, baselines, history) | `verification*.py`, migration 0008; `test_verification*.py`, gated verification database tests | PR #189; ADR-0001 (REM-VERIFY-001 in the gap matrix); `docs/ctem/CTEM_REMEDIATION_VERIFICATION.md` |
 | Active validation, empirical testing | missing by design | none | ADR-0001 invariant 3 and DR-08; PR #189 limits it to authorized bounded tests |
 | Manual work tracking: status, unverified owner, references (mobilization) | implemented | `finding_work_*.py`, migration 0005; `test_finding_work_*` | `FINDING_WORK_TRACKING.md` |
 | Verified ownership (directory, CMDB) | designed | none | `identity-directory-enrichment-roadmap.md`, `itsm-cmdb-enrichment-roadmap.md` |

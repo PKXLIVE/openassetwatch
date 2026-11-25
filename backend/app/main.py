@@ -162,6 +162,14 @@ from .asset_importance_contracts import (
     AssetImportanceWithdrawRequest,
 )
 from .asset_importance_store import AssetImportanceError, SqlAssetImportanceStore
+from .verification import ruleset_public as verification_ruleset_public
+from .verification_contracts import (
+    FindingVerificationResponse,
+    UnverifiedWorkListResponse,
+    VerificationHistoryResponse,
+    VerificationRulesetResponse,
+)
+from .verification_store import SqlVerificationStore
 from .findings import RULESET_VERSION, rule_registry_public
 from .hub_contracts import (
     ObservationBatchRequest,
@@ -1642,6 +1650,10 @@ def _decision_store() -> SqlDecisionStore:
 
 def _asset_importance_store() -> SqlAssetImportanceStore:
     return SqlAssetImportanceStore()
+
+
+def _verification_store() -> SqlVerificationStore:
+    return SqlVerificationStore()
 
 
 def _classification_store() -> SqlClassificationStore:
@@ -3237,6 +3249,91 @@ def admin_withdraw_asset_importance(
             site_id=site_id, asset_id=asset_id, actor=payload.actor
         ),
     }
+
+
+VERIFICATION_CAPABILITY = "remediation verification"
+
+
+def _require_verification_token(admin_token: str | None) -> None:
+    # Verification exposes work items and their status, so it fails closed for
+    # every route when no admin secret is configured, like work tracking.
+    require_configured_admin_token(admin_token, capability=VERIFICATION_CAPABILITY)
+
+
+def _verification_call(operation, failure_detail: str):
+    try:
+        return operation()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail=failure_detail) from exc
+
+
+@app.get("/api/v1/verification/rules", response_model=VerificationRulesetResponse)
+def api_verification_rules(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_verification_token(admin_token)
+    return verification_ruleset_public()
+
+
+@app.get("/api/v1/verification/unverified-work", response_model=UnverifiedWorkListResponse)
+def api_unverified_work(
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    verification_state: str | None = Query(default=None, min_length=1, max_length=32),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    """Work marked done whose finding is not verified. Read-only."""
+
+    _require_verification_token(admin_token)
+    return _verification_call(
+        lambda: _verification_store().list_unverified(
+            site_id=site_id,
+            verification_state=verification_state,
+            limit=limit,
+            offset=offset,
+        ),
+        "failed to load unverified work",
+    )
+
+
+@app.get("/api/v1/findings/{finding_id}/verification", response_model=FindingVerificationResponse)
+def api_finding_verification(
+    finding_id: str = ApiPath(..., pattern=FINDING_ID_PATH_PATTERN),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    """Guidance, before-and-after evidence, and the deterministic outcome. Read-only."""
+
+    _require_verification_token(admin_token)
+    result = _verification_call(
+        lambda: _verification_store().get_verification(finding_id),
+        "failed to load finding verification",
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    return result
+
+
+@app.get(
+    "/api/v1/findings/{finding_id}/verification/history",
+    response_model=VerificationHistoryResponse,
+)
+def api_finding_verification_history(
+    finding_id: str = ApiPath(..., pattern=FINDING_ID_PATH_PATTERN),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    _require_verification_token(admin_token)
+    history = _verification_call(
+        lambda: _verification_store().list_history(finding_id, limit=limit, offset=offset),
+        "failed to load finding verification history",
+    )
+    if history is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    return history
 
 
 @app.get("/api/v1/risk/summary", response_model=RiskSummaryResponse)

@@ -94,7 +94,7 @@ class DecisionPostgresTests(unittest.TestCase):
         with self.admin_engine.connect() as connection:
             connection.exec_driver_sql(f'CREATE DATABASE "{self.database_name}"')
         self.database_engine = create_engine(parsed.set(database=self.database_name), poolclass=NullPool)
-        self.assertEqual(migrate_database_schema(self.database_engine).current_version, 7)
+        self.assertEqual(migrate_database_schema(self.database_engine).current_version, 8)
         self.patchers = [
             patch("app.database.get_engine", return_value=self.database_engine),
             patch("app.database.ensure_database_schema"),

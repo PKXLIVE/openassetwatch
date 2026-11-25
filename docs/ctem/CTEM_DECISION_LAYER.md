@@ -42,7 +42,7 @@ Future CTEM layers keep the same separation:
 | Asset importance | The consequence of losing the asset, as an audited operator assertion | IMPLEMENTED (`CTEM-GAP-02`) |
 | Decision | The deterministic action band and reasons for a finding | IMPLEMENTED (v1) |
 | Treatment | Human work addressing the condition | IMPLEMENTED (manual work tracking) |
-| Verification | Evidence proving the exposure changed | NOT IMPLEMENTED (resolution on fresh evidence only) |
+| Verification | Evidence proving the condition changed after reported work | IMPLEMENTED (`CTEM-GAP-06`, read model; never an input to decisions) |
 
 None of these share a status field.
 

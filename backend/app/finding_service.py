@@ -11,6 +11,7 @@ from .decision_store import DecisionReconcileResult, SqlDecisionStore
 from .finding_store import InMemoryFindingStore, ReconcileResult, SqlFindingStore
 from .findings import RULESET_VERSION, EvaluationSnapshot, FindingsConfig, evaluate_rules
 from .risk import RiskConfig, calculate_risk
+from .verification_store import SqlVerificationStore, VerificationReconcileResult
 
 
 LOGGER = logging.getLogger(__name__)
@@ -40,6 +41,8 @@ class EvaluationResult:
     completed_at: datetime
     decision_evaluated_count: int = 0
     decision_transition_count: int = 0
+    verification_evaluated_count: int = 0
+    verification_transition_count: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -101,6 +104,7 @@ def evaluate_findings(
     risk_config: RiskConfig | None = None,
     store: SqlFindingStore | InMemoryFindingStore | None = None,
     decision_store: SqlDecisionStore | None = None,
+    verification_store: SqlVerificationStore | None = None,
     sites: Sequence[dict[str, Any]] | None = None,
     sensors: Sequence[dict[str, Any]] | None = None,
     assets: Sequence[dict[str, Any]] | None = None,
@@ -120,6 +124,7 @@ def evaluate_findings(
     # Decisions are recomputed in production evaluations. A caller that injects
     # its own finding store (tests, in-memory demos) opts in explicitly.
     resolved_decision_store = decision_store or (SqlDecisionStore() if store is None else None)
+    resolved_verification_store = verification_store or (SqlVerificationStore() if store is None else None)
     resolved_store = store or SqlFindingStore()
     run_id = resolved_store.begin_run(
         trigger_type=trigger_type,
@@ -196,6 +201,18 @@ def evaluate_findings(
             if resolved_decision_store is not None
             else DecisionReconcileResult(evaluated=0, changed=0, transitions=0)
         )
+        # Verification history is recorded last, as a downstream read model of
+        # the settled findings. Nothing it computes flows back into findings,
+        # risk, or decisions, and it cannot resolve a finding.
+        verifications = (
+            resolved_verification_store.reconcile_verifications(
+                run_id=run_id,
+                evaluated_at=started_at,
+                site_id=site_id,
+            )
+            if resolved_verification_store is not None
+            else VerificationReconcileResult(evaluated=0, transitions=0)
+        )
         resolved_store.complete_run(
             run_id,
             snapshot=snapshot,
@@ -222,6 +239,8 @@ def evaluate_findings(
             completed_at=completed_at,
             decision_evaluated_count=decisions.evaluated,
             decision_transition_count=decisions.transitions,
+            verification_evaluated_count=verifications.evaluated,
+            verification_transition_count=verifications.transitions,
         )
     except Exception as exc:
         try:
