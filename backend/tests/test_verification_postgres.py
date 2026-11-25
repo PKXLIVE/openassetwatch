@@ -44,6 +44,9 @@ SOURCE_ID = "src_" + "e" * 32
 MATCH_ID = "vmt_" + "a" * 32
 COMPONENT_ID = "cmp_" + "c" * 32
 ADVISORY_ID = "adv_" + "d" * 32
+SECOND_MATCH_ID = "vmt_" + "b" * 32
+SECOND_ADVISORY_ID = "adv_" + "f" * 32
+PURL = "pkg:pypi/example-agent"
 OWN_SOURCE = "native-packages"
 OTHER_SOURCE = "other-packages"
 # Times stay in the recent past of the database clock.
@@ -529,7 +532,9 @@ class VerificationPostgresTests(unittest.TestCase):
         for table in ("finding_verification_baselines", "finding_verification_history", "finding_resolution_evidence"):
             self.assertEqual(self._rows(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"], 0, table)
 
-    def _real_collection(self, when: datetime, source: str, status: str, version: str | None) -> str:
+    def _real_collection(
+        self, when: datetime, source: str, status: str, version: str | None, canonical: str | None = None
+    ) -> str:
         """Ingest one native source collection through production persistence."""
 
         import hashlib
@@ -567,7 +572,7 @@ class VerificationPostgresTests(unittest.TestCase):
                     component_id=COMPONENT_ID, asset_id="asset-a", site_id="site-a", component_type="package",
                     ecosystem="pypi", namespace=None, vendor=None, name="example-agent",
                     normalized_name="example-agent", version=version, normalized_version=version,
-                    architecture=None, package_manager=None, canonical_identifier=None, cpe_hint=None,
+                    architecture=None, package_manager=None, canonical_identifier=canonical, cpe_hint=None,
                     install_scope="system", source_type="endpoint-collector", source_id=SOURCE_ID,
                     firmware_evidence_type="direct", evidence_ids=(), observed_at=when, first_seen_at=at(0),
                     last_seen_at=when, freshness="fresh", confidence=1.0, normalization_status="normalized",
@@ -618,6 +623,250 @@ class VerificationPostgresTests(unittest.TestCase):
         state = self._state(finding_id)
         self.assertEqual(state["verification_state"], "insufficient-evidence")
         self.assertIn("COLLECTION_NOT_COMPLETE_AT_RESOLUTION", state["reason_codes"])
+
+    # ---------------------------------------- production matcher and evidence state
+    #
+    # These run the real vulnerability matcher and reconcile against inventory
+    # persisted through production code. Ingestion and matching commit in
+    # separate transactions, and matching can fail and be retried later, so
+    # the match result and the component state can describe different
+    # observations. Verification must notice that rather than combine them.
+
+    def _ingest(self, when: datetime, version: str | None) -> str:
+        return self._real_collection(when, "linux-rpm", "complete", version, canonical=PURL)
+
+    def _rematch(self, when: datetime, fixed: str = "1.4.2") -> None:
+        from app.vulnerability_service import evaluate_vulnerabilities
+
+        affected = {
+            "affected_id": "aff_1", "advisory_id": ADVISORY_ID, "ecosystem": "pypi",
+            "canonical_identifier": PURL, "normalized_name": "example-agent", "vendor": None,
+            "ranges": [{"introduced": "1.0.0", "introduced_inclusive": True, "fixed": fixed,
+                        "fixed_inclusive": False}],
+            "fixed_versions": [fixed], "exact_versions": [], "architectures": [], "platforms": [],
+            "current": True, "withdrawn_at": None, "checksum": "c" * 63 + fixed[-1],
+        }
+        evaluate_vulnerabilities(
+            trigger_type="test", requested_by="unit-test", site_id="site-a", asset_id="asset-a",
+            now=when, store=SqlVulnerabilityStore(), advisory_rows=[affected], update_findings=False,
+        )
+
+    def _real_reported(self, installed: str = "1.2.0") -> str:
+        """An affected finding from the real matcher, with remediation reported at T0 + 1h."""
+
+        # Only production-written rows: no seeded match or presence.
+        self._exec("DELETE FROM vulnerability_matches")
+        self._exec("DELETE FROM component_source_presence")
+        self._ingest(at(0.2), installed)
+        self._rematch(at(0.3))
+        self._evaluate(at(0.5))
+        (match,) = SqlVulnerabilityStore().active_match_snapshot(site_id="site-a")
+        self.assertEqual((match["match_status"], match["installed_version"]), ("affected", installed))
+        return self._finding_id()
+
+    def test_real_upgrade_rematched_verifies(self) -> None:
+        finding_id = self._real_reported()
+        self._report_done(finding_id, at(1))
+        upgraded = self._ingest(at(2), "1.4.2")
+        self._rematch(at(2.1))
+        self._evaluate(at(2.5))
+        state = self._state(finding_id)
+        self.assertEqual((state["finding_status"], state["verification_state"]), ("resolved", "verified"))
+        self.assertEqual(state["resolution_evidence"][0]["supporting_snapshot_id"], upgraded)
+
+    def test_rollback_before_rematch_never_verifies_from_the_stale_match(self) -> None:
+        # The matcher saw 1.4.2 and reported fixed. A later complete inventory
+        # shows 1.2.0 again, but matching has not run on it yet. The stale
+        # `fixed` result must not be paired with the newer snapshot as proof.
+        finding_id = self._real_reported()
+        self._report_done(finding_id, at(1))
+        self._ingest(at(2), "1.4.2")
+        self._rematch(at(2.1))
+        rolled_back = self._ingest(at(2.2), "1.2.0")
+        (match,) = SqlVulnerabilityStore().active_match_snapshot(site_id="site-a")
+        self.assertEqual((match["match_status"], match["installed_version"]), ("fixed", "1.4.2"))
+        self.assertEqual(match["component_source_snapshot_id"], rolled_back)
+        self._evaluate(at(2.5))
+        state = self._state(finding_id)
+        self.assertEqual(state["finding_status"], "resolved")
+        self.assertEqual(state["verification_state"], "insufficient-evidence")
+        self.assertIn("RESOLUTION_EVIDENCE_UNAVAILABLE", state["reason_codes"])
+        self.assertEqual(state["resolution_evidence"], [])
+
+    def test_condition_already_fixed_at_report_time_is_not_attributed(self) -> None:
+        # The upgrade was matched before work was marked done, but finding
+        # evaluation had not run yet. The report-time match is already fixed,
+        # so it is not a baseline for a later comparison.
+        finding_id = self._real_reported()
+        self._ingest(at(0.7), "1.4.2")
+        self._rematch(at(0.8))
+        self._report_done(finding_id, at(1))
+        (baseline,) = self._rows("SELECT match_versions FROM finding_verification_baselines")
+        self.assertEqual(baseline["match_versions"][0]["match_status"], "fixed")
+        self._ingest(at(2), "1.4.2")
+        self._rematch(at(2.1))
+        self._evaluate(at(2.5))
+        state = self._state(finding_id)
+        self.assertEqual(state["finding_status"], "resolved")
+        self.assertEqual(state["verification_state"], "insufficient-evidence")
+        self.assertIn("VERSION_CHANGE_UNCONFIRMED", state["reason_codes"])
+        self.assertNotIn("FIXED_BOUNDARY_REVISED", state["reason_codes"])
+
+    def test_stale_report_time_match_and_later_boundary_revision_never_verify(self) -> None:
+        # At report time the match still says 1.1.0 although inventory already
+        # shows 1.2.0. The advisory later moves its fixed boundary to 1.2.0.
+        # Nothing was installed after the report, so this is not remediation.
+        finding_id = self._real_reported(installed="1.1.0")
+        self._ingest(at(0.7), "1.2.0")  # matching did not run on this collection
+        self._report_done(finding_id, at(1))
+        self._ingest(at(2), "1.2.0")
+        self._rematch(at(2.1), fixed="1.2.0")
+        (match,) = SqlVulnerabilityStore().active_match_snapshot(site_id="site-a")
+        self.assertEqual((match["match_status"], match["installed_version"]), ("fixed", "1.2.0"))
+        self._evaluate(at(2.5))
+        state = self._state(finding_id)
+        self.assertEqual(state["finding_status"], "resolved")
+        self.assertEqual(state["verification_state"], "insufficient-evidence")
+        self.assertIn("VERSION_CHANGE_UNCONFIRMED", state["reason_codes"])
+
+    def test_real_removal_is_never_claimed_as_verified_remediation(self) -> None:
+        # The production matcher evaluates only active components, so a complete
+        # inventory that omits the component reaches the match as an
+        # applicability change. That is reported as such, never as verified.
+        finding_id = self._real_reported()
+        self._report_done(finding_id, at(1))
+        self._ingest(at(2), None)
+        self._rematch(at(2.1))
+        self._evaluate(at(2.5))
+        state = self._state(finding_id)
+        self.assertEqual(state["finding_status"], "resolved")
+        self.assertNotEqual(state["verification_state"], "verified")
+        self.assertFalse(any(item["technical"] for item in state["resolution_evidence"]))
+
+    def _version_unknown_reported(self, *, available_before_report: bool) -> str:
+        """A component-version-unavailable finding with remediation reported at T0 + 1h."""
+
+        self._exec("UPDATE asset_components SET version = NULL, normalized_version = NULL")
+        self._exec(
+            "UPDATE vulnerability_matches SET match_status = 'version-unknown', installed_version = NULL,"
+            " reason_codes_json = '[\"installed-version-missing\"]'"
+        )
+        rules = ["component-version-unavailable"]
+        evaluate_findings(trigger_type="test", requested_by="unit-test", now=at(0.5), store=self.findings,
+                          decision_store=self.decisions, verification_store=self.verification, site_id="site-a",
+                          rule_ids=rules)
+        (item,) = self.findings.list_findings(site_id="site-a", rule_id=rules[0])["items"]
+        if available_before_report:
+            # Collected and matched, but findings were not re-evaluated yet.
+            self._inventory(at(0.8), version="1.2.0")
+            self._match(at(0.8), "affected", "installed-version-in-affected-range", installed="1.2.0")
+        self._report_done(item["finding_id"], at(1))
+        self._inventory(at(2), version="1.2.0")
+        self._match(at(2), "affected", "installed-version-in-affected-range", installed="1.2.0")
+        evaluate_findings(trigger_type="test", requested_by="unit-test", now=at(2.5), store=self.findings,
+                          decision_store=self.decisions, verification_store=self.verification, site_id="site-a",
+                          rule_ids=rules)
+        return item["finding_id"]
+
+    def test_version_collected_after_report_verifies_the_version_finding(self) -> None:
+        finding_id = self._version_unknown_reported(available_before_report=False)
+        state = self._state(finding_id)
+        self.assertEqual((state["finding_status"], state["verification_state"]), ("resolved", "verified"))
+        self.assertIn("COMPONENT_VERSION_COLLECTED", state["reason_codes"])
+
+    def test_version_already_available_at_report_time_is_not_attributed(self) -> None:
+        finding_id = self._version_unknown_reported(available_before_report=True)
+        state = self._state(finding_id)
+        self.assertEqual(state["finding_status"], "resolved")
+        self.assertEqual(state["verification_state"], "insufficient-evidence")
+        self.assertIn("VERSION_CHANGE_UNCONFIRMED", state["reason_codes"])
+
+    # ------------------------------------------- verification failures and capacity
+
+    def _verification_runs(self) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM finding_verification_runs ORDER BY recorded_at, evaluation_run_id")
+
+    def test_verification_failure_never_fails_the_finding_evaluation(self) -> None:
+        finding_id = self._reported()
+        history = self._history(finding_id)
+        self._inventory(at(2), version="1.4.2")
+        self._match(at(2), "fixed", "at-or-after-fixed-boundary", installed="1.4.2")
+        with patch("app.verification_store.evaluate_verification", side_effect=RuntimeError("engine fault")):
+            result = self._evaluate(at(2.5))
+        self.assertEqual(result.verification_status, "failed")
+        (run,) = self._rows("SELECT status, error_code FROM finding_evaluation_runs WHERE run_id = :r", r=result.run_id)
+        self.assertEqual((run["status"], run["error_code"]), ("completed", None))
+        self.assertEqual(self.findings.get_finding(finding_id)["status"], "resolved")
+        self.assertEqual(self._rows("SELECT COUNT(*) AS n FROM finding_decisions")[0]["n"], 1)
+        failed = self._verification_runs()[-1]
+        self.assertEqual(
+            (failed["evaluation_run_id"], failed["status"], failed["error_code"]),
+            (result.run_id, "failed", "RuntimeError"),
+        )
+        # Nothing partial was written and nothing claims success.
+        self.assertEqual(self._history(finding_id), history)
+        retried = self._evaluate(at(3))
+        self.assertEqual(retried.verification_status, "completed")
+        self.assertEqual(self._history(finding_id)[-1]["verification_state"], "verified")
+        self.assertEqual(self._verification_runs()[-1]["status"], "completed")
+        for statement in ("UPDATE finding_verification_runs SET status = status", "DELETE FROM finding_verification_runs",
+                          "TRUNCATE finding_verification_runs"):
+            with self.subTest(statement=statement):
+                with self.assertRaises(DBAPIError) as raised:
+                    self._exec(statement)
+                self.assertIn("append-only", str(raised.exception.orig))
+
+    def test_verification_capacity_limit_is_explicit_and_never_fails_evaluation(self) -> None:
+        self._exec(
+            """
+            INSERT INTO advisories (
+                advisory_id, source, source_record_id, source_version, title, summary, severity,
+                known_exploited, published_at, modified_at, current, catalog_import_id, checksum
+            ) VALUES (:a, 'reviewed', 'REC-2', '1', 'Second agent flaw', 's', 'high', FALSE, :t, :t, TRUE,
+                      'imp_1', :c)
+            """,
+            a=SECOND_ADVISORY_ID, t=at(0), c="e" * 64,
+        )
+        self._exec(
+            """
+            INSERT INTO vulnerability_matches (
+                match_id, asset_id, site_id, component_id, advisory_id, affected_id, match_status,
+                match_confidence, installed_version, fixed_version, evaluated_at, reason_codes_json,
+                engine_version, last_run_id
+            ) VALUES (:m, 'asset-a', 'site-a', :c, :a, 'aff_2', 'affected', 1.0, '1.2.0', '1.4.2',
+                      :t, '["installed-version-in-affected-range"]', 'test', 'vrun_1')
+            """,
+            m=SECOND_MATCH_ID, c=COMPONENT_ID, a=SECOND_ADVISORY_ID, t=at(0),
+        )
+        self._evaluate(at(0.5))
+        items = self.findings.list_findings(site_id="site-a", rule_id="vulnerable-component")["items"]
+        self.assertEqual(len(items), 2)
+        for item in items:
+            self._report_done(item["finding_id"], at(1))
+        with patch("app.verification_store.MAX_VERIFICATION_RECORDS", 1):
+            result = self._evaluate(at(1.5))
+        self.assertEqual((result.verification_status, result.verification_evaluated_count), ("incomplete", 1))
+        (run,) = self._rows("SELECT status FROM finding_evaluation_runs WHERE run_id = :r", r=result.run_id)
+        self.assertEqual(run["status"], "completed")
+        recorded = self._verification_runs()[-1]
+        self.assertEqual((recorded["status"], recorded["evaluated_count"]), ("incomplete", 1))
+        self.assertEqual(recorded["error_code"], "verification-record-limit")
+
+    def test_asset_scoped_evaluation_reconciles_only_that_asset(self) -> None:
+        self._reported()
+        self._exec(
+            "INSERT INTO control_tower_assets (asset_key, asset_id, site_id, hostname, first_seen_at,"
+            " last_seen_at, observed_at, metadata_json)"
+            " VALUES ('site-a:asset-b', 'asset-b', 'site-a', 'web01', :t, :t, :t, '{\"category\": \"server\"}')",
+            t=at(0),
+        )
+        result = evaluate_findings(
+            trigger_type="test", requested_by="unit-test", now=at(1.5), store=self.findings,
+            decision_store=self.decisions, verification_store=self.verification, site_id="site-a",
+            asset_id="asset-b", rule_ids=["vulnerable-component"],
+        )
+        self.assertEqual((result.verification_status, result.verification_evaluated_count), ("completed", 0))
+        self.assertEqual(self._evaluate(at(1.6)).verification_evaluated_count, 1)
 
     def test_verification_never_changes_findings_risk_decisions_or_work(self) -> None:
         finding_id = self._reported()

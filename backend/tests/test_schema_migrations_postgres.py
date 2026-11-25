@@ -961,6 +961,7 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
                 "finding_resolution_evidence",
                 "finding_verification_baselines",
                 "finding_verification_history",
+                "finding_verification_runs",
             ):
                 self.assertEqual(connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one(), 0)
             triggers = set(
@@ -969,7 +970,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
                         "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN ("
                         "'public.finding_resolution_evidence'::regclass, "
                         "'public.finding_verification_baselines'::regclass, "
-                        "'public.finding_verification_history'::regclass)"
+                        "'public.finding_verification_history'::regclass, "
+                        "'public.finding_verification_runs'::regclass)"
                     )
                 ).scalars()
             )
@@ -983,6 +985,8 @@ class SchemaMigrationPostgresTests(unittest.TestCase):
                 "trg_finding_verification_baselines_no_truncate",
                 "trg_finding_verification_history_append_only",
                 "trg_finding_verification_history_no_truncate",
+                "trg_finding_verification_runs_append_only",
+                "trg_finding_verification_runs_no_truncate",
             },
         )
         self.assertEqual(migrate_database_schema(self.database_engine, migrations=migrations), upgraded)

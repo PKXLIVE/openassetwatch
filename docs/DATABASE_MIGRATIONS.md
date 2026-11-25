@@ -30,8 +30,8 @@ assignments and their append-only event history (see
 `docs/ctem/CTEM_ASSET_IMPORTANCE.md`). It references the existing
 `(site_id, asset_id)` unique key of `control_tower_assets`, alters no existing
 table, and rewrites no rows. Migration `0008_finding_verification.sql` adds
-append-only resolution evidence, remediation verification baselines, and
-verification transition history (see
+append-only resolution evidence, remediation verification baselines,
+verification transition history, and per-run verification status (see
 `docs/ctem/CTEM_REMEDIATION_VERIFICATION.md`). It references the existing
 `(work_item_id, finding_id, site_id)` unique key of `finding_work_items`,
 alters no existing table, and rewrites no rows.
@@ -160,9 +160,10 @@ assignments made since.
 
 A database at version 7 upgrades transactionally to version 8. The upgrade
 creates `finding_resolution_evidence`, `finding_verification_baselines`,
-`finding_verification_history`, three indexes, one PL/pgSQL trigger function,
-and six triggers that keep all three tables append-only except for the cascade
-that removes a whole finding. It creates no index on an existing table and has
+`finding_verification_history`, `finding_verification_runs`, three indexes,
+one PL/pgSQL trigger function, and eight triggers that keep all four tables
+append-only (the first three except for the cascade that removes a whole
+finding). It creates no index on an existing table and has
 no rows to validate, but adding the foreign keys locks `findings`,
 `finding_work_items`, and `finding_evaluation_runs` against writes (not reads)
 until the migration transaction commits. Resolutions recorded before version 8

@@ -125,13 +125,43 @@ remediation, because it can come from an advisory revision as well as from an
 upgrade. A person can confirm such cases.
 
 A `fixed` status alone never claims an upgrade. When work is marked done, the
-baseline records the installed version of each of the finding's matches
-(`match_versions`). A `component-version-fixed` resolution is a confirmed
-upgrade only when its installed version differs from that recorded version.
+baseline records each of the finding's matches (`match_versions`): the match
+status and installed version, and the component's own normalized version and
+presence at that moment. A `component-version-fixed` resolution is a confirmed
+upgrade only when its installed version differs from the report-time version.
 The same version means the advisory's fixed boundary was revised
-(`resolved-by-advisory-change`, `FIXED_BOUNDARY_REVISED`). No recorded version
-means the upgrade cannot be confirmed (`insufficient-evidence`,
-`VERSION_CHANGE_UNCONFIRMED`).
+(`resolved-by-advisory-change`, `FIXED_BOUNDARY_REVISED`). A report-time
+version exists only when the match still showed the component `affected` and
+agreed with the component's recorded version. A match that was already
+`fixed`, not affected, or stale against the component is not a usable "before"
+version, and the upgrade cannot be confirmed (`insufficient-evidence`,
+`VERSION_CHANGE_UNCONFIRMED`, with `RESOLUTION_EVIDENCE_PREDATES_REPORT` when
+the evidence was collected before the report). Likewise a
+`component-version-available` resolution counts only when the baseline shows
+the version was still missing at report time.
+
+### Evidence consistency
+
+Inventory persistence and vulnerability matching commit in separate
+transactions, and matching can fail and be retried later. The match row can
+therefore describe an earlier component state than the component row and its
+supporting snapshot. A software proof is recorded only when the two agree:
+
+- `component-version-fixed` and `component-version-available` need the
+  component present, and the match's installed version equal to the
+  component's current normalized version;
+- `component-removed` needs the component absent.
+
+When they disagree the finding still resolves (the lifecycle is unchanged), but
+no proof is assembled from the mismatched records, and verification reports
+`insufficient-evidence` with `RESOLUTION_EVIDENCE_UNAVAILABLE`. A later
+resolution after matching catches up records its own evidence.
+
+The production matcher evaluates only active components. A complete inventory
+that omits a component therefore reaches its match as `not-affected`, and the
+resolution is recorded as an applicability change, never as verified
+remediation. `component-removed` is recorded only when the matcher itself
+reports a confirmed removal.
 
 Component collection checks are bound to the collection sources that report
 the component, through component source presence. For an unresolved finding,
@@ -231,6 +261,19 @@ the last recorded transition matches, `stale` when inputs changed since the
 last evaluation, and `not-recorded` when no evaluation has run since the
 report.
 
+Verification runs after findings, risk, and decisions are settled, in its own
+transaction, and only over reports in the evaluation's scope (site, and asset
+or sensor when the run is scoped to one). It never fails the evaluation run.
+Its outcome for each run is recorded in the append-only
+`finding_verification_runs` table and in the evaluation response:
+
+- `completed`: every report in scope was evaluated;
+- `incomplete` (`verification-record-limit`): more than 20,000 reports were in
+  scope, so only the first 20,000 by finding were evaluated and nothing was
+  recorded for the rest;
+- `failed` (error class name): verification raised; its transaction rolled
+  back, so the run wrote no history, and the next run retries.
+
 Limits are the same as decision history: triggers protect against
 application writes and accidental SQL, not against a role that owns the
 tables. Tamper-evident history is `CTEM-GAP-10`.
@@ -254,8 +297,10 @@ They fail closed when none is configured, because they expose work items.
 No route can set a verification outcome. Responses are strict contracts that
 reject unknown fields. Database errors return a generic message.
 
-The finding evaluation response gains `verification_evaluated_count` and
-`verification_transition_count`.
+The finding evaluation response gains `verification_evaluated_count`,
+`verification_transition_count`, `verification_status`
+(`completed`, `incomplete`, `failed`, or `not-run`), and
+`verification_error_code`.
 
 ## Limits
 
@@ -268,6 +313,10 @@ The finding evaluation response gains `verification_evaluated_count` and
   of a resolution; `RESOLVED_BEFORE_REPORT` marks the clear case.
 - The unverified-work view computes states at read time over at most 20,000
   done work items per request.
+- A resolution recorded while the match lagged the component keeps no proof,
+  so it stays `insufficient-evidence` even after matching catches up.
+- Confirmed removal is not verifiable through the production matcher today
+  (see Evidence consistency); it is reported as an applicability change.
 - There is no verification target date or overdue state (`CTEM-GAP-12`) and no
   outcome metrics (`CTEM-GAP-09`).
 

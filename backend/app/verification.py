@@ -194,14 +194,14 @@ REASON_CODE_CATALOG: tuple[ReasonCodeDefinition, ...] = (
     ReasonCodeDefinition("COMPONENT_REMOVED", "A complete inventory after the report confirmed the component is no longer installed."),
     ReasonCodeDefinition("COMPONENT_VERSION_FIXED", "A later observation shows the component at or after the fixed boundary, at a different version than at report time."),
     ReasonCodeDefinition("FIXED_BOUNDARY_REVISED", "The match became fixed while the installed version stayed the same, so the advisory boundary changed, not the software."),
-    ReasonCodeDefinition("VERSION_CHANGE_UNCONFIRMED", "No installed version was recorded at report time, so a version upgrade cannot be confirmed."),
+    ReasonCodeDefinition("VERSION_CHANGE_UNCONFIRMED", "The report-time condition (an affected installed version, or a missing version) was not recorded consistently with the component, so a version change after the report cannot be confirmed."),
     ReasonCodeDefinition("RESOLUTION_BASIS_UNCONFIRMED", "The match became fixed for a reason the matcher did not identify as removal or a version change."),
     ReasonCodeDefinition("COMPONENT_VERSION_COLLECTED", "A later observation supplied a usable component version."),
     ReasonCodeDefinition("OBSERVATION_CONFIRMS_CHANGE", "A later authorized observation shows the condition the rule detects has ended."),
     ReasonCodeDefinition("ADVISORY_WITHDRAWN", "The reviewed advisory was withdrawn. Nothing changed on the asset."),
     ReasonCodeDefinition("APPLICABILITY_REVISED", "The deterministic match became not-affected. That is an applicability change, not confirmed remediation."),
     ReasonCodeDefinition("ADVISORY_IDENTITY_REVIEWED", "Component identity was resolved through catalog review, not by a change on the asset."),
-    ReasonCodeDefinition("RESOLUTION_EVIDENCE_UNAVAILABLE", "No affirmative resolution evidence was recorded for this resolution."),
+    ReasonCodeDefinition("RESOLUTION_EVIDENCE_UNAVAILABLE", "No affirmative resolution evidence was recorded for this resolution, for example because the match result and the component state it cited described different observations."),
     ReasonCodeDefinition("RESOLUTION_EVIDENCE_PREDATES_REPORT", "The evidence that resolved the finding was collected before remediation was reported."),
     ReasonCodeDefinition("RESOLUTION_EVIDENCE_OUTSIDE_WINDOW", "The resolving evidence was not collected between the report and the resolution."),
     ReasonCodeDefinition("EVIDENCE_SINCE_REPORT_STILL_MATCHES", "Evidence observed after the report still matches the finding rule."),
@@ -281,8 +281,12 @@ class RemediationReport:
     baseline_captured: bool
     baseline_reopen_count: int | None = None
     baseline_evidence: tuple[EvidenceReference, ...] = ()
-    # (match_id, installed version) captured when work was marked done.
+    # (match_id, installed version) captured when work was marked done; the
+    # version is None unless it describes an open, consistent condition.
     baseline_match_versions: tuple[tuple[str, str | None], ...] = ()
+    # Whether the baseline shows the component's version was still missing at
+    # report time (see `report_time_version_unknown`).
+    baseline_version_unknown: bool = False
 
 
 @dataclass(frozen=True)
@@ -469,6 +473,7 @@ def input_digest(value: VerificationInput) -> str:
             "baseline_captured": report.baseline_captured,
             "baseline_reopen_count": report.baseline_reopen_count,
             "baseline_match_versions": sorted([list(pair) for pair in report.baseline_match_versions]),
+            "baseline_version_unknown": report.baseline_version_unknown,
         },
         "collection_since_report": _snapshot_payload(value.collection_since_report),
         "collection_after_resolution": _snapshot_payload(value.collection_after_resolution),
@@ -662,6 +667,10 @@ def _resolved_outcome(
     for item in proofs:
         if item.basis not in TECHNICAL_RESOLUTION_BASES:
             continue
+        if item.basis == "component-version-available" and not (value.report and value.report.baseline_version_unknown):
+            # The version must still have been missing when work was reported.
+            version_unconfirmed = True
+            continue
         if item.basis == "component-version-fixed":
             before = baseline_versions.get(item.evidence_ref)
             if item.evidence_ref not in baseline_versions or before is None or item.installed_version is None:
@@ -677,6 +686,13 @@ def _resolved_outcome(
             return outcome("resolved-by-advisory-change")
         if version_unconfirmed:
             reasons.append("VERSION_CHANGE_UNCONFIRMED")
+            if any(
+                item.basis in {"component-version-fixed", "component-version-available"}
+                and item.observed_at is not None
+                and _utc(item.observed_at) <= reported_at
+                for item in proofs
+            ):
+                reasons.append("RESOLUTION_EVIDENCE_PREDATES_REPORT")
             return outcome("insufficient-evidence")
         if any(item.basis in UNATTRIBUTED_RESOLUTION_BASES for item in proofs):
             return outcome("insufficient-evidence")
@@ -724,6 +740,43 @@ def _resolved_outcome(
             reasons.append("COLLECTION_DEGRADED_SINCE_VERIFICATION")
     reasons.append("RESOLVED_BY_FRESH_EVIDENCE")
     return outcome("verified")
+
+
+def report_time_version(entry: Mapping[str, Any]) -> str | None:
+    """The installed version a baseline match entry establishes, or None.
+
+    A baseline describes the condition at report time only when the match
+    still showed the component affected and was computed from the component
+    state recorded with it. A match that was already fixed, not affected, or
+    stale against the component is not a usable "before" version.
+    """
+
+    installed = entry.get("installed_version")
+    if (
+        entry.get("match_status") != "affected"
+        or entry.get("component_active") is not True
+        or not isinstance(installed, str)
+        or not installed
+        or installed != entry.get("component_version")
+    ):
+        return None
+    return installed
+
+
+def report_time_version_unknown(entries: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether baseline match entries show the component version still missing.
+
+    Every entry must be a `version-unknown` match computed from a present
+    component that itself recorded no version.
+    """
+
+    return bool(entries) and all(
+        entry.get("match_status") == "version-unknown"
+        and entry.get("installed_version") is None
+        and entry.get("component_version") is None
+        and entry.get("component_active") is True
+        for entry in entries
+    )
 
 
 def proofs_from_records(rows: Sequence[Mapping[str, Any]]) -> tuple[ResolutionProof, ...]:

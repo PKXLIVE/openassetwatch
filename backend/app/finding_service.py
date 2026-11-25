@@ -43,6 +43,10 @@ class EvaluationResult:
     decision_transition_count: int = 0
     verification_evaluated_count: int = 0
     verification_transition_count: int = 0
+    # completed | incomplete | failed | not-run. Verification never fails the
+    # evaluation; its outcome is reported here and in finding_verification_runs.
+    verification_status: str = "not-run"
+    verification_error_code: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -203,15 +207,16 @@ def evaluate_findings(
         )
         # Verification history is recorded last, as a downstream read model of
         # the settled findings. Nothing it computes flows back into findings,
-        # risk, or decisions, and it cannot resolve a finding.
-        verifications = (
-            resolved_verification_store.reconcile_verifications(
-                run_id=run_id,
-                evaluated_at=started_at,
-                site_id=site_id,
-            )
-            if resolved_verification_store is not None
-            else VerificationReconcileResult(evaluated=0, transitions=0)
+        # risk, or decisions, and it cannot resolve a finding. It runs in its
+        # own transaction: a failure is recorded as a failed verification run
+        # and never turns the settled evaluation into a failed one.
+        verifications = _reconcile_verifications(
+            resolved_verification_store,
+            run_id=run_id,
+            evaluated_at=started_at,
+            site_id=site_id,
+            asset_id=asset_id,
+            sensor_id=sensor_id,
         )
         resolved_store.complete_run(
             run_id,
@@ -241,6 +246,8 @@ def evaluate_findings(
             decision_transition_count=decisions.transitions,
             verification_evaluated_count=verifications.evaluated,
             verification_transition_count=verifications.transitions,
+            verification_status=verifications.status,
+            verification_error_code=verifications.error_code,
         )
     except Exception as exc:
         try:
@@ -255,6 +262,30 @@ def evaluate_findings(
                 type(record_exc).__name__,
             )
         raise
+
+
+def _reconcile_verifications(
+    store: SqlVerificationStore | None,
+    *,
+    run_id: str,
+    evaluated_at: datetime,
+    site_id: str | None,
+    asset_id: str | None,
+    sensor_id: str | None,
+) -> VerificationReconcileResult:
+    if store is None:
+        return VerificationReconcileResult(evaluated=0, transitions=0, status="not-run")
+    scope = {"site_id": site_id, "asset_id": asset_id, "sensor_id": sensor_id}
+    try:
+        return store.reconcile_verifications(run_id=run_id, evaluated_at=evaluated_at, **scope)
+    except Exception as exc:  # noqa: BLE001 - core evaluation results are already settled.
+        error_code = type(exc).__name__
+        LOGGER.warning("verification reconcile failed safely: %s", error_code)
+        try:
+            return store.record_failed_run(run_id=run_id, error_code=error_code, at=evaluated_at, **scope)
+        except Exception as record_exc:  # noqa: BLE001 - keep the failure visible in the result.
+            LOGGER.warning("failed to record verification failure safely: %s", type(record_exc).__name__)
+            return VerificationReconcileResult(evaluated=0, transitions=0, status="failed", error_code=error_code)
 
 
 def evaluate_site_best_effort(

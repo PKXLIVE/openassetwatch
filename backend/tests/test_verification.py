@@ -274,6 +274,52 @@ class VerificationStateTests(unittest.TestCase):
                 self.assertEqual(outcome.verification_state, "insufficient-evidence")
                 self.assertIn("VERSION_CHANGE_UNCONFIRMED", outcome.reason_codes)
 
+    def test_report_time_version_requires_a_consistent_affected_condition(self) -> None:
+        from app.verification import report_time_version
+
+        consistent = {"match_id": "vmt_" + "a" * 32, "match_status": "affected", "installed_version": "1.2.0",
+                      "component_version": "1.2.0", "component_active": True}
+        self.assertEqual(report_time_version(consistent), "1.2.0")
+        for change in (
+            {"match_status": "fixed"},  # already resolved when the work was reported
+            {"match_status": "not-affected"},
+            {"component_version": "1.4.2"},  # the match result was stale at report time
+            {"component_active": False},
+            {"installed_version": None, "component_version": None},
+        ):
+            with self.subTest(change=change):
+                self.assertIsNone(report_time_version({**consistent, **change}))
+        legacy = {key: value for key, value in consistent.items() if not key.startswith("component_")}
+        self.assertIsNone(report_time_version(legacy))
+
+    def test_collected_version_needs_a_version_missing_at_report_time(self) -> None:
+        from app.verification import report_time_version_unknown
+
+        unknown = {"match_id": "vmt_" + "a" * 32, "match_status": "version-unknown", "installed_version": None,
+                   "component_version": None, "component_active": True}
+        self.assertTrue(report_time_version_unknown([unknown]))
+        for change in ({"match_status": "affected", "installed_version": "1.2.0", "component_version": "1.2.0"},
+                       {"component_version": "1.2.0"}, {"component_active": False}):
+            with self.subTest(change=change):
+                self.assertFalse(report_time_version_unknown([{**unknown, **change}]))
+        self.assertFalse(report_time_version_unknown([]))
+        collected = dataclasses.replace(proof("component-version-available"), evidence_type="normalized-component")
+        rule = finding(rule_id="component-version-unavailable", status="resolved", resolved_at=RESOLVED_AFTER,
+                       evaluated_at=RESOLVED_AFTER)
+        for missing_at_report, state in ((True, "verified"), (False, "insufficient-evidence")):
+            with self.subTest(missing_at_report=missing_at_report):
+                outcome = verify(rule, report(baseline_version_unknown=missing_at_report),
+                                 resolution_evidence=(collected,), collection_at_resolution=snapshot("complete"))
+                self.assertEqual(outcome.verification_state, state)
+
+    def test_unconfirmed_version_change_from_pre_report_evidence_says_so(self) -> None:
+        outcome = verify(resolved(), report(baseline_match_versions=(("vmt_" + "a" * 32, None),)),
+                         resolution_evidence=(proof(at=BEFORE),),
+                         collection_at_resolution=snapshot("complete"))
+        self.assertEqual(outcome.verification_state, "insufficient-evidence")
+        for code in ("VERSION_CHANGE_UNCONFIRMED", "RESOLUTION_EVIDENCE_PREDATES_REPORT"):
+            self.assertIn(code, outcome.reason_codes)
+
     def test_unattributed_fixed_status_claims_nothing(self) -> None:
         outcome = verify(resolved(), resolution_evidence=(proof("match-fixed-unattributed"),),
                          collection_at_resolution=snapshot("complete"))
@@ -515,6 +561,9 @@ class ResolutionEvidenceDerivationTests(unittest.TestCase):
             "fixed_version": "1.4.2",
             "component_freshness": "fresh",
             "component_last_seen_at": AFTER,
+            # The authoritative component state the match was computed from.
+            "component_active": True,
+            "component_normalized_version": "1.4.2",
             "evaluated_at": AFTER,
         }
         match.update(match_overrides)
@@ -537,16 +586,17 @@ class ResolutionEvidenceDerivationTests(unittest.TestCase):
     def test_fixed_match_basis_comes_from_the_matcher_reason(self) -> None:
         snapshot_id = "css_" + "e" * 32
         removed_at = AFTER + timedelta(seconds=30)
-        for reasons, basis, observed in (
-            (["at-or-after-fixed-boundary"], "component-version-fixed", AFTER),
-            (["component-removal-confirmed-by-complete-inventory"], "component-removed", removed_at),
-            (["reviewed-identity-match"], "match-fixed-unattributed", AFTER),
-            ([], "match-fixed-unattributed", AFTER),
+        for reasons, basis, observed, active in (
+            (["at-or-after-fixed-boundary"], "component-version-fixed", AFTER, True),
+            (["component-removal-confirmed-by-complete-inventory"], "component-removed", removed_at, False),
+            (["reviewed-identity-match"], "match-fixed-unattributed", AFTER, True),
+            ([], "match-fixed-unattributed", AFTER, True),
         ):
             with self.subTest(reasons=reasons):
                 snapshot_value = self._snapshot(
                     "fixed",
                     reason_codes=reasons,
+                    component_active=active,
                     component_not_observed_at=removed_at,
                     component_source_snapshot_id=snapshot_id,
                 )
@@ -558,6 +608,26 @@ class ResolutionEvidenceDerivationTests(unittest.TestCase):
                 # Removal is observed when the complete inventory omitted it.
                 self.assertEqual(evidence.observed_at, observed)
                 self.assertEqual(evidence.supporting_snapshot_id, snapshot_id)
+
+    def test_fixed_match_inconsistent_with_the_component_state_records_no_proof(self) -> None:
+        # The match result and the component state it cites must describe the
+        # same observation. Otherwise the finding still resolves, but no proof
+        # is assembled from the mismatched records.
+        snapshot_id = "css_" + "e" * 32
+        for reasons, overrides in (
+            # Rolled back to 1.2.0 after the matcher last saw 1.4.2.
+            (["at-or-after-fixed-boundary"], {"component_normalized_version": "1.2.0"}),
+            (["at-or-after-fixed-boundary"], {"component_active": False}),
+            (["at-or-after-fixed-boundary"], {"component_normalized_version": None, "component_active": None}),
+            # Removal reported by the matcher, but the component is present again.
+            (["component-removal-confirmed-by-complete-inventory"], {"component_active": True}),
+        ):
+            with self.subTest(reasons=reasons, overrides=overrides):
+                snapshot_value = self._snapshot(
+                    "fixed", reason_codes=reasons, component_source_snapshot_id=snapshot_id, **overrides
+                )
+                (dedupe,) = snapshot_value.resolution_eligible_dedupe_keys
+                self.assertEqual(snapshot_value.resolution_evidence.get(dedupe, ()), ())
 
     def test_advisory_changes_are_recorded_as_advisory_bases(self) -> None:
         for status, basis in (("advisory-withdrawn", "advisory-withdrawn"), ("not-affected", "applicability-not-affected")):
@@ -633,7 +703,10 @@ class VerificationBoundaryTests(unittest.TestCase):
         written = set(re.findall(r"INSERT INTO ([A-Z_]+)", sql))
         written |= set(re.findall(r"DELETE FROM ([A-Z_]+)", sql))
         written |= set(re.findall(r"(?<!FOR )UPDATE ([A-Z_]+) SET", sql))
-        self.assertEqual(written, {"FINDING_VERIFICATION_BASELINES", "FINDING_VERIFICATION_HISTORY"})
+        self.assertEqual(
+            written,
+            {"FINDING_VERIFICATION_BASELINES", "FINDING_VERIFICATION_HISTORY", "FINDING_VERIFICATION_RUNS"},
+        )
 
     def test_decisions_risk_findings_and_ai_never_read_verification(self) -> None:
         for module in ("decisions.py", "decision_store.py", "risk.py", "findings.py", "finding_store.py",

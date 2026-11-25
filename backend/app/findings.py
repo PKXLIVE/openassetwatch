@@ -1565,6 +1565,24 @@ _MATCH_RESOLUTION_BASIS = {
 }
 
 
+def _match_describes_component(match: Mapping[str, Any], *, removed: bool) -> bool:
+    """Whether a match result was computed from the projected component state.
+
+    The match and the component row are written in separate transactions, so
+    the match can lag the component. A removal must still be a removal, and a
+    version result must be for the version the component now records. Missing
+    state is never assumed consistent.
+    """
+
+    active = match.get("component_active")
+    if removed:
+        return active is False
+    installed = _text(match.get("installed_version"), limit=160)
+    return active is True and bool(installed) and installed == _text(
+        match.get("component_normalized_version"), limit=160
+    )
+
+
 def _resolution_evidence(
     context: RuleContext,
     keys: frozenset[ResolutionKey],
@@ -1649,6 +1667,14 @@ def _resolution_evidence(
                     basis = "component-version-fixed"
                 else:
                     basis = "match-fixed-unattributed"
+            if basis in {"component-removed", "component-version-fixed"} and not _match_describes_component(
+                match, removed=basis == "component-removed"
+            ):
+                # The match was computed from an earlier component state than
+                # the one (and its snapshot) now projected, for example when
+                # matching has not yet run on a newer inventory. No proof is
+                # assembled from records that describe different observations.
+                continue
             result[dedupe] = (
                 ResolutionEvidence(
                     basis=basis,
@@ -1672,6 +1698,12 @@ def _resolution_evidence(
                 dedupe = _dedupe_key(rule_id, "asset", site_id, component_id)
                 if dedupe not in dedupe_keys:
                     continue
+                if basis == "component-version-available":
+                    # Only matches computed from the current component state
+                    # can supply the version and its supporting snapshot.
+                    matches = [item for item in matches if _match_describes_component(item, removed=False)]
+                    if not matches:
+                        continue
                 component_observed = max(
                     (value for value in (_utc(item.get("component_last_seen_at")) for item in matches) if value),
                     default=None,

@@ -154,6 +154,27 @@ CREATE TABLE IF NOT EXISTS finding_verification_history (
     CHECK (input_digest ~ '^[0-9a-f]{64}$')
 );
 
+-- Outcome of the verification step of each finding evaluation run.
+-- Verification runs after findings, risk, and decisions are settled and in its
+-- own transaction, so a failure or a capacity limit never fails the core
+-- evaluation. It stays visible here instead: `failed` wrote no history for the
+-- run, and `incomplete` evaluated only the first `evaluated_count` reports.
+CREATE TABLE IF NOT EXISTS finding_verification_runs (
+    evaluation_run_id TEXT PRIMARY KEY REFERENCES finding_evaluation_runs(run_id),
+    scope_site_id TEXT,
+    scope_asset_id TEXT,
+    scope_sensor_id TEXT,
+    status VARCHAR(16) NOT NULL,
+    evaluated_count INTEGER NOT NULL,
+    transition_count INTEGER NOT NULL,
+    error_code VARCHAR(80),
+    recorded_at TIMESTAMPTZ NOT NULL,
+    CHECK (status IN ('completed', 'incomplete', 'failed')),
+    CHECK (evaluated_count >= 0),
+    CHECK (transition_count >= 0 AND transition_count <= evaluated_count),
+    CHECK ((status = 'completed') = (error_code IS NULL))
+);
+
 CREATE INDEX IF NOT EXISTS idx_finding_resolution_evidence_finding
     ON finding_resolution_evidence (finding_id, resolved_at DESC);
 
@@ -213,4 +234,16 @@ DROP TRIGGER IF EXISTS trg_finding_verification_history_no_truncate
     ON finding_verification_history;
 CREATE TRIGGER trg_finding_verification_history_no_truncate
     BEFORE TRUNCATE ON finding_verification_history
+    FOR EACH STATEMENT EXECUTE FUNCTION public.oaw_finding_verification_append_only();
+
+DROP TRIGGER IF EXISTS trg_finding_verification_runs_append_only
+    ON finding_verification_runs;
+CREATE TRIGGER trg_finding_verification_runs_append_only
+    BEFORE UPDATE OR DELETE ON finding_verification_runs
+    FOR EACH ROW EXECUTE FUNCTION public.oaw_finding_verification_append_only();
+
+DROP TRIGGER IF EXISTS trg_finding_verification_runs_no_truncate
+    ON finding_verification_runs;
+CREATE TRIGGER trg_finding_verification_runs_no_truncate
+    BEFORE TRUNCATE ON finding_verification_runs
     FOR EACH STATEMENT EXECUTE FUNCTION public.oaw_finding_verification_append_only();

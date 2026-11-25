@@ -36,6 +36,8 @@ from .verification import (
     evidence_to_json,
     method_for,
     proofs_from_records,
+    report_time_version,
+    report_time_version_unknown,
 )
 from .findings import TECHNICAL_RESOLUTION_BASES
 
@@ -50,6 +52,9 @@ COMPONENT_COLLECTION_CHECK = "component-source-snapshot"
 class VerificationReconcileResult:
     evaluated: int
     transitions: int
+    # completed | incomplete (capacity limit reached) | failed | not-run
+    status: str = "completed"
+    error_code: str | None = None
 
 
 def _bounded_page(limit: int, offset: int) -> tuple[int, int]:
@@ -96,19 +101,25 @@ def capture_baseline(
         {"finding_id": finding_id, "limit": MAX_VERIFICATION_EVIDENCE_REFERENCES},
     ).mappings().all()
     # Installed versions of the finding's matches at report time, so a later
-    # `fixed` status can be checked against an actual version change.
+    # `fixed` status can be checked against an actual version change. The
+    # component's own state is recorded with each match: the match can lag the
+    # component, and only a match that agrees with it describes the condition
+    # at report time (see `verification.report_time_version`).
     match_ids = [row["evidence_ref"] for row in evidence if row["evidence_type"] == "vulnerability-match"]
     versions = (
         [
             {"match_id": row["match_id"], "installed_version": row["installed_version"],
-             "match_status": row["match_status"]}
+             "match_status": row["match_status"], "component_version": row["component_version"],
+             "component_active": row["component_active"]}
             for row in connection.execute(
                 text(
                     """
-                    SELECT match_id, installed_version, match_status
-                    FROM vulnerability_matches
-                    WHERE match_id = ANY(:ids) AND site_id = :site_id
-                    ORDER BY match_id
+                    SELECT vm.match_id, vm.installed_version, vm.match_status,
+                           ac.normalized_version AS component_version, ac.active AS component_active
+                    FROM vulnerability_matches vm
+                    JOIN asset_components ac ON ac.component_id = vm.component_id
+                    WHERE vm.match_id = ANY(:ids) AND vm.site_id = :site_id
+                    ORDER BY vm.match_id
                     """
                 ),
                 {"ids": match_ids, "site_id": site_id},
@@ -453,9 +464,10 @@ class SqlVerificationStore:
                 baseline_reopen_count=int(baseline["finding_reopen_count"]) if baseline else None,
                 baseline_evidence=evidence_from_json(baseline["evidence_references"]) if baseline else (),
                 baseline_match_versions=tuple(
-                    (str(entry["match_id"]), entry.get("installed_version"))
+                    (str(entry["match_id"]), report_time_version(entry))
                     for entry in (baseline["match_versions"] if baseline else ())
                 ),
+                baseline_version_unknown=report_time_version_unknown(baseline["match_versions"] if baseline else ()),
             )
         return VerificationInput(
             finding=state,
@@ -482,11 +494,16 @@ class SqlVerificationStore:
         run_id: str,
         evaluated_at: datetime,
         site_id: str | None,
+        asset_id: str | None = None,
+        sensor_id: str | None = None,
     ) -> VerificationReconcileResult:
         """Record material verification transitions after a finding evaluation.
 
-        Only findings with a remediation report are recorded. Unchanged
-        outcomes write nothing.
+        Only findings with a remediation report are recorded, within the
+        evaluation's scope. Unchanged outcomes write nothing. When more reports
+        are in scope than the record limit, the first ones (by finding) are
+        evaluated and the run is recorded as `incomplete`; nothing is claimed
+        for the rest. The run outcome is recorded in the same transaction.
         """
 
         evaluated = transitions = 0
@@ -499,6 +516,8 @@ class SqlVerificationStore:
                     self._FINDING_SELECT
                     + """
                     WHERE (:site_id IS NULL OR site_id = :site_id)
+                      AND (:asset_id IS NULL OR asset_id = :asset_id)
+                      AND (:sensor_id IS NULL OR sensor_id = :sensor_id)
                       AND finding_id IN (
                           SELECT finding_id FROM finding_work_events
                           WHERE event_type = 'status_changed' AND to_status = 'done'
@@ -507,10 +526,11 @@ class SqlVerificationStore:
                     LIMIT :limit
                     """
                 ),
-                {"site_id": site_id, "limit": MAX_VERIFICATION_RECORDS + 1},
+                {"site_id": site_id, "asset_id": asset_id, "sensor_id": sensor_id,
+                 "limit": MAX_VERIFICATION_RECORDS + 1},
             ).mappings().all()
-            if len(findings) > MAX_VERIFICATION_RECORDS:
-                raise ValueError("verification record limit exceeded")
+            limited = len(findings) > MAX_VERIFICATION_RECORDS
+            findings = findings[:MAX_VERIFICATION_RECORDS]
             context = self._load_inputs(connection, findings)
             reported = {fid: item for fid, item in context.items() if item["report"] is not None and item["work"]}
             latest: dict[tuple[str, int], dict[str, Any]] = {}
@@ -549,7 +569,67 @@ class SqlVerificationStore:
                     at=evaluated_at,
                 )
                 transitions += 1
-        return VerificationReconcileResult(evaluated=evaluated, transitions=transitions)
+            result = VerificationReconcileResult(
+                evaluated=evaluated,
+                transitions=transitions,
+                status="incomplete" if limited else "completed",
+                error_code="verification-record-limit" if limited else None,
+            )
+            self._record_run(
+                connection, run_id=run_id, result=result, at=evaluated_at,
+                site_id=site_id, asset_id=asset_id, sensor_id=sensor_id,
+            )
+        return result
+
+    def record_failed_run(
+        self,
+        *,
+        run_id: str,
+        error_code: str,
+        at: datetime,
+        site_id: str | None,
+        asset_id: str | None = None,
+        sensor_id: str | None = None,
+    ) -> VerificationReconcileResult:
+        """Record that verification failed for a run. Its history writes were rolled back."""
+
+        result = VerificationReconcileResult(evaluated=0, transitions=0, status="failed", error_code=error_code[:80])
+        with self._engine().begin() as connection:
+            self._record_run(
+                connection, run_id=run_id, result=result, at=at,
+                site_id=site_id, asset_id=asset_id, sensor_id=sensor_id,
+            )
+        return result
+
+    @staticmethod
+    def _record_run(
+        connection: Any,
+        *,
+        run_id: str,
+        result: VerificationReconcileResult,
+        at: datetime,
+        site_id: str | None,
+        asset_id: str | None,
+        sensor_id: str | None,
+    ) -> None:
+        connection.execute(
+            text(
+                """
+                INSERT INTO finding_verification_runs (
+                    evaluation_run_id, scope_site_id, scope_asset_id, scope_sensor_id, status,
+                    evaluated_count, transition_count, error_code, recorded_at
+                ) VALUES (
+                    :run_id, :site_id, :asset_id, :sensor_id, :status,
+                    :evaluated, :transitions, :error_code, :at
+                )
+                """
+            ),
+            {
+                "run_id": run_id, "site_id": site_id, "asset_id": asset_id, "sensor_id": sensor_id,
+                "status": result.status, "evaluated": result.evaluated, "transitions": result.transitions,
+                "error_code": result.error_code, "at": at,
+            },
+        )
 
     @staticmethod
     def _append_history(
