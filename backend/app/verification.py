@@ -31,7 +31,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
-from .findings import ADVISORY_RESOLUTION_BASES, TECHNICAL_RESOLUTION_BASES
+from .findings import (
+    ADVISORY_RESOLUTION_BASES,
+    TECHNICAL_RESOLUTION_BASES,
+    UNATTRIBUTED_RESOLUTION_BASES,
+)
 
 
 VERIFICATION_SCHEMA_VERSION = "oaw.verification.v1"
@@ -187,7 +191,11 @@ REASON_CODE_CATALOG: tuple[ReasonCodeDefinition, ...] = (
     ReasonCodeDefinition("BASELINE_NOT_CAPTURED", "No evidence was recorded at report time, so before-and-after comparison is limited."),
     ReasonCodeDefinition("RESOLVED_BY_FRESH_EVIDENCE", "Deterministic evaluation resolved the finding from fresh affirmative evidence collected after the report."),
     ReasonCodeDefinition("RESOLVED_BEFORE_REPORT", "The finding was resolved before remediation was reported, so the resolution is not evidence that the reported work caused it."),
-    ReasonCodeDefinition("COMPONENT_VERSION_FIXED", "A later observation shows the component at a version the advisory marks fixed."),
+    ReasonCodeDefinition("COMPONENT_REMOVED", "A complete inventory after the report confirmed the component is no longer installed."),
+    ReasonCodeDefinition("COMPONENT_VERSION_FIXED", "A later observation shows the component at or after the fixed boundary, at a different version than at report time."),
+    ReasonCodeDefinition("FIXED_BOUNDARY_REVISED", "The match became fixed while the installed version stayed the same, so the advisory boundary changed, not the software."),
+    ReasonCodeDefinition("VERSION_CHANGE_UNCONFIRMED", "No installed version was recorded at report time, so a version upgrade cannot be confirmed."),
+    ReasonCodeDefinition("RESOLUTION_BASIS_UNCONFIRMED", "The match became fixed for a reason the matcher did not identify as removal or a version change."),
     ReasonCodeDefinition("COMPONENT_VERSION_COLLECTED", "A later observation supplied a usable component version."),
     ReasonCodeDefinition("OBSERVATION_CONFIRMS_CHANGE", "A later authorized observation shows the condition the rule detects has ended."),
     ReasonCodeDefinition("ADVISORY_WITHDRAWN", "The reviewed advisory was withdrawn. Nothing changed on the asset."),
@@ -195,13 +203,14 @@ REASON_CODE_CATALOG: tuple[ReasonCodeDefinition, ...] = (
     ReasonCodeDefinition("ADVISORY_IDENTITY_REVIEWED", "Component identity was resolved through catalog review, not by a change on the asset."),
     ReasonCodeDefinition("RESOLUTION_EVIDENCE_UNAVAILABLE", "No affirmative resolution evidence was recorded for this resolution."),
     ReasonCodeDefinition("RESOLUTION_EVIDENCE_PREDATES_REPORT", "The evidence that resolved the finding was collected before remediation was reported."),
+    ReasonCodeDefinition("RESOLUTION_EVIDENCE_OUTSIDE_WINDOW", "The resolving evidence was not collected between the report and the resolution."),
     ReasonCodeDefinition("EVIDENCE_SINCE_REPORT_STILL_MATCHES", "Evidence observed after the report still matches the finding rule."),
     ReasonCodeDefinition("REOPENED_SINCE_REPORT", "The finding reopened after remediation was reported."),
     ReasonCodeDefinition("NO_EVIDENCE_SINCE_REPORT", "No comparable evidence has been observed since remediation was reported."),
     ReasonCodeDefinition("EVALUATION_PENDING", "Newer collection exists but deterministic evaluation has not run on it yet."),
     ReasonCodeDefinition("COLLECTION_COMPLETE_SINCE_REPORT", "A complete collection was received after the report."),
     ReasonCodeDefinition("COLLECTION_INCOMPLETE_SINCE_REPORT", "Collection after the report was partial, failed, or unsupported. It cannot prove the condition ended."),
-    ReasonCodeDefinition("COLLECTION_COMPLETE_AT_RESOLUTION", "A complete collection after the report preceded the resolution."),
+    ReasonCodeDefinition("COLLECTION_COMPLETE_AT_RESOLUTION", "The collection that observed the component between the report and the resolution was complete."),
     ReasonCodeDefinition("COLLECTION_INCOMPLETE_AT_RESOLUTION", "The newest collection before the resolution was partial, failed, or unsupported."),
     ReasonCodeDefinition("COLLECTION_NOT_COMPLETE_AT_RESOLUTION", "No complete collection between the report and the resolution was recorded."),
     ReasonCodeDefinition("COLLECTION_DEGRADED_SINCE_VERIFICATION", "Collection after the verified resolution was partial, failed, or unsupported. The earlier verification stands."),
@@ -235,6 +244,9 @@ class ResolutionProof:
     freshness: str
     installed_version: str | None = None
     fixed_version: str | None = None
+    # The component source snapshot that observed the component or confirmed
+    # its removal; None when the projection did not identify one.
+    supporting_snapshot: CollectionSnapshot | None = None
 
 
 @dataclass(frozen=True)
@@ -269,26 +281,27 @@ class RemediationReport:
     baseline_captured: bool
     baseline_reopen_count: int | None = None
     baseline_evidence: tuple[EvidenceReference, ...] = ()
+    # (match_id, installed version) captured when work was marked done.
+    baseline_match_versions: tuple[tuple[str, str | None], ...] = ()
 
 
 @dataclass(frozen=True)
 class VerificationInput:
     finding: FindingState
     report: RemediationReport | None
-    # Newest component source snapshot for the asset observed after the report
-    # (component methods only); None when no such snapshot exists.
+    # Newest snapshot after the report from the collection sources that
+    # report the finding's component (component methods only).
     collection_since_report: CollectionSnapshot | None = None
     # Whether the asset has any recorded component source snapshot at all.
     collection_recorded: bool = False
     # Whether an identity or classification conflict finding is current on the
     # same asset.
     identity_conflict_active: bool = False
-    # Affirmative evidence recorded for the finding's current resolution.
+    # Affirmative evidence recorded for the finding's current resolution, each
+    # with the exact snapshot that supported it.
     resolution_evidence: tuple[ResolutionProof, ...] = ()
-    # Newest component source snapshot observed after the report and at or
-    # before the resolution (component methods only).
-    collection_at_resolution: CollectionSnapshot | None = None
-    # Newest component source snapshot observed after the resolution.
+    # Newest snapshot after the resolution from the same collection source as
+    # the supporting snapshot.
     collection_after_resolution: CollectionSnapshot | None = None
 
 
@@ -348,21 +361,36 @@ def _completeness(value: VerificationInput, method: VerificationMethod) -> Colle
 
     for snapshot in (
         value.collection_since_report,
-        value.collection_at_resolution,
         value.collection_after_resolution,
+        *(item.supporting_snapshot for item in value.resolution_evidence),
     ):
         if snapshot is not None and snapshot.collection_status not in COLLECTION_STATUSES:
             raise ValueError("unsupported collection status")
     if method.collection_check != "component-source-snapshot":
         return "not-applicable"
-    deciding = (
-        value.collection_at_resolution
-        if value.finding.status == "resolved"
-        else value.collection_since_report
-    )
+    if value.finding.status == "resolved":
+        snapshots = [
+            item.supporting_snapshot
+            for item in value.resolution_evidence
+            if item.supporting_snapshot is not None and _in_window(item.supporting_snapshot.observed_at, value)
+        ]
+        if any(item.collection_status == "complete" for item in snapshots):
+            return "complete"
+        if snapshots:
+            return "incomplete"
+        return "none-since-report" if value.collection_recorded else "not-recorded"
+    deciding = value.collection_since_report
     if deciding is not None:
         return "complete" if deciding.collection_status == "complete" else "incomplete"
     return "none-since-report" if value.collection_recorded else "not-recorded"
+
+
+def _in_window(at: datetime | None, value: VerificationInput) -> bool:
+    """True when `at` lies after the report and at or before the resolution."""
+
+    if at is None or value.report is None or value.finding.resolved_at is None:
+        return False
+    return _utc(value.report.reported_at) < _utc(at) <= _utc(value.finding.resolved_at)
 
 
 def _proof_payload(items: Sequence[ResolutionProof]) -> list[list[Any]]:
@@ -376,6 +404,7 @@ def _proof_payload(items: Sequence[ResolutionProof]) -> list[list[Any]]:
             item.freshness,
             item.installed_version,
             item.fixed_version,
+            _snapshot_payload(item.supporting_snapshot),
         ]
         for item in items
     )
@@ -386,7 +415,9 @@ def _snapshot_payload(item: CollectionSnapshot | None) -> list[Any] | None:
 
 
 _BASIS_REASON = {
+    "component-removed": "COMPONENT_REMOVED",
     "component-version-fixed": "COMPONENT_VERSION_FIXED",
+    "match-fixed-unattributed": "RESOLUTION_BASIS_UNCONFIRMED",
     "component-version-available": "COMPONENT_VERSION_COLLECTED",
     "applicability-not-affected": "APPLICABILITY_REVISED",
     "advisory-withdrawn": "ADVISORY_WITHDRAWN",
@@ -437,9 +468,9 @@ def input_digest(value: VerificationInput) -> str:
             "work_status": report.work_status,
             "baseline_captured": report.baseline_captured,
             "baseline_reopen_count": report.baseline_reopen_count,
+            "baseline_match_versions": sorted([list(pair) for pair in report.baseline_match_versions]),
         },
         "collection_since_report": _snapshot_payload(value.collection_since_report),
-        "collection_at_resolution": _snapshot_payload(value.collection_at_resolution),
         "collection_after_resolution": _snapshot_payload(value.collection_after_resolution),
         "collection_recorded": value.collection_recorded,
         "identity_conflict_active": value.identity_conflict_active,
@@ -586,18 +617,15 @@ def _resolved_outcome(
     finding = value.finding
     resolved_at = _utc(finding.resolved_at)
     proofs = value.resolution_evidence
-    if any(item.basis not in TECHNICAL_RESOLUTION_BASES | ADVISORY_RESOLUTION_BASES for item in proofs):
+    known = TECHNICAL_RESOLUTION_BASES | ADVISORY_RESOLUTION_BASES | UNATTRIBUTED_RESOLUTION_BASES
+    if any(item.basis not in known for item in proofs):
         raise ValueError("unsupported resolution basis")
-    technical = [item for item in proofs if item.basis in TECHNICAL_RESOLUTION_BASES]
-    after_report = [
-        item for item in technical if item.observed_at is not None and _utc(item.observed_at) > reported_at
-    ]
     after = tuple(
         sorted(
             (
                 EvidenceReference(item.evidence_ref, item.evidence_type, item.freshness, item.observed_at)
                 for item in proofs
-                if item.observed_at is not None and _utc(item.observed_at) > reported_at
+                if _in_window(item.observed_at, value)
             ),
             key=lambda item: (item.evidence_ref, item.evidence_type),
         )
@@ -624,23 +652,71 @@ def _resolved_outcome(
         reasons.append("RESOLUTION_EVIDENCE_UNAVAILABLE")
         return outcome("insufficient-evidence")
     reasons.extend(_basis_reason(item.basis) for item in proofs)
-    if not technical:
+
+    # A `fixed` match by version counts as an upgrade only when the installed
+    # version actually changed since the report. The same version with a
+    # `fixed` status means the advisory's fixed boundary was revised.
+    baseline_versions = dict(value.report.baseline_match_versions) if value.report else {}
+    confirmed: list[ResolutionProof] = []
+    boundary_revised = version_unconfirmed = False
+    for item in proofs:
+        if item.basis not in TECHNICAL_RESOLUTION_BASES:
+            continue
+        if item.basis == "component-version-fixed":
+            before = baseline_versions.get(item.evidence_ref)
+            if item.evidence_ref not in baseline_versions or before is None or item.installed_version is None:
+                version_unconfirmed = True
+                continue
+            if before == item.installed_version:
+                boundary_revised = True
+                continue
+        confirmed.append(item)
+    if not confirmed:
+        if boundary_revised:
+            reasons.append("FIXED_BOUNDARY_REVISED")
+            return outcome("resolved-by-advisory-change")
+        if version_unconfirmed:
+            reasons.append("VERSION_CHANGE_UNCONFIRMED")
+            return outcome("insufficient-evidence")
+        if any(item.basis in UNATTRIBUTED_RESOLUTION_BASES for item in proofs):
+            return outcome("insufficient-evidence")
         return outcome("resolved-by-advisory-change")
-    if not after_report:
-        reasons.append("RESOLUTION_EVIDENCE_PREDATES_REPORT")
+
+    in_window = [item for item in confirmed if _in_window(item.observed_at, value)]
+    if not in_window:
+        if any(item.observed_at is not None and _utc(item.observed_at) <= reported_at for item in confirmed):
+            reasons.append("RESOLUTION_EVIDENCE_PREDATES_REPORT")
+        else:
+            reasons.append("RESOLUTION_EVIDENCE_OUTSIDE_WINDOW")
         return outcome("insufficient-evidence")
-    if not any(item.freshness in FRESH_ENOUGH for item in after_report):
-        if any(item.freshness == "stale" for item in after_report):
+    fresh = [item for item in in_window if item.freshness in FRESH_ENOUGH]
+    if not fresh:
+        if any(item.freshness == "stale" for item in in_window):
             reasons.append("EVIDENCE_STALE")
             return outcome("evidence-stale")
         reasons.append("EVIDENCE_FRESHNESS_UNKNOWN")
         return outcome("insufficient-evidence")
     if method.collection_check == "component-source-snapshot":
-        if completeness == "incomplete":
-            reasons.append("COLLECTION_INCOMPLETE_AT_RESOLUTION")
-            return outcome("insufficient-evidence")
-        if completeness != "complete":
-            reasons.append("COLLECTION_NOT_COMPLETE_AT_RESOLUTION")
+        # The supporting snapshot must be the one that observed this component
+        # (or confirmed its removal), complete, and inside the report-to-
+        # resolution window. Another complete inventory on the asset is not
+        # enough.
+        supported = [
+            item
+            for item in fresh
+            if item.supporting_snapshot is not None
+            and item.supporting_snapshot.collection_status == "complete"
+            and _in_window(item.supporting_snapshot.observed_at, value)
+        ]
+        if not supported:
+            incomplete = any(
+                item.supporting_snapshot is not None
+                and _in_window(item.supporting_snapshot.observed_at, value)
+                for item in fresh
+            )
+            reasons.append(
+                "COLLECTION_INCOMPLETE_AT_RESOLUTION" if incomplete else "COLLECTION_NOT_COMPLETE_AT_RESOLUTION"
+            )
             return outcome("insufficient-evidence")
         reasons.append("COLLECTION_COMPLETE_AT_RESOLUTION")
         later = value.collection_after_resolution
@@ -661,6 +737,13 @@ def proofs_from_records(rows: Sequence[Mapping[str, Any]]) -> tuple[ResolutionPr
             freshness=str(row["freshness"]),
             installed_version=row.get("installed_version"),
             fixed_version=row.get("fixed_version"),
+            supporting_snapshot=CollectionSnapshot(
+                snapshot_id=str(row["supporting_snapshot_id"]),
+                collection_status=str(row["snapshot_status"]),
+                observed_at=row["snapshot_observed_at"],
+            )
+            if row.get("supporting_snapshot_id") and row.get("snapshot_status")
+            else None,
         )
         for row in rows
     )

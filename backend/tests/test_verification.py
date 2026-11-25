@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
 import itertools
 import re
 import unittest
@@ -63,6 +64,8 @@ def report(**overrides) -> RemediationReport:
         "baseline_captured": True,
         "baseline_reopen_count": 0,
         "baseline_evidence": (MATCH_BEFORE,),
+        # The vulnerable version installed when work was marked done.
+        "baseline_match_versions": (("vmt_" + "a" * 32, "1.2.0"),),
     }
     values.update(overrides)
     return RemediationReport(**values)
@@ -72,7 +75,15 @@ def snapshot(status: str, at: datetime = AFTER) -> CollectionSnapshot:
     return CollectionSnapshot("css_" + "b" * 32, status, at)
 
 
-def proof(basis: str = "component-version-fixed", *, at: datetime = AFTER, freshness: str = "fresh") -> ResolutionProof:
+def proof(
+    basis: str = "component-version-fixed",
+    *,
+    at: datetime = AFTER,
+    freshness: str = "fresh",
+    installed: str | None = "1.4.2",
+    supporting: CollectionSnapshot | None = None,
+) -> ResolutionProof:
+    # An upgrade from the report-time 1.2.0 to the fixed 1.4.2.
     return ResolutionProof(
         basis=basis,
         evidence_ref="vmt_" + "a" * 32,
@@ -80,8 +91,9 @@ def proof(basis: str = "component-version-fixed", *, at: datetime = AFTER, fresh
         source="deterministic-vulnerability-matcher",
         observed_at=at,
         freshness=freshness,
-        installed_version="1.4.2",
+        installed_version=installed,
         fixed_version="1.4.2",
+        supporting_snapshot=supporting,
     )
 
 
@@ -95,6 +107,14 @@ def resolved(**overrides) -> FindingState:
 
 
 def verify(finding_state=None, report_value="default", **kwargs):
+    # Test convenience: `collection_at_resolution` becomes the supporting
+    # snapshot of every proof that has none, as the store binds it.
+    at_resolution = kwargs.pop("collection_at_resolution", None)
+    if at_resolution is not None and kwargs.get("resolution_evidence"):
+        kwargs["resolution_evidence"] = tuple(
+            item if item.supporting_snapshot is not None else dataclasses.replace(item, supporting_snapshot=at_resolution)
+            for item in kwargs["resolution_evidence"]
+        )
     return evaluate_verification(
         VerificationInput(
             finding=finding_state or finding(),
@@ -226,6 +246,51 @@ class VerificationStateTests(unittest.TestCase):
             with self.subTest(rule_id=rule_id):
                 outcome = verify(resolved(rule_id=rule_id), resolution_evidence=(proof("fresh-observation"),))
                 self.assertEqual(outcome.verification_state, "manual-review-required")
+
+    def test_confirmed_removal_verifies_from_its_removal_snapshot(self) -> None:
+        outcome = verify(
+            resolved(),
+            resolution_evidence=(proof("component-removed", installed="1.2.0"),),
+            collection_at_resolution=snapshot("complete"),
+        )
+        self.assertEqual(outcome.verification_state, "verified")
+        self.assertIn("COMPONENT_REMOVED", outcome.reason_codes)
+        self.assertNotIn("COMPONENT_VERSION_FIXED", outcome.reason_codes)
+
+    def test_fixed_status_with_an_unchanged_version_is_an_advisory_revision(self) -> None:
+        outcome = verify(
+            resolved(),
+            resolution_evidence=(proof(installed="1.2.0"),),
+            collection_at_resolution=snapshot("complete"),
+        )
+        self.assertEqual(outcome.verification_state, "resolved-by-advisory-change")
+        self.assertIn("FIXED_BOUNDARY_REVISED", outcome.reason_codes)
+
+    def test_version_upgrade_needs_a_report_time_version(self) -> None:
+        for report_value in (report(baseline_match_versions=()), report(baseline_match_versions=(("vmt_" + "a" * 32, None),))):
+            with self.subTest(report_value=report_value):
+                outcome = verify(resolved(), report_value, resolution_evidence=(proof(),),
+                                 collection_at_resolution=snapshot("complete"))
+                self.assertEqual(outcome.verification_state, "insufficient-evidence")
+                self.assertIn("VERSION_CHANGE_UNCONFIRMED", outcome.reason_codes)
+
+    def test_unattributed_fixed_status_claims_nothing(self) -> None:
+        outcome = verify(resolved(), resolution_evidence=(proof("match-fixed-unattributed"),),
+                         collection_at_resolution=snapshot("complete"))
+        self.assertEqual(outcome.verification_state, "insufficient-evidence")
+        self.assertIn("RESOLUTION_BASIS_UNCONFIRMED", outcome.reason_codes)
+
+    def test_supporting_evidence_must_fall_in_the_report_to_resolution_window(self) -> None:
+        late = RESOLVED_AFTER + timedelta(hours=1)
+        outcome = verify(resolved(), resolution_evidence=(proof(at=late),), collection_at_resolution=snapshot("complete"))
+        self.assertEqual(outcome.verification_state, "insufficient-evidence")
+        self.assertIn("RESOLUTION_EVIDENCE_OUTSIDE_WINDOW", outcome.reason_codes)
+        for snap_at in (BEFORE, late):
+            with self.subTest(snap_at=snap_at):
+                outcome = verify(resolved(), resolution_evidence=(proof(),),
+                                 collection_at_resolution=snapshot("complete", snap_at))
+                self.assertEqual(outcome.verification_state, "insufficient-evidence")
+                self.assertIn("COLLECTION_NOT_COMPLETE_AT_RESOLUTION", outcome.reason_codes)
 
     def test_unknown_resolution_basis_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -469,15 +534,30 @@ class ResolutionEvidenceDerivationTests(unittest.TestCase):
             rule_ids=["vulnerable-component", "asset-stale"],
         )
 
-    def test_fixed_match_records_a_technical_basis_with_versions(self) -> None:
-        snapshot_value = self._snapshot("fixed")
-        (dedupe,) = snapshot_value.resolution_eligible_dedupe_keys
-        (evidence,) = snapshot_value.resolution_evidence[dedupe]
-        self.assertEqual(evidence.basis, "component-version-fixed")
-        self.assertEqual(evidence.evidence_ref, "vmt_" + "a" * 32)
-        self.assertEqual((evidence.installed_version, evidence.fixed_version), ("1.4.2", "1.4.2"))
-        self.assertEqual(evidence.observed_at, AFTER)
-        self.assertEqual(evidence.freshness, "fresh")
+    def test_fixed_match_basis_comes_from_the_matcher_reason(self) -> None:
+        snapshot_id = "css_" + "e" * 32
+        removed_at = AFTER + timedelta(seconds=30)
+        for reasons, basis, observed in (
+            (["at-or-after-fixed-boundary"], "component-version-fixed", AFTER),
+            (["component-removal-confirmed-by-complete-inventory"], "component-removed", removed_at),
+            (["reviewed-identity-match"], "match-fixed-unattributed", AFTER),
+            ([], "match-fixed-unattributed", AFTER),
+        ):
+            with self.subTest(reasons=reasons):
+                snapshot_value = self._snapshot(
+                    "fixed",
+                    reason_codes=reasons,
+                    component_not_observed_at=removed_at,
+                    component_source_snapshot_id=snapshot_id,
+                )
+                (dedupe,) = snapshot_value.resolution_eligible_dedupe_keys
+                (evidence,) = snapshot_value.resolution_evidence[dedupe]
+                self.assertEqual(evidence.basis, basis)
+                self.assertEqual(evidence.evidence_ref, "vmt_" + "a" * 32)
+                self.assertEqual((evidence.installed_version, evidence.fixed_version), ("1.4.2", "1.4.2"))
+                # Removal is observed when the complete inventory omitted it.
+                self.assertEqual(evidence.observed_at, observed)
+                self.assertEqual(evidence.supporting_snapshot_id, snapshot_id)
 
     def test_advisory_changes_are_recorded_as_advisory_bases(self) -> None:
         for status, basis in (("advisory-withdrawn", "advisory-withdrawn"), ("not-affected", "applicability-not-affected")):

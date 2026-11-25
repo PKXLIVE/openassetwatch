@@ -162,6 +162,9 @@ class ResolutionEvidence:
     freshness: Freshness
     installed_version: str | None = None
     fixed_version: str | None = None
+    # The component source snapshot that observed the component (or confirmed
+    # its removal), when the projection supplies it.
+    supporting_snapshot_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1523,6 +1526,7 @@ def resolution_evidence_key(key: ResolutionKey) -> str:
 # change that removes the finding without any change on the asset.
 TECHNICAL_RESOLUTION_BASES = frozenset(
     {
+        "component-removed",
         "component-version-fixed",
         "component-version-available",
         "sensor-check-in",
@@ -1536,6 +1540,12 @@ TECHNICAL_RESOLUTION_BASES = frozenset(
 ADVISORY_RESOLUTION_BASES = frozenset(
     {"applicability-not-affected", "advisory-withdrawn", "advisory-identity-reviewed"}
 )
+# A `fixed` match whose matcher reason is neither confirmed removal nor a
+# version at or after the fixed boundary. No remediation is claimed for it.
+UNATTRIBUTED_RESOLUTION_BASES = frozenset({"match-fixed-unattributed"})
+# Matcher reason codes (vulnerability_matching) that explain a `fixed` match.
+MATCH_REMOVAL_REASON = "component-removal-confirmed-by-complete-inventory"
+MATCH_VERSION_FIXED_REASON = "at-or-after-fixed-boundary"
 _SUBJECT_RESOLUTION_EVIDENCE: dict[str, tuple[str, str, str]] = {
     # rule_id: (basis, evidence_type, source)
     "asset-stale": ("fresh-observation", "asset-observation", "control_tower_assets.observed_at"),
@@ -1622,11 +1632,26 @@ def _resolution_evidence(
             dedupe = _dedupe_key("vulnerable-component", "asset", site_id, match_id)
             if dedupe not in dedupe_keys:
                 continue
+            basis = _MATCH_RESOLUTION_BASIS[status]
+            reasons = match.get("reason_codes") if isinstance(match.get("reason_codes"), list) else []
             match_observed = _utc(match.get("component_last_seen_at"))
             match_freshness = _text(match.get("component_freshness"), limit=32)
+            if status == "fixed":
+                # The matcher reports `fixed` both for a confirmed removal and
+                # for a version at or after the fixed boundary; its reason code
+                # says which. Neither is assumed from the status alone.
+                if MATCH_REMOVAL_REASON in reasons:
+                    basis = "component-removed"
+                    # Removal is observed when a complete inventory omitted it.
+                    match_observed = _utc(match.get("component_not_observed_at"))
+                    match_freshness = ""
+                elif MATCH_VERSION_FIXED_REASON in reasons:
+                    basis = "component-version-fixed"
+                else:
+                    basis = "match-fixed-unattributed"
             result[dedupe] = (
                 ResolutionEvidence(
-                    basis=_MATCH_RESOLUTION_BASIS[status],
+                    basis=basis,
                     evidence_ref=match_id,
                     evidence_type="vulnerability-match",
                     source="deterministic-vulnerability-matcher",
@@ -1636,6 +1661,7 @@ def _resolution_evidence(
                     else evidence_freshness(match_observed, now=context.now, config=context.config),
                     installed_version=_text(match.get("installed_version"), limit=160) or None,
                     fixed_version=_text(match.get("fixed_version"), limit=160) or None,
+                    supporting_snapshot_id=_text(match.get("component_source_snapshot_id"), limit=80) or None,
                 ),
             )
         for component_id, matches in by_component.items():
@@ -1663,6 +1689,14 @@ def _resolution_evidence(
                                 _text(item.get("installed_version"), limit=160)
                                 for item in matches
                                 if _text(item.get("installed_version"), limit=160)
+                            ),
+                            None,
+                        ),
+                        supporting_snapshot_id=next(
+                            (
+                                _text(item.get("component_source_snapshot_id"), limit=80)
+                                for item in matches
+                                if _text(item.get("component_source_snapshot_id"), limit=80)
                             ),
                             None,
                         ),

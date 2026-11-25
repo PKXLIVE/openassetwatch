@@ -95,6 +95,28 @@ def capture_baseline(
         ),
         {"finding_id": finding_id, "limit": MAX_VERIFICATION_EVIDENCE_REFERENCES},
     ).mappings().all()
+    # Installed versions of the finding's matches at report time, so a later
+    # `fixed` status can be checked against an actual version change.
+    match_ids = [row["evidence_ref"] for row in evidence if row["evidence_type"] == "vulnerability-match"]
+    versions = (
+        [
+            {"match_id": row["match_id"], "installed_version": row["installed_version"],
+             "match_status": row["match_status"]}
+            for row in connection.execute(
+                text(
+                    """
+                    SELECT match_id, installed_version, match_status
+                    FROM vulnerability_matches
+                    WHERE match_id = ANY(:ids) AND site_id = :site_id
+                    ORDER BY match_id
+                    """
+                ),
+                {"ids": match_ids, "site_id": site_id},
+            ).mappings()
+        ]
+        if match_ids
+        else []
+    )
     snapshot = None
     if finding["subject_type"] == "asset" and finding["asset_id"] is not None:
         snapshot = connection.execute(
@@ -117,11 +139,11 @@ def capture_baseline(
                 work_item_id, finding_id, site_id, report_revision, reported_at,
                 finding_rule_id, finding_status, finding_evidence_observed_at,
                 finding_evidence_freshness, finding_reopen_count, evidence_references,
-                collection_snapshot_id, collection_status, collection_observed_at
+                match_versions, collection_snapshot_id, collection_status, collection_observed_at
             ) VALUES (
                 :work_item_id, :finding_id, :site_id, :report_revision, :reported_at,
                 :rule_id, :status, :evidence_observed_at, :evidence_freshness,
-                :reopen_count, CAST(:evidence AS JSONB), :snapshot_id,
+                :reopen_count, CAST(:evidence AS JSONB), CAST(:versions AS JSONB), :snapshot_id,
                 :collection_status, :collection_observed_at
             )
             """
@@ -138,6 +160,7 @@ def capture_baseline(
             "evidence_freshness": finding["evidence_freshness"],
             "reopen_count": int(finding["reopen_count"]),
             "evidence": json.dumps(evidence_to_json(evidence_from_records(evidence))),
+            "versions": json.dumps(versions),
             "snapshot_id": snapshot["source_snapshot_id"] if snapshot else None,
             "collection_status": snapshot["collection_status"] if snapshot else None,
             "collection_observed_at": snapshot["observed_at"] if snapshot else None,
@@ -166,7 +189,7 @@ class SqlVerificationStore:
         context: dict[str, dict[str, Any]] = {
             str(row["finding_id"]): {"finding": dict(row), "evidence": [], "work": None, "report": None,
                                      "baseline": None, "snapshot": None, "recorded": False, "conflict": False,
-                                     "proofs": [], "at_resolution": None, "after_resolution": None}
+                                     "proofs": [], "after_resolution": None, "components": []}
             for row in findings
         }
         if not finding_ids:
@@ -233,7 +256,8 @@ class SqlVerificationStore:
                     {"work_ids": [p[0] for p in pairs], "revisions": [p[1] for p in pairs]},
                 ).mappings():
                     context[str(row["finding_id"])]["baseline"] = dict(row)
-        # Affirmative evidence recorded for each finding's current resolution.
+        # Affirmative evidence recorded for each finding's current resolution,
+        # with the exact snapshot that supported it.
         resolved = [
             (fid, item["finding"]["resolved_at"])
             for fid, item in context.items()
@@ -244,102 +268,130 @@ class SqlVerificationStore:
                 text(
                     """
                     SELECT e.finding_id, e.resolution_basis, e.evidence_ref, e.evidence_type,
-                           e.source, e.observed_at, e.freshness, e.installed_version, e.fixed_version
+                           e.source, e.observed_at, e.freshness, e.installed_version,
+                           e.fixed_version, e.supporting_snapshot_id,
+                           s.collection_status AS snapshot_status,
+                           s.observed_at AS snapshot_observed_at,
+                           s.agent_source_id AS snapshot_agent_source_id,
+                           s.collection_source_id AS snapshot_collection_source_id,
+                           s.asset_id AS snapshot_asset_id
                     FROM finding_resolution_evidence AS e
                     JOIN unnest(CAST(:finding_ids AS TEXT[]), CAST(:resolved AS TIMESTAMPTZ[]))
                          AS wanted(finding_id, resolved_at)
                       ON wanted.finding_id = e.finding_id
                      AND wanted.resolved_at = e.resolved_at
+                    LEFT JOIN component_source_snapshots AS s
+                      ON s.source_snapshot_id = e.supporting_snapshot_id
+                     AND s.site_id = e.site_id
                     ORDER BY e.finding_id, e.evidence_type, e.evidence_ref
                     """
                 ),
                 {"finding_ids": [r[0] for r in resolved], "resolved": [r[1] for r in resolved]},
             ).mappings():
                 context[str(row["finding_id"])]["proofs"].append(dict(row))
-        # Collection completeness for component methods: the newest snapshot
-        # since the report, the newest between the report and the resolution,
-        # and the newest after the resolution.
-        wanted = [
-            (
-                fid,
-                item["finding"]["site_id"],
-                item["finding"]["asset_id"],
-                item["report"]["occurred_at"],
-                item["finding"]["resolved_at"] if item["finding"]["status"] == "resolved" else None,
-            )
+        component_items = {
+            fid: item
             for fid, item in context.items()
             if item["report"] is not None
             and item["finding"].get("asset_id") is not None
             and method_for(str(item["finding"]["rule_id"])).collection_check == COMPONENT_COLLECTION_CHECK
-        ]
+        }
+        # Collections are bound to the sources that actually report the
+        # finding's component, not to any inventory on the same asset.
+        wanted = []
+        for fid, item in component_items.items():
+            components = sorted(
+                {str(row["evidence_ref"]) for row in item["evidence"] if row["evidence_type"] == "normalized-component"}
+            )
+            item["components"] = components
+            for component_id in components:
+                wanted.append((fid, component_id, item["report"]["occurred_at"]))
         if wanted:
+            newest: dict[str, CollectionSnapshot] = {}
             for row in connection.execute(
                 text(
                     """
-                    SELECT wanted.finding_id,
-                           EXISTS (
-                               SELECT 1 FROM component_source_snapshots AS any_s
-                               WHERE any_s.site_id = wanted.site_id AND any_s.asset_id = wanted.asset_id
-                           ) AS recorded,
-                           later.source_snapshot_id, later.collection_status, later.observed_at,
-                           at_res.source_snapshot_id AS at_id, at_res.collection_status AS at_status,
-                           at_res.observed_at AS at_observed,
-                           after_res.source_snapshot_id AS after_id,
-                           after_res.collection_status AS after_status,
-                           after_res.observed_at AS after_observed
+                    SELECT wanted.finding_id, wanted.component_id,
+                           p.agent_source_id IS NOT NULL AS recorded,
+                           later.source_snapshot_id, later.collection_status, later.observed_at
                     FROM unnest(
-                        CAST(:finding_ids AS TEXT[]), CAST(:site_ids AS TEXT[]),
-                        CAST(:asset_ids AS TEXT[]), CAST(:reported AS TIMESTAMPTZ[]),
-                        CAST(:resolved AS TIMESTAMPTZ[])
-                    ) AS wanted(finding_id, site_id, asset_id, reported_at, resolved_at)
+                        CAST(:finding_ids AS TEXT[]), CAST(:component_ids AS TEXT[]),
+                        CAST(:reported AS TIMESTAMPTZ[])
+                    ) AS wanted(finding_id, component_id, reported_at)
+                    LEFT JOIN component_source_presence AS p
+                      ON p.component_id = wanted.component_id
                     LEFT JOIN LATERAL (
                         SELECT s.source_snapshot_id, s.collection_status, s.observed_at
                         FROM component_source_snapshots AS s
-                        WHERE s.site_id = wanted.site_id AND s.asset_id = wanted.asset_id
+                        WHERE s.site_id = p.site_id AND s.asset_id = p.asset_id
+                          AND s.agent_source_id = p.agent_source_id
+                          AND s.collection_source_id = p.collection_source_id
                           AND s.observed_at > wanted.reported_at
                         ORDER BY s.observed_at DESC, s.source_snapshot_id
                         LIMIT 1
                     ) AS later ON TRUE
-                    LEFT JOIN LATERAL (
-                        SELECT s.source_snapshot_id, s.collection_status, s.observed_at
-                        FROM component_source_snapshots AS s
-                        WHERE s.site_id = wanted.site_id AND s.asset_id = wanted.asset_id
-                          AND wanted.resolved_at IS NOT NULL
-                          AND s.observed_at > wanted.reported_at
-                          AND s.observed_at <= wanted.resolved_at
-                        ORDER BY s.observed_at DESC, s.source_snapshot_id
-                        LIMIT 1
-                    ) AS at_res ON TRUE
-                    LEFT JOIN LATERAL (
-                        SELECT s.source_snapshot_id, s.collection_status, s.observed_at
-                        FROM component_source_snapshots AS s
-                        WHERE s.site_id = wanted.site_id AND s.asset_id = wanted.asset_id
-                          AND wanted.resolved_at IS NOT NULL
-                          AND s.observed_at > wanted.resolved_at
-                        ORDER BY s.observed_at DESC, s.source_snapshot_id
-                        LIMIT 1
-                    ) AS after_res ON TRUE
                     """
                 ),
                 {
                     "finding_ids": [w[0] for w in wanted],
-                    "site_ids": [w[1] for w in wanted],
-                    "asset_ids": [w[2] for w in wanted],
-                    "reported": [w[3] for w in wanted],
-                    "resolved": [w[4] for w in wanted],
+                    "component_ids": [w[1] for w in wanted],
+                    "reported": [w[2] for w in wanted],
                 },
             ).mappings():
                 item = context[str(row["finding_id"])]
-                item["recorded"] = bool(row["recorded"])
-                for target, prefix in (("snapshot", ""), ("at_resolution", "at_"), ("after_resolution", "after_")):
-                    snapshot_id = row["source_snapshot_id"] if not prefix else row[f"{prefix}id"]
-                    if snapshot_id is None:
-                        continue
-                    item[target] = CollectionSnapshot(
-                        snapshot_id=str(snapshot_id),
-                        collection_status=str(row["collection_status"] if not prefix else row[f"{prefix}status"]),
-                        observed_at=row["observed_at"] if not prefix else row[f"{prefix}observed"],
-                    )
+                item["recorded"] = item["recorded"] or bool(row["recorded"])
+                if row["source_snapshot_id"] is None:
+                    continue
+                candidate = CollectionSnapshot(
+                    snapshot_id=str(row["source_snapshot_id"]),
+                    collection_status=str(row["collection_status"]),
+                    observed_at=row["observed_at"],
+                )
+                current = newest.get(str(row["finding_id"]))
+                if current is None or candidate.observed_at > current.observed_at:
+                    newest[str(row["finding_id"])] = candidate
+            for fid, snapshot in newest.items():
+                context[fid]["snapshot"] = snapshot
+        # Newest collection after the resolution from the supporting source.
+        after_wanted = [
+            (fid, proof["snapshot_asset_id"], proof["snapshot_agent_source_id"],
+             proof["snapshot_collection_source_id"], item["finding"]["resolved_at"])
+            for fid, item in component_items.items()
+            for proof in item["proofs"]
+            if proof.get("snapshot_agent_source_id") and item["finding"].get("resolved_at") is not None
+        ]
+        if after_wanted:
+            for row in connection.execute(
+                text(
+                    """
+                    SELECT DISTINCT ON (wanted.finding_id)
+                           wanted.finding_id, s.source_snapshot_id, s.collection_status, s.observed_at
+                    FROM unnest(
+                        CAST(:finding_ids AS TEXT[]), CAST(:asset_ids AS TEXT[]),
+                        CAST(:agent_ids AS TEXT[]), CAST(:source_ids AS TEXT[]),
+                        CAST(:resolved AS TIMESTAMPTZ[])
+                    ) AS wanted(finding_id, asset_id, agent_source_id, collection_source_id, resolved_at)
+                    JOIN component_source_snapshots AS s
+                      ON s.asset_id = wanted.asset_id
+                     AND s.agent_source_id = wanted.agent_source_id
+                     AND s.collection_source_id = wanted.collection_source_id
+                     AND s.observed_at > wanted.resolved_at
+                    ORDER BY wanted.finding_id, s.observed_at DESC, s.source_snapshot_id
+                    """
+                ),
+                {
+                    "finding_ids": [w[0] for w in after_wanted],
+                    "asset_ids": [w[1] for w in after_wanted],
+                    "agent_ids": [w[2] for w in after_wanted],
+                    "source_ids": [w[3] for w in after_wanted],
+                    "resolved": [w[4] for w in after_wanted],
+                },
+            ).mappings():
+                context[str(row["finding_id"])]["after_resolution"] = CollectionSnapshot(
+                    snapshot_id=str(row["source_snapshot_id"]),
+                    collection_status=str(row["collection_status"]),
+                    observed_at=row["observed_at"],
+                )
         # Identity and classification conflicts current on the same asset.
         assets = sorted(
             {
@@ -400,6 +452,10 @@ class SqlVerificationStore:
                 baseline_captured=baseline is not None,
                 baseline_reopen_count=int(baseline["finding_reopen_count"]) if baseline else None,
                 baseline_evidence=evidence_from_json(baseline["evidence_references"]) if baseline else (),
+                baseline_match_versions=tuple(
+                    (str(entry["match_id"]), entry.get("installed_version"))
+                    for entry in (baseline["match_versions"] if baseline else ())
+                ),
             )
         return VerificationInput(
             finding=state,
@@ -408,7 +464,6 @@ class SqlVerificationStore:
             collection_recorded=bool(item["recorded"]),
             identity_conflict_active=bool(item["conflict"]),
             resolution_evidence=proofs_from_records(item["proofs"]),
-            collection_at_resolution=item["at_resolution"],
             collection_after_resolution=item["after_resolution"],
         )
 
@@ -508,7 +563,9 @@ class SqlVerificationStore:
     ) -> None:
         # The collection that decided the outcome: at resolution for a resolved
         # finding, otherwise the newest since the report.
-        snapshot = item["at_resolution"] if item["finding"]["status"] == "resolved" else item["snapshot"]
+        snapshot = (
+            SqlVerificationStore._supporting_snapshot(item) if item["finding"]["status"] == "resolved" else item["snapshot"]
+        )
         connection.execute(
             text(
                 """
@@ -588,6 +645,15 @@ class SqlVerificationStore:
         }
 
     @staticmethod
+    def _supporting_snapshot(item: Mapping[str, Any]) -> CollectionSnapshot | None:
+        """The snapshot behind the current resolution, preferring a complete one."""
+
+        snapshots = [proof.supporting_snapshot for proof in proofs_from_records(item["proofs"])]
+        snapshots = [snapshot for snapshot in snapshots if snapshot is not None]
+        snapshots.sort(key=lambda snapshot: (snapshot.collection_status != "complete", snapshot.snapshot_id))
+        return snapshots[0] if snapshots else None
+
+    @staticmethod
     def _collection(snapshot: CollectionSnapshot | None) -> dict[str, Any] | None:
         if snapshot is None:
             return None
@@ -658,10 +724,11 @@ class SqlVerificationStore:
                     "freshness": proof["freshness"],
                     "installed_version": proof["installed_version"],
                     "fixed_version": proof["fixed_version"],
+                    "supporting_snapshot_id": proof["supporting_snapshot_id"],
                 }
                 for proof in item["proofs"][:MAX_VERIFICATION_EVIDENCE_REFERENCES]
             ],
-            "collection_at_resolution": self._collection(item["at_resolution"]),
+            "collection_at_resolution": self._collection(self._supporting_snapshot(item)),
             "collection_after_resolution": self._collection(item["after_resolution"]),
             "input_digest": outcome.input_digest,
         }

@@ -43,6 +43,7 @@ RecordedStateValue = Literal[
     "report-withdrawn",
 ]
 ResolutionBasisValue = Literal[
+    "component-removed",
     "component-version-fixed",
     "component-version-available",
     "sensor-check-in",
@@ -54,6 +55,7 @@ ResolutionBasisValue = Literal[
     "applicability-not-affected",
     "advisory-withdrawn",
     "advisory-identity-reviewed",
+    "match-fixed-unattributed",
 ]
 CompletenessValue = Literal["complete", "incomplete", "none-since-report", "not-recorded", "not-applicable"]
 CollectionStatusValue = Literal["complete", "partial", "unsupported", "failed"]
@@ -91,6 +93,7 @@ class ResolutionEvidenceReference(StrictVerificationContract):
     freshness: FreshnessValue
     installed_version: str | None = Field(default=None, max_length=160)
     fixed_version: str | None = Field(default=None, max_length=160)
+    supporting_snapshot_id: str | None = Field(default=None, pattern=r"^css_[0-9a-f]{32}$")
 
 
 class VerificationCollection(StrictVerificationContract):

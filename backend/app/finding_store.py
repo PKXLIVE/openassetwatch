@@ -554,11 +554,13 @@ class SqlFindingStore:
                                 INSERT INTO finding_resolution_evidence (
                                     finding_id, site_id, resolved_at, evaluation_run_id,
                                     resolution_basis, evidence_ref, evidence_type, source,
-                                    observed_at, freshness, installed_version, fixed_version
+                                    observed_at, freshness, installed_version, fixed_version,
+                                    supporting_snapshot_id
                                 ) VALUES (
                                     :finding_id, :site_id, :resolved_at, :run_id,
                                     :basis, :evidence_ref, :evidence_type, :source,
-                                    :observed_at, :freshness, :installed_version, :fixed_version
+                                    :observed_at, :freshness, :installed_version, :fixed_version,
+                                    :supporting_snapshot_id
                                 )
                                 ON CONFLICT (finding_id, resolved_at, evidence_ref) DO NOTHING
                                 """
@@ -576,6 +578,7 @@ class SqlFindingStore:
                                 "freshness": evidence.freshness,
                                 "installed_version": evidence.installed_version,
                                 "fixed_version": evidence.fixed_version,
+                                "supporting_snapshot_id": evidence.supporting_snapshot_id,
                             },
                         )
         return ReconcileResult(opened=opened, updated=updated, reopened=reopened, resolved=resolved)

@@ -62,11 +62,15 @@ change. `verified` requires every one of these:
 2. no identity or classification conflict is active on the asset;
 3. the finding resolved after the report;
 4. the finding lifecycle recorded affirmative resolution evidence with a
-   technical basis (a change observed on the asset, such as a component version
-   at or above the fix), not an advisory or applicability basis;
-5. that evidence was collected after the report and is fresh or aging;
-6. for software methods, the newest component collection between the report
-   and the resolution was complete.
+   technical basis (a confirmed removal, or an installed version at the fix
+   that differs from the version recorded when work was marked done), not an
+   advisory or applicability basis;
+5. that evidence was collected after the report and at or before the
+   resolution, and is fresh or aging;
+6. for software methods, the exact snapshot that observed the component (or
+   confirmed its removal) is complete and falls in the same report-to-resolution
+   window. A complete inventory from another collection source on the same
+   asset does not count.
 
 A resolution timestamp alone never verifies anything. An exhaustive test
 states these requirements independently of the implementation and checks them
@@ -102,11 +106,14 @@ evidence is known. Each row keeps:
 - the resolution time (evaluation time) and evaluation run;
 - the basis, the evidence reference, type, and source;
 - the collection time of that evidence, distinct from the resolution time;
-- freshness, and for software the installed and fixed versions.
+- freshness, and for software the installed and fixed versions;
+- for software, the identity of the supporting component source snapshot.
 
 | Basis | Meaning | Technical change? |
 | --- | --- | --- |
-| `component-version-fixed` | The match became fixed: the observed version is at or above the fix | Yes |
+| `component-removed` | The matcher reported `fixed` with `component-removal-confirmed-by-complete-inventory`; collection time is when the complete inventory omitted it | Yes |
+| `component-version-fixed` | The matcher reported `fixed` with `at-or-after-fixed-boundary` | Only if the installed version changed since the report (see below) |
+| `match-fixed-unattributed` | The matcher reported `fixed` with neither reason | No remediation claimed |
 | `component-version-available` | A later inventory supplied a usable version | Yes |
 | `fresh-observation`, `sensor-check-in`, `classification-recognized`, `classification-consistent`, `managed-evidence`, `healthy-coverage` | A fresh authorized observation shows the rule's condition ended | Yes |
 | `applicability-not-affected` | The match became not-affected | No (applicability change) |
@@ -116,6 +123,19 @@ evidence is known. Each row keeps:
 `not-affected` is treated as an applicability change, not confirmed
 remediation, because it can come from an advisory revision as well as from an
 upgrade. A person can confirm such cases.
+
+A `fixed` status alone never claims an upgrade. When work is marked done, the
+baseline records the installed version of each of the finding's matches
+(`match_versions`). A `component-version-fixed` resolution is a confirmed
+upgrade only when its installed version differs from that recorded version.
+The same version means the advisory's fixed boundary was revised
+(`resolved-by-advisory-change`, `FIXED_BOUNDARY_REVISED`). No recorded version
+means the upgrade cannot be confirmed (`insufficient-evidence`,
+`VERSION_CHANGE_UNCONFIRMED`).
+
+Component collection checks are bound to the collection sources that report
+the component, through component source presence. For an unresolved finding,
+only snapshots from those sources count as collection since the report.
 
 The table is append-only by trigger, except for the cascade that removes a
 whole finding. Resolutions recorded before this capability existed have no

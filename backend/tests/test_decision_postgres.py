@@ -65,8 +65,13 @@ def vulnerable_asset(
                 "match_status": status,
                 "match_confidence": 1.0,
                 "component_name": "example-agent",
-                "installed_version": "1.2.0",
+                # A fixed match reflects an installed version at the fix, with
+                # the matcher's reason, as the production matcher reports it.
+                "installed_version": "1.4.2" if status == "fixed" else "1.2.0",
                 "fixed_version": "1.4.2",
+                "reason_codes": ["at-or-after-fixed-boundary"]
+                if status == "fixed"
+                else ["installed-version-in-affected-range"],
                 "severity": severity,
                 "known_exploited": False,
                 "component_freshness": "fresh",

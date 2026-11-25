@@ -26,11 +26,13 @@ CREATE TABLE IF NOT EXISTS finding_resolution_evidence (
     freshness VARCHAR(16) NOT NULL,
     installed_version VARCHAR(160),
     fixed_version VARCHAR(160),
+    supporting_snapshot_id TEXT,
     UNIQUE (finding_id, resolved_at, evidence_ref),
     FOREIGN KEY (finding_id, site_id)
         REFERENCES findings(finding_id, site_id) ON DELETE CASCADE,
     CHECK (
         resolution_basis IN (
+            'component-removed',
             'component-version-fixed',
             'component-version-available',
             'sensor-check-in',
@@ -41,10 +43,12 @@ CREATE TABLE IF NOT EXISTS finding_resolution_evidence (
             'healthy-coverage',
             'applicability-not-affected',
             'advisory-withdrawn',
-            'advisory-identity-reviewed'
+            'advisory-identity-reviewed',
+            'match-fixed-unattributed'
         )
     ),
-    CHECK (freshness IN ('fresh', 'aging', 'stale', 'unknown'))
+    CHECK (freshness IN ('fresh', 'aging', 'stale', 'unknown')),
+    CHECK (supporting_snapshot_id ~ '^css_[0-9a-f]{32}$')
 );
 
 -- Evidence captured when a work item is marked done. Finding evidence rows are
@@ -63,6 +67,7 @@ CREATE TABLE IF NOT EXISTS finding_verification_baselines (
     finding_evidence_freshness VARCHAR(16) NOT NULL,
     finding_reopen_count INTEGER NOT NULL,
     evidence_references JSONB NOT NULL,
+    match_versions JSONB NOT NULL,
     collection_snapshot_id TEXT,
     collection_status VARCHAR(16),
     collection_observed_at TIMESTAMPTZ,
@@ -76,6 +81,8 @@ CREATE TABLE IF NOT EXISTS finding_verification_baselines (
     CHECK (finding_reopen_count >= 0),
     CHECK (jsonb_typeof(evidence_references) = 'array'),
     CHECK (jsonb_array_length(evidence_references) <= 8),
+    CHECK (jsonb_typeof(match_versions) = 'array'),
+    CHECK (jsonb_array_length(match_versions) <= 8),
     CHECK (collection_status IN ('complete', 'partial', 'unsupported', 'failed')),
     CHECK ((collection_snapshot_id IS NULL) = (collection_status IS NULL)),
     CHECK ((collection_status IS NULL) = (collection_observed_at IS NULL))
