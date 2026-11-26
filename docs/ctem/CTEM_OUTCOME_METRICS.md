@@ -48,7 +48,12 @@ Each metric counts exactly one unit, and no metric mixes units:
 | `ratio` | numerator over denominator, both counts of the stated grain |
 
 A verification episode is the recorded verification sequence of one
-remediation report, so outcome metrics count remediation reports.
+remediation report, so outcome metrics count remediation reports. A report is
+withdrawn as of the recorded work event that took its work item out of done,
+even when no evaluation ran in between to record `report-withdrawn`. A
+verified report that is later withdrawn still counts once in verified
+outcomes and time to verification, at its first verified time, and is
+excluded from the verification-rate denominator as withdrawn.
 
 ## Measurement states
 
@@ -70,8 +75,8 @@ Every result has a `status`:
 | `HISTORY_STARTS_AFTER_WINDOW_START` | History began inside the window; earlier events were not recorded |
 | `SOURCE_NOT_AVAILABLE` | A required source is not present in this database |
 | `ROW_LIMIT_EXCEEDED` | More than 100,000 rows were needed; no value is reported rather than a value from truncated input |
-| `OUTCOME_NOT_RECORDED` | Some reports have no recorded verification outcome yet |
-| `VERIFICATION_RUNS_DEGRADED` | Verification failed or was incomplete in evaluation runs in the window (for current metrics: in the latest run) |
+| `OUTCOME_NOT_RECORDED` | Some reports made in the window have no recorded verification outcome yet; this also marks verified counts and durations partial, so "0 verified" is never shown as measured while outcomes are missing |
+| `VERIFICATION_RUNS_DEGRADED` | An evaluation run or its verification step failed, or verification was incomplete, in the window (for current metrics: in the latest run) |
 | `EPISODE_START_UNRECORDED` | Some band episodes began before decision history was recorded for their finding |
 | `HISTORY_INCOMPLETE_FOR_FINDINGS` | Some findings existed before a history source began recording |
 
@@ -108,7 +113,7 @@ for work metrics).
 | `findings.backlog-age-by-band` | hours | current | Age since first detection of open findings, by current band | `action_band` / `action_band` |
 | `findings.band-episode-duration` | hours | window | Completed band episodes that ended in the window | `action_band` / `action_band` |
 | `findings.band-transitions` | decision-transitions | window | Recorded band changes, escalation or de-escalation | — / `from_band`, `to_band`, `direction` |
-| `findings.reopened` | findings | window | Distinct findings that reopened; `after_verification` is yes when a reopen followed a recorded verified outcome | — / `after_verification` |
+| `findings.reopened` | findings | window | Distinct findings whose recorded decision went from not current to current (whatever the recorded cause); `after_verification` is yes when a reopen followed a recorded verified outcome | — / `after_verification` |
 | `remediation.reports` | remediation-reports | window | Work marked done in the window | — |
 | `remediation.verified` | remediation-reports | window | Reports whose first recorded verified outcome is in the window | — |
 | `remediation.outcomes-by-state` | remediation-reports | window | Reports made in the window by latest recorded state at the window end, or `not-recorded` | `verification_state` / `verification_state` |
@@ -117,7 +122,7 @@ for work metrics).
 | `remediation.time-to-verified-from-report` | hours | window | Report to first verified outcome, for reports first verified in the window | — |
 | `remediation.done-unverified` | work-items | current | Work items marked done whose latest report is not verified, by recorded state | `verification_state` / `verification_state` |
 | `quality.history-coverage` | findings | current | Findings created before each history source began; the total is those missing any source | — / `source` |
-| `quality.verification-run-coverage` | evaluation-runs | window | Completed evaluation runs in scope by verification outcome: `completed`, `incomplete`, `failed`, `not-recorded` | — / `verification_status` |
+| `quality.verification-run-coverage` | evaluation-runs | window | Evaluation runs in scope by verification outcome: `completed`, `incomplete`, `failed`, `not-recorded`, or `evaluation-failed` when the run failed before verification | — / `verification_status` |
 | `quality.evidence-freshness` | findings | current | Open findings by evidence freshness | — / `evidence_freshness` |
 | `quality.unmeasurable-outcomes` | remediation-reports | window | Reports made in the window whose recorded outcome is insufficient, stale, conflicting, manual review, or not recorded | — / `verification_state` |
 
@@ -212,12 +217,13 @@ and `status_reasons`, `time_range`, `source_freshness`, `coverage`, and
 
 ## Performance
 
-Each request reads one metric's rows, filtered by site in SQL. Rows are
-ordered, with no per-finding round trips. Reads stop at 100,000 rows.
+Each request reads one metric's rows, filtered by site in SQL, in one
+read-only transaction with a 15-second statement timeout. Rows are ordered,
+with no per-finding round trips. Reads stop at 100,000 rows.
 
-Band-episode duration reads the recorded history before the window end of
-each finding with a row in the window, or with a band in effect at the window
-start, so that an episode's true start is known.
+Band-episode duration returns only the decision rows where a finding's band
+changes: every one in the window, plus the latest one before it when a band
+was in effect at the window start, so that an episode's true start is known.
 
 Decision and verification history are reached through their finding indexes.
 There is no site-and-time index on history tables; a later migration can add
@@ -231,6 +237,14 @@ one if site-scoped windows over large histories become slow.
 - Recording start is per database, not per site.
 - Suppressed findings are not open, but time while suppressed stays in the
   band in band-episode duration.
+- First episodes of findings created before decision history began are
+  excluded from durations and counted as `left_censored_episodes`. These are
+  usually the oldest findings, so medians can read low while they remain.
+- Recording start is conservative. A finding created before a source began has
+  its history reported as incomplete, even where no such events could have
+  existed then.
+- Run coverage selects runs by start time. A site request includes runs scoped
+  to an asset or sensor in that site, as well as unscoped runs.
 - Done-but-unverified uses recorded history. The live verification view can
   be newer until the next evaluation run.
 - There are no target dates or overdue states (`CTEM-GAP-12`), and no period

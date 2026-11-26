@@ -41,7 +41,7 @@ NOT_RECORDED = "not-recorded"
 FRESHNESS = ("fresh", "aging", "stale", "unknown")
 OPEN_STATUSES = ("active", "acknowledged")
 UNMEASURABLE_STATES = ("insufficient-evidence", "evidence-stale", "conflicting-evidence", "manual-review-required")
-VERIFICATION_RUN_STATUSES = ("completed", "incomplete", "failed", NOT_RECORDED)
+VERIFICATION_RUN_STATUSES = ("completed", "incomplete", "failed", NOT_RECORDED, "evaluation-failed")
 HISTORY_SOURCES = ("work-events", "decision-history", "verification-history", "verification-runs")
 
 UNITS = frozenset(
@@ -57,7 +57,7 @@ STATUS_REASONS: dict[str, str] = {
     "SOURCE_NOT_AVAILABLE": "A required source is not present in this database.",
     "ROW_LIMIT_EXCEEDED": "The inputs exceeded the read bound, so no value is reported.",
     "OUTCOME_NOT_RECORDED": "Some remediation reports have no recorded verification outcome yet.",
-    "VERIFICATION_RUNS_DEGRADED": "Verification failed or was incomplete in some evaluation runs in the window.",
+    "VERIFICATION_RUNS_DEGRADED": "Evaluation or its verification step failed, or verification was incomplete, in some runs in the window.",
     "EPISODE_START_UNRECORDED": "Some band episodes began before decision history was recorded for their finding; their durations are excluded.",
     "HISTORY_INCOMPLETE_FOR_FINDINGS": "Some findings existed before a history source began recording.",
 }
@@ -160,7 +160,8 @@ METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
         "Decision history is written by each finding evaluation run; episodes are as current as the last run.",
         _DURATION + " Episodes still open at the window end are counted in coverage as ongoing, not measured.",
         ("Episodes that began before decision history was recorded for a finding have no known start and are "
-         "excluded; they are counted in coverage.",
+         "excluded; they are counted in coverage. These are typically the oldest findings, so the median can be "
+         "biased low while they remain.",
          "Time while a finding is suppressed stays in its band.") + _COMMON_LIMITS,
         history_sources=("decision-history",),
     ),
@@ -177,7 +178,8 @@ METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
     ),
     MetricDefinition(
         "findings.reopened", 1, "Reopened findings",
-        "Distinct findings that reopened at least once inside the window, from recorded decision history. "
+        "Distinct findings that reopened at least once inside the window: a recorded decision that went from "
+        "not current to current. "
         "`after_verification` is yes when any of the finding's reopens followed a recorded verified outcome.",
         "Shows findings whose resolution did not hold, including after verification.",
         "findings", "finding", "Findings with a recorded reopen inside the window.",
@@ -205,7 +207,8 @@ METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
         "Shows how much reported work was confirmed by evidence.",
         "remediation-reports", "remediation report", "Reports first verified inside the window.",
         "count", "window", ("finding_work_events", "finding_verification_history"), ("verification history",),
-        ("site_id",), (), "Verification history is written by finding evaluation runs.", _COUNT_MISSING,
+        ("site_id",), (), "Verification history is written by finding evaluation runs.",
+        _COUNT_MISSING + " Partial when reports made in the window have no recorded outcome yet.",
         ("A verified outcome does not show that the remediation caused a risk reduction; it shows the evidence "
          "agrees with it.",
          "Excludes advisory changes, resolutions before the report, and every other verification state.",
@@ -222,7 +225,9 @@ METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
         "count", "window", ("finding_work_events", "finding_verification_history"), ("verification history",),
         ("site_id", "verification_state"), ("verification_state",),
         "Verification history is written by finding evaluation runs.", _COUNT_MISSING,
-        ("States are as recorded; nothing is recomputed from present evidence.",) + _COMMON_LIMITS,
+        ("States are as recorded; nothing is recomputed from present evidence.",
+         "A report whose work left done before the window end is report-withdrawn, from the recorded work event, "
+         "even when no evaluation ran in between.") + _COMMON_LIMITS,
         history_sources=("work-events", "verification-history"), reads_verification=True,
     ),
     MetricDefinition(
@@ -292,10 +297,11 @@ METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
     ),
     MetricDefinition(
         "quality.verification-run-coverage", 1, "Verification evaluation coverage",
-        "Completed finding evaluation runs inside the window that cover the scope, grouped by the outcome of their "
-        "verification step (`not-recorded` when none was recorded).",
+        "Finding evaluation runs started inside the window that cover the scope, grouped by the outcome of their "
+        "verification step (`not-recorded` when none was recorded), and `evaluation-failed` for runs that failed "
+        "before verification.",
         "Shows failed, incomplete, and missing verification work that other metrics depend on.",
-        "evaluation-runs", "finding evaluation run", "Completed finding evaluation runs started inside the window.",
+        "evaluation-runs", "finding evaluation run", "Completed or failed finding evaluation runs started inside the window.",
         "count", "window", ("finding_evaluation_runs", "finding_verification_runs"), ("evaluation run records",),
         ("site_id",), ("verification_status",), "Runs are recorded as they complete.", _COUNT_MISSING,
         ("Site scope includes runs without a site scope, which cover every site.",) + _COMMON_LIMITS,
@@ -540,12 +546,18 @@ def report_outcomes(
         if key in seen:  # one report, however many rows reached it
             continue
         seen.add(key)
+        state = latest[key][1] if key in latest else NOT_RECORDED
+        # Work that left done withdraws the report, as recorded by the work
+        # event, even when no evaluation ran in between to record it.
+        left = row.get("left_done_at")
+        if left is not None and _aware(left, "left_done_at") < as_of:
+            state = "report-withdrawn"
         outcomes.append(
             ReportOutcome(
                 work_item_id=key[0], finding_id=str(row["finding_id"]), revision=key[1],
                 reported_at=_aware(row["occurred_at"], "occurred_at"),
                 finding_first_seen_at=row.get("finding_first_seen_at"),
-                state=latest[key][1] if key in latest else NOT_RECORDED,
+                state=state,
                 first_verified_at=verified.get(key),
             )
         )
@@ -684,7 +696,10 @@ def _transitions(window, filters, inputs, now) -> Calculation:
 def _reopened(window, filters, inputs, now) -> Calculation:
     after_verification: dict[str, bool] = {}
     for row in inputs.decision_history:
-        if row.get("transition_cause") != "finding-reopened" or not _in(row["evaluated_at"], window):
+        reopened = row.get("transition_cause") == "finding-reopened" or (
+            row.get("previous_decision_state") == "not-current" and row.get("decision_state") == "current"
+        )
+        if not reopened or not _in(row["evaluated_at"], window):
             continue
         finding_id = str(row["finding_id"])
         at = _aware(row["evaluated_at"], "evaluated_at")
@@ -703,9 +718,16 @@ def _reports(window, filters, inputs, now) -> Calculation:
     return _value(value=len(reported)), [], [], {}
 
 
+def _unrecorded_reports(outcomes: Sequence[ReportOutcome], window: MetricWindow) -> int:
+    return sum(1 for item in outcomes if _in(item.reported_at, window) and item.state == NOT_RECORDED)
+
+
 def _verified(window, filters, inputs, now) -> Calculation:
-    verified = [item for item in _outcomes(window, inputs) if _in(item.first_verified_at, window)]
-    return _value(value=len(verified)), [], [], {}
+    outcomes = _outcomes(window, inputs)
+    verified = [item for item in outcomes if _in(item.first_verified_at, window)]
+    not_recorded = _unrecorded_reports(outcomes, window)
+    return (_value(value=len(verified)), [], ["OUTCOME_NOT_RECORDED"] if not_recorded else [],
+            {"not_recorded": not_recorded})
 
 
 _STATE_ORDER = (*RECORDED_STATES, NOT_RECORDED)
@@ -742,13 +764,18 @@ def _rate(window, filters, inputs, now) -> Calculation:
 def _time_to_verified(origin: str):
     def calculate(window, filters, inputs, now) -> Calculation:
         values = []
-        for item in _outcomes(window, inputs):
+        outcomes = _outcomes(window, inputs)
+        for item in outcomes:
             if not _in(item.first_verified_at, window):
                 continue
             start = item.reported_at if origin == "report" else item.finding_first_seen_at
             if start is not None:
                 values.append(_hours(item.first_verified_at, _aware(start, "start")))
-        return _duration(values), [], [] if values else ["NO_POPULATION"], {}
+        not_recorded = _unrecorded_reports(outcomes, window)
+        reasons = [] if values else ["NO_POPULATION"]
+        if not_recorded:
+            reasons.append("OUTCOME_NOT_RECORDED")
+        return _duration(values), [], reasons, {"not_recorded": not_recorded}
 
     return calculate
 
@@ -789,7 +816,10 @@ def _history_coverage(window, filters, inputs, now) -> Calculation:
 
 
 def _run_coverage(window, filters, inputs, now) -> Calculation:
-    statuses = [str(row.get("verification_status") or NOT_RECORDED) for row in inputs.evaluation_runs]
+    statuses = [
+        "evaluation-failed" if row.get("run_status") == "failed" else str(row.get("verification_status") or NOT_RECORDED)
+        for row in inputs.evaluation_runs
+    ]
     return _value(value=len(statuses)), _counts(statuses, VERIFICATION_RUN_STATUSES, "verification_status"), [], {}
 
 

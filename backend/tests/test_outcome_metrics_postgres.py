@@ -156,6 +156,27 @@ class OutcomeMetricsPostgresTests(unittest.TestCase):
         rate = self.window("remediation.verification-rate")["total"]
         self.assertEqual((rate["numerator"], rate["denominator"], rate["value"]), (0, 1, 0.0))
 
+    def test_report_superseded_without_an_evaluation_is_withdrawn(self) -> None:
+        finding_id = self.h._reported()  # report at 1h, evaluated only at 0.5h
+        item = self.h.work.get_work_item(finding_id)
+        self.h.work.change_status(finding_id, actor="sam", status="open", expected_revision=item["revision"],
+                                  note="not yet", at=at(1.5))
+        self.h._report_done(finding_id, at(2))  # no evaluation between the two reports
+        self.h._evaluate(at(2.2))
+        states = {cell["dimensions"]["verification_state"]: cell["value"]
+                  for cell in self.window("remediation.outcomes-by-state")["breakdown"]}
+        self.assertEqual((states["report-withdrawn"], states["not-recorded"], states["awaiting-evidence"]), (1, 0, 1))
+        self.assertEqual(self.window("quality.unmeasurable-outcomes")["total"]["value"], 0)
+
+    def test_episode_that_began_before_the_window_keeps_its_recorded_start(self) -> None:
+        self._verified_report()  # one episode: 0.5h -> 2.5h
+        band = self._band()
+        result = self.window("findings.band-episode-duration", start=2, end=10)
+        cell = {item["dimensions"]["action_band"]: item for item in result["breakdown"]}[band]
+        self.assertEqual((cell["count"], cell["value"]), (1, 2.0))
+        before = self.window("findings.band-episode-duration", start=0, end=2)
+        self.assertEqual((before["status"], before["coverage"]["ongoing_episodes"]), ("not-measured", 1))
+
     def test_advisory_change_is_never_verified_remediation(self) -> None:
         finding_id = self.h._reported()
         self.h._inventory(at(2))
@@ -180,6 +201,12 @@ class OutcomeMetricsPostgresTests(unittest.TestCase):
         statuses = {cell["dimensions"]["verification_status"]: cell["value"] for cell in coverage["breakdown"]}
         self.assertEqual(statuses["failed"], 1)
         self.assertEqual(statuses["completed"], coverage["total"]["value"] - 1)
+        with patch("app.finding_service.calculate_risk", side_effect=RuntimeError("risk fault")):
+            with self.assertRaises(RuntimeError):
+                self.h._evaluate(at(3))
+        failed = {cell["dimensions"]["verification_status"]: cell["value"]
+                  for cell in self.window("quality.verification-run-coverage")["breakdown"]}
+        self.assertEqual(failed["evaluation-failed"], 1)
         verified = self.window("remediation.verified")
         self.assertEqual((verified["status"], verified["total"]["value"]), ("partial", 0))
         self.assertIn("VERIFICATION_RUNS_DEGRADED", verified["status_reasons"])

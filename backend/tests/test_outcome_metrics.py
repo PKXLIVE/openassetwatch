@@ -297,11 +297,16 @@ class FindingMetricTests(unittest.TestCase):
              "previous_action_band": None, "transition_cause": "finding-reopened", "finding_created_at": h(-100)},
         ]
         # X was verified at 15h, before its second reopen; Y only after its reopen.
+        # W reopened in the same run as a ruleset change: the transition is
+        # recorded as ruleset-changed, but the decision went not-current -> current.
+        rows.append({"finding_id": "fnd_w", "revision": 4, "evaluated_at": h(8), "decision_state": "current",
+                     "action_band": "plan", "previous_action_band": None, "previous_decision_state": "not-current",
+                     "transition_cause": "ruleset-changed", "finding_created_at": h(-100)})
         verified = {"fnd_x": [h(15)], "fnd_y": [h(13)]}
         result = run("findings.reopened", inputs(decision_history=rows, verified_times=verified))
-        self.assertEqual(result["total"]["value"], 2)
+        self.assertEqual(result["total"]["value"], 3)
         after = {item["dimensions"]["after_verification"]: item["value"] for item in result["breakdown"]}
-        self.assertEqual(after, {"yes": 1, "no": 1})
+        self.assertEqual(after, {"yes": 1, "no": 2})
 
 
 # ------------------------------------------------------------------ remediation outcomes
@@ -363,6 +368,41 @@ class RemediationMetricTests(unittest.TestCase):
         self.assertEqual(result["total"]["value"], 2)
         self.assertEqual((reasons["insufficient-evidence"], reasons["not-recorded"]), (1, 1))
 
+    def test_report_superseded_before_any_evaluation_is_withdrawn_not_unrecorded(self) -> None:
+        # Work marked done at 1h, reopened at 2h, done again at 3h, with no
+        # evaluation in between: the first report never got a history row.
+        # The recorded work event that left done withdraws it.
+        reports = [
+            {"work_item_id": "fwi_9", "finding_id": "fnd_9", "revision": 2, "occurred_at": h(1),
+             "finding_first_seen_at": h(-10), "left_done_at": h(2)},
+            {"work_item_id": "fwi_9", "finding_id": "fnd_9", "revision": 4, "occurred_at": h(3),
+             "finding_first_seen_at": h(-10), "left_done_at": None},
+        ]
+        history = [{"work_item_id": "fwi_9", "report_revision": 4, "sequence": 1,
+                    "verification_state": "insufficient-evidence", "evaluated_at": h(4)}]
+        values = inputs(reports=reports, verification_history=history)
+        states = {item["dimensions"]["verification_state"]: item["value"]
+                  for item in run("remediation.outcomes-by-state", values)["breakdown"]}
+        self.assertEqual((states["report-withdrawn"], states["not-recorded"], states["insufficient-evidence"]), (1, 0, 1))
+        rate = run("remediation.verification-rate", values)
+        self.assertEqual((rate["status"], rate["total"]["denominator"]), ("measured", 1))
+        self.assertEqual(run("quality.unmeasurable-outcomes", values)["total"]["value"], 1)
+        # A report that left done only after the window end is not withdrawn in it.
+        later = [dict(reports[0], left_done_at=h(30))]
+        result = run("remediation.outcomes-by-state", inputs(reports=later))
+        self.assertEqual(result["total"]["value"], 1)
+        self.assertIn("OUTCOME_NOT_RECORDED", result["status_reasons"])
+
+    def test_verified_counts_are_partial_when_reports_have_no_recorded_outcome(self) -> None:
+        reports = [{"work_item_id": "fwi_8", "finding_id": "fnd_8", "revision": 2, "occurred_at": h(1),
+                    "finding_first_seen_at": h(-10)}]
+        for metric_id in ("remediation.verified", "remediation.time-to-verified-from-report",
+                          "remediation.time-to-verified-from-detection"):
+            with self.subTest(metric=metric_id):
+                result = run(metric_id, inputs(reports=reports))
+                self.assertIn("OUTCOME_NOT_RECORDED", result["status_reasons"])
+                self.assertNotEqual(result["status"], "measured")
+
     def test_done_but_unverified_work_items(self) -> None:
         items = [
             {"work_item_id": "fwi_1", "finding_id": "fnd_1", "report_revision": 6, "verification_state": "insufficient-evidence"},
@@ -408,12 +448,15 @@ class MeasurementStateTests(unittest.TestCase):
         self.assertEqual(run("remediation.reports", remediation_inputs(degraded_verification_runs=2))["status"], "measured")
 
     def test_verification_run_coverage(self) -> None:
-        runs = [{"run_id": f"frun_{i}", "started_at": h(i), "verification_status": status}
+        runs = [{"run_id": f"frun_{i}", "started_at": h(i), "run_status": "completed", "verification_status": status}
                 for i, status in enumerate(("completed", "completed", "failed", "incomplete", None))]
+        # A failed evaluation run never reached verification at all.
+        runs.append({"run_id": "frun_9", "started_at": h(9), "run_status": "failed", "verification_status": None})
         result = run("quality.verification-run-coverage", inputs(evaluation_runs=runs))
         statuses = {item["dimensions"]["verification_status"]: item["value"] for item in result["breakdown"]}
-        self.assertEqual(result["total"]["value"], 5)
-        self.assertEqual(statuses, {"completed": 2, "incomplete": 1, "failed": 1, "not-recorded": 1})
+        self.assertEqual(result["total"]["value"], 6)
+        self.assertEqual(statuses, {"completed": 2, "incomplete": 1, "failed": 1, "not-recorded": 1,
+                                    "evaluation-failed": 1})
         self.assertEqual(result["status"], "measured")
 
     def test_history_coverage_reports_findings_older_than_each_source(self) -> None:

@@ -26,6 +26,8 @@ from .outcome_metrics import (
 )
 
 MAX_METRIC_ROWS = 100_000
+# A metric read never holds a snapshot open for long.
+STATEMENT_TIMEOUT_MS = 15_000
 # The migration that started each history source.
 SOURCE_MIGRATIONS = {"work-events": 5, "decision-history": 6, "verification-history": 8, "verification-runs": 8}
 
@@ -62,6 +64,7 @@ class SqlOutcomeMetricsStore:
         window = resolve_window(definition, start=start, end=end, now=now)
         with self._engine().begin() as connection:
             connection.execute(text("SET TRANSACTION READ ONLY"))
+            connection.execute(text(f"SET LOCAL statement_timeout = {int(STATEMENT_TIMEOUT_MS)}"))
             inputs = _load(connection, definition, window, site_id, now)
             freshness = _freshness(connection, definition, site_id)
         result = compute_metric(definition, window=window, filters=filters, inputs=inputs, now=now)
@@ -130,38 +133,44 @@ def _load(connection: Any, definition: MetricDefinition, window: MetricWindow, s
             """
         )
     elif metric_id == "findings.band-episode-duration":
-        # The full recorded history before the window end of every finding
-        # with a row in the window or a band in effect at the window start, so
-        # an episode's true start is known.
+        # Only rows where a finding's band changes matter to episodes. Of
+        # those, keep every one in the window plus the latest one before it
+        # when a band was in effect at the window start, so an episode's true
+        # start is known without returning whole histories.
         values["decision_history"] = take(
             f"""
             WITH scoped AS (
-                SELECT h.* FROM finding_decision_history h
+                SELECT h.finding_id, h.revision, h.evaluated_at, h.decision_state, h.action_band,
+                       h.previous_action_band, h.transition_cause,
+                       CASE WHEN h.decision_state = 'current' THEN h.action_band END AS band
+                FROM finding_decision_history h
                 WHERE {_SITE.format(column="h.site_id")} AND h.evaluated_at < :end
             ),
-            relevant AS (
-                SELECT finding_id FROM scoped WHERE evaluated_at >= :start
-                UNION
-                SELECT finding_id FROM (
-                    SELECT DISTINCT ON (finding_id) finding_id, decision_state
-                    FROM scoped WHERE evaluated_at < :start
-                    ORDER BY finding_id, revision DESC
-                ) prior
-                WHERE decision_state = 'current'
+            sequenced AS (
+                SELECT s.*, LAG(s.band) OVER w AS prior_band, ROW_NUMBER() OVER w AS position
+                FROM scoped s
+                WINDOW w AS (PARTITION BY s.finding_id ORDER BY s.revision)
+            ),
+            changes AS (
+                SELECT q.*, ROW_NUMBER() OVER (
+                    PARTITION BY q.finding_id, q.evaluated_at < :start ORDER BY q.revision DESC
+                ) AS recency
+                FROM sequenced q
+                WHERE q.position = 1 OR q.band IS DISTINCT FROM q.prior_band
             )
-            SELECT s.finding_id, s.revision, s.evaluated_at, s.decision_state, s.action_band,
-                   s.previous_action_band, s.transition_cause, f.created_at AS finding_created_at
-            FROM scoped s
-            JOIN relevant r ON r.finding_id = s.finding_id
-            JOIN findings f ON f.finding_id = s.finding_id
-            ORDER BY s.finding_id, s.revision
+            SELECT c.finding_id, c.revision, c.evaluated_at, c.decision_state, c.action_band,
+                   c.previous_action_band, c.transition_cause, f.created_at AS finding_created_at
+            FROM changes c
+            JOIN findings f ON f.finding_id = c.finding_id
+            WHERE c.evaluated_at >= :start OR (c.recency = 1 AND c.band IS NOT NULL)
+            ORDER BY c.finding_id, c.revision
             """
         )
     elif metric_id in {"findings.band-transitions", "findings.reopened"}:
         rows = take(
             f"""
-            SELECT h.finding_id, h.revision, h.evaluated_at, h.decision_state, h.action_band,
-                   h.previous_action_band, h.transition_cause
+            SELECT h.finding_id, h.revision, h.evaluated_at, h.decision_state, h.previous_decision_state,
+                   h.action_band, h.previous_action_band, h.transition_cause
             FROM finding_decision_history h
             WHERE {_SITE.format(column="h.site_id")} AND h.evaluated_at >= :start AND h.evaluated_at < :end
             ORDER BY h.finding_id, h.revision
@@ -188,7 +197,12 @@ def _load(connection: Any, definition: MetricDefinition, window: MetricWindow, s
         # Reports made in the window, plus reports first verified in it.
         reports = take(
             f"""
-            SELECT e.work_item_id, e.finding_id, e.revision, e.occurred_at, f.first_seen_at AS finding_first_seen_at
+            SELECT e.work_item_id, e.finding_id, e.revision, e.occurred_at, f.first_seen_at AS finding_first_seen_at,
+                   (
+                       SELECT MIN(x.occurred_at) FROM finding_work_events x
+                       WHERE x.work_item_id = e.work_item_id AND x.revision > e.revision
+                         AND x.event_type = 'status_changed' AND x.from_status = 'done'
+                   ) AS left_done_at
             FROM finding_work_events e
             JOIN findings f ON f.finding_id = e.finding_id
             WHERE {_SITE.format(column="e.site_id")}
@@ -238,10 +252,10 @@ def _load(connection: Any, definition: MetricDefinition, window: MetricWindow, s
     elif metric_id == "quality.verification-run-coverage":
         values["evaluation_runs"] = take(
             f"""
-            SELECT r.run_id, r.started_at, v.status AS verification_status
+            SELECT r.run_id, r.started_at, r.status AS run_status, v.status AS verification_status
             FROM finding_evaluation_runs r
             LEFT JOIN finding_verification_runs v ON v.evaluation_run_id = r.run_id
-            WHERE r.status = 'completed' AND r.started_at >= :start AND r.started_at < :end
+            WHERE r.status IN ('completed', 'failed') AND r.started_at >= :start AND r.started_at < :end
               AND (CAST(:site_id AS TEXT) IS NULL OR r.scope_site_id IS NULL OR r.scope_site_id = :site_id)
             ORDER BY r.started_at, r.run_id
             """
@@ -280,18 +294,19 @@ def _degraded_runs(connection: Any, window: MetricWindow, site_id: str | None) -
     if window.start is not None:
         sql = f"""
             SELECT COUNT(*) FROM finding_evaluation_runs r
-            JOIN finding_verification_runs v ON v.evaluation_run_id = r.run_id
-            WHERE r.started_at >= :start AND r.started_at < :end AND v.status IN ('failed', 'incomplete')
+            LEFT JOIN finding_verification_runs v ON v.evaluation_run_id = r.run_id
+            WHERE r.started_at >= :start AND r.started_at < :end
+              AND (r.status = 'failed' OR v.status IN ('failed', 'incomplete'))
               AND {scope}
         """
     else:
         sql = f"""
             SELECT COUNT(*) FROM (
-                SELECT v.status FROM finding_evaluation_runs r
+                SELECT r.status AS run_status, v.status FROM finding_evaluation_runs r
                 LEFT JOIN finding_verification_runs v ON v.evaluation_run_id = r.run_id
-                WHERE r.status = 'completed' AND {scope}
+                WHERE r.status IN ('completed', 'failed') AND {scope}
                 ORDER BY r.started_at DESC, r.run_id DESC LIMIT 1
-            ) latest WHERE latest.status IN ('failed', 'incomplete')
+            ) latest WHERE latest.run_status = 'failed' OR latest.status IN ('failed', 'incomplete')
         """
     return int(connection.execute(text(sql), {"site_id": site_id, "start": window.start,
                                               "end": window.end}).scalar_one())
