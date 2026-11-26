@@ -9,3 +9,10 @@
 /GOVERNANCE.md @PKXLIVE
 /LICENSE @PKXLIVE
 /NOTICE @PKXLIVE
+
+# Development agent instructions and team workflow
+/AGENTS.md @PKXLIVE
+/CLAUDE.md @PKXLIVE
+/.agents/ @PKXLIVE
+/docs/team/ @PKXLIVE
+/docs/DEVELOPMENT_VALIDATION.md @PKXLIVE
