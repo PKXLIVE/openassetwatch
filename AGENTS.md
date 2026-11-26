@@ -49,6 +49,14 @@ product behavior.
 - **Preserve all existing work.** Leave staged, unstaged and untracked
   changes you did not create untouched: no reset, clean, checkout over, stash
   pop, delete or commit. If preserved work blocks the task, stop and report.
+- Keep permanent task worktrees under one owner-managed parent and shared
+  private development controls in one operator-managed directory. Avoid
+  redundant independent clones.
+- Preserve unfinished work before relocating or retiring a workspace. Remove a
+  completed worktree only with owner approval and after verifying its work is
+  merged or durably preserved. After acceptance, remove redundant temporary
+  files, fixtures, snapshots, and review packages while retaining required
+  recovery evidence.
 
 ## Product direction
 
@@ -184,8 +192,10 @@ platform, hardware or external-service results without observing them.
 
 ## Commits and pull requests
 
-- **DCO sign-off.** Every commit carries a `Signed-off-by` trailer
-  ([CONTRIBUTING.md](CONTRIBUTING.md)).
+- **DCO sign-off.** Every human-authored commit, including AI-assisted
+  commits, carries a `Signed-off-by` trailer
+  ([CONTRIBUTING.md](CONTRIBUTING.md)). Commits by recognized automation
+  authors remain exempt, as the DCO check defines.
   - The sign-off is a human attestation. An agent adds it only with the
     identity the owner authorized for that agent, set per command, never in
     global configuration.

@@ -14,8 +14,10 @@ order.
    Follow the [accepted decisions](../architecture/decisions/README.md).
 4. **Build and test.** Add or update tests with each behavior change. Run the
    checks in [DEVELOPMENT_VALIDATION.md](../DEVELOPMENT_VALIDATION.md).
-5. **Sign off.** Every commit carries a DCO `Signed-off-by` trailer from the
-   person responsible for it.
+5. **Sign off.** Every human-authored commit, including AI-assisted commits,
+   carries a DCO `Signed-off-by` trailer from the person responsible for it.
+   Commits by recognized automation authors remain exempt, as the DCO check
+   defines.
 6. **Open a pull request.** It states the outcome, scope, validation actually
    run, limitations and pending CI. Required CI checks must pass.
 7. **Review.** At least one independent review covers the whole change.
