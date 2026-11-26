@@ -84,7 +84,7 @@ Classifications: **ALREADY PRESENT**, **PARTIALLY PRESENT**, **USEFUL GAP**,
 | Mobilization | Outbound projection to external ticketing systems | FUTURE INTEGRATION CANDIDATE | [`CTEM-INT-02`](#ctem-int-02-outbound-ticket-projection) |
 | Mobilization | Event automation and notifications | FUTURE INTEGRATION CANDIDATE (later) | Requires approval tiers (DR-12) |
 | Mobilization | Multi-team remediation campaign management | NOT APPROPRIATE (now) | Revisit after `CTEM-GAP-05` |
-| Cross-cutting | Outcome metrics with explicit units and "not measured" | USEFUL GAP | [`CTEM-GAP-09`](#ctem-gap-09-outcome-metrics) |
+| Cross-cutting | Outcome metrics with explicit units and "not measured" | ALREADY PRESENT | [`CTEM-GAP-09`](#ctem-gap-09-outcome-metrics), implemented |
 | Cross-cutting | Tamper-evident governance history | USEFUL GAP | [`CTEM-GAP-10`](#ctem-gap-10-tamper-evident-governance-history) |
 | Cross-cutting | Detection and indicator context | FUTURE INTEGRATION CANDIDATE | [`CTEM-INT-04`](#ctem-int-04-read-only-detection-and-indicator-context) |
 | Cross-cutting | Exchange with other exposure-management systems | FUTURE INTEGRATION CANDIDATE | [`CTEM-INT-05`](#ctem-int-05-optional-exchange-with-external-exposure-systems) |

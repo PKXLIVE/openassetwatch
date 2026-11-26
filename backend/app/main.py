@@ -170,6 +170,9 @@ from .verification_contracts import (
     VerificationRulesetResponse,
 )
 from .verification_store import SqlVerificationStore
+from .outcome_metrics import ACTION_BANDS, catalog_public as outcome_metrics_catalog_public
+from .outcome_metrics_contracts import METRIC_ID_PATTERN, MetricCatalogResponse, MetricResultResponse
+from .outcome_metrics_store import MetricNotFound, SqlOutcomeMetricsStore
 from .findings import RULESET_VERSION, rule_registry_public
 from .hub_contracts import (
     ObservationBatchRequest,
@@ -1654,6 +1657,10 @@ def _asset_importance_store() -> SqlAssetImportanceStore:
 
 def _verification_store() -> SqlVerificationStore:
     return SqlVerificationStore()
+
+
+def _outcome_metrics_store() -> SqlOutcomeMetricsStore:
+    return SqlOutcomeMetricsStore()
 
 
 def _classification_store() -> SqlClassificationStore:
@@ -3334,6 +3341,65 @@ def api_finding_verification_history(
     if history is None:
         raise HTTPException(status_code=404, detail="finding not found")
     return history
+
+
+OUTCOME_METRICS_CAPABILITY = "outcome metrics"
+_ACTION_BAND_PATTERN = "^(" + "|".join(ACTION_BANDS) + ")$"
+_METRIC_QUERY_PARAMETERS = frozenset({"site_id", "start", "end", "action_band", "verification_state"})
+
+
+def _require_outcome_metrics_token(admin_token: str | None) -> None:
+    # Metrics aggregate work items and their verification, so they fail
+    # closed like work tracking and verification.
+    require_configured_admin_token(admin_token, capability=OUTCOME_METRICS_CAPABILITY)
+
+
+@app.get("/api/v1/metrics/catalog", response_model=MetricCatalogResponse)
+def api_metric_catalog(
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    """Versioned outcome metric definitions. Read-only."""
+
+    _require_outcome_metrics_token(admin_token)
+    return outcome_metrics_catalog_public()
+
+
+@app.get("/api/v1/metrics/{metric_id}", response_model=MetricResultResponse)
+def api_metric(
+    request: Request,
+    metric_id: str = ApiPath(..., pattern=METRIC_ID_PATTERN, max_length=80),
+    site_id: str | None = Query(default=None, min_length=1, max_length=128),
+    start: datetime | None = Query(default=None),
+    end: datetime | None = Query(default=None),
+    action_band: str | None = Query(default=None, pattern=_ACTION_BAND_PATTERN),
+    verification_state: str | None = Query(default=None, min_length=1, max_length=32),
+    admin_token: str | None = Header(default=None, alias=ADMIN_TOKEN_HEADER),
+):
+    """One outcome metric with its measurement state and coverage. Read-only.
+
+    Only the catalog's typed filters are accepted; any other query parameter is
+    rejected so that no filter is silently ignored.
+    """
+
+    _require_outcome_metrics_token(admin_token)
+    unknown = sorted(set(request.query_params) - _METRIC_QUERY_PARAMETERS)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"unsupported query parameter: {unknown[0][:40]}")
+    try:
+        return _outcome_metrics_store().compute(
+            metric_id,
+            site_id=site_id,
+            start=start,
+            end=end,
+            action_band=action_band,
+            verification_state=verification_state,
+        )
+    except MetricNotFound as exc:
+        raise HTTPException(status_code=404, detail="metric not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="failed to compute metric") from exc
 
 
 @app.get("/api/v1/risk/summary", response_model=RiskSummaryResponse)

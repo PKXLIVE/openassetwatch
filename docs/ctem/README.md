@@ -12,6 +12,7 @@ mobilization. AI may explain results; it never decides them.
 | [CTEM_DECISION_LAYER.md](CTEM_DECISION_LAYER.md) | The implemented deterministic decision layer: action bands, reason codes, recomputation, persistence, and limits |
 | [CTEM_ASSET_IMPORTANCE.md](CTEM_ASSET_IMPORTANCE.md) | Implemented audited asset importance: values, provenance, history, withdrawal, and its decision input |
 | [CTEM_REMEDIATION_VERIFICATION.md](CTEM_REMEDIATION_VERIFICATION.md) | Implemented evidence-based remediation verification: guidance, before-and-after evidence, states, history, and API |
+| [CTEM_OUTCOME_METRICS.md](CTEM_OUTCOME_METRICS.md) | Implemented security outcome metrics: versioned catalog, counting units, measurement states, and API contracts |
 | [CTEM_IMPLEMENTATION_ROADMAP.md](CTEM_IMPLEMENTATION_ROADMAP.md) | Current capability status and the recommended order of the next CTEM capabilities |
 | [CTEM_CAPABILITY_GAP_SYNTHESIS.md](CTEM_CAPABILITY_GAP_SYNTHESIS.md) | Research synthesis: CTEM capabilities classified against OpenAssetWatch, with the detail behind each gap |
 | [CTEM_REPOSITORY_KNOWLEDGE_MAP.md](CTEM_REPOSITORY_KNOWLEDGE_MAP.md) | Which implementation, tests, decisions, and designs inform CTEM work, and recorded conflicts |
