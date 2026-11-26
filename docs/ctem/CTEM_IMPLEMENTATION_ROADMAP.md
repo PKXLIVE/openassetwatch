@@ -1,7 +1,7 @@
 # CTEM Implementation Roadmap
 
-**Status:** planning document, refreshed after remediation verification
-(`CTEM-GAP-06`), asset importance (`CTEM-GAP-02`), and the decision layer
+**Status:** planning document, refreshed after outcome metrics
+(`CTEM-GAP-09`), remediation verification (`CTEM-GAP-06`), asset importance (`CTEM-GAP-02`), and the decision layer
 (`CTEM-GAP-01`) were implemented. Capability detail is in
 [CTEM_CAPABILITY_GAP_SYNTHESIS.md](CTEM_CAPABILITY_GAP_SYNTHESIS.md).
 
@@ -30,7 +30,7 @@
 | Mobilization | Shared-treatment grouping (`CTEM-GAP-05`) | FUTURE |
 | Mobilization | Target dates from action bands (`CTEM-GAP-12`) | FUTURE |
 | Mobilization | Exception governance and applicability statements (`CTEM-GAP-04`) | PROPOSED (accepted design) |
-| Cross-cutting | Outcome metrics (`CTEM-GAP-09`) | FUTURE |
+| Cross-cutting | **Outcome metrics (`CTEM-GAP-09`)** | **IMPLEMENTED (versioned metric catalog over recorded history, read-only API)** |
 | Cross-cutting | Tamper-evident governance history (`CTEM-GAP-10`) | FUTURE |
 | Cross-cutting | AI explanation of decisions | NOT IMPLEMENTED (boundary documented) |
 
@@ -86,7 +86,7 @@ Implementing `CTEM-GAP-01` surfaced these facts, which change the order:
 | --- | --- | --- | --- |
 | done | `CTEM-GAP-02` asset importance (asset-level audited assignment) | First Act Now rule | Decision layer |
 | done | `CTEM-GAP-06` verification guidance and records | Answers "did remediation reduce exposure?" from later evidence | Decision layer, work tracking |
-| 1 | `CTEM-GAP-09` outcome metrics | Time in each band, time to verified resolution, and done-but-unverified work, from existing history | `CTEM-GAP-06` (done) |
+| done | `CTEM-GAP-09` outcome metrics | Time in each band, time to verified resolution, and done-but-unverified work, from existing history | `CTEM-GAP-06` (done) |
 | 3 | `CTEM-GAP-03` exposure state and verified scope | Enables the remaining Act Now rule (known exploitation that is reachable) and lets the critical-asset rule see ruled-out exposure | Scope registry, approved external sources |
 | 4 | `CTEM-GAP-05` shared-treatment grouping | Groups findings one fix closes; independent of bands | Fixed-version data on findings |
 | 5 | `CTEM-GAP-10` tamper-evident governance history | Five append-only tables now benefit | None |
@@ -112,7 +112,15 @@ Smaller items that extend `CTEM-GAP-01` without a new gap:
 
 ## Recommended next implementation
 
-**`CTEM-GAP-09`: outcome metrics.** Remediation verification (`CTEM-GAP-06`)
-is implemented; see [CTEM_REMEDIATION_VERIFICATION.md](CTEM_REMEDIATION_VERIFICATION.md).
-Asset importance (`CTEM-GAP-02`) is described in
+**`CTEM-GAP-03`: exposure state and verified scope**, next in the order
+above. It needs a scope registry and an approved external source before
+implementation; when that is not yet decided, `CTEM-GAP-05` (shared-treatment
+grouping) and `CTEM-GAP-10` (tamper-evident governance history) can proceed
+without new sources.
+
+Outcome metrics (`CTEM-GAP-09`) are implemented; see
+[CTEM_OUTCOME_METRICS.md](CTEM_OUTCOME_METRICS.md). Remediation verification
+(`CTEM-GAP-06`) is described in
+[CTEM_REMEDIATION_VERIFICATION.md](CTEM_REMEDIATION_VERIFICATION.md), and
+asset importance (`CTEM-GAP-02`) in
 [CTEM_ASSET_IMPORTANCE.md](CTEM_ASSET_IMPORTANCE.md).
