@@ -24,6 +24,7 @@ CTEM documents label each capability with one of:
 | --- | --- |
 | IMPLEMENTED | Code and tests are on `main`. |
 | PARTIAL | Some required elements are on `main`. |
+| EXPERIMENTAL | A prototype or research implementation is on `main`, but it is not operationally validated and must not be relied on as an IMPLEMENTED capability. |
 | PROPOSED | An open pull request or accepted design describes it; no runtime yet. |
 | FUTURE | Identified and sequenced, with no design yet. |
 | NOT IMPLEMENTED | Absent, including when deliberately out of scope. |
