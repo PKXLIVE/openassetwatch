@@ -1,0 +1,17 @@
+{
+  "schema": "oaw.semantic-source.v1",
+  "id": "risk.site.read",
+  "version": "0.1.0",
+  "status": "draft",
+  "title": "Site risk snapshot",
+  "domain": "risk",
+  "read_operation": "risk.site.read",
+  "time_context": "current_snapshot",
+  "scope_binding": "authorized_single_site",
+  "selectable_dimensions": [
+    "site"
+  ],
+  "response_contract": "SiteRiskResponse",
+  "source_state": "existing_read_api",
+  "integration_status": "deferred"
+}

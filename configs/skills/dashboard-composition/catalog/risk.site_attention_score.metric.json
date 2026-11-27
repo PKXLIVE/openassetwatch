@@ -1,0 +1,36 @@
+{
+  "schema": "oaw.semantic-metric.v1",
+  "id": "risk.site_attention_score",
+  "version": "0.1.0",
+  "status": "draft",
+  "title": "Site operational attention score",
+  "definition": "Current stored site Operational Attention Score for the authorized site. Use the backend score as returned under its formula version. A missing score is no measurement.",
+  "source": {
+    "id": "risk.site.read",
+    "version": "0.1.0",
+    "digest": "sha256:0dca1eda6952e80ae878614e64661797ae9ff8f9eea68bd0e6c2b6c0b2394eae"
+  },
+  "time_context": "current_snapshot",
+  "method": "read_source_scalar",
+  "joins": "none",
+  "source_field": "score",
+  "unit": "score_0_to_100",
+  "value_range": {
+    "minimum": 0,
+    "maximum": 100
+  },
+  "required_filters": [
+    "site"
+  ],
+  "freshness": {
+    "observation_time": "data_as_of",
+    "classification": "unknown",
+    "threshold_seconds": null
+  },
+  "formula_version_required": true,
+  "allowed_dimensions": [],
+  "aggregation": "source_value",
+  "data_shape": "scalar",
+  "sensitivity": "restricted",
+  "integration_status": "deferred"
+}

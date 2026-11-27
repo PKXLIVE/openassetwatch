@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oaw:dashboard-composition:v1:dashboard-template",
+  "title": "Dashboard template contract",
+  "$comment": "Draft Milestone C contract. Shape validation does not authorize execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "version",
+    "status",
+    "title",
+    "approval_owner",
+    "availability",
+    "intent",
+    "variables",
+    "dependencies",
+    "sections",
+    "slots",
+    "resource_limits",
+    "lifecycle"
+  ],
+  "properties": {
+    "schema": {
+      "const": "oaw.dashboard-template.v1"
+    },
+    "id": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+    },
+    "version": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/version"
+    },
+    "status": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactStatus"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "approval_owner": {
+      "const": "openassetwatch"
+    },
+    "availability": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/availability"
+    },
+    "intent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 180
+    },
+    "variables": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/variableDefinition"
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/dependency"
+      }
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/layoutSection"
+      }
+    },
+    "slots": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "allowed_panels",
+          "required_filters",
+          "allowed_metrics"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+          },
+          "allowed_panels": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+            }
+          },
+          "required_filters": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/dimension"
+            }
+          },
+          "allowed_metrics": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+            }
+          }
+        }
+      }
+    },
+    "resource_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_panels",
+        "max_concurrent_queries",
+        "max_total_rows",
+        "max_refresh_queries_per_minute"
+      ],
+      "properties": {
+        "max_panels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "max_concurrent_queries": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "max_total_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50000
+        },
+        "max_refresh_queries_per_minute": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "max_ttl_seconds"
+      ],
+      "properties": {
+        "mode": {
+          "const": "ephemeral"
+        },
+        "max_ttl_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/availabilityGate"
+    }
+  ]
+}

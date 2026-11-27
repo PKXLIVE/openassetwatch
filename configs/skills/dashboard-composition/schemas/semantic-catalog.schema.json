@@ -1,0 +1,365 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oaw:dashboard-composition:v1:semantic-catalog",
+  "title": "Semantic catalog records",
+  "$comment": "Draft Milestone C contract. Shape validation does not authorize execution.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "id",
+        "version",
+        "status",
+        "title",
+        "domain",
+        "read_operation",
+        "time_context",
+        "scope_binding",
+        "selectable_dimensions",
+        "response_contract",
+        "source_state",
+        "integration_status"
+      ],
+      "properties": {
+        "schema": {
+          "const": "oaw.semantic-source.v1"
+        },
+        "id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "version": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/version"
+        },
+        "status": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactStatus"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "domain": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/domain"
+        },
+        "read_operation": {
+          "enum": [
+            "findings.list",
+            "risk.site.read"
+          ]
+        },
+        "time_context": {
+          "const": "current_snapshot"
+        },
+        "scope_binding": {
+          "const": "authorized_single_site"
+        },
+        "selectable_dimensions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/dimension"
+          }
+        },
+        "response_contract": {
+          "enum": [
+            "FindingListResponse",
+            "SiteRiskResponse"
+          ]
+        },
+        "source_state": {
+          "const": "existing_read_api"
+        },
+        "integration_status": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/availability"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "integration_status": {
+                "const": "available"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "approved"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "id",
+        "version",
+        "status",
+        "title",
+        "definition",
+        "source",
+        "time_context",
+        "method",
+        "joins",
+        "source_field",
+        "unit",
+        "value_range",
+        "allowed_dimensions",
+        "required_filters",
+        "aggregation",
+        "data_shape",
+        "sensitivity",
+        "freshness",
+        "formula_version_required",
+        "integration_status"
+      ],
+      "properties": {
+        "schema": {
+          "const": "oaw.semantic-metric.v1"
+        },
+        "id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "version": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/version"
+        },
+        "status": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactStatus"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 750
+        },
+        "source": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+        },
+        "time_context": {
+          "const": "current_snapshot"
+        },
+        "method": {
+          "const": "read_source_scalar"
+        },
+        "joins": {
+          "const": "none"
+        },
+        "source_field": {
+          "enum": [
+            "total",
+            "score"
+          ]
+        },
+        "unit": {
+          "enum": [
+            "count",
+            "score_0_to_100"
+          ]
+        },
+        "value_range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum",
+            "maximum"
+          ],
+          "properties": {
+            "minimum": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "maximum": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        "allowed_dimensions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/dimension"
+          }
+        },
+        "required_filters": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/dimension"
+          }
+        },
+        "aggregation": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/aggregation"
+        },
+        "data_shape": {
+          "const": "scalar"
+        },
+        "sensitivity": {
+          "enum": [
+            "internal",
+            "restricted"
+          ]
+        },
+        "freshness": {
+          "description": "Observation time and freshness classification are separate. The two v0.1.0 sources have no approved metric-level threshold.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observation_time",
+            "classification",
+            "threshold_seconds"
+          ],
+          "properties": {
+            "observation_time": {
+              "enum": [
+                "not_provided",
+                "data_as_of"
+              ]
+            },
+            "classification": {
+              "const": "unknown"
+            },
+            "threshold_seconds": {
+              "const": null
+            }
+          }
+        },
+        "formula_version_required": {
+          "type": "boolean"
+        },
+        "integration_status": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/availability"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source_field": {
+                "const": "total"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "freshness": {
+                "properties": {
+                  "observation_time": {
+                    "const": "not_provided"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "freshness": {
+                "properties": {
+                  "observation_time": {
+                    "const": "data_as_of"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "integration_status": {
+                "const": "available"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "approved"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "id",
+        "version",
+        "status",
+        "title",
+        "items"
+      ],
+      "properties": {
+        "schema": {
+          "const": "oaw.semantic-deferred.v1"
+        },
+        "id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "version": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/version"
+        },
+        "status": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactStatus"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 24,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "topic",
+              "reason",
+              "availability"
+            ],
+            "properties": {
+              "topic": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              "availability": {
+                "const": "deferred"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

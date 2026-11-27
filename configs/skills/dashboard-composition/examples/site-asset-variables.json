@@ -1,0 +1,25 @@
+{
+  "variables": [
+    {
+      "id": "site-scope",
+      "value_type": "site_ids",
+      "source": "authorized_scope",
+      "required": true,
+      "visible": true
+    },
+    {
+      "id": "asset-selection",
+      "value_type": "asset",
+      "source": "operator_selection",
+      "required": true,
+      "visible": true
+    }
+  ],
+  "dependencies": [
+    {
+      "parent_variable_id": "site-scope",
+      "child_variable_id": "asset-selection",
+      "rule": "assets_in_selected_sites"
+    }
+  ]
+}

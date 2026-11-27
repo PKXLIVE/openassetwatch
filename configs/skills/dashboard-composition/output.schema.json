@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oaw:dashboard-composition:v1:output",
+  "title": "Dashboard composition proposal or unsupported response",
+  "$comment": "Draft Milestone C contract. Shape validation does not authorize execution.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "request_id",
+        "origin",
+        "skill",
+        "template",
+        "variable_values",
+        "filters",
+        "layout",
+        "panels",
+        "lifecycle"
+      ],
+      "properties": {
+        "schema": {
+          "const": "oaw.dashboard-plan.v1"
+        },
+        "request_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "origin": {
+          "const": "generated_proposal"
+        },
+        "skill": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+        },
+        "template": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+        },
+        "variable_values": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/variableBinding"
+          }
+        },
+        "filters": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/filter"
+          }
+        },
+        "layout": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/layoutSection"
+          }
+        },
+        "panels": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "panel_id",
+              "template",
+              "slot_id",
+              "variant",
+              "metrics",
+              "dimensions",
+              "parameters",
+              "refresh",
+              "drilldown_actions",
+              "filters"
+            ],
+            "properties": {
+              "panel_id": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+              },
+              "template": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+              },
+              "slot_id": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+              },
+              "variant": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+              },
+              "metrics": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "definition",
+                    "aggregation"
+                  ],
+                  "properties": {
+                    "definition": {
+                      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+                    },
+                    "aggregation": {
+                      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/aggregation"
+                    }
+                  }
+                }
+              },
+              "dimensions": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/dimension"
+                }
+              },
+              "parameters": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 16,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/variableBinding"
+                }
+              },
+              "refresh": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/refresh"
+              },
+              "drilldown_actions": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+                }
+              },
+              "filters": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 16,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/filter"
+                }
+              }
+            }
+          }
+        },
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "ephemeral"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "request_id",
+        "reason"
+      ],
+      "properties": {
+        "schema": {
+          "const": "oaw.dashboard-unsupported.v1"
+        },
+        "request_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "reason": {
+          "enum": [
+            "unsupported_objective",
+            "unavailable_data",
+            "no_eligible_template",
+            "incompatible_scope",
+            "incompatible_time_context"
+          ]
+        }
+      }
+    }
+  ]
+}

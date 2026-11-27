@@ -117,7 +117,7 @@ openassetwatch/
 |-- deployment/               # Deployment planning assets
 |-- docker/                   # Docker-related support files
 |-- docs/                     # Architecture, operations, and release documentation
-|-- frontend/                 # Reserved placeholder for future frontend experiments
+|-- frontend/                 # Next.js Control Tower Overview and drilldowns
 |-- installers/               # Installer scaffolds and platform helper scripts
 |-- internal/                 # Go internal packages for agent functionality
 |-- packaging/                # Agent package manifests, templates, and checklists

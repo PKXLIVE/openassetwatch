@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oaw:dashboard-composition:v1:dashboard-view",
+  "title": "Product-owned ephemeral dashboard view",
+  "$comment": "Draft Milestone C contract. Shape validation does not authorize execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "request_id",
+    "plan_id",
+    "template",
+    "origin",
+    "created_at",
+    "expires_at",
+    "lifecycle",
+    "panel_ids"
+  ],
+  "properties": {
+    "schema": {
+      "const": "oaw.dashboard-view.v1"
+    },
+    "id": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+    },
+    "request_id": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+    },
+    "plan_id": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+    },
+    "template": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+    },
+    "origin": {
+      "enum": [
+        "generated_validated",
+        "generated_modified"
+      ]
+    },
+    "created_at": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+    },
+    "expires_at": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "state"
+      ],
+      "properties": {
+        "mode": {
+          "const": "ephemeral"
+        },
+        "state": {
+          "enum": [
+            "rendered",
+            "discarded",
+            "expired"
+          ]
+        }
+      }
+    },
+    "panel_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+      }
+    }
+  }
+}

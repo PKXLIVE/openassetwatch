@@ -1,0 +1,740 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oaw:dashboard-composition:v1:panel-data",
+  "title": "Product-owned panel data and quality",
+  "$comment": "Draft Milestone C contract. Shape validation does not authorize execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "panel_id",
+    "state",
+    "provenance",
+    "quality"
+  ],
+  "properties": {
+    "schema": {
+      "const": "oaw.panel-data.v1"
+    },
+    "panel_id": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+    },
+    "state": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/panelState"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_id",
+        "origin",
+        "panel_template",
+        "metrics",
+        "scope",
+        "time_context",
+        "filters",
+        "variable_values",
+        "generated_at",
+        "sources"
+      ],
+      "properties": {
+        "plan_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "origin": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/provenanceOrigin"
+        },
+        "panel_template": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+        },
+        "metrics": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+          }
+        },
+        "scope": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/scope"
+        },
+        "time_context": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timeContext"
+        },
+        "filters": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/filter"
+          }
+        },
+        "variable_values": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/variableBinding"
+          }
+        },
+        "generated_at": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "definition",
+              "retrieved_at",
+              "evidence_ids",
+              "freshness",
+              "observed_as_of"
+            ],
+            "properties": {
+              "definition": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+              },
+              "retrieved_at": {
+                "oneOf": [
+                  {
+                    "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+                  },
+                  {
+                    "const": null
+                  }
+                ]
+              },
+              "evidence_ids": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 100,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+                }
+              },
+              "formula_version": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+              },
+              "evaluation_run_id": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+              },
+              "calculated_at": {
+                "description": "Calculation timestamp reported by the source when available. Separate from observation and retrieval.",
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+              },
+              "freshness": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/freshness"
+              },
+              "observed_as_of": {
+                "oneOf": [
+                  {
+                    "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+                  },
+                  {
+                    "const": null
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "freshness",
+        "observed_as_of",
+        "last_success_at",
+        "completeness",
+        "truncated",
+        "row_count"
+      ],
+      "properties": {
+        "freshness": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/freshness"
+        },
+        "observed_as_of": {
+          "oneOf": [
+            {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+            },
+            {
+              "const": null
+            }
+          ]
+        },
+        "last_success_at": {
+          "oneOf": [
+            {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+            },
+            {
+              "const": null
+            }
+          ]
+        },
+        "completeness": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "row_count": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "const": null
+            }
+          ]
+        },
+        "reason": {
+          "enum": [
+            "loading",
+            "no_qualifying_records",
+            "no_measurement",
+            "source_stale",
+            "result_truncated",
+            "source_incomplete",
+            "source_unavailable",
+            "access_denied",
+            "query_failed",
+            "unsupported_dimension"
+          ]
+        }
+      }
+    },
+    "data": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "value"
+          ],
+          "properties": {
+            "kind": {
+              "const": "scalar"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "columns",
+            "rows"
+          ],
+          "properties": {
+            "kind": {
+              "const": "table"
+            },
+            "columns": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 12,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "label"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                }
+              }
+            },
+            "rows": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10000,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "cells"
+                ],
+                "properties": {
+                  "cells": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 12,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "value"
+                          ],
+                          "properties": {
+                            "type": {
+                              "const": "integer"
+                            },
+                            "value": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "value"
+                          ],
+                          "properties": {
+                            "type": {
+                              "const": "text"
+                            },
+                            "value": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 240
+                            }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "type": {
+                              "const": "missing"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "ready",
+              "stale",
+              "partial"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "data"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "data"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "ready"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "completeness": {
+                "const": "complete"
+              },
+              "freshness": {
+                "enum": [
+                  "fresh",
+                  "aging",
+                  "unknown"
+                ]
+              },
+              "truncated": {
+                "const": false
+              }
+            },
+            "not": {
+              "required": [
+                "reason"
+              ]
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "quality": {
+            "required": [
+              "reason"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "empty"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "row_count": {
+                "const": 0
+              },
+              "completeness": {
+                "const": "complete"
+              },
+              "freshness": {
+                "enum": [
+                  "fresh",
+                  "aging",
+                  "unknown"
+                ]
+              },
+              "truncated": {
+                "const": false
+              },
+              "reason": {
+                "const": "no_qualifying_records"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "stale"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "freshness": {
+                "const": "stale"
+              },
+              "last_success_at": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+              },
+              "reason": {
+                "const": "source_stale"
+              },
+              "completeness": {
+                "const": "complete"
+              },
+              "truncated": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "partial"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "completeness": {
+                "const": "partial"
+              },
+              "reason": {
+                "enum": [
+                  "result_truncated",
+                  "source_incomplete"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "loading"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "reason": {
+                "enum": [
+                  "loading"
+                ]
+              },
+              "completeness": {
+                "const": "unknown"
+              },
+              "row_count": {
+                "const": null
+              },
+              "truncated": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "missing"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "reason": {
+                "enum": [
+                  "no_measurement"
+                ]
+              },
+              "completeness": {
+                "const": "unknown"
+              },
+              "row_count": {
+                "const": null
+              },
+              "truncated": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "unavailable"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "reason": {
+                "enum": [
+                  "source_unavailable",
+                  "access_denied"
+                ]
+              },
+              "completeness": {
+                "const": "unknown"
+              },
+              "row_count": {
+                "const": null
+              },
+              "truncated": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "error"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "reason": {
+                "enum": [
+                  "query_failed",
+                  "unsupported_dimension"
+                ]
+              },
+              "completeness": {
+                "const": "unknown"
+              },
+              "row_count": {
+                "const": null
+              },
+              "truncated": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "partial"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "if": {
+              "properties": {
+                "truncated": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "reason": {
+                  "const": "result_truncated"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "reason": {
+                  "const": "source_incomplete"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "properties": {
+              "kind": {
+                "const": "scalar"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "row_count": {
+                "const": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "properties": {
+              "kind": {
+                "const": "table"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "row_count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

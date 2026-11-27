@@ -1,0 +1,34 @@
+{
+  "schema": "oaw.semantic-deferred.v1",
+  "id": "composition-metric-review",
+  "version": "0.1.0",
+  "status": "draft",
+  "title": "Deferred metric candidates",
+  "items": [
+    {
+      "topic": "Scoped inventory totals and coverage",
+      "availability": "deferred",
+      "reason": "The Control Tower inventory endpoint returns an unscoped list. No authorized count or coverage denominator is adopted here."
+    },
+    {
+      "topic": "Collector freshness and trends",
+      "availability": "deferred",
+      "reason": "Agent enrollments expose last check-in times. Freshness thresholds, authorized scope, and historical series require a reviewed source contract."
+    },
+    {
+      "topic": "Historical finding and risk trends",
+      "availability": "deferred",
+      "reason": "A current status query and an updated-at filter cannot reconstruct historical state. A governed historical source is required."
+    },
+    {
+      "topic": "Vulnerability exposure totals",
+      "availability": "deferred",
+      "reason": "The existing match APIs require an approved definition for what counts as current exposure and how distinct affected assets are deduplicated."
+    },
+    {
+      "topic": "Remediation effectiveness rates",
+      "availability": "deferred",
+      "reason": "Verification history exists. The cohort, denominator, time window, and eligible verification outcomes have not been approved as a metric."
+    }
+  ]
+}

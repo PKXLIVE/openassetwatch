@@ -1,0 +1,121 @@
+{
+  "schema": "oaw.dashboard-request.v1",
+  "request_id": "fixture-request-002",
+  "requested_by": "fixture-operator",
+  "authorization": {
+    "decision_id": "fixture-authz-002",
+    "policy_version": "fixture-authz-v1"
+  },
+  "request_type": "drilldown",
+  "objective": "Review active findings represented by the selected count.",
+  "scope": {
+    "tenant_id": "fixture-tenant",
+    "site_ids": [
+      "fixture-north"
+    ]
+  },
+  "time_context": {
+    "mode": "current_snapshot"
+  },
+  "entity_context": [
+    {
+      "kind": "site",
+      "site_id": "fixture-north"
+    }
+  ],
+  "inherited_filters": [
+    {
+      "dimension": "site",
+      "operator": "eq",
+      "value": {
+        "type": "site_id",
+        "value": "fixture-north"
+      },
+      "visible": true
+    },
+    {
+      "dimension": "finding_status",
+      "operator": "eq",
+      "value": {
+        "type": "finding_status",
+        "value": "active"
+      },
+      "visible": true
+    }
+  ],
+  "allowed_data_domains": [
+    "findings"
+  ],
+  "render_mode": "ephemeral",
+  "expires_at": "2026-11-25T16:15:00Z",
+  "eligible_catalog": {
+    "approval": null,
+    "dashboard_templates": [],
+    "panel_templates": [],
+    "metrics": []
+  },
+  "drilldown": {
+    "source": {
+      "plan_id": "fixture-plan-001",
+      "panel_id": "panel-findings",
+      "metric": {
+        "id": "findings.count_by_status",
+        "version": "0.1.0",
+        "digest": "sha256:4d10b8f388fb62a8c7f6b67ff6cd504decac0698e171b44b385b016561e62ef0"
+      },
+      "action_id": "site-findings"
+    },
+    "destination": "findings",
+    "target": {
+      "kind": "site",
+      "site_id": "fixture-north"
+    },
+    "scope": {
+      "tenant_id": "fixture-tenant",
+      "site_ids": [
+        "fixture-north"
+      ]
+    },
+    "time_context": {
+      "mode": "current_snapshot"
+    },
+    "filters": [
+      {
+        "dimension": "site",
+        "operator": "eq",
+        "value": {
+          "type": "site_id",
+          "value": "fixture-north"
+        },
+        "visible": true
+      },
+      {
+        "dimension": "finding_status",
+        "operator": "eq",
+        "value": {
+          "type": "finding_status",
+          "value": "active"
+        },
+        "visible": true
+      }
+    ],
+    "variable_values": [
+      {
+        "variable_id": "site-scope",
+        "value": {
+          "type": "site_id",
+          "value": "fixture-north"
+        },
+        "visible": true
+      },
+      {
+        "variable_id": "finding-status",
+        "value": {
+          "type": "finding_status",
+          "value": "active"
+        },
+        "visible": true
+      }
+    ]
+  }
+}

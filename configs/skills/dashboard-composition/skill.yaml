@@ -1,0 +1,20 @@
+schema_version: oaw.skill.v1
+id: dashboard-composition
+version: 0.1.0
+title: Dashboard Composition
+description: Propose ephemeral dashboards using eligible OpenAssetWatch templates and metrics.
+role_family: dashboard-composer
+status: draft
+read_only: true
+required_evidence_types: []
+allowed_tool_ids: []
+required_capabilities: []
+max_steps: 1
+max_evidence_records: 0
+max_output_bytes: 32768
+requires_verification: true
+requires_human_review: true
+external_processing: deployment-policy
+input_schema: input.schema.json
+output_schema: output.schema.json
+instructions: instructions.md

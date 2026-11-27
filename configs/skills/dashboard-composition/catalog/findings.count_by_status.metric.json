@@ -1,0 +1,37 @@
+{
+  "schema": "oaw.semantic-metric.v1",
+  "id": "findings.count_by_status",
+  "version": "0.1.0",
+  "status": "draft",
+  "title": "Findings by status",
+  "definition": "Current count of deterministic findings matching exactly one authorized site and one selected lifecycle status. Uses total for the entire filtered result, independent of items pagination.",
+  "source": {
+    "id": "findings.list",
+    "version": "0.1.0",
+    "digest": "sha256:94e1c7a4001944faa8f478c18a85d43257b8d0fb0594d2f948cb56e17b3e479e"
+  },
+  "time_context": "current_snapshot",
+  "method": "read_source_scalar",
+  "joins": "none",
+  "source_field": "total",
+  "unit": "count",
+  "value_range": {
+    "minimum": 0,
+    "maximum": 9007199254740991
+  },
+  "required_filters": [
+    "site",
+    "finding_status"
+  ],
+  "freshness": {
+    "observation_time": "not_provided",
+    "classification": "unknown",
+    "threshold_seconds": null
+  },
+  "formula_version_required": false,
+  "allowed_dimensions": [],
+  "aggregation": "source_value",
+  "data_shape": "scalar",
+  "sensitivity": "restricted",
+  "integration_status": "deferred"
+}

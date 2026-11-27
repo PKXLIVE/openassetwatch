@@ -115,6 +115,12 @@ docker run --rm --volume "${PWD}:/workspace" --workdir /workspace `
   python -c "from app.main import app; print(app.title); print(app.version)"
 ```
 
+## Next.js Overview Validation
+
+Start the API using the [Control Tower deployment guide](CONTROL_TOWER_DEPLOYMENT.md).
+See the [frontend README](../frontend/README.md) for setup, drilldown behavior,
+and the frontend tests, TypeScript check, and production build commands.
+
 ## Database Migration Validation
 
 Backend startup now applies the reviewed schema migration baseline before

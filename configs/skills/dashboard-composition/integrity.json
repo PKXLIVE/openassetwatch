@@ -1,0 +1,128 @@
+{
+  "schema": "oaw.dashboard-package-integrity.v1",
+  "package_id": "dashboard-composition",
+  "version": "0.1.0",
+  "status": "draft",
+  "files": [
+    {
+      "path": "catalog/deferred.json",
+      "digest": "sha256:ed22116262723f01588be08a9e66d91b3dbe7f8068ab068bf6cc960f355d208f"
+    },
+    {
+      "path": "catalog/findings.count_by_status.metric.json",
+      "digest": "sha256:4d10b8f388fb62a8c7f6b67ff6cd504decac0698e171b44b385b016561e62ef0"
+    },
+    {
+      "path": "catalog/findings.list.source.json",
+      "digest": "sha256:94e1c7a4001944faa8f478c18a85d43257b8d0fb0594d2f948cb56e17b3e479e"
+    },
+    {
+      "path": "catalog/risk.site.read.source.json",
+      "digest": "sha256:0dca1eda6952e80ae878614e64661797ae9ff8f9eea68bd0e6c2b6c0b2394eae"
+    },
+    {
+      "path": "catalog/risk.site_attention_score.metric.json",
+      "digest": "sha256:48d04f722658dd4ebd76a3bcaca693deea94939b7a981571243931985bd7469a"
+    },
+    {
+      "path": "evals/cases.json",
+      "digest": "sha256:b21f0ad0230b545e6a50a598e61699a9c6d8224cf10bbc16250fafba5b4b7bb8"
+    },
+    {
+      "path": "examples/dashboard-plan.json",
+      "digest": "sha256:629498d0cb54a2da5263743843fecf4fe57bbea7360ebe7f83911bb2947d15ab"
+    },
+    {
+      "path": "examples/dashboard-request.json",
+      "digest": "sha256:b24c050d8f2fd19954eb76e0d48e278579c5491fed28d480fc1d445b4f47696e"
+    },
+    {
+      "path": "examples/dashboard-view.json",
+      "digest": "sha256:3a864628db717f25ce210f31ad54cbf69c3cc7c752587ea3fab54205f4a53e84"
+    },
+    {
+      "path": "examples/drilldown-request.json",
+      "digest": "sha256:2388feec67db0b2e36e96a05bdfd83bb220ea9a8e155402c3ed9a549ad23de80"
+    },
+    {
+      "path": "examples/panel-data-missing.json",
+      "digest": "sha256:0c79b55234d9afc24910e8edee666a2c4a8dd3c53283003d9067a33a2959cea9"
+    },
+    {
+      "path": "examples/panel-data-stored-score.json",
+      "digest": "sha256:487a834e880630a19ed56a3533da85ae6ea4910acd41d587f2337b2e68ea0c6f"
+    },
+    {
+      "path": "examples/panel-data-zero.json",
+      "digest": "sha256:1f261854434c3033f77614919ef2a9dd2286aa14b041bea09f145bce45fd5117"
+    },
+    {
+      "path": "examples/site-asset-variables.json",
+      "digest": "sha256:7d56260956f118c843b8c5f5c047fa00d04906ea0a72d5cdcd4d6bde88b840cb"
+    },
+    {
+      "path": "examples/unsupported.json",
+      "digest": "sha256:bd2c5b25492d4e3fe20fd2fce12ce56ce3980634b7acf9039b94e3a8933b5704"
+    },
+    {
+      "path": "input.schema.json",
+      "digest": "sha256:11bb5e8868bc0646a23fa90555cc21102e1b74257c7ab8c9ea84b5d6a23cd462"
+    },
+    {
+      "path": "instructions.md",
+      "digest": "sha256:59a5980c763069431440498ea44d60c68ebe52cd45be0990050b9687d4caa682"
+    },
+    {
+      "path": "output.schema.json",
+      "digest": "sha256:3ea6fcb0e9fdc5dce02b9475e2a062ab564163da0cddaf3463a74ae13c911f84"
+    },
+    {
+      "path": "README.md",
+      "digest": "sha256:903bebc046b633446d8f1d80d3a8784d1511b62306eabc5125e8ecddfff4eae0"
+    },
+    {
+      "path": "schemas/common.schema.json",
+      "digest": "sha256:d0c4955cd7a27c5fcf1393cd87487a4cc322c164989c9f1fb68f4b3c875a51e8"
+    },
+    {
+      "path": "schemas/dashboard-template.schema.json",
+      "digest": "sha256:074678a1753422a62d0ba91897da5265d9fab65e9f48d973699a341aebb144d1"
+    },
+    {
+      "path": "schemas/dashboard-view.schema.json",
+      "digest": "sha256:a5b73ef12e42e3119aca819572e5bca285ff85b29117f08afa3e79695a6262a5"
+    },
+    {
+      "path": "schemas/integrity.schema.json",
+      "digest": "sha256:cc755087de6f34004adfba875bd7f0806c08269b8cac29893ddaf8192c8293ea"
+    },
+    {
+      "path": "schemas/panel-data.schema.json",
+      "digest": "sha256:8145dd2044ba0ff6553b54c81d452e04235e5262a0e7d8071807bc7c4a5b17ed"
+    },
+    {
+      "path": "schemas/panel-template.schema.json",
+      "digest": "sha256:126012bc885df0d6f87abd4d1f798a9108bccaa77488953d90a9e4c756a97c9e"
+    },
+    {
+      "path": "schemas/semantic-catalog.schema.json",
+      "digest": "sha256:3c450be2653aee1fed30540412d93e43259a5f2c4307650bcfcf0369a107097f"
+    },
+    {
+      "path": "schemas/skill.schema.json",
+      "digest": "sha256:1f6e164fb1492e0761d075e37d85136bd94cd84ab139eb8543697810e5daaac9"
+    },
+    {
+      "path": "skill.yaml",
+      "digest": "sha256:e4286f9e98434f4677c75efa86671eb4ecf1168ac224a30abac4a4e1bef427f0"
+    },
+    {
+      "path": "templates/dashboards/findings-and-attention.dashboard.json",
+      "digest": "sha256:d2ef192f43c25f68c532732b0e356f34c1977b89ef99da7a176a76d7510b6104"
+    },
+    {
+      "path": "templates/panels/scalar-snapshot.panel.json",
+      "digest": "sha256:a3f3453285cb6a26ca4aa4f23b63675eb7f7ab6384791fd6ebe392e5d1819603"
+    }
+  ]
+}
