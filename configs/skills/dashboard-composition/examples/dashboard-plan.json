@@ -1,0 +1,127 @@
+{
+  "schema": "oaw.dashboard-plan.v1",
+  "request_id": "fixture-request-001",
+  "origin": "generated_proposal",
+  "skill": {
+    "id": "dashboard-composition",
+    "version": "0.1.0",
+    "digest": "sha256:e4286f9e98434f4677c75efa86671eb4ecf1168ac224a30abac4a4e1bef427f0"
+  },
+  "template": {
+    "id": "findings-and-attention",
+    "version": "0.1.0",
+    "digest": "sha256:d2ef192f43c25f68c532732b0e356f34c1977b89ef99da7a176a76d7510b6104"
+  },
+  "variable_values": [
+    {
+      "variable_id": "site-scope",
+      "value": {
+        "type": "site_id",
+        "value": "fixture-north"
+      },
+      "visible": true
+    },
+    {
+      "variable_id": "finding-status",
+      "value": {
+        "type": "finding_status",
+        "value": "active"
+      },
+      "visible": true
+    }
+  ],
+  "filters": [
+    {
+      "dimension": "site",
+      "operator": "eq",
+      "value": {
+        "type": "site_id",
+        "value": "fixture-north"
+      },
+      "visible": true
+    }
+  ],
+  "layout": [
+    {
+      "section_id": "site-snapshot",
+      "kind": "kpi_strip",
+      "slot_ids": [
+        "findings-count",
+        "site-attention"
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "panel_id": "panel-findings",
+      "template": {
+        "id": "scalar-snapshot",
+        "version": "0.1.0",
+        "digest": "sha256:a3f3453285cb6a26ca4aa4f23b63675eb7f7ab6384791fd6ebe392e5d1819603"
+      },
+      "slot_id": "findings-count",
+      "variant": "single_number",
+      "metrics": [
+        {
+          "definition": {
+            "id": "findings.count_by_status",
+            "version": "0.1.0",
+            "digest": "sha256:4d10b8f388fb62a8c7f6b67ff6cd504decac0698e171b44b385b016561e62ef0"
+          },
+          "aggregation": "source_value"
+        }
+      ],
+      "dimensions": [],
+      "parameters": [],
+      "refresh": {
+        "mode": "snapshot"
+      },
+      "drilldown_actions": [
+        "site-findings"
+      ],
+      "filters": [
+        {
+          "dimension": "finding_status",
+          "operator": "eq",
+          "value": {
+            "type": "finding_status",
+            "value": "active"
+          },
+          "visible": true
+        }
+      ]
+    },
+    {
+      "panel_id": "panel-attention",
+      "template": {
+        "id": "scalar-snapshot",
+        "version": "0.1.0",
+        "digest": "sha256:a3f3453285cb6a26ca4aa4f23b63675eb7f7ab6384791fd6ebe392e5d1819603"
+      },
+      "slot_id": "site-attention",
+      "variant": "single_number",
+      "metrics": [
+        {
+          "definition": {
+            "id": "risk.site_attention_score",
+            "version": "0.1.0",
+            "digest": "sha256:48d04f722658dd4ebd76a3bcaca693deea94939b7a981571243931985bd7469a"
+          },
+          "aggregation": "source_value"
+        }
+      ],
+      "dimensions": [],
+      "parameters": [],
+      "refresh": {
+        "mode": "snapshot"
+      },
+      "drilldown_actions": [
+        "site-detail"
+      ],
+      "filters": []
+    }
+  ],
+  "lifecycle": {
+    "mode": "ephemeral"
+  }
+}

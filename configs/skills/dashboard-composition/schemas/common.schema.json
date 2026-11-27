@@ -1,0 +1,1138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oaw:dashboard-composition:v1:common",
+  "title": "Shared dashboard composition types",
+  "$comment": "Draft Milestone C contract. Shape validation does not authorize execution.",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])"
+    },
+    "siteId": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+(?![\\s\\S])"
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 32,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?![\\s\\S])"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "artifactStatus": {
+      "enum": [
+        "draft",
+        "review",
+        "approved",
+        "disabled",
+        "deprecated"
+      ]
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "digest"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "version": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/version"
+        },
+        "digest": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/digest"
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "maxLength": 40
+    },
+    "timeRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+        },
+        "end": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+        }
+      }
+    },
+    "timeContext": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "current_snapshot"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "range"
+          ],
+          "properties": {
+            "mode": {
+              "const": "range"
+            },
+            "range": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timeRange"
+            }
+          }
+        }
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenant_id",
+        "site_ids"
+      ],
+      "properties": {
+        "tenant_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "site_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteId"
+          }
+        }
+      }
+    },
+    "domain": {
+      "enum": [
+        "findings",
+        "risk",
+        "inventory",
+        "collectors",
+        "sites",
+        "temporal_signals",
+        "evidence",
+        "vulnerabilities"
+      ]
+    },
+    "dimension": {
+      "enum": [
+        "site",
+        "asset",
+        "finding_status",
+        "severity",
+        "time_bucket"
+      ]
+    },
+    "findingStatus": {
+      "enum": [
+        "active",
+        "acknowledged",
+        "resolved",
+        "suppressed"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "informational"
+      ]
+    },
+    "siteEntity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "site_id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "site"
+        },
+        "site_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteId"
+        }
+      }
+    },
+    "assetEntity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "site_id",
+        "entity_id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "asset"
+        },
+        "site_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteId"
+        },
+        "entity_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        }
+      }
+    },
+    "findingEntity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "site_id",
+        "entity_id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "finding"
+        },
+        "site_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteId"
+        },
+        "entity_id": {
+          "type": "string",
+          "pattern": "^fnd_[0-9a-f]{32}(?![\\s\\S])"
+        }
+      }
+    },
+    "entity": {
+      "oneOf": [
+        {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteEntity"
+        },
+        {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/assetEntity"
+        },
+        {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/findingEntity"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "site_id",
+            "entity_id"
+          ],
+          "properties": {
+            "kind": {
+              "const": "collector"
+            },
+            "site_id": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteId"
+            },
+            "entity_id": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "site_id",
+            "entity_id"
+          ],
+          "properties": {
+            "kind": {
+              "const": "sensor"
+            },
+            "site_id": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteId"
+            },
+            "entity_id": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+            }
+          }
+        }
+      ]
+    },
+    "siteValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "const": "site_id"
+        },
+        "value": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteId"
+        }
+      }
+    },
+    "sitesValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "const": "site_ids"
+        },
+        "value": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteId"
+          }
+        }
+      }
+    },
+    "assetValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "const": "asset"
+        },
+        "value": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/assetEntity"
+        }
+      }
+    },
+    "statusValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "const": "finding_status"
+        },
+        "value": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/findingStatus"
+        }
+      }
+    },
+    "severityValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "const": "severity"
+        },
+        "value": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/severity"
+        }
+      }
+    },
+    "rangeValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "const": "time_range"
+        },
+        "value": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timeRange"
+        }
+      }
+    },
+    "valueType": {
+      "enum": [
+        "site_id",
+        "site_ids",
+        "asset",
+        "finding_status",
+        "severity",
+        "time_range",
+        "integer",
+        "boolean"
+      ]
+    },
+    "typedValue": {
+      "oneOf": [
+        {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteValue"
+        },
+        {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/sitesValue"
+        },
+        {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/assetValue"
+        },
+        {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/statusValue"
+        },
+        {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/severityValue"
+        },
+        {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/rangeValue"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "integer"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "variableDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "value_type",
+        "source",
+        "required",
+        "visible"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "value_type": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/valueType"
+        },
+        "source": {
+          "enum": [
+            "authorized_scope",
+            "operator_selection",
+            "inherited_context"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "visible": {
+          "const": true
+        },
+        "filter_dimension": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/dimension"
+        }
+      }
+    },
+    "variableBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variable_id",
+        "value",
+        "visible"
+      ],
+      "properties": {
+        "variable_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "value": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/typedValue"
+        },
+        "visible": {
+          "const": true
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parent_variable_id",
+        "child_variable_id",
+        "rule"
+      ],
+      "properties": {
+        "parent_variable_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "child_variable_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "rule": {
+          "const": "assets_in_selected_sites"
+        }
+      }
+    },
+    "filter": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dimension",
+            "operator",
+            "value",
+            "visible"
+          ],
+          "properties": {
+            "dimension": {
+              "const": "site"
+            },
+            "operator": {
+              "const": "eq"
+            },
+            "value": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteValue"
+            },
+            "visible": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dimension",
+            "operator",
+            "value",
+            "visible"
+          ],
+          "properties": {
+            "dimension": {
+              "const": "site"
+            },
+            "operator": {
+              "const": "in"
+            },
+            "value": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/sitesValue"
+            },
+            "visible": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dimension",
+            "operator",
+            "value",
+            "visible"
+          ],
+          "properties": {
+            "dimension": {
+              "const": "asset"
+            },
+            "operator": {
+              "const": "eq"
+            },
+            "value": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/assetValue"
+            },
+            "visible": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dimension",
+            "operator",
+            "value",
+            "visible"
+          ],
+          "properties": {
+            "dimension": {
+              "const": "finding_status"
+            },
+            "operator": {
+              "const": "eq"
+            },
+            "value": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/statusValue"
+            },
+            "visible": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dimension",
+            "operator",
+            "value",
+            "visible"
+          ],
+          "properties": {
+            "dimension": {
+              "const": "severity"
+            },
+            "operator": {
+              "const": "eq"
+            },
+            "value": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/severityValue"
+            },
+            "visible": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dimension",
+            "operator",
+            "value",
+            "visible"
+          ],
+          "properties": {
+            "dimension": {
+              "const": "time_bucket"
+            },
+            "operator": {
+              "const": "within"
+            },
+            "value": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/rangeValue"
+            },
+            "visible": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
+    "layoutKind": {
+      "enum": [
+        "kpi_strip",
+        "one_column",
+        "two_column",
+        "three_column",
+        "primary_plus_sidebar",
+        "full_width",
+        "tabbed_section",
+        "detail_table"
+      ]
+    },
+    "refreshMode": {
+      "enum": [
+        "snapshot",
+        "polling",
+        "stream"
+      ]
+    },
+    "refresh": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "snapshot"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "interval_seconds"
+          ],
+          "properties": {
+            "mode": {
+              "const": "polling"
+            },
+            "interval_seconds": {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 3600
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "stream"
+            }
+          }
+        }
+      ]
+    },
+    "aggregation": {
+      "const": "source_value"
+    },
+    "dataShape": {
+      "enum": [
+        "scalar",
+        "table"
+      ]
+    },
+    "provenanceOrigin": {
+      "enum": [
+        "generated_validated",
+        "generated_modified",
+        "certified"
+      ]
+    },
+    "drilldownTarget": {
+      "enum": [
+        "findings",
+        "site_detail",
+        "asset_detail",
+        "finding_detail"
+      ]
+    },
+    "drilldown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "destination",
+        "target",
+        "scope",
+        "time_context",
+        "filters",
+        "variable_values"
+      ],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "plan_id",
+            "panel_id",
+            "metric",
+            "action_id"
+          ],
+          "properties": {
+            "plan_id": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+            },
+            "panel_id": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+            },
+            "metric": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+            },
+            "action_id": {
+              "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+            }
+          }
+        },
+        "destination": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/drilldownTarget"
+        },
+        "target": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/entity"
+        },
+        "scope": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/scope"
+        },
+        "time_context": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timeContext"
+        },
+        "filters": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/filter"
+          }
+        },
+        "variable_values": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/variableBinding"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "destination": {
+                "const": "findings"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteEntity"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "destination": {
+                "const": "site_detail"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/siteEntity"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "destination": {
+                "const": "asset_detail"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/assetEntity"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "destination": {
+                "const": "finding_detail"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/findingEntity"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "availability": {
+      "enum": [
+        "deferred",
+        "available"
+      ]
+    },
+    "availabilityGate": {
+      "if": {
+        "properties": {
+          "availability": {
+            "const": "available"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "approved"
+          }
+        }
+      }
+    },
+    "timeMode": {
+      "enum": [
+        "current_snapshot",
+        "range"
+      ]
+    },
+    "freshness": {
+      "enum": [
+        "fresh",
+        "aging",
+        "stale",
+        "unknown"
+      ]
+    },
+    "panelState": {
+      "enum": [
+        "loading",
+        "ready",
+        "empty",
+        "missing",
+        "stale",
+        "partial",
+        "unavailable",
+        "error"
+      ]
+    },
+    "layoutSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "section_id",
+        "kind",
+        "slot_ids"
+      ],
+      "properties": {
+        "section_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "kind": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/layoutKind"
+        },
+        "slot_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "primary_plus_sidebar"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slot_ids": {
+                "maxItems": 2,
+                "minItems": 2
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "full_width"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slot_ids": {
+                "maxItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "detail_table"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slot_ids": {
+                "maxItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "eligibleCatalog": {
+      "description": "A server-selected projection of a currently approved catalog release for this request.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approval",
+        "dashboard_templates",
+        "panel_templates",
+        "metrics"
+      ],
+      "properties": {
+        "approval": {
+          "description": "An opaque approval reference checked against the trusted product registry. Null means no eligible release.",
+          "oneOf": [
+            {
+              "const": null
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "approval_id",
+                "policy_version",
+                "release"
+              ],
+              "properties": {
+                "approval_id": {
+                  "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+                },
+                "policy_version": {
+                  "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+                },
+                "release": {
+                  "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+                }
+              }
+            }
+          ]
+        },
+        "dashboard_templates": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 24,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+          }
+        },
+        "panel_templates": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+          }
+        },
+        "metrics": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactRef"
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "approval": {
+            "const": null
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "dashboard_templates": {
+            "maxItems": 0
+          },
+          "panel_templates": {
+            "maxItems": 0
+          },
+          "metrics": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    "variableGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variables",
+        "dependencies"
+      ],
+      "properties": {
+        "variables": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/variableDefinition"
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/dependency"
+          }
+        }
+      }
+    }
+  },
+  "not": {}
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "oaw.semantic-source.v1",
+  "id": "findings.list",
+  "version": "0.1.0",
+  "status": "draft",
+  "title": "Finding list",
+  "domain": "findings",
+  "read_operation": "findings.list",
+  "time_context": "current_snapshot",
+  "scope_binding": "authorized_single_site",
+  "selectable_dimensions": [
+    "site",
+    "finding_status"
+  ],
+  "response_contract": "FindingListResponse",
+  "source_state": "existing_read_api",
+  "integration_status": "deferred"
+}

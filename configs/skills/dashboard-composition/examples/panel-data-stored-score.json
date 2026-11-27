@@ -1,0 +1,80 @@
+{
+  "schema": "oaw.panel-data.v1",
+  "panel_id": "panel-attention",
+  "provenance": {
+    "plan_id": "fixture-plan-001",
+    "origin": "generated_validated",
+    "panel_template": {
+      "id": "scalar-snapshot",
+      "version": "0.1.0",
+      "digest": "sha256:a3f3453285cb6a26ca4aa4f23b63675eb7f7ab6384791fd6ebe392e5d1819603"
+    },
+    "metrics": [
+      {
+        "id": "risk.site_attention_score",
+        "version": "0.1.0",
+        "digest": "sha256:48d04f722658dd4ebd76a3bcaca693deea94939b7a981571243931985bd7469a"
+      }
+    ],
+    "scope": {
+      "tenant_id": "fixture-tenant",
+      "site_ids": [
+        "fixture-north"
+      ]
+    },
+    "time_context": {
+      "mode": "current_snapshot"
+    },
+    "filters": [
+      {
+        "dimension": "site",
+        "operator": "eq",
+        "value": {
+          "type": "site_id",
+          "value": "fixture-north"
+        },
+        "visible": true
+      }
+    ],
+    "variable_values": [
+      {
+        "variable_id": "site-scope",
+        "value": {
+          "type": "site_id",
+          "value": "fixture-north"
+        },
+        "visible": true
+      }
+    ],
+    "generated_at": "2026-11-25T16:00:01Z",
+    "sources": [
+      {
+        "definition": {
+          "id": "risk.site.read",
+          "version": "0.1.0",
+          "digest": "sha256:0dca1eda6952e80ae878614e64661797ae9ff8f9eea68bd0e6c2b6c0b2394eae"
+        },
+        "retrieved_at": "2026-11-25T16:00:00Z",
+        "evidence_ids": [],
+        "freshness": "unknown",
+        "observed_as_of": "2026-11-25T15:40:00Z",
+        "calculated_at": "2026-11-25T15:50:00Z",
+        "formula_version": "oaw.risk.v1",
+        "evaluation_run_id": "fixture-eval-001"
+      }
+    ]
+  },
+  "state": "ready",
+  "quality": {
+    "freshness": "unknown",
+    "observed_as_of": "2026-11-25T15:40:00Z",
+    "last_success_at": "2026-11-25T16:00:00Z",
+    "completeness": "complete",
+    "truncated": false,
+    "row_count": 1
+  },
+  "data": {
+    "kind": "scalar",
+    "value": 42
+  }
+}

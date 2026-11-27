@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oaw:dashboard-composition:v1:input",
+  "title": "Server-issued dashboard request",
+  "$comment": "Draft Milestone C contract. Shape validation does not authorize execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "request_id",
+    "requested_by",
+    "authorization",
+    "request_type",
+    "objective",
+    "scope",
+    "time_context",
+    "entity_context",
+    "inherited_filters",
+    "allowed_data_domains",
+    "render_mode",
+    "expires_at",
+    "eligible_catalog"
+  ],
+  "properties": {
+    "schema": {
+      "const": "oaw.dashboard-request.v1"
+    },
+    "request_id": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+    },
+    "requested_by": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+    },
+    "authorization": {
+      "description": "Opaque references to the product-owned decision bound to this request and actor. Authorization requires lookup and revalidation in trusted server state.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision_id",
+        "policy_version"
+      ],
+      "properties": {
+        "decision_id": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        },
+        "policy_version": {
+          "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+        }
+      }
+    },
+    "request_type": {
+      "enum": [
+        "natural_language",
+        "drilldown",
+        "refinement",
+        "template"
+      ]
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "scope": {
+      "description": "Tenant and sites resolved by product authorization from trusted server-side request context.",
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/scope"
+    },
+    "time_context": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timeContext"
+    },
+    "entity_context": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/entity"
+      }
+    },
+    "inherited_filters": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/filter"
+      }
+    },
+    "allowed_data_domains": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/domain"
+      }
+    },
+    "render_mode": {
+      "const": "ephemeral"
+    },
+    "expires_at": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/timestamp"
+    },
+    "drilldown": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/drilldown"
+    },
+    "source_plan_id": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+    },
+    "eligible_catalog": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/eligibleCatalog"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "request_type": {
+            "const": "drilldown"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "drilldown"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "drilldown"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "request_type": {
+            "const": "refinement"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "source_plan_id"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "source_plan_id"
+          ]
+        }
+      }
+    }
+  ]
+}

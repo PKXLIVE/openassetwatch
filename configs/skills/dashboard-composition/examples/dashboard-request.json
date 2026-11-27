@@ -1,0 +1,34 @@
+{
+  "schema": "oaw.dashboard-request.v1",
+  "request_id": "fixture-request-001",
+  "requested_by": "fixture-operator",
+  "authorization": {
+    "decision_id": "fixture-authz-001",
+    "policy_version": "fixture-authz-v1"
+  },
+  "request_type": "natural_language",
+  "objective": "Show the current active finding count and Operational Attention Score for this site.",
+  "scope": {
+    "tenant_id": "fixture-tenant",
+    "site_ids": [
+      "fixture-north"
+    ]
+  },
+  "time_context": {
+    "mode": "current_snapshot"
+  },
+  "entity_context": [],
+  "inherited_filters": [],
+  "allowed_data_domains": [
+    "findings",
+    "risk"
+  ],
+  "render_mode": "ephemeral",
+  "expires_at": "2026-11-25T16:15:00Z",
+  "eligible_catalog": {
+    "approval": null,
+    "dashboard_templates": [],
+    "panel_templates": [],
+    "metrics": []
+  }
+}

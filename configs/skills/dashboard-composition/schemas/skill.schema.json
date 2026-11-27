@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oaw:dashboard-composition:v1:skill",
+  "title": "Dashboard Composition Skill Pack manifest",
+  "$comment": "Draft Milestone C contract. Shape validation does not authorize execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "title",
+    "description",
+    "role_family",
+    "status",
+    "read_only",
+    "required_evidence_types",
+    "allowed_tool_ids",
+    "required_capabilities",
+    "max_steps",
+    "max_evidence_records",
+    "max_output_bytes",
+    "requires_verification",
+    "requires_human_review",
+    "external_processing",
+    "input_schema",
+    "output_schema",
+    "instructions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "oaw.skill.v1"
+    },
+    "id": {
+      "const": "dashboard-composition"
+    },
+    "version": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/version"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "role_family": {
+      "const": "dashboard-composer"
+    },
+    "status": {
+      "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/artifactStatus"
+    },
+    "read_only": {
+      "const": true
+    },
+    "required_evidence_types": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 0,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+      }
+    },
+    "allowed_tool_ids": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 0,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+      }
+    },
+    "required_capabilities": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 0,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:oaw:dashboard-composition:v1:common#/$defs/id"
+      }
+    },
+    "max_steps": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8
+    },
+    "max_evidence_records": {
+      "const": 0
+    },
+    "max_output_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32768
+    },
+    "requires_verification": {
+      "const": true
+    },
+    "requires_human_review": {
+      "const": true
+    },
+    "external_processing": {
+      "const": "deployment-policy"
+    },
+    "input_schema": {
+      "const": "input.schema.json"
+    },
+    "output_schema": {
+      "const": "output.schema.json"
+    },
+    "instructions": {
+      "const": "instructions.md"
+    }
+  }
+}

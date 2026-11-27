@@ -1,0 +1,110 @@
+{
+  "schema": "oaw.panel-template.v1",
+  "id": "scalar-snapshot",
+  "version": "0.1.0",
+  "status": "draft",
+  "title": "Scalar snapshot",
+  "approval_owner": "openassetwatch",
+  "availability": "deferred",
+  "intent": "Show a measured value from an authorized current-state source.",
+  "visualization": {
+    "family": "metric_summary",
+    "variants": [
+      "single_number"
+    ]
+  },
+  "semantic_requirements": {
+    "compatible_metrics": [
+      {
+        "id": "findings.count_by_status",
+        "version": "0.1.0",
+        "digest": "sha256:4d10b8f388fb62a8c7f6b67ff6cd504decac0698e171b44b385b016561e62ef0"
+      },
+      {
+        "id": "risk.site_attention_score",
+        "version": "0.1.0",
+        "digest": "sha256:48d04f722658dd4ebd76a3bcaca693deea94939b7a981571243931985bd7469a"
+      }
+    ],
+    "allowed_dimensions": [],
+    "aggregation": "source_value",
+    "time_context": "current_snapshot",
+    "data_shape": "scalar"
+  },
+  "parameters": [],
+  "layout": {
+    "permitted_kinds": [
+      "kpi_strip",
+      "one_column",
+      "full_width"
+    ],
+    "collapse_to": "one_column"
+  },
+  "refresh": {
+    "modes": [
+      "snapshot"
+    ],
+    "default": {
+      "mode": "snapshot"
+    }
+  },
+  "resource_limits": {
+    "max_queries": 1,
+    "max_query_seconds": 5,
+    "max_rows": 1,
+    "max_series": 1,
+    "max_categories": 1
+  },
+  "drilldowns": [
+    {
+      "id": "site-findings",
+      "destination": "findings",
+      "dimension": "site",
+      "compatible_metrics": [
+        {
+          "id": "findings.count_by_status",
+          "version": "0.1.0",
+          "digest": "sha256:4d10b8f388fb62a8c7f6b67ff6cd504decac0698e171b44b385b016561e62ef0"
+        }
+      ]
+    },
+    {
+      "id": "site-detail",
+      "destination": "site_detail",
+      "dimension": "site",
+      "compatible_metrics": [
+        {
+          "id": "risk.site_attention_score",
+          "version": "0.1.0",
+          "digest": "sha256:48d04f722658dd4ebd76a3bcaca693deea94939b7a981571243931985bd7469a"
+        }
+      ]
+    }
+  ],
+  "provenance": {
+    "pin_metric_versions": true,
+    "require_visible_filters": true,
+    "require_source_freshness": true,
+    "unknown_freshness_allowed": true,
+    "require_evidence_refs_when_applicable": true
+  },
+  "accessibility": {
+    "accessible_label": true,
+    "text_value_or_table": true,
+    "keyboard_drilldowns": true
+  },
+  "quality": {
+    "missing_is_zero": false,
+    "states": [
+      "loading",
+      "ready",
+      "empty",
+      "missing",
+      "stale",
+      "partial",
+      "unavailable",
+      "error"
+    ]
+  },
+  "executable_content": false
+}

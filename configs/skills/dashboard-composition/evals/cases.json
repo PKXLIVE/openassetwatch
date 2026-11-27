@@ -1,0 +1,592 @@
+{
+  "schema": "oaw.dashboard-contract-evals.v1",
+  "version": "0.1.0",
+  "status": "draft",
+  "shape_cases": [
+    {
+      "id": "unknown-top-level",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/sql",
+          "value": "SELECT 1"
+        }
+      ],
+      "expected": "reject",
+      "description": "A proposal cannot introduce a query field."
+    },
+    {
+      "id": "unknown-nested-visualization",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/0/visualization_code",
+          "value": "fixture text"
+        }
+      ],
+      "expected": "reject",
+      "description": "A panel cannot carry a visualization payload."
+    },
+    {
+      "id": "join-in-metric-selection",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/0/metrics/0/joins",
+          "value": []
+        }
+      ],
+      "expected": "reject",
+      "description": "A metric selection carries only a pin and approved aggregation."
+    },
+    {
+      "id": "hidden-panel-filter",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/0/filters/0/visible",
+          "value": false
+        }
+      ],
+      "expected": "reject",
+      "description": "Panel filters remain visible."
+    },
+    {
+      "id": "hidden-variable",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/variable_values/0/visible",
+          "value": false
+        }
+      ],
+      "expected": "reject",
+      "description": "Variable values remain visible."
+    },
+    {
+      "id": "mistyped-filter",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/filters/0/value",
+          "value": {
+            "type": "integer",
+            "value": 1
+          }
+        }
+      ],
+      "expected": "reject",
+      "description": "Site filters require a site value."
+    },
+    {
+      "id": "auto-save",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/lifecycle/auto_save",
+          "value": true
+        }
+      ],
+      "expected": "reject",
+      "description": "A proposal cannot start persistence."
+    },
+    {
+      "id": "certified-spoof",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/origin",
+          "value": "certified"
+        }
+      ],
+      "expected": "reject",
+      "description": "A proposal cannot attest its own validation or certification."
+    },
+    {
+      "id": "unversioned-metric",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/0/metrics/0/definition/version",
+          "value": "latest"
+        }
+      ],
+      "expected": "reject",
+      "description": "Metric references pin an exact version."
+    },
+    {
+      "id": "unbounded-refresh",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/0/refresh",
+          "value": {
+            "mode": "polling",
+            "interval_seconds": 1
+          }
+        }
+      ],
+      "expected": "reject",
+      "description": "Polling is bounded even before template policy."
+    },
+    {
+      "id": "invalid-drilldown-target",
+      "stage": "schema",
+      "base": "examples/drilldown-request.json",
+      "schema": "input",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/drilldown/target",
+          "value": {
+            "kind": "asset",
+            "site_id": "fixture-north",
+            "entity_id": "fixture-asset"
+          }
+        }
+      ],
+      "expected": "reject",
+      "description": "Findings list drilldowns require a site target."
+    },
+    {
+      "id": "freeform-drilldown-destination",
+      "stage": "schema",
+      "base": "examples/drilldown-request.json",
+      "schema": "input",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/drilldown/destination",
+          "value": "fixture arbitrary destination"
+        }
+      ],
+      "expected": "reject",
+      "description": "Drilldown destinations are typed selectors."
+    },
+    {
+      "id": "missing-as-zero",
+      "stage": "schema",
+      "base": "examples/panel-data-missing.json",
+      "schema": "panel-data",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/data",
+          "value": {
+            "kind": "scalar",
+            "value": 0
+          }
+        }
+      ],
+      "expected": "reject",
+      "description": "A missing measurement cannot carry a value."
+    },
+    {
+      "id": "disguised-truncation",
+      "stage": "schema",
+      "base": "examples/panel-data-zero.json",
+      "schema": "panel-data",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/quality/truncated",
+          "value": true
+        }
+      ],
+      "expected": "reject",
+      "description": "Ready data cannot be truncated."
+    },
+    {
+      "id": "scalar-row-count-zero",
+      "stage": "schema",
+      "base": "examples/panel-data-zero.json",
+      "schema": "panel-data",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/quality/row_count",
+          "value": 0
+        }
+      ],
+      "expected": "reject",
+      "description": "A rendered scalar occupies one row even when the measured value is zero."
+    },
+    {
+      "id": "catalog-member-without-approval",
+      "stage": "schema",
+      "base": "examples/dashboard-request.json",
+      "schema": "input",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/eligible_catalog/dashboard_templates/-",
+          "value": {
+            "id": "findings-and-attention",
+            "version": "0.1.0",
+            "digest": "sha256:d2ef192f43c25f68c532732b0e356f34c1977b89ef99da7a176a76d7510b6104"
+          }
+        }
+      ],
+      "expected": "reject",
+      "description": "A null approval requires an empty catalog projection."
+    },
+    {
+      "id": "unversioned-catalog-release",
+      "stage": "schema",
+      "base": "examples/dashboard-request.json",
+      "schema": "input",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/eligible_catalog/approval",
+          "value": {
+            "approval_id": "fixture-unknown-catalog-approval",
+            "policy_version": "fixture-catalog-v1",
+            "release": {
+              "id": "fixture-catalog",
+              "version": "latest",
+              "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        },
+        {
+          "op": "add",
+          "path": "/eligible_catalog/dashboard_templates/-",
+          "value": {
+            "id": "findings-and-attention",
+            "version": "0.1.0",
+            "digest": "sha256:d2ef192f43c25f68c532732b0e356f34c1977b89ef99da7a176a76d7510b6104"
+          }
+        }
+      ],
+      "expected": "reject",
+      "description": "A catalog decision must pin an exact release version."
+    },
+    {
+      "id": "proposal-sets-authorized-scope",
+      "stage": "schema",
+      "base": "examples/dashboard-plan.json",
+      "schema": "output",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/scope",
+          "value": {
+            "tenant_id": "fixture-tenant",
+            "site_ids": [
+              "fixture-north"
+            ]
+          }
+        }
+      ],
+      "expected": "reject",
+      "description": "A proposal cannot supply the authorized scope."
+    },
+    {
+      "id": "count-claims-observation-field",
+      "stage": "schema",
+      "base": "catalog/findings.count_by_status.metric.json",
+      "schema": "semantic-catalog",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/freshness/observation_time",
+          "value": "data_as_of"
+        }
+      ],
+      "expected": "reject",
+      "description": "The findings total has no aggregate observation timestamp."
+    },
+    {
+      "id": "unapproved-freshness-threshold",
+      "stage": "schema",
+      "base": "catalog/risk.site_attention_score.metric.json",
+      "schema": "semantic-catalog",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/freshness/threshold_seconds",
+          "value": 3600
+        }
+      ],
+      "expected": "reject",
+      "description": "The score metric has no approved freshness threshold."
+    },
+    {
+      "id": "invalid-calculation-timestamp",
+      "stage": "schema",
+      "base": "examples/panel-data-stored-score.json",
+      "schema": "panel-data",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/provenance/sources/0/calculated_at",
+          "value": "2026-11-31T15:50:00Z"
+        }
+      ],
+      "expected": "reject",
+      "description": "Score calculation time must be a valid date-time."
+    }
+  ],
+  "semantic_cases": [
+    {
+      "id": "draft-template",
+      "base": "examples/dashboard-plan.json",
+      "patch": [],
+      "expected": "artifact_not_approved"
+    },
+    {
+      "id": "invented-metric",
+      "base": "examples/dashboard-plan.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/0/metrics/0/definition/id",
+          "value": "invented.count"
+        }
+      ],
+      "expected": "unknown_metric"
+    },
+    {
+      "id": "stale-template-digest",
+      "base": "examples/dashboard-plan.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/template/digest",
+          "value": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "expected": "artifact_digest_mismatch"
+    },
+    {
+      "id": "expanded-site",
+      "base": "examples/dashboard-plan.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/filters/0/value/value",
+          "value": "fixture-other"
+        }
+      ],
+      "expected": "scope_expansion"
+    },
+    {
+      "id": "expanded-drilldown-site",
+      "base": "examples/drilldown-request.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/drilldown/target/site_id",
+          "value": "fixture-other"
+        }
+      ],
+      "expected": "scope_expansion"
+    },
+    {
+      "id": "unsupported-snapshot-polling",
+      "base": "examples/dashboard-plan.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/0/refresh",
+          "value": {
+            "mode": "polling",
+            "interval_seconds": 60
+          }
+        }
+      ],
+      "expected": "unsupported_refresh"
+    },
+    {
+      "id": "metric-action-mismatch",
+      "base": "examples/dashboard-plan.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/0/drilldown_actions",
+          "value": [
+            "site-detail"
+          ]
+        }
+      ],
+      "expected": "incompatible_drilldown"
+    },
+    {
+      "id": "duplicate-panel-identities",
+      "base": "examples/dashboard-plan.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/1/panel_id",
+          "value": "panel-findings"
+        }
+      ],
+      "expected": "duplicate_identity"
+    },
+    {
+      "id": "cyclic-variable-graph",
+      "base": "examples/site-asset-variables.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/dependencies/-",
+          "value": {
+            "parent_variable_id": "asset-selection",
+            "child_variable_id": "site-scope",
+            "rule": "assets_in_selected_sites"
+          }
+        }
+      ],
+      "expected": "dependency_cycle"
+    },
+    {
+      "id": "slot-metric-mismatch",
+      "base": "examples/dashboard-plan.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/1/metrics/0/definition",
+          "value": {
+            "id": "findings.count_by_status",
+            "version": "0.1.0",
+            "digest": "sha256:4d10b8f388fb62a8c7f6b67ff6cd504decac0698e171b44b385b016561e62ef0"
+          }
+        },
+        {
+          "op": "add",
+          "path": "/panels/1/filters/0",
+          "value": {
+            "dimension": "finding_status",
+            "operator": "eq",
+            "value": {
+              "type": "finding_status",
+              "value": "active"
+            },
+            "visible": true
+          }
+        },
+        {
+          "op": "add",
+          "path": "/panels/1/drilldown_actions",
+          "value": [
+            "site-findings"
+          ]
+        }
+      ],
+      "expected": "incompatible_slot_metric"
+    },
+    {
+      "id": "visible-variable-filter-mismatch",
+      "base": "examples/dashboard-plan.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/panels/0/filters/0/value/value",
+          "value": "acknowledged"
+        }
+      ],
+      "expected": "variable_filter_mismatch"
+    },
+    {
+      "id": "unrecorded-catalog-approval",
+      "base": "examples/dashboard-request.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/eligible_catalog/approval",
+          "value": {
+            "approval_id": "fixture-unknown-catalog-approval",
+            "policy_version": "fixture-catalog-v1",
+            "release": {
+              "id": "fixture-catalog",
+              "version": "0.1.0",
+              "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        },
+        {
+          "op": "add",
+          "path": "/eligible_catalog/dashboard_templates/-",
+          "value": {
+            "id": "findings-and-attention",
+            "version": "0.1.0",
+            "digest": "sha256:d2ef192f43c25f68c532732b0e356f34c1977b89ef99da7a176a76d7510b6104"
+          }
+        }
+      ],
+      "expected": "catalog_approval_not_found"
+    },
+    {
+      "id": "authorization-policy-mismatch",
+      "base": "examples/dashboard-request.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/authorization/policy_version",
+          "value": "fixture-authz-outdated"
+        }
+      ],
+      "expected": "authorization_policy_mismatch"
+    },
+    {
+      "id": "cross-tenant-drilldown",
+      "base": "examples/drilldown-request.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/drilldown/scope/tenant_id",
+          "value": "fixture-other-tenant"
+        }
+      ],
+      "expected": "scope_expansion"
+    },
+    {
+      "id": "score-freshness-inferred-from-timestamp",
+      "base": "examples/panel-data-stored-score.json",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/quality/freshness",
+          "value": "fresh"
+        },
+        {
+          "op": "add",
+          "path": "/provenance/sources/0/freshness",
+          "value": "fresh"
+        }
+      ],
+      "expected": "unsupported_freshness_classification"
+    }
+  ]
+}
